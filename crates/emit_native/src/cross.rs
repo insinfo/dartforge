@@ -129,6 +129,7 @@ pub fn export(destination: &Path) -> Result<(), String> {
             )),
         )?,
         Os::MacOs => crate::linker_macos::generate(&sysroot, crate::linker_macos::Arch::host())?,
+        Os::Wasm => unreachable!("export-target describes a native compiler host"),
     }
     let value = serde_json::json!({"schema":1, "target":NativeTarget::host().triple(),
         "runtime_sources":env!("DARTFORGE_RUNTIME_SOURCE_HASH"), "runtime":runtimes});
@@ -156,8 +157,16 @@ mod tests {
             assert_eq!(target.os(), os);
             assert_eq!(target.is_arm64(), arm);
         }
+        for name in ["wasm32", "wasm32-linear", "wasm32-unknown-unknown"] {
+            let target = NativeTarget::parse(name).unwrap();
+            assert_eq!(target, NativeTarget::Wasm32);
+            assert_eq!(target.os(), Os::Wasm);
+            assert_eq!(target.pointer_bytes(), 4);
+            assert!(!target.is_arm64());
+        }
+        assert_eq!(NativeTarget::host().pointer_bytes(), 8);
         for name in [
-            "wasm32",
+            "wasm64",
             "windows-arm64",
             "x86_64-pc-windows-gnu",
             "",

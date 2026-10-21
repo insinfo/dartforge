@@ -788,13 +788,15 @@ impl CType {
         }
     }
 
-    /// Bytes of the C type (0 for `void`).
+    /// Bytes of the C type (0 for `void`); a pointer has the destination's width
+    /// (4 on wasm32).
     pub fn c_size(self) -> usize {
         match self {
             CType::I8 | CType::U8 | CType::Bool => 1,
             CType::I16 | CType::U16 => 2,
             CType::I32 | CType::U32 | CType::F32 => 4,
-            CType::I64 | CType::U64 | CType::F64 | CType::Ptr | CType::Handle => 8,
+            CType::I64 | CType::U64 | CType::F64 => 8,
+            CType::Ptr | CType::Handle => crate::target::current().pointer_bytes() as usize,
             CType::Void => 0,
         }
     }

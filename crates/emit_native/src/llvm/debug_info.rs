@@ -143,7 +143,11 @@ impl DebugInfo {
             crate::target::Os::Windows => "!{i32 2, !\"CodeView\", i32 1}".to_string(),
             // Xcode's `dsymutil` and `lldb` read DWARF 4 without caveats.
             crate::target::Os::MacOs => "!{i32 7, !\"Dwarf Version\", i32 4}".to_string(),
-            crate::target::Os::Linux => "!{i32 7, !\"Dwarf Version\", i32 5}".to_string(),
+            // DWARF in the module's custom sections (the browsers' debuggers
+            // read it).
+            crate::target::Os::Linux | crate::target::Os::Wasm => {
+                "!{i32 7, !\"Dwarf Version\", i32 5}".to_string()
+            }
         });
         let format = self.add_metadata("!{i32 2, !\"Debug Info Version\", i32 3}".to_string());
         out.push_str("\n; Debug information (J05)\n");

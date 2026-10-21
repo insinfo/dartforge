@@ -26,7 +26,13 @@ use crate::hir::{CType, LayoutC};
 pub enum Convention {
     SysV,
     Win64,
-    AArch64 { apple: bool },
+    AArch64 {
+        apple: bool,
+    },
+    /// Clang's WebAssembly C ABI (`WebAssemblyABIInfo`, without the experimental
+    /// multi-value ABI): a composite whose only leaf fills it goes as that leaf,
+    /// any other composite by a `byval` copy, and returns through `sret`.
+    Wasm32,
 }
 
 impl Convention {
@@ -34,6 +40,7 @@ impl Convention {
     pub fn of_target() -> Convention {
         let arm = crate::target::is_aarch64();
         match crate::target::target_os() {
+            crate::target::Os::Wasm => Convention::Wasm32,
             crate::target::Os::Windows if !arm => Convention::Win64,
             crate::target::Os::MacOs if arm => Convention::AArch64 { apple: true },
             _ if arm => Convention::AArch64 { apple: false },
@@ -163,9 +170,31 @@ fn sysv_words(l: &LayoutC) -> Option<Vec<Piece>> {
     Some(pieces)
 }
 
+/// The single leaf of a composite that it fills exactly (Clang's
+/// `isSingleElementStruct`), which WebAssembly passes and returns as a scalar.
+/// A union of one member is a union for Clang, not a single-element struct, but
+/// its flattened layout is the same: both keep the leaf, as `LayoutC` does not
+/// tell them apart.
+fn wasm_single_leaf(l: &LayoutC) -> Option<Piece> {
+    match l.leaves.as_slice() {
+        [(0, t)] if t.c_size() == l.size => Some(Piece {
+            offset: 0,
+            ty: t.llvm().to_string(),
+            attributes: "",
+        }),
+        _ => None,
+    }
+}
+
 /// How to pass a composite argument (consumes its registers).
 pub fn argument(conv: Convention, l: &LayoutC, regs: &mut Registers) -> ArgPassing {
     match conv {
+        Convention::Wasm32 => match wasm_single_leaf(l) {
+            Some(piece) => ArgPassing::Direct(vec![piece]),
+            None => ArgPassing::Byval {
+                alignment: l.alignment,
+            },
+        },
         Convention::SysV => {
             let Some(pieces) = sysv_words(l) else {
                 return ArgPassing::Byval {
@@ -262,6 +291,10 @@ pub fn ret(conv: Convention, l: &LayoutC, regs: &mut Registers) -> RetPassing {
         }
     };
     match conv {
+        Convention::Wasm32 => match wasm_single_leaf(l) {
+            Some(piece) => RetPassing::Direct(vec![piece]),
+            None => sret(regs),
+        },
         Convention::SysV => match sysv_words(l) {
             Some(pieces) => RetPassing::Direct(pieces),
             None => sret(regs),
@@ -391,6 +424,36 @@ mod tests {
             );
             assert_eq!(
                 ret_text(&ret(Convention::SysV, layout, &mut regs)),
+                r,
+                "{name}"
+            );
+        }
+    }
+
+    /// `clang --target=wasm32 -S -emit-llvm`: only a composite that one leaf
+    /// fills goes as a scalar; everything else is `byval` and `sret`.
+    #[test]
+    fn wasm32_like_clang() {
+        use CType::*;
+        let mut cases = cases();
+        cases.push(("S1", l(4, 4, &[(0, F32)])));
+        // The test process has the host's pointer width.
+        cases.push(("S1P", l(8, 8, &[(0, Ptr)])));
+        for (name, layout) in &cases {
+            let mut regs = Registers::new_set();
+            let (a, r) = match *name {
+                "I1" => ("i8", "i8"),
+                "S1" => ("float", "float"),
+                "S1P" => ("ptr", "ptr"),
+                _ => ("byval", "sret"),
+            };
+            assert_eq!(
+                types(&argument(Convention::Wasm32, layout, &mut regs)).join(","),
+                a,
+                "{name}"
+            );
+            assert_eq!(
+                ret_text(&ret(Convention::Wasm32, layout, &mut regs)),
                 r,
                 "{name}"
             );

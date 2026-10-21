@@ -51,9 +51,11 @@ use llvm_sys::target::{
 };
 use llvm_sys::target::{
     LLVMInitializeAArch64AsmParser, LLVMInitializeAArch64AsmPrinter, LLVMInitializeAArch64Target,
-    LLVMInitializeAArch64TargetInfo, LLVMInitializeAArch64TargetMC, LLVMInitializeX86AsmParser,
-    LLVMInitializeX86AsmPrinter, LLVMInitializeX86Target, LLVMInitializeX86TargetInfo,
-    LLVMInitializeX86TargetMC,
+    LLVMInitializeAArch64TargetInfo, LLVMInitializeAArch64TargetMC,
+    LLVMInitializeWebAssemblyAsmParser, LLVMInitializeWebAssemblyAsmPrinter,
+    LLVMInitializeWebAssemblyTarget, LLVMInitializeWebAssemblyTargetInfo,
+    LLVMInitializeWebAssemblyTargetMC, LLVMInitializeX86AsmParser, LLVMInitializeX86AsmPrinter,
+    LLVMInitializeX86Target, LLVMInitializeX86TargetInfo, LLVMInitializeX86TargetMC,
 };
 use llvm_sys::target_machine::{
     LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout,
@@ -96,6 +98,11 @@ pub fn init_native_target() -> Result<(), String> {
                 LLVMInitializeAArch64TargetMC();
                 LLVMInitializeAArch64AsmPrinter();
                 LLVMInitializeAArch64AsmParser();
+                LLVMInitializeWebAssemblyTargetInfo();
+                LLVMInitializeWebAssemblyTarget();
+                LLVMInitializeWebAssemblyTargetMC();
+                LLVMInitializeWebAssemblyAsmPrinter();
+                LLVMInitializeWebAssemblyAsmParser();
             }
             let has_failed = unsafe {
                 LLVM_InitializeNativeTarget() != 0
@@ -767,6 +774,10 @@ fn default_triple() -> String {
 
 /// The CPU that Clang assumes without `-march` for the triple: `x86-64` on x86-64,
 /// `apple-m1` on Apple's arm64, `generic` on the others.
+/// The features `wasm32-linear` adds to the `generic` CPU (docs/PLANO-WASM-MVP.md
+/// §3.1); the same string as `dartforge_emit_native::target::WASM_FEATURES`.
+pub const WASM_FEATURES: &str = "+simd128,+tail-call,+extended-const";
+
 fn default_cpu(triple: &str) -> &'static str {
     let architecture = triple.split('-').next().unwrap_or_default();
     let apple = triple.contains("-apple-");
@@ -1067,16 +1078,19 @@ impl TargetMachine {
     /// it; Mach-O is always PIC.
     fn from_triple(triple: &str, optimize: bool, cpu: Option<&str>) -> Result<Self, String> {
         let triple_c = CString::new(triple).map_err(|_| format!("triple with NUL: {triple:?}"))?;
+        let windows = triple.contains("windows");
+        // WebAssembly links statically: PIC there is Emscripten's dynamic linking.
+        let wasm = triple.starts_with("wasm32");
         // `native`: the detected name and features (what Clang does with
         // `-march=native`); another name, its implicit features.
         let (cpu, resources) = match cpu {
             Some("native") => machine_cpu(),
             Some(c) => (c.to_owned(), String::new()),
+            None if wasm => (default_cpu(triple).to_owned(), WASM_FEATURES.to_owned()),
             None => (default_cpu(triple).to_owned(), String::new()),
         };
         let cpu = CString::new(cpu).map_err(|_| "CPU with NUL".to_owned())?;
         let resources = CString::new(resources).map_err(|_| "features with NUL".to_owned())?;
-        let windows = triple.contains("windows");
         // SAFETY: the returned target is a static reference of LLVM's registry; the
         // error message is ours; the created machine goes to the `TargetMachine`,
         // which frees it.
@@ -1101,7 +1115,7 @@ impl TargetMachine {
                 } else {
                     LLVMCodeGenOptLevel::LLVMCodeGenLevelNone
                 },
-                if windows {
+                if windows || wasm {
                     LLVMRelocMode::LLVMRelocDefault
                 } else {
                     LLVMRelocMode::LLVMRelocPIC

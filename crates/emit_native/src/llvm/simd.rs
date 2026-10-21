@@ -123,6 +123,23 @@ impl LlvmEmitter<'_> {
                 )
                 .unwrap();
             }
+            OpSimd::Clamp if crate::target::is_wasm() => {
+                // dart2wasm's `clamp` (`_internal/wasm/lib/simd.dart`):
+                // `m = x > hi ? hi : x`, then `m < lo ? lo : m`; a NaN lane stays NaN.
+                let (x, lo, hi) = (a(self, 0), a(self, 1), a(self, 2));
+                writeln!(w, "  %sa{v} = fcmp ogt {kt} {x}, {hi}").unwrap();
+                writeln!(
+                    w,
+                    "  %sm{v} = select <{n} x i1> %sa{v}, {kt} {hi}, {kt} {x}"
+                )
+                .unwrap();
+                writeln!(w, "  %sb{v} = fcmp olt {kt} %sm{v}, {lo}").unwrap();
+                writeln!(
+                    w,
+                    "  {r} = select <{n} x i1> %sb{v}, {kt} {lo}, {kt} %sm{v}"
+                )
+                .unwrap();
+            }
             OpSimd::Clamp => {
                 let (x, lo, hi) = (a(self, 0), a(self, 1), a(self, 2));
                 writeln!(w, "  %sa{v} = fcmp olt {kt} {x}, {hi}").unwrap();

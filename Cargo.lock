@@ -628,6 +628,7 @@ dependencies = [
  "dartforge-llvm",
  "dartforge-runtime",
  "dartforge-types",
+ "dartforge-wasm-gate",
  "dartforge-world",
  "object 0.39.1",
  "serde",

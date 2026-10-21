@@ -25,6 +25,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "DartForge - Dart to JavaScript compiler\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--interval <ms>] [--once]
        dartforge serve <input.dart> -o <dir> [--web <dir>] [--port N] [--packages <cfg>]\n       dartforge build [<input.dart>] [--root <dir>] [--plan] [--compare] [--release] [--strict] [--workers N] [--write-cache <dir>] [--dart <exe>] [--state]\n       dartforge aot|abi-info ...  (build with --features native)
+       dartforge compile-wasm <input.dart> -o <module.wasm>  (WebAssembly, build with --features native)
        dartforge run|reload <input.dart> ...  (build with --features jit)
        dartforge export-target <directory>  (runtime and sysroot for cross AOT)\n       dartforge pack <destination>  (the distribution: executable, runtime, SDK, linker)\n       dartforge analyze [--format=json] [--all] [<dir|file>]  (the JSON of dart analyze)\n       dartforge format [-o write|show|json|none] [--set-exit-if-changed] [-l N] <files|dirs>  (dart format 3.6.2)\n       dartforge test [<file|directory> ...] [--name <regex>] [--sdk <lib>] [--packages <cfg>]\n       dartforge pub get [--offline] [--directory <dir>] [--sdk <lib>] [--sdk-version <version>]\n       dartforge macros <input.dart> [--materialize] [--shape 3.6|current] [--dart <exe>]\n\ncompile-js emits one ES module per library under the DDC contract.\ndev keeps the session alive and recompiles only what the edit affects."
         );
@@ -38,6 +39,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args[0] == "compile-native" {
         return native::run_compile_native(&args[1..]);
+    }
+    if args[0] == "compile-wasm" {
+        return native::run_compile_wasm(&args[1..]);
     }
     if args[0] == "build" {
         return engine::run_build(&args[1..]);

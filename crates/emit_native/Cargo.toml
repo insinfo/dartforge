@@ -18,6 +18,8 @@ dartforge-types = { path = "../types" }
 # The closed world (RTA) of the program: what the lowering prunes (`src/native_world.rs`).
 dartforge-world = { path = "../world" }
 dartforge-runtime = { path = "../runtime" }
+# The binary gate every linked WebAssembly module passes (`src/linker_wasm.rs`).
+dartforge-wasm-gate = { path = "../wasm_gate" }
 dartforge-instrument = { path = "../instrument" }
 blake3 = "1"
 serde_json = "1"

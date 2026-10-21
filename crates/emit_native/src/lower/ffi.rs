@@ -65,6 +65,9 @@ fn target_abi() -> &'static str {
                 "macosX64"
             }
         }
+        // dart2wasm's choice (`kWasmAbiEnumIndex`, pkg/dart2wasm/lib/abi.dart):
+        // the 32-bit mappings of `androidArm`, which match wasm32's C types.
+        crate::target::Os::Wasm => "androidArm",
     }
 }
 

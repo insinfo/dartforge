@@ -149,6 +149,9 @@ fn model(entries: &[Entry], with_label: bool) -> String {
         Os::Windows => (".pushsection \\22.dfpcl$$m\\22,\\22dr\\22", false),
         Os::Linux => (".pushsection dfpcl,\\22aR?\\22,%progbits", false),
         Os::MacOs => (".pushsection __DATA,__dfpcl,regular,no_dead_strip", true),
+        Os::Wasm => unreachable!(
+            "the symbolic stack trace is refused for WebAssembly (target::symbolic_stack_trace)"
+        ),
     };
     let mut s = String::new();
     if with_label {
@@ -483,6 +486,9 @@ pub(super) fn markers() -> (&'static str, &'static str, &'static str) {
              @\"\\01section$end$__DATA$__dfpcl\" = external hidden global i8\n",
             "@\"\\01section$start$__DATA$__dfpcl\"",
             "@\"\\01section$end$__DATA$__dfpcl\"",
+        ),
+        Os::Wasm => unreachable!(
+            "the symbolic stack trace is refused for WebAssembly (target::symbolic_stack_trace)"
         ),
     }
 }

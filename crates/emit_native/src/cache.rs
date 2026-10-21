@@ -44,9 +44,19 @@ pub struct RuntimeCache {
     pub lib_path: PathBuf,
 }
 
+/// The refusal of every native runtime variant for WebAssembly: a module links
+/// the `wasm32-unknown-unknown` runtime, never the compiler host's.
+fn refuse_for_wasm() -> Result<(), String> {
+    if crate::target::is_wasm() {
+        return Err("the WebAssembly runtime (wasm32-unknown-unknown) is not part of this build yet (docs/PLANO-WASM-MVP.md, phase W2); compile-wasm stops before linking".into());
+    }
+    Ok(())
+}
+
 impl RuntimeCache {
     /// The executable runtime (with the C `main`).
     pub fn get_or_compile() -> Result<Self, String> {
+        refuse_for_wasm()?;
         if let Some(lib_path) = crate::cross::runtime("main")? {
             return Ok(Self { lib_path });
         }
@@ -56,6 +66,7 @@ impl RuntimeCache {
     /// The runtime variant that goes into the DLL of the source SDK (P5c): without the
     /// C `main` (cfg `dartforge_runtime_dll`); the `main` is the executable's.
     pub fn for_dll() -> Result<Self, String> {
+        refuse_for_wasm()?;
         if let Some(lib_path) = crate::cross::runtime("dll")? {
             return Ok(Self { lib_path });
         }
@@ -66,6 +77,7 @@ impl RuntimeCache {
     /// with the source SDK links statically: compiled with `panic=abort`
     /// (`build.rs`, `ABORT`). The DLL one, which the JIT also loads, unwinds.
     pub fn for_production() -> Result<Self, String> {
+        refuse_for_wasm()?;
         if let Some(lib_path) = crate::cross::runtime("production")? {
             return Ok(Self { lib_path });
         }

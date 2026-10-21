@@ -744,6 +744,8 @@ pub fn convert_here() -> bool {
             !std::env::var_os("DARTFORGE_NO_COMPACT_MAP").is_some_and(|v| !v.is_empty() && v != "0")
         }
         crate::target::Os::MacOs => false,
+        // No native stack maps: WebAssembly keeps the roots in the shadow stack.
+        crate::target::Os::Wasm => false,
     }
 }
 

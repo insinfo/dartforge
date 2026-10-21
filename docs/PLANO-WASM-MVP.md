@@ -330,6 +330,20 @@ nenhum fragmento é reescrito em versão reduzida.
 corretos, recusa de combinações inválidas e testes dos destinos antigos passam.
 Nenhum cache/bundle incompatível pode ser aceito por alteração manual do manifesto.
 
+**Resultado (21/10/2026): aceito.**
+
+| item | resultado |
+|---|---|
+| destino | `NativeTarget::Wasm32` e `Os::Wasm` (`target.rs`): triple `wasm32-unknown-unknown`, ponteiro de 4 bytes, valores Dart em células de 8 bytes. Não é Unix nem Windows (`is_unix()` falso); cada `match` por sistema ganhou decisão explícita (21 pontos) |
+| LLVM | o LLVM embutido registra o backend WebAssembly (componente `webassembly`); CPU `generic` mais `+simd128,+tail-call,+extended-const`, sem PIC; o caminho por Clang usa as mesmas flags |
+| caches | diretório por triple; a identidade do gerador inclui perfil, CPU e features, então objeto nativo e objeto Wasm nunca dividem chave |
+| ligação | `linker_wasm.rs`: `lld -flavor wasm`, `--no-entry`, exports da ABI v1, pilha de 8 MiB, memória máxima de 4 GiB, `--strip-all` sem `--debug`, nunca `--allow-undefined`; o módulo ligado passa pelo portão, e um símbolo não resolvido derruba o link em vez de virar import (teste) |
+| geração | a verificação de pilha lê `__stack_pointer` (`llvm.stacksave`) em vez de `sp`/`rsp`; imagem estática na seção `dfimg` com marcadores `extern_weak` (no `wasm-ld`, seção sem objetos vira o intervalo 0..0); ABI C do Clang para wasm32 (struct de uma folha vai direto, o resto `byval`/`sret`); ponteiro C de 4 bytes; inteiros de `Abi` do `dart:ffi` pelo mapeamento `androidArm`, como o dart2wasm; `Float32x4.clamp` com a semântica do dart2wasm (NaN preservado); `Platform.operatingSystem` não é dobrado; `nounwind` como no Unix |
+| recusas | `compile-wasm` recusa `--cpu`, `--exceptions`, `--memory`, `--roots`, `--stack-trace`, `--subsystem` e `--target`; `aot`/`compile-native --target wasm32` mandam usar `compile-wasm`; o JIT não aceita destino; runtime, SDK compartilhado e bundles nativos nunca entram num módulo (erro explícito até o W2/W3) |
+| CLI | `dartforge compile-wasm <app.dart> -o <app.wasm> [--optimize] [--enable-asserts] [--debug] [--emit-ir]` |
+| sondagem | o IR de produção de um programa real emitido para macOS, com o cabeçalho trocado e só os três pontos de plataforma já resolvidos acima (TLS por `asm`, `read_register`, seção Mach-O) substituídos, compila para um objeto wasm32: o resto do IR o backend WebAssembly já aceita |
+| regressão | testes do `emit_native` (1 027), da CLI e corpus nativo contra a VM nos cinco modos |
+
 ### W2 — Núcleo do runtime e heap linear
 
 1. Isolar seleção de fragmentos e dependências Rust do perfil Wasm.
@@ -402,17 +416,15 @@ durante GC, sem busy loop quando ocioso e sem bloquear o event loop do browser.
 
 ### W7 — CLI, distribuição e homologação
 
-Sintaxe **proposta, ainda inexistente**:
+Comando fixado no W1 (o equivalente do `dart compile wasm`):
 
 ```sh
-dartforge compile-wasm app.dart --profile mvp --sdk /path/to/dart-sdk/lib \
-  --packages .dart_tool/package_config.json -o build/app.wasm
+dartforge compile-wasm app.dart --sdk /path/to/dart-sdk/lib \
+  --packages .dart_tool/package_config.json -o build/app.wasm --optimize
 ```
 
-Preferir um comando específico para não sobrecarregar conceitos de executável
-nativo, sysroot e biblioteca dinâmica. Ele usará os componentes comuns do backend
-e selecionará os perfis de forma explícita. Nome/opções finais devem ser fixados
-no começo de W1, incluindo limites de memória e diagnóstico de recursos recusados.
+Ele usa os componentes comuns do backend, sem os conceitos de executável nativo,
+sysroot e biblioteca dinâmica, e recusa as opções que só valem para o nativo.
 
 Entregar `.wasm`, manifesto de ABI/features/capacidades e loader/adaptador
 selecionado, com documentação de implantação. O manifesto registra hashes do

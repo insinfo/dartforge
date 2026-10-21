@@ -495,7 +495,10 @@ fn emit_sdk_modules(
         } else {
             ir
         };
-        let ir = if crate::target::is_unix() && !table_exceptions && !roots_by_maps {
+        let ir = if (crate::target::is_unix() || crate::target::is_wasm())
+            && !table_exceptions
+            && !roots_by_maps
+        {
             with_nounwind(&ir)
         } else {
             ir
@@ -881,6 +884,9 @@ pub fn compiled_sdk_for(
     profile: SdkProfile,
     flags: crate::DartFlags,
 ) -> Result<CompiledSdk, String> {
+    if crate::target::is_wasm() {
+        return Err("the source SDK for WebAssembly (the `wasm` library set of the SDK, no shared library) is not part of this build yet (docs/PLANO-WASM-MVP.md, phase W3)".into());
+    }
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // In production, the SDK bitcode comes out of Clang, with the ThinLTO summary

@@ -128,12 +128,14 @@ fn main() {
 }
 
 /// LLVM components that dartforge uses: the JIT (`orcjit`) and the AOT's object
-/// and bitcode generation, including both supported cross-compiler CPU families.
-const COMPONENTS: [&str; 7] = [
+/// and bitcode generation, including both supported cross-compiler CPU families
+/// and WebAssembly (`wasm32-linear`).
+const COMPONENTS: [&str; 8] = [
     "orcjit",
     "native",
     "x86",
     "aarch64",
+    "webassembly",
     "irreader",
     "passes",
     "bitwriter",

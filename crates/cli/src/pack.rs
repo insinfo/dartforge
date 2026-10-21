@@ -103,6 +103,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
             let arch = lm::Arch::host();
             lm::generate(&lib.join("sysroot").join(arch.sysroot_triple()), arch)?;
         }
+        Os::Wasm => unreachable!("pack describes a native compiler host"),
     }
     if !dartforge_emit_native::generator::EMBEDDED_GENERATOR {
         copy(

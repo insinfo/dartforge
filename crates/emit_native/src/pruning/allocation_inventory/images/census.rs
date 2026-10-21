@@ -138,13 +138,14 @@ fn balanced(items: &[Token]) -> bool {
 
 fn protocols() -> Vec<(String, Vec<String>)> {
     use crate::target::Os;
-    [Os::MacOs, Os::Linux, Os::Windows]
+    [Os::MacOs, Os::Linux, Os::Windows, Os::Wasm]
         .into_iter()
         .map(|os| {
             let name = match os {
                 Os::MacOs => "macho",
                 Os::Linux => "elf",
                 Os::Windows => "coff",
+                Os::Wasm => "wasm",
             };
             let (text, _, _) = crate::target::image_markers_for(os);
             (name.into(), text.lines().map(str::to_owned).collect())
@@ -283,13 +284,19 @@ pub(crate) fn observe(ir: &str) -> Census {
     if in_function {
         obligations.insert("unterminated_function".into());
     }
+    // WebAssembly and ELF share the `dfimg` section name; only WebAssembly's weak
+    // markers tell its module apart.
+    let wasm_markers = protocols
+        .iter()
+        .any(|(format, lines)| format == "wasm" && lines.iter().any(|l| marker_lines.contains(l)));
     let used: BTreeSet<_> = protocols
         .iter()
         .filter(|(format, lines)| {
             lines.iter().any(|line| marker_lines.contains(line))
                 || members.iter().any(|member| match format.as_str() {
                     "macho" => member.section.split(',').nth(1) == Some("__dfimg"),
-                    "elf" => member.section == "dfimg",
+                    "elf" => member.section == "dfimg" && !wasm_markers,
+                    "wasm" => false,
                     _ => member.section == ".dfimg" || member.section.starts_with(".dfimg$"),
                 })
         })
@@ -407,13 +414,19 @@ mod tests {
     use crate::target::Os;
 
     #[test]
-    fn canonical_marker_protocols_cover_all_three_object_formats() {
-        for os in [Os::MacOs, Os::Linux, Os::Windows] {
+    fn canonical_marker_protocols_cover_all_object_formats() {
+        for os in [Os::MacOs, Os::Linux, Os::Windows, Os::Wasm] {
             let (source, _, _) = crate::target::image_markers_for(os);
             let census = observe(&source);
             assert!(census.is_clean(), "{census:?}");
             assert!(census.members.iter().all(|member| member.kind == "anchor"));
-            assert_eq!(census.members.len(), if os == Os::Windows { 2 } else { 1 });
+            // WebAssembly's weak markers need no anchor.
+            let anchors = match os {
+                Os::Windows => 2,
+                Os::Wasm => 0,
+                Os::Linux | Os::MacOs => 1,
+            };
+            assert_eq!(census.members.len(), anchors);
             let globals: Vec<_> = source
                 .lines()
                 .filter(|line| line.starts_with('@'))

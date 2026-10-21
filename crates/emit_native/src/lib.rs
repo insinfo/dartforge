@@ -16,6 +16,7 @@ pub mod hir;
 pub mod linked_images;
 pub mod linker;
 pub mod linker_macos;
+pub mod linker_wasm;
 pub mod linker_windows;
 pub mod llvm;
 pub mod lower;
@@ -825,9 +826,13 @@ fn emit_ir_internal(
     };
     // With exceptions by check and the shadow stack nothing unwinds Dart
     // code: without the CFI of each function (`sdk_module::with_nounwind`).
-    // Only on Itanium targets: on x64 COFF every function has an unwind
-    // table anyway, and Windows was not measured.
-    let llvm_ir = if crate::target::is_unix() && !table_exceptions && !roots_by_maps {
+    // Only on Itanium targets and WebAssembly (where nothing unwinds without
+    // Wasm exceptions): on x64 COFF every function has an unwind table anyway,
+    // and Windows was not measured.
+    let llvm_ir = if (crate::target::is_unix() || crate::target::is_wasm())
+        && !table_exceptions
+        && !roots_by_maps
+    {
         sdk_module::with_nounwind(&llvm_ir)
     } else {
         llvm_ir

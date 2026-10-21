@@ -186,6 +186,12 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
                     .to_string(),
             );
         }
+        crate::target::Os::Wasm => {
+            return Err(
+                "distributed ThinLTO serves roots by maps, which WebAssembly does not have"
+                    .to_string(),
+            );
+        }
     };
     let exit = statement
         .output()

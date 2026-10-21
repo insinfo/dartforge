@@ -730,6 +730,17 @@ fn link(
         }
         Os::Windows => link_on_windows(clang, obj, sdk, linkage, output, debug_info, cpu),
         Os::MacOs => link_on_macos(clang, obj, sdk, linkage, output, debug_info, cpu),
+        Os::Wasm => {
+            let mut objects = vec![obj.to_path_buf()];
+            objects.extend(sdk.iter().cloned());
+            crate::linker_wasm::link(&crate::linker_wasm::Linkage {
+                lld: &crate::linker_wasm::lld(clang),
+                objects: &objects,
+                runtime: linkage.library(),
+                output,
+                debug_info,
+            })
+        }
     }
 }
 
@@ -792,6 +803,7 @@ fn link_old_with_clang(
                 Os::Windows => "lld-link.exe",
                 Os::Linux => "ld.lld",
                 Os::MacOs => "ld64.lld",
+                Os::Wasm => unreachable!("the Clang-driver link is Windows only"),
             };
             let lld = clang.with_file_name(lld_name);
             if !lld.is_file() {
@@ -828,6 +840,7 @@ fn link_old_with_clang(
                     Os::MacOs => {
                         cmd.arg(format!("-Wl,-cache_path_lto,{}", d.display()));
                     }
+                    Os::Wasm => unreachable!("the Clang-driver link is Windows only"),
                 }
             }
             // The target CPU of the LTO code generation (`--cpu`).
@@ -866,6 +879,7 @@ fn link_old_with_clang(
                         cmd.args(["-Wl,-S", "-Wl,-x"]);
                     }
                 }
+                Os::Wasm => unreachable!("the Clang-driver link is Windows only"),
             }
         }
         Linkage::Runtime(_) => {

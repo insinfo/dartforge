@@ -204,13 +204,9 @@ pub(super) struct StringState {
     literals: std::collections::BTreeMap<String, String>,
 }
 
-/// The image section (§2.11) in the object format of the host.
+/// The image section (§2.11) in the object format of the destination.
 fn image_section() -> &'static str {
-    match crate::target::target_os() {
-        crate::target::Os::Windows => ".dfimg$m",
-        crate::target::Os::MacOs => "__DATA_CONST,__dfimg",
-        crate::target::Os::Linux => "dfimg",
-    }
+    crate::target::image_section()
 }
 
 /// A static literal: the key and the definition of the global.

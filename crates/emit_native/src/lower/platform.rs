@@ -55,6 +55,8 @@ fn target_name() -> Option<&'static str> {
         Os::MacOs => Some("macos"),
         Os::Windows => Some("windows"),
         Os::Linux => Some("linux"),
+        // `dart:io` does not exist on the `wasm` target of the SDK.
+        Os::Wasm => None,
     }
 }
 

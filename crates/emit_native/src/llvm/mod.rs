@@ -30,7 +30,9 @@ const TLAB_N: i64 = layout::TLAB_N as i64;
 /// The mask of `e_objeto` (`h & (7 | i64::MIN) == 2`).
 const OBJECT_MASK: i64 = 7 | i64::MIN;
 /// The stack pointer register the stack check reads (`llvm.read_register`,
-/// [`LlvmEmitter::emit_stack_check`]): the target is the host.
+/// [`LlvmEmitter::emit_stack_check`]) on a native target. WebAssembly has no
+/// register to read: its stack pointer is the `__stack_pointer` global of the
+/// linear-memory stack, which `llvm.stacksave` returns.
 fn stack_pointer() -> &'static str {
     if crate::target::is_aarch64() {
         "sp"
@@ -455,6 +457,9 @@ impl<'a> LlvmEmitter<'a> {
             }
             crate::target::Os::MacOs => {
                 "  call void @dartforge_register_map_llvm(ptr @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\", ptr @\"\\01section$end$__LLVM_STACKMAPS$__llvm_stackmaps\")\n"
+            }
+            crate::target::Os::Wasm => {
+                unreachable!("roots by maps are refused for WebAssembly (target::roots_by_maps)")
             }
         }
     }
@@ -975,6 +980,9 @@ impl<'a> LlvmEmitter<'a> {
                      @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\" = external hidden global i8\n\
                      @\"\\01section$end$__LLVM_STACKMAPS$__llvm_stackmaps\" = external hidden global i8\n"
                 }
+                crate::target::Os::Wasm => {
+                    unreachable!("roots by maps are refused for WebAssembly (target::roots_by_maps)")
+                }
             });
         }
         // The native calls with a struct by value copy the bytes into a
@@ -989,8 +997,12 @@ impl<'a> LlvmEmitter<'a> {
         self.out.push_str(simd::DECLARATIONS);
         self.out.push_str("declare i8 @llvm.expect.i8(i8, i8)\n");
         self.out.push_str("declare i1 @llvm.expect.i1(i1, i1)\n");
-        self.out
-            .push_str("declare i64 @llvm.read_register.i64(metadata)\n");
+        // The stack check's stack pointer ([`LlvmEmitter::emit_stack_check`]).
+        self.out.push_str(if crate::target::is_wasm() {
+            "declare ptr @llvm.stacksave.p0()\n"
+        } else {
+            "declare i64 @llvm.read_register.i64(metadata)\n"
+        });
         for (_, decl) in externs::GLOBALS {
             self.out.push_str(decl);
             self.out.push('\n');
@@ -1043,9 +1055,11 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push_str(
                 "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n\
                  declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n\
-                 declare ptr @llvm.stacksave.p0()\n\
                  declare void @llvm.stackrestore.p0(ptr)\n",
             );
+            if !crate::target::is_wasm() {
+                self.out.push_str("declare ptr @llvm.stacksave.p0()\n");
+            }
         }
         if self.module.table_exceptions {
             self.out.push_str(if !crate::target::is_unix() {
@@ -5343,12 +5357,17 @@ impl<'a> LlvmEmitter<'a> {
         )
         .unwrap();
         writeln!(o, "  %pilhal = load i64, ptr %pilhalp, align 8").unwrap();
-        writeln!(
-            o,
-            "  %pilhasp = call i64 @llvm.read_register.i64(metadata !{{!\"{}\"}})",
-            stack_pointer()
-        )
-        .unwrap();
+        if crate::target::is_wasm() {
+            writeln!(o, "  %pilhaspp = call ptr @llvm.stacksave.p0()").unwrap();
+            writeln!(o, "  %pilhasp = ptrtoint ptr %pilhaspp to i64").unwrap();
+        } else {
+            writeln!(
+                o,
+                "  %pilhasp = call i64 @llvm.read_register.i64(metadata !{{!\"{}\"}})",
+                stack_pointer()
+            )
+            .unwrap();
+        }
         writeln!(o, "  %pilhab = icmp ult i64 %pilhasp, %pilhal").unwrap();
         writeln!(
             o,

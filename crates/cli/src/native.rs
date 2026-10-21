@@ -25,6 +25,10 @@ pub fn aot(_args: &[std::ffi::OsString]) -> Outcome {
 pub fn run_compile_native(_args: &[std::ffi::OsString]) -> Outcome {
     disabled("compile-native")
 }
+#[cfg(not(feature = "native"))]
+pub fn run_compile_wasm(_args: &[std::ffi::OsString]) -> Outcome {
+    disabled("compile-wasm")
+}
 
 #[cfg(feature = "native")]
 pub fn abi_info(args: &[std::ffi::OsString]) -> Outcome {
@@ -518,6 +522,47 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     Ok(())
 }
 
+/// The options of `compile-native` that only mean something for a native
+/// executable, refused by `compile-wasm` instead of ignored.
+#[cfg(feature = "native")]
+const NATIVE_ONLY_OPTIONS: [&str; 6] = [
+    "--cpu",
+    "--exceptions",
+    "--memory",
+    "--roots",
+    "--stack-trace",
+    "--subsystem",
+];
+
+#[cfg(feature = "native")]
+/// `dartforge compile-wasm <input.dart> -o <module.wasm>`: the AOT compilation of a
+/// Dart program to a `wasm32-linear` WebAssembly module (docs/PLANO-WASM-MVP.md),
+/// the counterpart of `dart compile wasm`. The destination was selected before
+/// (`select_destination`); the pipeline is `compile-native`'s, without the
+/// options of a native executable.
+pub fn run_compile_wasm(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
+    let usage = "usage: dartforge compile-wasm <input.dart> -o <module.wasm> [--optimize] [--enable-asserts] [--debug] [--timings] [--sdk <lib>] [--packages <package_config.json>] [--dartforge-contracts verify|ignore] [--language-version x.y] [--enable-experiment=a,b]
+       dartforge compile-wasm <input.dart> --emit-ir -o <output.ll> [--digest] [...]
+  WebAssembly over a 32-bit linear memory with DartForge's own collector, no
+  WasmGC (the wasm32-linear profile); the module runs in browsers and in
+  dartforge-wasm-run through host ABI v1 (docs/WASM-HOST-ABI-V1.md).
+  --optimize  production: asserts off and dart.vm.product true, as `dart compile wasm`";
+    if args.is_empty() || args.iter().any(|a| a == "--help") {
+        return Err(usage.into());
+    }
+    for a in args {
+        let text = a.to_string_lossy();
+        let key = text.split_once('=').map_or(&*text, |(k, _)| k);
+        if NATIVE_ONLY_OPTIONS.contains(&key) {
+            return Err(format!(
+                "{key} configures a native executable and does not apply to compile-wasm"
+            )
+            .into());
+        }
+    }
+    run_compile_native(args)
+}
+
 #[cfg(feature = "native")]
 /// Resolved options for the IR and digest views of native compilation.
 struct IrEmission {
@@ -606,6 +651,7 @@ pub fn select_destination(
     let allowed = args
         .first()
         .is_some_and(|a| a == "aot" || a == "compile-native");
+    let wasm = args.first().is_some_and(|a| a == "compile-wasm");
     if cfg!(windows)
         && !cfg!(target_arch = "x86_64")
         && args.first().is_some_and(|a| {
@@ -634,6 +680,12 @@ pub fn select_destination(
             index += 1;
             continue;
         }
+        if wasm {
+            return Err(
+                "compile-wasm always targets wasm32; --target and --target-bundle do not apply"
+                    .into(),
+            );
+        }
         if !allowed {
             return Err("--target and --target-bundle are only valid for aot and compile-native; JIT runs on its host".into());
         }
@@ -658,7 +710,14 @@ pub fn select_destination(
             bundle = Some(std::path::PathBuf::from(value));
         }
     }
-    let target = target.unwrap_or_else(NativeTarget::host);
+    if target.is_some_and(NativeTarget::is_wasm) {
+        return Err("WebAssembly modules are compiled with `dartforge compile-wasm`".into());
+    }
+    let target = if wasm {
+        NativeTarget::Wasm32
+    } else {
+        target.unwrap_or_else(NativeTarget::host)
+    };
     if let Some(bundle) = bundle {
         dartforge_emit_native::cross::select_bundle(&bundle, target)?;
     }

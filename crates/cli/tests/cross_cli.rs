@@ -16,7 +16,7 @@ fn target_errors_are_actionable() {
     for (args, message) in [
         (
             vec!["aot", "missing.dart", "--target", "windows-arm64"],
-            "unsupported native target",
+            "unsupported target",
         ),
         (vec!["aot", "missing.dart", "--target"], "requires a value"),
         (
@@ -31,6 +31,31 @@ fn target_errors_are_actionable() {
         (
             vec!["run", "missing.dart", "--target=linux-arm64"],
             "JIT runs on its host",
+        ),
+        (
+            vec!["aot", "missing.dart", "out", "--target=wasm32"],
+            "dartforge compile-wasm",
+        ),
+        (
+            vec![
+                "compile-wasm",
+                "missing.dart",
+                "-o",
+                "out.wasm",
+                "--target=linux-x64",
+            ],
+            "always targets wasm32",
+        ),
+        (
+            vec![
+                "compile-wasm",
+                "missing.dart",
+                "-o",
+                "out.wasm",
+                "--cpu",
+                "native",
+            ],
+            "does not apply to compile-wasm",
         ),
         (
             vec!["aot", "missing.dart", "--target-bundle", "missing-bundle"],

@@ -46,3 +46,34 @@ fn emits_all_supported_object_formats_and_architectures() {
         assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), cpu);
     }
 }
+
+#[test]
+fn emits_wasm32_objects_with_the_profile_features() {
+    let options = Options {
+        optimize: true,
+        format: Format::Object,
+        cpu: None,
+    };
+    // A vector add and a tail call: SIMD128 and tail calls are profile features.
+    let bytes = generate(
+        "wasm",
+        "target triple = \"wasm32-unknown-unknown\"\n\
+         define <4 x i32> @add(<4 x i32> %a, <4 x i32> %b) { %s = add <4 x i32> %a, %b\n ret <4 x i32> %s }\n\
+         declare i64 @g(i64)\n\
+         define i64 @f(i64 %x) { %r = tail call i64 @g(i64 %x)\n ret i64 %r }\n",
+        &options,
+    )
+    .unwrap();
+    assert_eq!(&bytes[..4], b"\0asm");
+    let text = String::from_utf8_lossy(&bytes);
+    for feature in [
+        "simd128",
+        "tail-call",
+        "extended-const",
+        "sign-ext",
+        "bulk-memory",
+    ] {
+        assert!(text.contains(feature), "target_features without {feature}");
+    }
+    assert!(!text.contains("atomics") && !text.contains("exception-handling"));
+}

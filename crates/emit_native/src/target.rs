@@ -1,6 +1,7 @@
-//! The immutable destination selected for a native compilation.
+//! The immutable destination selected for a compilation: one of the five native
+//! systems or WebAssembly (`wasm32-linear`, docs/PLANO-WASM-MVP.md §3.1).
 //!
-//! Everything that changes between Windows, Linux and macOS lives here — the header of the
+//! Everything that changes between Windows, Linux, macOS and WebAssembly lives here — the header of the
 //! LLVM IR, the extensions of the artifacts, the Clang and link flags and the
 //! format of the shared library of the source SDK. The rest of the backend
 //! asks this module instead of testing scattered `cfg!`s.
@@ -17,10 +18,16 @@ pub enum Os {
     Linux,
     /// Mach-O, `.o`/`.a`/`.dylib`, executable without extension.
     MacOs,
+    /// No operating system: a WebAssembly module (`.o`/`.a`, module `.wasm`)
+    /// over a 32-bit linear memory, whose only outside world is the host ABI
+    /// (`dartforge_host_v1`, docs/WASM-HOST-ABI-V1.md). Not Unix and not Windows:
+    /// no shared libraries, threads, native stack walking or system linker.
+    Wasm,
 }
 
-/// A supported 64-bit native destination. Windows currently uses x64, including
-/// when its executable runs under Windows ARM64's x64 compatibility layer.
+/// A supported destination: the five 64-bit native systems and WebAssembly.
+/// Windows currently uses x64, including when its executable runs under Windows
+/// ARM64's x64 compatibility layer.
 ///
 /// ```
 /// use dartforge_emit_native::target::{NativeTarget, Os};
@@ -36,6 +43,9 @@ pub enum NativeTarget {
     LinuxArm64,
     MacosX64,
     MacosArm64,
+    /// `wasm32-linear`: WebAssembly with a 32-bit linear memory and the runtime's
+    /// own collector, never WasmGC (docs/PLANO-WASM-MVP.md §3.1).
+    Wasm32,
 }
 
 impl NativeTarget {
@@ -67,8 +77,9 @@ impl NativeTarget {
             "linux-arm64" | "aarch64-unknown-linux-gnu" => Ok(Self::LinuxArm64),
             "macos-x64" | "x86_64-apple-darwin" => Ok(Self::MacosX64),
             "macos-arm64" | "aarch64-apple-darwin" | "arm64-apple-darwin" => Ok(Self::MacosArm64),
+            "wasm32" | "wasm32-linear" | "wasm32-unknown-unknown" => Ok(Self::Wasm32),
             _ => Err(format!(
-                "unsupported native target {name:?}; use windows-x64, linux-x64, linux-arm64, macos-x64 or macos-arm64"
+                "unsupported target {name:?}; use windows-x64, linux-x64, linux-arm64, macos-x64, macos-arm64 or wasm32"
             )),
         }
     }
@@ -81,6 +92,7 @@ impl NativeTarget {
             Self::LinuxArm64 => "aarch64-unknown-linux-gnu",
             Self::MacosX64 => "x86_64-apple-darwin",
             Self::MacosArm64 => "aarch64-apple-darwin",
+            Self::Wasm32 => "wasm32-unknown-unknown",
         }
     }
 
@@ -90,12 +102,25 @@ impl NativeTarget {
             Self::WindowsX64 => Os::Windows,
             Self::LinuxX64 | Self::LinuxArm64 => Os::Linux,
             Self::MacosX64 | Self::MacosArm64 => Os::MacOs,
+            Self::Wasm32 => Os::Wasm,
         }
     }
 
     /// Whether code generation and C FFI use AArch64.
     pub fn is_arm64(self) -> bool {
         matches!(self, Self::LinuxArm64 | Self::MacosArm64)
+    }
+
+    /// Whether this is the WebAssembly destination.
+    pub fn is_wasm(self) -> bool {
+        self == Self::Wasm32
+    }
+
+    /// The width of a pointer of the generated code, in bytes. Dart values stay
+    /// 64-bit everywhere (`int`, `double` and references in 8-byte slots); only
+    /// addresses narrow on wasm32.
+    pub fn pointer_bytes(self) -> u32 {
+        if self.is_wasm() { 4 } else { 8 }
     }
 }
 
@@ -134,7 +159,12 @@ pub fn is_aarch64() -> bool {
 }
 /// Whether the generated code uses a supported Unix ABI.
 pub fn is_unix() -> bool {
-    target_os() != Os::Windows
+    matches!(target_os(), Os::Linux | Os::MacOs)
+}
+
+/// Whether the generated code is WebAssembly.
+pub fn is_wasm() -> bool {
+    current().is_wasm()
 }
 
 /// The operating system of the generated code, independent of compiler host.
@@ -169,6 +199,9 @@ pub fn table_exceptions() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_EXCEPTIONS").unwrap_or_default();
     match value.as_str() {
         "" | "check" => Ok(false),
+        "tables" if is_wasm() => Err(
+            "exceptions by tables (--exceptions=tables) are not available for WebAssembly yet; use the default model".to_string(),
+        ),
         "tables" => {
             // Windows x86-64 (SEH) and, through the runtime's Itanium
             // personality (Step 4, written and never run), Linux and macOS
@@ -212,6 +245,10 @@ pub fn arc_memory() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_MEMORY").unwrap_or_default();
     match value.as_str() {
         "" | "tracing" => Ok(false),
+        "arc" if is_wasm() => Err(
+            "the WebAssembly target uses the tracing collector (--memory=arc is native only)"
+                .to_string(),
+        ),
         "arc" => Ok(true),
         other => Err(format!(
             "DARTFORGE_MEMORY={other}: the memory policies are `tracing` and `arc`"
@@ -255,6 +292,9 @@ pub fn roots_by_maps() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_ROOTS").unwrap_or_default();
     match value.as_str() {
         "" | "shadow" => Ok(false),
+        "maps" if is_wasm() => Err(
+            "roots by maps (--roots=maps) need a native stack walk; WebAssembly keeps the roots in the shadow stack".to_string(),
+        ),
         "maps" => {
             let target_with_walker = (target_os() == Os::Windows && !is_aarch64()) || is_unix();
             if !target_with_walker {
@@ -297,6 +337,9 @@ pub fn symbolic_stack_trace() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_STACK_TRACE").unwrap_or_default();
     match value.as_str() {
         "" | "none" => Ok(false),
+        "symbolic" if is_wasm() => Err(
+            "the symbolic stack trace (--stack-trace=symbolic) walks the native stack, which WebAssembly does not expose".to_string(),
+        ),
         "symbolic" => {
             let with_walker = (target_os() == Os::Windows && !is_aarch64()) || is_unix();
             if !with_walker {
@@ -381,6 +424,9 @@ pub fn ir_header() -> &'static str {
             NativeTarget::LinuxArm64 => "target triple = \"aarch64-unknown-linux-gnu\"\n\n",
             NativeTarget::MacosX64 => "target triple = \"x86_64-apple-darwin\"\n\n",
             NativeTarget::MacosArm64 => "target triple = \"aarch64-apple-darwin\"\n\n",
+            NativeTarget::Wasm32 => {
+                "target datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-i128:128-n32:64-S128-ni:1:10:20\"\ntarget triple = \"wasm32-unknown-unknown\"\n\n"
+            }
         };
     }
     match target_os() {
@@ -404,6 +450,8 @@ pub fn image_section() -> &'static str {
         Os::Windows => ".dfimg$m",
         Os::Linux => "dfimg",
         Os::MacOs => "__DATA_CONST,__dfimg",
+        // A data segment; `wasm-ld` defines `__start_dfimg`/`__stop_dfimg`.
+        Os::Wasm => "dfimg",
     }
 }
 
@@ -444,6 +492,15 @@ pub(crate) fn image_markers_for(os: Os) -> (String, &'static str, &'static str) 
             "@\"\\01section$start$__DATA_CONST$__dfimg\"",
             "@\"\\01section$end$__DATA_CONST$__dfimg\"",
         ),
+        // `wasm-ld` defines the markers of a live segment and drops an
+        // unreferenced one (an anchor would be dropped with it): weak markers
+        // resolve to 0..0, an empty image, when no static object exists.
+        Os::Wasm => (
+            "@__start_dfimg = extern_weak hidden global i8\n@__stop_dfimg = extern_weak hidden global i8\n"
+                .to_string(),
+            "@__start_dfimg",
+            "@__stop_dfimg",
+        ),
     }
 }
 
@@ -476,21 +533,37 @@ pub fn static_ext() -> &'static str {
 /// let n = dartforge_emit_native::target::shared_name("dfsdk_0");
 /// assert!(n.contains("dfsdk_0"));
 /// ```
+///
+/// # Panics
+/// On WebAssembly, which has no shared libraries: the SDK goes into the module.
 pub fn shared_name(base: &str) -> String {
     match target_os() {
         Os::Windows => format!("{base}.dll"),
         Os::Linux => format!("lib{base}.so"),
         Os::MacOs => format!("lib{base}.dylib"),
+        Os::Wasm => panic!("WebAssembly has no shared libraries ({base})"),
     }
 }
 
-/// Name of the executable `base` (`base.exe` on Windows, `base` on the others).
+/// Name of the executable `base` (`base.exe` on Windows, `base.wasm` for
+/// WebAssembly, `base` on the others).
 pub fn executable_name(base: &str) -> String {
     match target_os() {
         Os::Windows => format!("{base}.exe"),
-        _ => base.to_string(),
+        Os::Wasm => format!("{base}.wasm"),
+        Os::Linux | Os::MacOs => base.to_string(),
     }
 }
+
+/// The LLVM CPU of `wasm32-linear`: `generic` brings sign extension,
+/// saturating conversions, bulk memory, multi-value, reference types and
+/// mutable globals (docs/PLANO-WASM-MVP.md §3.1).
+pub const WASM_CPU: &str = "generic";
+
+/// The features `wasm32-linear` adds to [`WASM_CPU`]. Exception handling with
+/// `exnref` is in the profile too, but only the exception model by tables turns
+/// it on (it also needs LLVM's `-wasm-enable-eh`).
+pub const WASM_FEATURES: &str = "+simd128,+tail-call,+extended-const";
 
 /// Name of Clang in the `bin` folder of an LLVM distribution.
 pub fn clang_name() -> &'static str {
@@ -505,20 +578,36 @@ pub fn clang_name() -> &'static str {
 /// On Windows, `-mno-incremental-linker-compatible` zeroes the `TimeDateStamp` of the
 /// COFF header: without it, the same IR gave different objects at byte 4
 /// (measured), and the object was no longer a function of the key. ELF and Mach-O have no
-/// timestamp.
+/// timestamp. WebAssembly takes the profile's CPU and features ([`WASM_CPU`],
+/// [`WASM_FEATURES`]).
 pub fn object_flags() -> &'static [&'static str] {
-    match target_os() {
+    object_flags_for(target_os())
+}
+
+/// [`object_flags`] of an explicit object format, independent of host state.
+pub(crate) fn object_flags_for(os: Os) -> &'static [&'static str] {
+    match os {
         Os::Windows => &["-mno-incremental-linker-compatible"],
-        _ => &[],
+        Os::Wasm => &[
+            "-mcpu=generic",
+            "-msimd128",
+            "-mtail-call",
+            "-mextended-const",
+        ],
+        Os::Linux | Os::MacOs => &[],
     }
 }
 
 /// Clang flags for the objects that go into the shared library
 /// of the SDK: position-independent code outside Windows.
+///
+/// # Panics
+/// On WebAssembly, which has no shared libraries.
 pub fn shared_object_flags() -> &'static [&'static str] {
     match target_os() {
         Os::Windows => &[],
-        _ => &["-fPIC"],
+        Os::Linux | Os::MacOs => &["-fPIC"],
+        Os::Wasm => panic!("WebAssembly has no shared libraries"),
     }
 }
 
@@ -553,6 +642,8 @@ pub fn system_libraries() -> &'static [&'static str] {
             "-ldl",
             "-lc",
         ],
+        // The runtime of a module imports only the host ABI.
+        Os::Wasm => &[],
         // `CoreFoundation`: `Platform.localeName` (io_plataforma.rs);
         // `Security`: the system keychain (the TLS roots, `tls.rs`).
         Os::MacOs => &[

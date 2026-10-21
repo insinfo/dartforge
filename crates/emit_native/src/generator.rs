@@ -146,6 +146,11 @@ pub enum Cpu {
 impl Cpu {
     /// The CPU of `--cpu <name>`.
     pub fn from_name(name: &str) -> Result<Cpu, String> {
+        if crate::target::is_wasm() {
+            return Err(format!(
+                "--cpu {name}: WebAssembly has no CPU choice; the wasm32-linear profile fixes its features"
+            ));
+        }
         let x86 = !crate::target::is_aarch64();
         match name {
             "native" if !crate::target::is_cross() => Ok(Cpu::Native),
@@ -273,14 +278,25 @@ impl Generator {
         matches!(self, Generator::Clang(_))
     }
 
-    /// The identity for the cache keys (version, target).
+    /// The identity for the cache keys (version, target and, for WebAssembly,
+    /// the profile's CPU and features).
     pub fn identity(&self) -> Result<String, String> {
+        let target = if crate::target::is_wasm() {
+            format!(
+                "target={} profile=wasm32-linear cpu={} features={}",
+                crate::target::current().triple(),
+                crate::target::WASM_CPU,
+                crate::target::WASM_FEATURES
+            )
+        } else {
+            format!("target={}", crate::target::current().triple())
+        };
         match self {
             #[cfg(feature = "embedded-llvm")]
-            Generator::Builtin => dartforge_llvm::identity()
-                .map(|id| format!("{id} target={}", crate::target::current().triple())),
-            Generator::Clang(clang) => crate::object_cache::clang_identity(clang)
-                .map(|id| format!("{id} target={}", crate::target::current().triple())),
+            Generator::Builtin => dartforge_llvm::identity().map(|id| format!("{id} {target}")),
+            Generator::Clang(clang) => {
+                crate::object_cache::clang_identity(clang).map(|id| format!("{id} {target}"))
+            }
         }
     }
 
