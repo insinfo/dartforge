@@ -1,5 +1,10 @@
 # Referências de código
 
+Para o destino LLVM → WebAssembly MVP, consultar o
+[guia de referências Wasm MVP](REFERENCIAS-WASM-MVP.md) e seu
+[manifesto dedicado](wasm-mvp-references-manifest.json). Os fontes dessa pesquisa
+ficam em `/Volumes/ssd_dock/references`; as revisões antigas abaixo são preservadas.
+
 Os clones locais são shallow (--depth 1) com histórico limitado e working tree disponível.
 --filter=blob:none reduz histórico transferido, mas o checkout baixa os arquivos necessários.
 Não são dependências do workspace. Não executar scripts dos clones automaticamente.

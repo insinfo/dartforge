@@ -471,6 +471,11 @@ backend Win32/AppKit/Wayland existente não se torna web ao gerar Wasm.
 
 ## 9. Referências e natureza das decisões
 
+Fontes baixados, ordem de leitura e relação com W0–W7:
+[referências locais Wasm MVP](REFERENCIAS-WASM-MVP.md), em
+`/Volumes/ssd_dock/references`. O guia distingue clones novos e snapshots
+anteriores, com revisões e hashes em manifesto próprio.
+
 Os contratos da implementação atual vêm dos arquivos locais vinculados na seção
 2. As fases, nomes de comandos, ABI v1 e escolhas iniciais de runtime deste
 documento são **propostas de engenharia**, não recursos existentes.

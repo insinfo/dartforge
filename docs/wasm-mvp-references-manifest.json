@@ -1,0 +1,935 @@
+{
+  "schema": 1,
+  "collected_at": "2026-10-20T21:48:04.791996-03:00",
+  "root": "/Volumes/ssd_dock/references",
+  "new_clones": 11,
+  "reused_existing": 3,
+  "scope": "Reference source downloads only. No builds, installers, submodule initialization, or DartForge backend implementation.",
+  "projects": [
+    {
+      "name": "wasm-spec-core1",
+      "url": "https://github.com/WebAssembly/spec.git",
+      "path": "/Volumes/ssd_dock/references/wasm-spec-core1",
+      "requested_ref": "wg-1.0",
+      "sparse_paths": [],
+      "downloaded": "2026-10-21T00:42:04.743860+00:00",
+      "action": "cloned",
+      "command": [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--no-recurse-submodules",
+        "--branch",
+        "v1.0.0",
+        "https://github.com/WebAssembly/spec.git",
+        "/Volumes/ssd_dock/references/wasm-spec-v1"
+      ],
+      "commit": "977f97014c962f7bd1291fcc6d28b41a924882bf",
+      "commit_date": "2024-04-17T13:44:14+02:00",
+      "tracked_files": 363,
+      "shallow": true,
+      "submodules": [
+        "-5f6de969d2869b8ad1ba44d31dd8f72b482162b3 document/core/util/katex"
+      ],
+      "exit": 0,
+      "seconds": 2.4045900000000002,
+      "initial_selection": {
+        "name": "wasm-spec-v1",
+        "path": "/Volumes/ssd_dock/references/wasm-spec-v1",
+        "requested_ref": "v1.0.0",
+        "commit": "d910f03bd6d6477656fc5070b5098e8f909305d3",
+        "commit_date": "2023-10-04T15:43:18+09:00"
+      },
+      "selection_note": "The v1.0.0 tag was inspected and describes Core 2.0/Spectec, not Core 1.0; selected wg-1.0 and verified document/core/conf.py version 1.0. Core 1.0 still differs from strict MVP regarding mutable-global imports/exports.",
+      "purpose": "Core 1.0 specification, interpreter and tests; filter differences from strict MVP",
+      "license_summary": "Document W3C; interpreter/tests Apache-2.0; papers CC-BY-4.0",
+      "tracked_worktree_clean": true,
+      "allocated_disk_kib": 25336,
+      "entry_points": [
+        {
+          "path": "document/core/conf.py",
+          "kind": "file",
+          "sha256": "bc6e211b6b6e404d1f9e349945f42248201a17ca1ef8dd142127e1d1cdd74710"
+        },
+        {
+          "path": "document/core/LICENSE",
+          "kind": "file",
+          "sha256": "983b7373bdde9a9aae54b7b2f1f53c5458787cb56ea5f49eae3fe76c5544345b"
+        },
+        {
+          "path": "interpreter",
+          "kind": "directory"
+        },
+        {
+          "path": "test/core",
+          "kind": "directory"
+        },
+        {
+          "path": "interpreter/LICENSE",
+          "kind": "file",
+          "sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08"
+        },
+        {
+          "path": "test/LICENSE",
+          "kind": "file",
+          "sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "288b61e62a57d249eded5179eb3d6545cd844b29140e436aa3710e5a80ea5d99"
+        },
+        {
+          "path": "document/core/LICENSE",
+          "sha256": "983b7373bdde9a9aae54b7b2f1f53c5458787cb56ea5f49eae3fe76c5544345b"
+        },
+        {
+          "path": "interpreter/LICENSE",
+          "sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08"
+        },
+        {
+          "path": "papers/LICENSE",
+          "sha256": "d8902a29b2ee2387c1d3ae16f6bcac9e0dcf06c8979864255612f9f1177275f0"
+        },
+        {
+          "path": "test/LICENSE",
+          "sha256": "c6596eb7be8581c18be736c846fb9173b69eccf6ef94c5135893ec56bd92ba08"
+        }
+      ],
+      "sparse_checkout": false
+    },
+    {
+      "name": "wabt",
+      "url": "https://github.com/WebAssembly/wabt.git",
+      "path": "/Volumes/ssd_dock/references/wabt",
+      "requested_ref": null,
+      "sparse_paths": [],
+      "downloaded": "2026-10-21T00:42:04.744117+00:00",
+      "action": "cloned",
+      "command": [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--no-recurse-submodules",
+        "https://github.com/WebAssembly/wabt.git",
+        "/Volumes/ssd_dock/references/wabt"
+      ],
+      "commit": "58ddc9c7829994b4b5b9510d0ba19ad7d0d81852",
+      "commit_date": "2026-10-20T13:33:02-05:00",
+      "tracked_files": 1901,
+      "shallow": true,
+      "submodules": [
+        "-15460959cbbfa20e66ef0b5ab497367e47fc0a04 third_party/gtest",
+        "-27fcf6979298949e8a462e16d09a0351c18fcaf2 third_party/picosha2",
+        "-d776a2ece6c12bf8f8b6a0e65b48546ac6078765 third_party/ply",
+        "-c86a433df3086512b0b12240defa9d9ddcc9decf third_party/simde",
+        "-d76759e746f3564a03f6106ae19679742f2a1831 third_party/testsuite",
+        "-55eff19f4c7e69ec151424a037f951e0ad006ed6 third_party/uvwasi",
+        "-b6dd1fb658a282c64b029867845bc50ae59e1497 third_party/wasm-c-api"
+      ],
+      "exit": 0,
+      "seconds": 3.518179459,
+      "purpose": "Independent validator, interpreter and binary inspection",
+      "license_summary": "Apache-2.0",
+      "tracked_worktree_clean": true,
+      "allocated_disk_kib": 19952,
+      "entry_points": [
+        {
+          "path": "include/wabt/feature.def",
+          "kind": "file",
+          "sha256": "c98d630c8c44b2457df1eeec10d667742c5d2e3bca37122c852f6420e37135f1"
+        },
+        {
+          "path": "src/tools/wasm-validate.cc",
+          "kind": "file",
+          "sha256": "cba50b8b3b0b53a5484fd2e61d84cd0c2cc9d0fef0ec9cc09386d0073cd33427"
+        },
+        {
+          "path": "src/tools/wasm-interp.cc",
+          "kind": "file",
+          "sha256": "22e254e46b1573c0d8e89bacfb78b694ad0ac60139afd367893eef82557110d5"
+        },
+        {
+          "path": "test",
+          "kind": "directory"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "sparse_checkout": false
+    },
+    {
+      "name": "binaryen",
+      "url": "https://github.com/WebAssembly/binaryen.git",
+      "path": "/Volumes/ssd_dock/references/binaryen",
+      "requested_ref": null,
+      "sparse_paths": [],
+      "downloaded": "2026-10-21T00:42:04.744282+00:00",
+      "action": "cloned",
+      "command": [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--no-recurse-submodules",
+        "https://github.com/WebAssembly/binaryen.git",
+        "/Volumes/ssd_dock/references/binaryen"
+      ],
+      "commit": "997583b44e27e55e12f8e3653c04cce7ef433cba",
+      "commit_date": "2026-10-20T17:22:33-07:00",
+      "tracked_files": 3094,
+      "shallow": true,
+      "submodules": [
+        "-4b24564c844e3d34bf46dfcb3c774ee5163e31cc test/spec/testsuite",
+        "-5bbbddfc241c8c87902d4a80cda5697dd8c20199 third_party/fuzztest",
+        "-e2239ee6043f73722e7aa812a459f54a28552929 third_party/googletest",
+        "-fbd8b99c2b828428947d70fdc046bb55609be93e third_party/mimalloc"
+      ],
+      "exit": 0,
+      "seconds": 4.693569917,
+      "purpose": "Post-link transformations, feature handling and Wasm validation",
+      "license_summary": "Apache-2.0",
+      "tracked_worktree_clean": true,
+      "allocated_disk_kib": 59504,
+      "entry_points": [
+        {
+          "path": "src/wasm/wasm-validator.cpp",
+          "kind": "file",
+          "sha256": "d351f5a48959cc950ca8ee92209b36b5e0248efbd2a1e0b5f208440fe42fe9e6"
+        },
+        {
+          "path": "src/passes",
+          "kind": "directory"
+        },
+        {
+          "path": "test",
+          "kind": "directory"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "64c0d02491e16eced74826440ecd2bcf7722d37fa586faf457b2494293afbffe"
+        }
+      ],
+      "sparse_checkout": false
+    },
+    {
+      "name": "wasm-tools",
+      "url": "https://github.com/bytecodealliance/wasm-tools.git",
+      "path": "/Volumes/ssd_dock/references/wasm-tools",
+      "requested_ref": null,
+      "sparse_paths": [],
+      "downloaded": "2026-10-21T00:42:07.148993+00:00",
+      "action": "cloned",
+      "command": [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--no-recurse-submodules",
+        "https://github.com/bytecodealliance/wasm-tools.git",
+        "/Volumes/ssd_dock/references/wasm-tools"
+      ],
+      "commit": "7f6e307db0e5705e7dd04bc9849164bc41e59b55",
+      "commit_date": "2026-10-20T15:02:18Z",
+      "tracked_files": 10331,
+      "shallow": true,
+      "submodules": [
+        "-1a743de691c5966a217efcf58fef9cd68dacc754 tests/component-model",
+        "-b464a4cd100d98175ae6e3890db89a2e6c8302f7 tests/testsuite"
+      ],
+      "exit": 0,
+      "seconds": 6.347244042000001,
+      "purpose": "Parser, configurable MVP validation and malformed-module tests",
+      "license_summary": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "tracked_worktree_clean": true,
+      "allocated_disk_kib": 101488,
+      "entry_points": [
+        {
+          "path": "crates/wasmparser/src/features.rs",
+          "kind": "file",
+          "sha256": "229b91ad83cff58259e401d27367642370f8d68a83c782d9dbc855186a7d4eaa"
+        },
+        {
+          "path": "crates/wasmparser/src/validator.rs",
+          "kind": "file",
+          "sha256": "9aa5dbb4142546516050eb4c760da5effeab92470b0c13ae349cdf7a5df14c99"
+        },
+        {
+          "path": "crates/wasm-encoder",
+          "kind": "directory"
+        },
+        {
+          "path": "tests",
+          "kind": "directory"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-Apache-2.0_WITH_LLVM-exception",
+          "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+        }
+      ],
+      "sparse_checkout": false
+    },
+    {
+      "name": "wasmtime",
+      "url": "https://github.com/bytecodealliance/wasmtime.git",
+      "path": "/Volumes/ssd_dock/references/wasmtime",
+      "requested_ref": null,
+      "sparse_paths": [],
+      "downloaded": "2026-10-21T00:42:08.262681+00:00",
+      "action": "cloned",
+      "command": [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--no-recurse-submodules",
+        "https://github.com/bytecodealliance/wasmtime.git",
+        "/Volumes/ssd_dock/references/wasmtime"
+      ],
+      "commit": "5afd63588b1f5520391c6a37fc38dfd3ccd607c2",
+      "commit_date": "2026-10-20T23:17:37Z",
+      "tracked_files": 7613,
+      "shallow": true,
+      "submodules": [
+        "-5b724da8c634c4f2b2d2b3f6a4e9e13b4eb01596 tests/component-model",
+        "-b464a4cd100d98175ae6e3890db89a2e6c8302f7 tests/spec_testsuite",
+        "-6345da2237c562d9a94e281332c653b5528fdd52 tests/wasi-testsuite"
+      ],
+      "exit": 0,
+      "seconds": 9.856681417,
+      "purpose": "Standalone host embedding, imports, memory and engine limits; not LLVM frontend",
+      "license_summary": "Apache-2.0 WITH LLVM-exception",
+      "tracked_worktree_clean": true,
+      "allocated_disk_kib": 125468,
+      "entry_points": [
+        {
+          "path": "examples/hello.rs",
+          "kind": "file",
+          "sha256": "726292aeb987076f540e3e75b82f1579e45133e67f0771b505b13792d4118a8c"
+        },
+        {
+          "path": "examples/memory.c",
+          "kind": "file",
+          "sha256": "c8f2ff1b12fbec2d6f931596aba8c5e79ba398082bc66bdd70f37dd11792457e"
+        },
+        {
+          "path": "crates/wasmtime/src/runtime/linker.rs",
+          "kind": "file",
+          "sha256": "4ced2bd2ade23fc295c5bd3eed3f9a3019e2de682cb919c3be0f527e3204cd6e"
+        },
+        {
+          "path": "crates/wasmtime/src/runtime/memory.rs",
+          "kind": "file",
+          "sha256": "369d0799425c08d2ab8a91a3eeeefd296bf5046e1311ae18f48a2e660c75e586"
+        },
+        {
+          "path": "crates/wasmtime/src/config.rs",
+          "kind": "file",
+          "sha256": "c519b785670a083505a7233868a4901b26a19da510381837e418683c4364f8ed"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "268872b9816f90fd8e85db5a28d33f8150ebb8dd016653fb39ef1f94f2686bc5"
+        }
+      ],
+      "sparse_checkout": false
+    },
+    {
+      "name": "wasmi",
+      "url": "https://github.com/wasmi-labs/wasmi.git",
+      "path": "/Volumes/ssd_dock/references/wasmi",
+      "requested_ref": null,
+      "sparse_paths": [],
+      "downloaded": "2026-10-21T00:42:09.438302+00:00",
+      "action": "cloned",
+      "command": [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--no-recurse-submodules",
+        "https://github.com/wasmi-labs/wasmi.git",
+        "/Volumes/ssd_dock/references/wasmi"
+      ],
+      "commit": "2970aa871cc1001b57b267ccecdcd1e42306199e",
+      "commit_date": "2026-09-01T13:40:51+02:00",
+      "tracked_files": 352,
+      "shallow": true,
+      "submodules": [
+        "-c97c6663a213d1c50e5ccc6053f7bd40cb4e3217 crates/wasmi/benches/rust",
+        "-d76759e746f3564a03f6106ae19679742f2a1831 crates/wast/tests/spec",
+        "-f3e07876308bf418499c87d3ed78ed1f9e725e67 crates/wast/tests/wasmi"
+      ],
+      "exit": 0,
+      "seconds": 2.3710264170000004,
+      "purpose": "Independent Rust interpreter, host calls, limits and explicit memory access",
+      "license_summary": "MIT OR Apache-2.0",
+      "tracked_worktree_clean": true,
+      "allocated_disk_kib": 21500,
+      "entry_points": [
+        {
+          "path": "crates/wasmi/src/linker.rs",
+          "kind": "file",
+          "sha256": "5a7fbabfcfc88f0c730dfdfb21131336385413f0c1996074fe732031798f05cf"
+        },
+        {
+          "path": "crates/wasmi/src/engine/config.rs",
+          "kind": "file",
+          "sha256": "67eefb56b0e89c2270b6f271e82b6510afed39a1728189a3586684e9295709c6"
+        },
+        {
+          "path": "crates/wasmi/tests/integration/host_call_instantiation.rs",
+          "kind": "file",
+          "sha256": "a93effd984367c63c9113dda6a4723a2da2e4a78d6b5e490c05038a244b2010e"
+        },
+        {
+          "path": "crates/wasmi/tests/integration/reextract_memory.rs",
+          "kind": "file",
+          "sha256": "3a9db9aa7dd2cb657761b92493270255f71f9164f2b9d12b33fbe30ca7bf9274"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "f031c1608e4a19e8cbcc3394cdba838067e79189610227459e8ffcd669e6f52d"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "172bc1497507c1c363496bc23b0f16de8fa8e94befa85db6c8d9fa790e0a8657"
+        }
+      ],
+      "sparse_checkout": false
+    },
+    {
+      "name": "emscripten",
+      "url": "https://github.com/emscripten-core/emscripten.git",
+      "path": "/Volumes/ssd_dock/references/emscripten",
+      "requested_ref": null,
+      "sparse_paths": [],
+      "downloaded": "2026-10-21T00:42:11.810389+00:00",
+      "action": "cloned",
+      "command": [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--no-recurse-submodules",
+        "https://github.com/emscripten-core/emscripten.git",
+        "/Volumes/ssd_dock/references/emscripten"
+      ],
+      "commit": "278ba27f57e28053748b9c844c0f180f71643ffb",
+      "commit_date": "2026-10-20T16:48:27-07:00",
+      "tracked_files": 12056,
+      "shallow": true,
+      "submodules": [
+        "-52eb8108c5bdec04579160ae17225d66034bd723 test/third_party/googletest",
+        "-85555325079ea362fa680bd2209c843cfe47e670 test/third_party/posixtestsuite",
+        "-ac9371207fc61972a21d7d086074ca690a99d14d test/third_party/wasi-test-suite"
+      ],
+      "exit": 0,
+      "seconds": 11.447640167,
+      "purpose": "LLVM-to-Wasm pipeline, JS loader, memory growth and event loop",
+      "license_summary": "MIT OR University of Illinois/NCSA; bundled components have separate terms",
+      "tracked_worktree_clean": true,
+      "allocated_disk_kib": 185988,
+      "entry_points": [
+        {
+          "path": "src/preamble.js",
+          "kind": "file",
+          "sha256": "cd14b8bfbb45fcae6134bb459fae269ad9dbc3c2912c1ff6706999aba57d8947"
+        },
+        {
+          "path": "src/runtime_init_memory.js",
+          "kind": "file",
+          "sha256": "dfe1a1198fae6fc6905aa29f8851326a5d36538704fcc81439c777ed3cba3fca"
+        },
+        {
+          "path": "src/lib/libcore.js",
+          "kind": "file",
+          "sha256": "0dbc7d550c930f6f10f8dc7957b4fdcc0530a5145f2d50ecd88ce85edf4df52c"
+        },
+        {
+          "path": "src/lib/libeventloop.js",
+          "kind": "file",
+          "sha256": "f34aa7581f51e44274a62247418d31adb0f101ce9b25d80cc0d6f9f8189a30cb"
+        },
+        {
+          "path": "site/source/docs/compiling/WebAssembly.rst",
+          "kind": "file",
+          "sha256": "e033a51249d0f950ef92005b2040e2fa9d8a714ed70c2ad51765e2086373a6c1"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86"
+        }
+      ],
+      "sparse_checkout": false
+    },
+    {
+      "name": "wasm-bindgen",
+      "url": "https://github.com/wasm-bindgen/wasm-bindgen.git",
+      "path": "/Volumes/ssd_dock/references/wasm-bindgen",
+      "requested_ref": null,
+      "sparse_paths": [],
+      "downloaded": "2026-10-21T00:42:13.496700+00:00",
+      "action": "cloned",
+      "command": [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--no-recurse-submodules",
+        "https://github.com/wasm-bindgen/wasm-bindgen.git",
+        "/Volumes/ssd_dock/references/wasm-bindgen"
+      ],
+      "commit": "6513d6b118f4aa934b3ef553bb2e3ce8280791f2",
+      "commit_date": "2026-10-20T14:31:57Z",
+      "tracked_files": 4267,
+      "shallow": true,
+      "submodules": [],
+      "exit": 0,
+      "seconds": 6.250343917,
+      "purpose": "JS ABI adapters, buffer lifetime, closures and Future/Promise integration",
+      "license_summary": "MIT OR Apache-2.0",
+      "tracked_worktree_clean": true,
+      "allocated_disk_kib": 35688,
+      "entry_points": [
+        {
+          "path": "crates/cli-support/src/js/mod.rs",
+          "kind": "file",
+          "sha256": "2b0e8d704b8ffb32938058d68e1f65175040ada73ec9fe3aa36b6982989cc48e"
+        },
+        {
+          "path": "crates/cli-support/src/js/binding.rs",
+          "kind": "file",
+          "sha256": "9c764d2bbe3ddaf35e839e430a3d2e1f15244853f2fc0ce2babcd915cc5aac8a"
+        },
+        {
+          "path": "crates/futures/src/lib.rs",
+          "kind": "file",
+          "sha256": "56f6c5553a8c44df3e092eb6ddf11498e0545d8bc93abd99111cb8b3f2394529"
+        },
+        {
+          "path": "tests",
+          "kind": "directory"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        },
+        {
+          "path": "LICENSE-MIT",
+          "sha256": "378f5840b258e2779c39418f3f2d7b2ba96f1c7917dd6be0713f88305dbda397"
+        }
+      ],
+      "sparse_checkout": false
+    },
+    {
+      "name": "assemblyscript",
+      "url": "https://github.com/AssemblyScript/assemblyscript.git",
+      "path": "/Volumes/ssd_dock/references/assemblyscript",
+      "requested_ref": null,
+      "sparse_paths": [],
+      "downloaded": "2026-10-21T00:42:18.119821+00:00",
+      "action": "cloned",
+      "command": [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--no-recurse-submodules",
+        "https://github.com/AssemblyScript/assemblyscript.git",
+        "/Volumes/ssd_dock/references/assemblyscript"
+      ],
+      "commit": "b6bda05c29c9eb7d07d7f6cb2703508483b30493",
+      "commit_date": "2026-07-21T19:01:49+03:00",
+      "tracked_files": 1293,
+      "shallow": true,
+      "submodules": [],
+      "exit": 0,
+      "seconds": 4.199676500000001,
+      "purpose": "Linear-memory tracing GC, shadow stack and allocator; not LLVM or Dart",
+      "license_summary": "Apache-2.0",
+      "tracked_worktree_clean": true,
+      "allocated_disk_kib": 32852,
+      "entry_points": [
+        {
+          "path": "std/assembly/rt/README.md",
+          "kind": "file",
+          "sha256": "0733b26005e00091ce07d0ef5289c69d70aaad0a70738850c570c6d3e73404c7"
+        },
+        {
+          "path": "std/assembly/rt/itcms.ts",
+          "kind": "file",
+          "sha256": "7ef783af8bc200fa9cd4acda183b8642166f0549ff82da1078ed612b7f1f6dea"
+        },
+        {
+          "path": "std/assembly/rt/tcms.ts",
+          "kind": "file",
+          "sha256": "e4d6e0729bf7ba6db1e975d4a55504908b548be87bf7fce2988bf91546c5f3dc"
+        },
+        {
+          "path": "std/assembly/rt/tlsf.ts",
+          "kind": "file",
+          "sha256": "4199f0fc9bd1faf5ca7df44a05931d7d1cbeff86255c0e845788024349c2f47b"
+        },
+        {
+          "path": "std/assembly/rt/index-incremental.ts",
+          "kind": "file",
+          "sha256": "d4909c1c4c21d70b74b66b6710397d82cb3d7a9c1e9f09d4312f2dba1e3b1106"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+        },
+        {
+          "path": "NOTICE",
+          "sha256": "03558ea0ee94e22f63393d0ed42792afd00ab8b39dac965f2da2726003f8c846"
+        }
+      ],
+      "sparse_checkout": false
+    },
+    {
+      "name": "llvm-wasm-22.1.8",
+      "url": "https://github.com/llvm/llvm-project.git",
+      "path": "/Volumes/ssd_dock/references/llvm-wasm-22.1.8",
+      "requested_ref": "llvmorg-22.1.8",
+      "sparse_paths": [
+        "clang/lib/Basic/Targets",
+        "clang/lib/Driver/ToolChains",
+        "clang/test/CodeGen/WebAssembly",
+        "compiler-rt/lib/builtins",
+        "lld/test/wasm",
+        "lld/wasm",
+        "llvm/docs",
+        "llvm/lib/Target/WebAssembly",
+        "llvm/test/CodeGen/WebAssembly"
+      ],
+      "downloaded": "2026-10-21T00:42:19.747457+00:00",
+      "action": "cloned",
+      "command": [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--no-recurse-submodules",
+        "--branch",
+        "llvmorg-22.1.8",
+        "--sparse",
+        "https://github.com/llvm/llvm-project.git",
+        "/Volumes/ssd_dock/references/llvm-wasm-22.1.8"
+      ],
+      "commit": "ca7933e47d3a3451d81e72ac174dcb5aa28b59d1",
+      "commit_date": "2026-06-15T22:33:53Z",
+      "tracked_files": 169029,
+      "shallow": true,
+      "submodules": [],
+      "exit": 0,
+      "seconds": 6.6615585,
+      "purpose": "LLVM backend and linker; baseline toolchain",
+      "license_summary": "Apache-2.0 WITH LLVM-exception; see per-directory notices",
+      "tracked_worktree_clean": true,
+      "allocated_disk_kib": 91668,
+      "entry_points": [
+        {
+          "path": "llvm/lib/Target/WebAssembly",
+          "kind": "directory"
+        },
+        {
+          "path": "lld/wasm",
+          "kind": "directory"
+        },
+        {
+          "path": "llvm/test/CodeGen/WebAssembly",
+          "kind": "directory"
+        },
+        {
+          "path": "lld/test/wasm",
+          "kind": "directory"
+        },
+        {
+          "path": "compiler-rt/lib/builtins",
+          "kind": "directory"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE.TXT",
+          "sha256": "8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee"
+        }
+      ],
+      "sparse_checkout": true
+    },
+    {
+      "name": "tinygo-wasm",
+      "url": "https://github.com/tinygo-org/tinygo.git",
+      "path": "/Volumes/ssd_dock/references/tinygo-wasm",
+      "requested_ref": null,
+      "sparse_paths": [],
+      "action": "cloned",
+      "downloaded": "2026-10-21T00:48:01.548637+00:00",
+      "command": [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "clone",
+        "--depth",
+        "1",
+        "--filter=blob:none",
+        "--no-recurse-submodules",
+        "https://github.com/tinygo-org/tinygo.git",
+        "/Volumes/ssd_dock/references/tinygo-wasm"
+      ],
+      "exit": 0,
+      "commit": "4b74579deb287cbc5607426ff40f7eae2e67c5a0",
+      "commit_date": "2026-10-21T11:36:10+11:00",
+      "shallow": true,
+      "tracked_files": 2340,
+      "submodules": [
+        "-9fe411cef1cef5de58e5957b89760759de44e393 lib/CMSIS",
+        "-6624554c02b237b23dc17d53e992bf54033fc228 lib/avr",
+        "-7577ca7c2dc7364bb6733dab23be34231279db6b lib/bdwgc",
+        "-fba5005a132d85d578be5bd010e0487ed8e2ce3e lib/binaryen",
+        "-05a9562ec59b87945a8d7177a4b08b7aa2f2fd58 lib/cmsis-svd",
+        "-b216a5b881e4e10f193bc2e9e17929617d91f91d lib/macos-minimal-sdk",
+        "-8526cb618269440a94810b94b77f8bd48c5c3396 lib/mingw-w64",
+        "-7a43f6fea9081bdd53d8a11cef9e9fab0348c53d lib/musl",
+        "-d779b49fc59c7a165e7da1d7cd7d57b28a059f16 lib/nrfx",
+        "-036919b76d7124f25f1d82554a06c921708cd4b1 lib/picolibc",
+        "-6aa7396c1d4d20be61cc62f283fa3835665c7361 lib/py32-svd",
+        "-bfed180b639863db414221bdb6aa77e198f464f5 lib/stm32-svd",
+        "-6ae82617096e83e6606047736e84ac397b788631 lib/wasi-cli",
+        "-1dfe5c302d1c5ab621f7abf04620fae92700fd22 lib/wasi-libc",
+        "-70037cf71f1ae14175781e162c9c76d1ac730ece src/net"
+      ],
+      "purpose": "Managed language to LLVM/Wasm, precise roots and runtime",
+      "license_summary": "BSD-3-Clause, with Go/LLVM third-party components",
+      "tracked_worktree_clean": true,
+      "allocated_disk_kib": 16968,
+      "entry_points": [
+        {
+          "path": "targets/wasm.json",
+          "kind": "file",
+          "sha256": "78f9f31fcfb268cd14494c708fca659bd76d0388f839133a0783b879d13d0fc1"
+        },
+        {
+          "path": "targets/wasm-unknown.json",
+          "kind": "file",
+          "sha256": "63531e39ab6c1a3bcd0c1a78d7a68bdae917a530c0b64fe80541b163a1b037f3"
+        },
+        {
+          "path": "targets/wasm_exec.js",
+          "kind": "file",
+          "sha256": "e911c4760cabadaa8f669760d42d25830783a134739101467e2bdc11370ed37c"
+        },
+        {
+          "path": "transform/gc.go",
+          "kind": "file",
+          "sha256": "84299ed2484b5bf74c20d1d9ba868efa034e62a41d03df189a5226f8a76b4cb9"
+        },
+        {
+          "path": "src/runtime/gc_precise.go",
+          "kind": "file",
+          "sha256": "59ae3e504f4936a38402023621edf0b1299e355c37ca79fac811e0254b00ea2a"
+        },
+        {
+          "path": "src/runtime/runtime_wasm_js.go",
+          "kind": "file",
+          "sha256": "935784676d5f2b6f2b457da68e50b4044013aeda9c04b80475861a0cdeda1dbc"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "4cb7d99a97ebd57584ea8398898c4b0bbbcb39662330712b43153efdad308766"
+        }
+      ],
+      "sparse_checkout": false
+    },
+    {
+      "name": "tinygo",
+      "path": "/Volumes/ssd_dock/references/tinygo",
+      "url": "https://github.com/tinygo-org/tinygo.git",
+      "action": "reused-existing-unchanged",
+      "purpose": "Earlier TinyGo snapshot with local modifications preserved; historical comparison only",
+      "license_summary": "BSD-3-Clause, with Go/LLVM third-party components",
+      "commit": "f6d269f74ab45bfa53a37c5708c6661ec33531ae",
+      "commit_date": "2026-10-02T09:35:34Z",
+      "tracked_worktree_clean": false,
+      "allocated_disk_kib": 16888,
+      "entry_points": [
+        {
+          "path": "targets/wasm.json",
+          "kind": "file",
+          "sha256": "3def3cf4986e3d539ca8f667dc6c04e505830d35fecf3a1ead55c47f2af64391"
+        },
+        {
+          "path": "targets/wasm-unknown.json",
+          "kind": "file",
+          "sha256": "c3ca29d42bc16afefd23c00c5a4c7db4bde8f41ae69fef8fd047b56edcaefc85"
+        },
+        {
+          "path": "targets/wasm_exec.js",
+          "kind": "file",
+          "sha256": "5b51f0cceddb7e9669d307cd40f3b94025628e36160a2517235654a5a6aa7707"
+        },
+        {
+          "path": "transform/gc.go",
+          "kind": "file",
+          "sha256": "707effa2bceee5fd34eba950aec3f420ef9390b053a40d7e71ca7d7400c30075"
+        },
+        {
+          "path": "src/runtime/gc_precise.go",
+          "kind": "file",
+          "sha256": "91459d92271df5b11d3e421ec04907a919aa0736128829411c8a1fc6d391a26d"
+        },
+        {
+          "path": "src/runtime/runtime_wasm_js.go",
+          "kind": "file",
+          "sha256": "3284956f729b1c00c19251f631dcd7042b2171046a711e93dcd549b9e44e721c"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "0e340ab7d0f8aa7b94ca819a5c79abf5173f7f10e9f235a6c873974095b9393d"
+        }
+      ],
+      "sparse_checkout": false
+    },
+    {
+      "name": "swiftwasm-swift",
+      "path": "/Volumes/ssd_dock/references/swiftwasm-swift",
+      "url": "https://github.com/swiftwasm/swift",
+      "action": "reused-existing-unchanged",
+      "purpose": "Existing sparse runtime reference for ARC and Wasm image metadata",
+      "license_summary": "Apache-2.0 with runtime exceptions; see LICENSE.txt",
+      "commit": "da67a9923381d1936ab0a0635d284dcab2d979b4",
+      "commit_date": "2023-06-20T17:43:14+09:00",
+      "tracked_worktree_clean": false,
+      "allocated_disk_kib": 22220,
+      "entry_points": [
+        {
+          "path": "stdlib/public/runtime/ImageInspectionWasm.cpp",
+          "kind": "file",
+          "sha256": "9f24bff3ca1178a72d524fd8330165630d0b34582e30a0e186f60acb7d109a36"
+        },
+        {
+          "path": "stdlib/public/runtime/HeapObject.cpp",
+          "kind": "file",
+          "sha256": "2b960bf41b829d6e936de7a34ea72213873e5380067d8421b3bcb1671c88be19"
+        },
+        {
+          "path": "stdlib/public/runtime/RefCount.cpp",
+          "kind": "file",
+          "sha256": "df8999e11cbb910fe5780ffb325bea53625bbc695d04eee99b5ca4fef1e60a46"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE.txt",
+          "sha256": "825e0fb91b4e332fe2076cb0d8744739b3371bf4c9c50a98538494a5012da01e"
+        }
+      ],
+      "sparse_checkout": true,
+      "sparse_paths": [
+        "docs",
+        "lib/SILOptimizer/IPO",
+        "stdlib/public/runtime"
+      ]
+    },
+    {
+      "name": "dart-sdk",
+      "path": "/Volumes/ssd_dock/references/dart-sdk",
+      "url": "https://github.com/dart-lang/sdk.git",
+      "action": "reused-existing-unchanged",
+      "purpose": "Existing Dart semantic and WasmGC backend reference; not LLVM/MVP implementation",
+      "license_summary": "BSD-3-Clause; third-party sources have separate terms",
+      "commit": "6c4009687d2c881f880127fc12b9ad7c72111d33",
+      "commit_date": "2026-09-18T22:28:45-07:00",
+      "tracked_worktree_clean": false,
+      "allocated_disk_kib": 565776,
+      "entry_points": [
+        {
+          "path": "pkg/dart2wasm/lib/translator.dart",
+          "kind": "file",
+          "sha256": "3775fa46ba7b738d479977a0ef1c68e30818396de37fd2580cfa013afdbbe347"
+        },
+        {
+          "path": "pkg/dart2wasm/lib/target.dart",
+          "kind": "file",
+          "sha256": "96a77f13392cad5e90dcdc8da14af2b1e4a4cd5444e39ca350d3a1994bced3eb"
+        },
+        {
+          "path": "pkg/dart2wasm/lib/closures.dart",
+          "kind": "file",
+          "sha256": "577d9f9964a27bf4f1e356add6f80bb6febe4267eb270f3719ddb3814389cf12"
+        }
+      ],
+      "license_files": [
+        {
+          "path": "LICENSE",
+          "sha256": "7a7f86f552f9926e7d8dd418730bab72206c126e7c4bab282b901a9e3bf1c7af"
+        }
+      ],
+      "sparse_checkout": false
+    }
+  ]
+}
