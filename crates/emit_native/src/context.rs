@@ -59,6 +59,9 @@ pub struct Context<'a> {
     /// `const bool.fromEnvironment("dart.vm.product")` (`DartFlags::product`,
     /// `lower/environment.rs`).
     pub product: bool,
+    /// `dart.library.<name>` of the destination's SDK layout: present libraries,
+    /// each with its `supported` flag (`sdk_module::library_support`).
+    pub library_support: std::collections::HashMap<String, bool>,
     /// Production AOT (`--optimize`, or the production profile of the SDK):
     /// the platform constants of the target fold (`lower/platform.rs`).
     /// Development and the JIT read them at run time.
@@ -381,6 +384,7 @@ impl<'a> Context<'a> {
             arc_memory: false,
             enable_asserts: true,
             product: false,
+            library_support: std::collections::HashMap::new(),
             production: false,
             compiled: program.libraries.iter().map(|l| !l.is_sdk).collect(),
             in_module: program.libraries.iter().map(|l| !l.is_sdk).collect(),

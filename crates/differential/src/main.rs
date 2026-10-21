@@ -16,7 +16,7 @@ use dartforge_differential::{
 };
 
 const USAGE: &str = "usage:
-  dartforge-differential [--native [--gc-stress] [--optimize]] [--production] [--corpus DIR] [--filter TEXT] [--no-forge] [--no-cache] [--jobs N] [--limit SEC] [--exec-limit SEC] [--quiet]
+  dartforge-differential [--native|--wasm [--gc-stress] [--optimize]] [--production] [--corpus DIR] [--filter TEXT] [--no-forge] [--no-cache] [--jobs N] [--limit SEC] [--exec-limit SEC] [--quiet]
       runs dart run × [ddc+node or native] × dartforge on each program and prints the report
       (two oracle SDKs: DARTFORGE_DART_SDK, the 3.6.2 floor, and DARTFORGE_DART_SDK_3_13;
       each program goes to the smallest SDK that covers its `// requer-dart: x.y` and
@@ -293,6 +293,13 @@ fn main() {
             }
             "--no-forge" => op.with_forge = false,
             "--native" => op.native = true,
+            // The native mode compiled to WebAssembly (`compile-wasm`), run by
+            // `dartforge-wasm-run` (DARTFORGE_WASM_RUN or next to this binary).
+            "--wasm" => {
+                // As `compile-wasm` and `dart compile wasm`: always optimized.
+                (op.native, op.wasm) = (true, true);
+                env.optimize = true;
+            }
             // JIT: the same native mode (VM as the reference), run by
             // dartforge-run-ir; --jit-aot also links the AOT of the same IR.
             "--jit" => (op.native, op.jit) = (true, true),
@@ -323,6 +330,10 @@ fn main() {
     // of `dart_sdk.js`. The machine has 7.7 GB and is shared.
     if (op.native || op.with_production) && op.threads == 0 {
         op.threads = 2;
+    }
+    if op.wasm {
+        dartforge_emit_native::target::select(dartforge_emit_native::target::NativeTarget::Wasm32)
+            .expect("select the WebAssembly destination before any compilation");
     }
     let mut programs = list(&corpus, filter.as_deref());
     if let Some((k, n)) = shard {

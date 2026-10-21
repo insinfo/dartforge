@@ -35,7 +35,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// The native definitions: `dartforge.compiler` (true) and the VM's profile
+    /// The definitions: `dartforge.compiler` (true); `dart.library.<name>` of
+    /// the destination's SDK layout (defined for each library present, `true`
+    /// when supported; `dart:mirrors` only outside the product profile, as the
+    /// VM's AOT does not have it); and the VM's profile
     /// keys — `dart.vm.product` (`Context::product`: true in
     /// `DartFlags::PRODUCTION`, as in `dart compile exe`; false in development,
     /// as in `dart run`) and `dart.vm.profile` (false). `hasEnvironment` is
@@ -49,8 +52,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         kind: &str,
         has: bool,
     ) -> Option<Constant> {
-        let value = match self.environment_key(unit, key, 0)?.as_str() {
+        let key = self.environment_key(unit, key, 0)?;
+        let value = match key.as_str() {
             "dartforge.compiler" => true,
+            library if library.starts_with("dart.library.") => {
+                let name = &library["dart.library.".len()..];
+                match self.ctx.library_support.get(name) {
+                    Some(&supported) => supported && !(name == "mirrors" && self.ctx.product),
+                    None if has => return Some(Constant::Bool(false)),
+                    None => return None,
+                }
+            }
             "dart.vm.product" => self.ctx.product,
             "dart.vm.profile" => false,
             _ => {

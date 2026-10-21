@@ -81,7 +81,7 @@ struct Quarantine {
 
 impl Quarantine {
     fn from_env() -> Option<Self> {
-        let v = std::env::var("DARTFORGE_GC_POISON").ok()?;
+        let v = crate::console::env_var("DARTFORGE_GC_POISON").ok()?;
         let capacity = match v.trim() {
             "" | "0" => return None,
             "1" => 1000,

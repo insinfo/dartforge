@@ -1,0 +1,2 @@
+microtask, delayed 10, periodic 3, timer 200
+waited at least 20 ms: true

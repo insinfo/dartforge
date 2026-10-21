@@ -603,7 +603,7 @@ pub extern "C" fn dartforge_member_rejected(text: i64) {
 /// every selector that the receiver's class does not have.
 fn debug() -> bool {
     thread_local! {
-        static D: bool = std::env::var("DARTFORGE_DEBUG").is_ok_and(|v| v == "1");
+        static D: bool = crate::console::env_var("DARTFORGE_DEBUG").is_ok_and(|v| v == "1");
     }
     D.with(|d| *d)
 }

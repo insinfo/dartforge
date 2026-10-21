@@ -55,3 +55,30 @@ pub fn stderr() -> HostStream {
 pub fn exit(code: i32) -> ! {
     crate::host::exit(code)
 }
+
+/// A runtime option (`DARTFORGE_*`, not Dart's `Platform.environment`): the
+/// process environment natively; on WebAssembly, what the host passes
+/// (`option`, docs/WASM-HOST-ABI-V1.md). The same result type as
+/// `std::env::var`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn env_var(name: &str) -> Result<String, std::env::VarError> {
+    std::env::var(name)
+}
+
+/// [`env_var`] as `std::env::var_os` returns it.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn env_var_os(name: &str) -> Option<std::ffi::OsString> {
+    std::env::var_os(name)
+}
+
+/// A runtime option (`DARTFORGE_*`) the host passes (`option`).
+#[cfg(target_arch = "wasm32")]
+pub fn env_var(name: &str) -> Result<String, std::env::VarError> {
+    crate::host::option(name).ok_or(std::env::VarError::NotPresent)
+}
+
+/// [`env_var`] as `std::env::var_os` returns it.
+#[cfg(target_arch = "wasm32")]
+pub fn env_var_os(name: &str) -> Option<std::ffi::OsString> {
+    crate::host::option(name).map(std::ffi::OsString::from)
+}

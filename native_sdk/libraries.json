@@ -1,5 +1,5 @@
 {
-  "comment:0": "SDK overlay for the DartForge native backend (docs/NATIVO-PLANO.md §7, P5a).",
+  "comment:0": "SDK overlay for the DartForge native backend (docs/NATIVO-PLANO.md \u00a77, P5a).",
   "comment:1": "The target starts from a section of the SDK's libraries.json (base) and swaps whole files: the key is the path relative to the SDK's lib/, the value the file of this folder that replaces it.",
   "comment:2": "The logical path is still the SDK's: a 'part' of a replaced file resolves next to the original, and may itself be replaced.",
   "comment:3": "Only what depends on the VM's internal machinery is ours: _SuspendState (async), Timer and microtasks tied to dart:isolate/dart:io, and the weak-GC Finalizer.",
@@ -36,6 +36,75 @@
       "internal/sort.dart": "internal/sort.dart",
       "collection/list.dart": "collection/list.dart",
       "_internal/vm/lib/mirrors_patch.dart": "mirrors/mirrors_patch.dart"
+    }
+  },
+  "comment:4": "dartforge_wasm: the WebAssembly target (wasm32-linear, docs/PLANO-WASM-MVP.md \u00a71). The runtime implements the VM's natives, so the base is vm with the same swaps; the library set and flags are dart2wasm's: dart:io and dart:isolate take the SDK's own pure-Dart wasm patches (importable, UnsupportedError on use), dart.library.ffi is false, and the libraries dart2wasm does not have are removed.",
+  "dartforge_wasm": {
+    "base": "vm",
+    "libraries": {
+      "io": {
+        "uri": "io/io.dart",
+        "patches": [
+          "_internal/wasm/lib/io_patch.dart"
+        ],
+        "supported": false
+      },
+      "isolate": {
+        "uri": "isolate/isolate.dart",
+        "patches": [
+          "_internal/wasm/lib/isolate_patch.dart"
+        ]
+      },
+      "ffi": {
+        "uri": "ffi/ffi.dart",
+        "patches": [
+          "_internal/vm/lib/ffi_patch.dart",
+          "_internal/vm/lib/ffi_allocation_patch.dart",
+          "_internal/vm/lib/ffi_dynamic_library_patch.dart",
+          "_internal/vm/lib/ffi_native_finalizer_patch.dart",
+          "_internal/vm/lib/ffi_native_type_patch.dart",
+          "_internal/vm/lib/ffi_struct_patch.dart"
+        ],
+        "supported": false
+      }
+    },
+    "remove": [
+      "_builtin",
+      "_vmservice",
+      "vmservice_io",
+      "cli",
+      "concurrent",
+      "mirrors"
+    ],
+    "user_import_errors": {
+      "ffi": "'dart:ffi' can't be imported when compiling to Wasm."
+    },
+    "replaces": {
+      "_internal/vm/lib/async_patch.dart": "async/async_patch.dart",
+      "_internal/vm/lib/schedule_microtask_patch.dart": "async/schedule_microtask_patch.dart",
+      "_internal/vm/lib/timer_patch.dart": "async/timer_patch.dart",
+      "_internal/vm/lib/finalizer_patch.dart": "core/finalizer_patch.dart",
+      "_internal/vm/lib/print_patch.dart": "internal/print_patch.dart",
+      "_internal/vm_shared/lib/string_buffer_patch.dart": "core/string_buffer_patch.dart",
+      "_internal/vm_shared/lib/compact_hash.dart": "collection/compact_hash.dart",
+      "_internal/vm/lib/identical_patch.dart": "core/identical_patch.dart",
+      "_internal/vm/lib/growable_array.dart": "core/growable_array.dart",
+      "_internal/vm/lib/array.dart": "core/array.dart",
+      "_internal/vm/lib/string_patch.dart": "core/string_patch.dart",
+      "_internal/vm/lib/double.dart": "core/double.dart",
+      "_internal/vm/lib/integers.dart": "core/integers.dart",
+      "_internal/vm/lib/convert_patch.dart": "convert/convert_patch.dart",
+      "convert/json.dart": "convert/json.dart",
+      "_internal/vm/lib/function.dart": "core/function.dart",
+      "_internal/vm/lib/profiler.dart": "developer/profiler.dart",
+      "_internal/vm/lib/regexp_patch.dart": "core/regexp_patch.dart",
+      "html/dartium/nativewrappers.dart": "nativewrappers/nativewrappers.dart",
+      "_internal/vm/lib/ffi_patch.dart": "ffi/ffi_patch.dart",
+      "_internal/vm/lib/ffi_allocation_patch.dart": "ffi/ffi_allocation_patch.dart",
+      "_internal/vm/lib/ffi_dynamic_library_patch.dart": "ffi/ffi_dynamic_library_patch.dart",
+      "_internal/vm/lib/ffi_native_finalizer_patch.dart": "ffi/ffi_native_finalizer_patch.dart",
+      "internal/sort.dart": "internal/sort.dart",
+      "collection/list.dart": "collection/list.dart"
     }
   }
 }

@@ -196,7 +196,8 @@ fn prune_program_hir(
     if module.sdk_library || module.sdk_records.is_empty() {
         return Ok(None);
     }
-    let profile = if production {
+    // WebAssembly links the SDK statically in every profile.
+    let profile = if production || crate::target::is_wasm() {
         sdk_module::SdkProfile::Production
     } else {
         sdk_module::SdkProfile::Development
@@ -608,6 +609,7 @@ fn emit_ir_internal(
     ctx.arc_memory = arc_memory;
     ctx.enable_asserts = flags.enable_asserts;
     ctx.product = flags.product;
+    ctx.library_support = sdk_module::library_support(&sdk);
     // Production (`--optimize`): the platform constants of the target fold
     // (`lower/platform.rs`); development and the JIT read them at run time.
     ctx.production = options.optimize;
@@ -666,7 +668,12 @@ fn emit_ir_internal(
     hir_module.program_fields = ctx.program_fields();
     hir_module.sdk_records = sdk_module::sdk_records();
     hir_module.runtime_cids = sdk_module::runtime_cids(&ctx);
-    hir_module.sdk_version = sdk_dir.parent().and_then(sdk_version);
+    // `Platform.version` is `dart:io`'s, which the WebAssembly target does not have.
+    hir_module.sdk_version = if crate::target::is_wasm() {
+        None
+    } else {
+        sdk_dir.parent().and_then(sdk_version)
+    };
     if !hir_module.errors.is_empty() {
         return Err(compile_error(&hir_module.errors));
     }

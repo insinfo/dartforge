@@ -16,7 +16,10 @@ fn main() {
             std::process::exit(2);
         }
     };
-    match dartforge_wasm_host::run(&bytes) {
+    match dartforge_wasm_host::run_with_options(
+        &bytes,
+        dartforge_wasm_host::options_from_environment(),
+    ) {
         Ok(outcome) => {
             let _ = std::io::stdout().write_all(&outcome.stdout);
             let _ = std::io::stderr().write_all(&outcome.stderr);

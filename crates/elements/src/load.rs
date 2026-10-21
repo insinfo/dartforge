@@ -1343,6 +1343,11 @@ fn resolve_directive_target(
         return Ok((base_uri.to_string(), base_path.map(Path::to_path_buf)));
     }
     if let Some(sdk_name) = uri_str.strip_prefix("dart:") {
+        if let Some(message) = sdk.user_import_errors.get(sdk_name)
+            && !base_uri.starts_with("dart:")
+        {
+            return Err(message.clone());
+        }
         if sdk.library(sdk_name).is_some() {
             Ok((format!("dart:{sdk_name}"), None))
         } else {

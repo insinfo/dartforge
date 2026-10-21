@@ -12,10 +12,14 @@ if (!file) {
 }
 try {
   const bytes = readFileSync(file);
+  // The runtime options are this process's `DARTFORGE_*` variables, only.
+  const options = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => name.startsWith("DARTFORGE_")),
+  );
   const r = await runModule(bytes, {
     stdout: (b) => process.stdout.write(b),
     stderr: (b) => process.stderr.write(b),
-  });
+  }, options);
   if (process.env.DARTFORGE_WASM_REPORT) console.error(`[run_node] sha256 ${r.sha256}`);
   if (r.trap !== null) {
     console.error(`run_node: trap: ${r.trap}`);

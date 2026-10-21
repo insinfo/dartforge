@@ -32,6 +32,13 @@ pub struct ProgramResult {
     /// With `--jit`/`--jit-aot`: `forge` came from the ORCv2 JIT, and this
     /// holds its time and, with `--jit-aot`, the AOT of the same IR.
     pub jit: Option<JitRun>,
+    /// `--wasm`: dart2wasm's output, the second reference of the WebAssembly
+    /// target (`dart` stays the VM's). A program passes when it matches either:
+    /// where they differ, both are the behavior of a Dart implementation —
+    /// dart2wasm for what the web platform lacks (`dart:io`, isolates,
+    /// `dart:ffi`), the VM for implementation details dart2wasm changes
+    /// (internal class names, error texts, JavaScript string casing).
+    pub alternative: Option<Output>,
 }
 
 /// What JIT mode records for a program, besides the output.
@@ -146,6 +153,20 @@ pub fn compare(expected: &Output, actual: &Output) -> Option<Divergence> {
     None
 }
 
+/// `--wasm`: DartForge printed what the VM prints up to the point where the
+/// program needs what the web platform lacks, and failed there as dart2wasm
+/// does (an uncaught error with the same message). dart2wasm itself may differ
+/// from the VM before that point in implementation details.
+fn fails_like(vm: &Output, dart2wasm: &Output, forge: &Output) -> bool {
+    let message = |o: &Output| o.stderr.lines().nth(1).map(str::to_owned);
+    forge.code == 255
+        && dart2wasm.code == 255
+        && forge.stderr.starts_with("Unhandled exception:")
+        && message(forge).is_some()
+        && message(forge) == message(dart2wasm)
+        && vm.stdout.starts_with(&forge.stdout)
+}
+
 fn first_differing_line(a: &str, b: &str) -> usize {
     let mut la = a.split_inclusive('\n');
     let mut lb = b.split_inclusive('\n');
@@ -175,9 +196,23 @@ impl ProgramResult {
 
     /// DartForge × reference divergence; also `None` when DartForge was not run.
     pub fn forge_vs_reference(&self) -> Option<Divergence> {
-        self.forge
-            .as_ref()
-            .and_then(|f| compare(self.reference(), f))
+        let forge = self.forge.as_ref()?;
+        let divergence = compare(self.reference(), forge)?;
+        match &self.alternative {
+            Some(other) if compare(other, forge).is_none() => None,
+            Some(other) if fails_like(self.reference(), other, forge) => None,
+            _ => Some(divergence),
+        }
+    }
+
+    /// `--wasm`: the program matches dart2wasm and not the VM.
+    pub fn matches_only_dart2wasm(&self) -> bool {
+        match (&self.forge, &self.alternative) {
+            (Some(forge), Some(other)) => {
+                compare(self.reference(), forge).is_some() && compare(other, forge).is_none()
+            }
+            _ => false,
+        }
     }
 
     /// The production profile's reference: the reference with the one
@@ -503,6 +538,20 @@ pub fn format_report(results: &[ProgramResult]) -> String {
             "DartForge development:     "
         };
         let _ = writeln!(out, "{label}{ok}/{total} ok");
+        // `--wasm`: where the program follows dart2wasm instead of the VM.
+        let only_dart2wasm: Vec<&str> = results
+            .iter()
+            .filter(|r| r.matches_only_dart2wasm())
+            .map(|r| r.program.name.as_str())
+            .collect();
+        if !only_dart2wasm.is_empty() {
+            let _ = writeln!(
+                out,
+                "  as dart2wasm, not the VM: {} — {}",
+                only_dart2wasm.len(),
+                only_dart2wasm.join(", ")
+            );
+        }
     }
     if with_production {
         let _ = writeln!(out, "DartForge production:      {ok_prod}/{total} ok");
@@ -1012,6 +1061,7 @@ mod tests {
                 native: false,
                 production: None,
                 jit: None,
+                alternative: None,
             },
             ProgramResult {
                 program: p("b"),
@@ -1025,6 +1075,7 @@ mod tests {
                 native: false,
                 production: None,
                 jit: None,
+                alternative: None,
             },
             ProgramResult {
                 program: p("c"),
@@ -1038,6 +1089,7 @@ mod tests {
                 native: false,
                 production: None,
                 jit: None,
+                alternative: None,
             },
         ];
         let t = format_report(&r);
@@ -1132,6 +1184,7 @@ mod tests {
             native: true,
             production: None,
             jit: None,
+            alternative: None,
         }];
         let t = format_report(&r);
         assert!(t.contains("       constructs: closure, cascade"), "{t}");

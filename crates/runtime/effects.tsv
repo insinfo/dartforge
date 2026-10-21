@@ -114,6 +114,7 @@ dartforge_closure_header	1	1	0
 dartforge_closure_typed	0	0	0
 dartforge_collection_mark_unmodifiable	1	0	0
 dartforge_context	0	0	0
+dartforge_delay_us	0	0	0
 dartforge_dyn_op	1	1	1
 dartforge_effects_after	0	0	0
 dartforge_effects_before	0	0	0
@@ -802,6 +803,7 @@ dartforge_register_tables	1	1	0
 dartforge_release_isolates	1	1	0
 dartforge_remember	0	0	0
 dartforge_request_at_safepoint	1	1	0
+dartforge_resume	1	1	1
 dartforge_rti_as	1	1	1
 dartforge_rti_as_with_context	1	1	1
 dartforge_rti_e	0	0	0
@@ -822,7 +824,6 @@ dartforge_list_elem_exact_cache	0	0	0
 dartforge_rti_string	1	1	0
 dartforge_rti_subtype	1	1	0
 dartforge_rti_tuple_join	1	0	0
-dartforge_run	1	1	1
 dartforge_safepoint	1	1	1
 dartforge_selector	1	1	0
 dartforge_set_main_arguments	1	1	0

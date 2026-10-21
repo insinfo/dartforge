@@ -1,0 +1,128 @@
+{
+  "hello": {
+    "sha256": "df956d296bdad6bcdc7ac91068b6a53e87a0cf83b0448a6ce3b86843a9ffa7c9",
+    "bytes": 1908727,
+    "imports": [
+      "dartforge_host_v1.clock_monotonic_us",
+      "dartforge_host_v1.write",
+      "dartforge_host_v1.exit",
+      "dartforge_host_v1.option"
+    ],
+    "hosts": {
+      "wasmtime": {
+        "same_output": true,
+        "same_hash": true
+      },
+      "node": {
+        "same_output": true,
+        "same_hash": true
+      },
+      "chrome": {
+        "same_output": true,
+        "same_hash": true
+      }
+    },
+    "chrome": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+  },
+  "timers": {
+    "sha256": "f6752c2e6e59192c288bb8e793056d5aeb6cc4cb810a38af8106fd1bae2738e4",
+    "bytes": 2437309,
+    "imports": [
+      "dartforge_host_v1.clock_monotonic_us",
+      "dartforge_host_v1.write",
+      "dartforge_host_v1.exit",
+      "dartforge_host_v1.option"
+    ],
+    "hosts": {
+      "wasmtime": {
+        "same_output": true,
+        "same_hash": true
+      },
+      "node": {
+        "same_output": true,
+        "same_hash": true
+      },
+      "chrome": {
+        "same_output": true,
+        "same_hash": true
+      }
+    },
+    "chrome": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+  },
+  "26_for_in_de_lista": {
+    "sha256": "0feb1d3411b3a1da7497b28b8d49f80073dca5a09a986fe2c14f832d515fd870",
+    "bytes": 2281069,
+    "imports": [
+      "dartforge_host_v1.clock_monotonic_us",
+      "dartforge_host_v1.write",
+      "dartforge_host_v1.exit",
+      "dartforge_host_v1.option"
+    ],
+    "hosts": {
+      "wasmtime": {
+        "same_output": true,
+        "same_hash": true
+      },
+      "node": {
+        "same_output": true,
+        "same_hash": true
+      },
+      "chrome": {
+        "same_output": true,
+        "same_hash": true
+      }
+    },
+    "chrome": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+  },
+  "28_closures_tipadas": {
+    "sha256": "aeb93987fb873199e823a542ca2134a1639f7a9a7008cb8b898b6434918b0a59",
+    "bytes": 1957178,
+    "imports": [
+      "dartforge_host_v1.clock_monotonic_us",
+      "dartforge_host_v1.write",
+      "dartforge_host_v1.exit",
+      "dartforge_host_v1.option"
+    ],
+    "hosts": {
+      "wasmtime": {
+        "same_output": true,
+        "same_hash": true
+      },
+      "node": {
+        "same_output": true,
+        "same_hash": true
+      },
+      "chrome": {
+        "same_output": true,
+        "same_hash": true
+      }
+    },
+    "chrome": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+  },
+  "101_json_pilha_e_mapas": {
+    "sha256": "ebd1aed8c53f2aed468d624544f07e036f3a5218567daec9908feeb916920efb",
+    "bytes": 2524672,
+    "imports": [
+      "dartforge_host_v1.clock_monotonic_us",
+      "dartforge_host_v1.write",
+      "dartforge_host_v1.exit",
+      "dartforge_host_v1.option"
+    ],
+    "hosts": {
+      "wasmtime": {
+        "same_output": true,
+        "same_hash": true
+      },
+      "node": {
+        "same_output": true,
+        "same_hash": true
+      },
+      "chrome": {
+        "same_output": true,
+        "same_hash": true
+      }
+    },
+    "chrome": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+  },
+  "passed": true
+}

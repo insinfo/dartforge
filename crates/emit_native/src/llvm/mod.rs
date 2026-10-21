@@ -4314,7 +4314,11 @@ impl<'a> LlvmEmitter<'a> {
                 )
                 .unwrap();
             }
-            writeln!(self.out, "  call void @dartforge_prepare_embedder()").unwrap();
+            // The VM embedder's `dart:io` setup (`Platform.script`, `Uri.base`),
+            // which a WebAssembly module, without `dart:io`, does not have.
+            if !crate::target::is_wasm() {
+                writeln!(self.out, "  call void @dartforge_prepare_embedder()").unwrap();
+            }
             if root_scope {
                 writeln!(
                     self.out,
@@ -4375,10 +4379,16 @@ impl<'a> LlvmEmitter<'a> {
             }
             writeln!(self.out, "  ret void\n}}\n").unwrap();
             // The runtime and the SDK live in the source SDK DLL: the `main` of the
-            // executable is this one, and it hands the entry to the runtime.
+            // executable is this one, and it hands the entry to the runtime. A
+            // WebAssembly module's entry is `dartforge_run` (host ABI v1).
+            let entry = if crate::target::is_wasm() {
+                "dartforge_run"
+            } else {
+                "main"
+            };
             writeln!(
                 self.out,
-                "define i32 @main() {{\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}}\n"
+                "define i32 @{entry}() {{\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}}\n"
             )
             .unwrap();
             return;
@@ -4797,7 +4807,13 @@ impl<'a> LlvmEmitter<'a> {
                 NativeType::Composite(l) => Some((c_abi::ret(conv, l, &mut regs), l.clone())),
                 NativeType::Prim(_) => None,
             };
-            let mut decls = vec!["ptr nest %ctx".to_string()];
+            // WebAssembly has no `nest` register (nor trampolines: the runtime
+            // refuses native callbacks there); the entry stays well formed.
+            let mut decls = vec![if crate::target::is_wasm() {
+                "ptr %ctx".to_string()
+            } else {
+                "ptr nest %ctx".to_string()
+            }];
             if let Some((RetPassing::Sret { alignment }, l)) = &ret {
                 decls.push(format!(
                     "ptr sret([{} x i8]) align {alignment} %sret",

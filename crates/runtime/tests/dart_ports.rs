@@ -17,6 +17,11 @@ use std::path::Path;
 /// (file, chunk of the line, reason).
 const ALLOWED: &[(&str, &str, &str)] = &[
     (
+        "closures.rs",
+        "unsafe { std::mem::transmute(code as usize) };",
+        "WebAssembly only: `Function.apply` calls the uniform entry with its exact signature (an indirect call is type-checked, pointers are 32-bit); the module has no ports, no ARC and no table exceptions to go through",
+    ),
+    (
         "arc_native_ports.rs",
         "let test_body: extern \"C\" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(target as usize) };",
         "cfg(test) only: the target is checked equal to the static extern C Rust body, which only retains the reference and neither throws nor calls Dart",

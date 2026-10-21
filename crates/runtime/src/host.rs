@@ -25,6 +25,8 @@ unsafe extern "C" {
     ) -> i32;
     #[link_name = "exit"]
     fn host_exit(status: i32);
+    #[link_name = "option"]
+    fn host_option(name_offset: i32, name_length: i32, out_offset: i32, out_capacity: i32) -> i32;
 }
 
 /// Standard output and standard error, the channels of `write`.
@@ -88,4 +90,29 @@ pub fn exit(status: i32) -> ! {
     // SAFETY: a host import; it does not return to the module.
     unsafe { host_exit(status) };
     core::arch::wasm32::unreachable()
+}
+
+/// The runtime option `name` the host passes (`DARTFORGE_*`), or `None`.
+pub fn option(name: &str) -> Option<String> {
+    let mut value = vec![0u8; 256];
+    loop {
+        // SAFETY: the name and the buffer are live slices of linear memory.
+        let length = unsafe {
+            host_option(
+                name.as_ptr() as i32,
+                name.len() as i32,
+                value.as_mut_ptr() as i32,
+                value.len() as i32,
+            )
+        };
+        if length < 0 {
+            return None;
+        }
+        let length = length as usize;
+        if length <= value.len() {
+            value.truncate(length);
+            return Some(String::from_utf8_lossy(&value).into_owned());
+        }
+        value.resize(length, 0);
+    }
 }

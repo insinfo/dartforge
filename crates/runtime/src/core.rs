@@ -43,6 +43,12 @@ pub extern "C" fn dartforge_init(input: extern "C" fn(), to_string_fn: extern "C
     // is created here — or the process aborts — and this thread's slot is
     // filled (`gc_roots::publish_in_tsd`). Every other thread that runs Dart
     // code does the same at its start (`isolates::run_isolate`).
+    // A WebAssembly module's runtime panic is not a Dart exception: its message
+    // goes to the host's standard error before the trap (`panic = "abort"`).
+    #[cfg(target_arch = "wasm32")]
+    std::panic::set_hook(Box::new(|info| {
+        eprintln!("dartforge runtime panic: {info}");
+    }));
     dartforge_context();
     TO_STRING.with(|p| p.set(Some(to_string_fn)));
     // The main isolate uses the allocator's free lists (`allocator.rs`).
@@ -60,10 +66,22 @@ pub extern "C" fn dartforge_init(input: extern "C" fn(), to_string_fn: extern "C
     // the entry runs — `main` and the event loop.
     mark_main_isolate();
     input();
+    // A WebAssembly module whose loop waits for a timer returns to the host
+    // ("pending"); `dartforge_resume` finishes it (`wasm_entry.rs`).
+    #[cfg(target_arch = "wasm32")]
+    if event_loop_suspended() {
+        return PENDING;
+    }
+    finish_program()
+}
+
+/// The end of the program after its last event: the exit code, or the end of
+/// the process with it.
+fn finish_program() -> i32 {
     unmark_main_isolate();
     let code = finalize_program();
     if code != 0 {
-        std::process::exit(code);
+        crate::console::exit(code);
     }
     0
 }
@@ -138,7 +156,7 @@ pub fn finalize_program() -> i32 {
     // roots by maps and no root read from a map
     // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.5, the proof that it collected: a
     // test that never collected at the dangerous point must not pass).
-    let statistics = std::env::var("DARTFORGE_GC_STATS").unwrap_or_default();
+    let statistics = crate::console::env_var("DARTFORGE_GC_STATS").unwrap_or_default();
     let mut nothing_exercised = false;
     if statistics == "1" || statistics == "require" {
         HEAP.with(|heap| {
@@ -156,7 +174,7 @@ pub fn finalize_program() -> i32 {
         eprintln!("dartforge: DARTFORGE_GC_STATS=require and the run did not exercise the collector (no collection, or no root read from a map)");
         return 70;
     }
-    if std::env::var("DARTFORGE_GC_MEMORY").is_ok_and(|v| !v.is_empty() && v != "0") {
+    if crate::console::env_var("DARTFORGE_GC_MEMORY").is_ok_and(|v| !v.is_empty() && v != "0") {
         HEAP.with(|heap| eprint!("[memory] end of program\n{}", heap.borrow().memory_report()));
     }
     global_exit_code()
@@ -180,7 +198,7 @@ thread_local! {
     /// SDK from source: the Dart `toString()` of a value (the program's
     /// `dartforge_dispatch_toString`), for the uncaught exception.
     static TO_STRING: std::cell::Cell<Option<extern "C" fn(i64) -> i64>> = const { std::cell::Cell::new(None) };
-    static HEAP: RefCell<Heap> = RefCell::new(Heap::for_isolate(std::env::var_os("DARTFORGE_GC_STRESS").is_some()));
+    static HEAP: RefCell<Heap> = RefCell::new(Heap::for_isolate(crate::console::env_var_os("DARTFORGE_GC_STRESS").is_some()));
     static CLASS_NAMES: RefCell<HashMap<i64, String>> = RefCell::new(HashMap::default());
     static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::default());
     /// The already computed answers of [`is_subclass`]: every type check goes

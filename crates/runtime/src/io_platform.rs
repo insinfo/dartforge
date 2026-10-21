@@ -394,24 +394,6 @@ fn environment_variables() -> Vec<String> {
     out
 }
 
-/// A fixed-length `_List` with the strings; `typed`: `List<String>` (the VM's
-/// `Dart_NewListOfTypeFilled`), otherwise `List<dynamic>`.
-fn dart_string_list(text: &[String], typed: bool) -> i64 {
-    let list = dart_fixed_list(&vec![0; text.len()]);
-    with_roots(&[list], || {
-        for (i, t) in text.iter().enumerate() {
-            let s = allocate_str(t);
-            HEAP.with(|h| h.borrow_mut().list_set(list, i, crate::heap::Value::Ref(s)));
-        }
-        if typed {
-            let cid = HEAP.with(|h| h.borrow().class(list));
-            if let Some(ty) = string_list_type(Some(i64::from(cid))) {
-                HEAP.with(|h| h.borrow_mut().set_metadata(list, ty + 1));
-            }
-        }
-    });
-    list
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_Platform_NumberOfProcessors() -> i64 {

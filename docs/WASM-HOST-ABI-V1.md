@@ -35,9 +35,15 @@ executar; o executor recusa o que o portão recusa.
 |---|---|---|
 | `memory` | memória | a memória linear do módulo, definida por ele |
 | `dartforge_abi_version` | `() -> i32` | devolve `1`; outro valor faz o host recusar o módulo sem executar |
-| `dartforge_run` | `() -> i32` | executa o programa uma vez e devolve o status de saída |
+| `dartforge_run` | `() -> i32` | executa o programa e devolve o status de saída, ou `-1` enquanto ele espera um timer |
+| `dartforge_delay_us` | `() -> f64` | depois de um `-1`: microssegundos até o próximo timer (`inf` se distante demais) |
+| `dartforge_resume` | `() -> i32` | continua o programa depois do atraso; status ou `-1` de novo |
 
 O host chama `dartforge_abi_version` e, se for `1`, `dartforge_run` uma única vez.
+O módulo nunca bloqueia esperando um timer: com só timers futuros, o laço de
+eventos devolve `-1`, o host espera `dartforge_delay_us` (no navegador com
+`setTimeout`, sem travar a página) e chama `dartforge_resume`, até receber o
+status. Uma porta viva sem timers encerra o programa, como no dart2wasm.
 O status devolvido é o código de saída do programa (0, ou 255 numa exceção não
 tratada, como a VM); um `exit` do módulo encerra a execução por dentro com o seu
 status. Os dois exports vêm do runtime (`crates/runtime/src/wasm_entry.rs`). Uma *trap* do motor
@@ -100,6 +106,14 @@ em `name_offset`; devolve o comprimento completo do nome (`-1` com faixa
 inválida). O navegador responde como o `DateTime` do dart2wasm (`getTimezoneOffset`
 e o nome entre parênteses de `Date.prototype.toString`); o executor, como a VM
 nativa (`localtime_r`; no Windows, as regras da zona para o ano).
+
+### `option(name_offset: i32, name_length: i32, out_offset: i32, out_capacity: i32) -> i32`
+
+Uma opção de execução do runtime (`DARTFORGE_GC_STRESS`, `DARTFORGE_GC_STATS`…),
+não o `Platform.environment` do Dart: copia até `out_capacity` bytes do valor e
+devolve o comprimento completo, ou `-1` quando a opção não existe. O executor
+repassa só as variáveis `DARTFORGE_*` do próprio processo; o adaptador JS, o
+objeto `options` de `runModule` (o runner do Node passa as `DARTFORGE_*`).
 
 ## Versionamento
 

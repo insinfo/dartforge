@@ -85,7 +85,7 @@ pub fn compile_and_link(
     options: &NativeDriverOptions,
 ) -> Result<LinkTimes, String> {
     crate::linker_windows::Subsystem::from_environment()?;
-    let runtime = RuntimeCache::get_or_compile()?;
+    let wasm = crate::target::is_wasm();
     // A program with the source SDK (P5c): the entry calls the registration of the
     // SDK libraries, which live in the cached objects.
     let sdk = if llvm_ir.contains("declare void @df.register.") {
@@ -93,7 +93,8 @@ pub fn compile_and_link(
             Some(directory) => directory.clone(),
             None => crate::dart_sdk()?,
         };
-        let profile = if options.optimize {
+        // WebAssembly links the SDK statically in every profile.
+        let profile = if options.optimize || wasm {
             crate::sdk_module::SdkProfile::Production
         } else {
             crate::sdk_module::SdkProfile::Development
@@ -117,7 +118,7 @@ pub fn compile_and_link(
     //   object, the SDK objects (cached, compiled with
     //   `-ffunction-sections`) and the static runtime, with `/OPT:REF` removing what
     //   the program does not reach.
-    let production = options.optimize && sdk.is_some();
+    let production = (options.optimize || wasm) && sdk.is_some();
     // Production: the method tables assembled in the program module, with only
     // the live pairs (docs/NATIVO-PODA-DE-TABELAS.md). The cached object is
     // that of this already assembled IR.
@@ -130,13 +131,26 @@ pub fn compile_and_link(
         }
         _ => llvm_ir,
     };
+    // A WebAssembly module always links its own runtime statically
+    // (`RuntimeCache::for_wasm`), the SDK objects included.
     let (link_with, sdk_objects): (Linkage, Vec<PathBuf>) = match &sdk {
+        Some(s) if production && wasm => (
+            Linkage::Production(RuntimeCache::for_wasm()?.lib_path),
+            s.objects.clone(),
+        ),
         Some(s) if production => (
             Linkage::Production(crate::cache::RuntimeCache::for_production()?.lib_path),
             s.objects.clone(),
         ),
         Some(s) => (Linkage::SharedSdk(s.import.clone()), Vec::new()),
-        None => (Linkage::Runtime(runtime.lib_path.clone()), Vec::new()),
+        None if wasm => (
+            Linkage::Runtime(RuntimeCache::for_wasm()?.lib_path),
+            Vec::new(),
+        ),
+        None => (
+            Linkage::Runtime(RuntimeCache::get_or_compile()?.lib_path),
+            Vec::new(),
+        ),
     };
 
     // A safe temporary directory in the target. With the object cache it is only

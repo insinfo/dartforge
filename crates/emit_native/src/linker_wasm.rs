@@ -21,7 +21,12 @@ pub const STACK_BYTES: u64 = 8 << 20;
 pub const MAX_MEMORY_BYTES: u64 = 4 << 30;
 
 /// The exports of host ABI v1 besides the memory, kept under dead stripping.
-pub const ABI_EXPORTS: [&str; 2] = ["dartforge_abi_version", "dartforge_run"];
+pub const ABI_EXPORTS: [&str; 4] = [
+    "dartforge_abi_version",
+    "dartforge_run",
+    "dartforge_resume",
+    "dartforge_delay_us",
+];
 
 /// The inputs of a module link.
 pub struct Linkage<'a> {
@@ -66,6 +71,10 @@ pub fn arguments(l: &Linkage<'_>) -> Vec<std::ffi::OsString> {
     args.push("-z".into());
     args.push(format!("stack-size={STACK_BYTES}").into());
     args.push(format!("--max-memory={MAX_MEMORY_BYTES}").into());
+    // The LTO code generation of bitcode inputs (the SDK, production parts)
+    // with the profile's features, as the objects get them.
+    args.push("-mllvm".into());
+    args.push(format!("-mattr={}", crate::target::WASM_FEATURES).into());
     if !l.debug_info {
         args.push("--strip-all".into());
     }
@@ -188,6 +197,7 @@ mod tests {
             "random_fill",
             "time_zone",
             "exit",
+            "option",
         ];
         for (module, name) in &report.imports {
             assert_eq!(module, dartforge_wasm_gate::HOST_MODULE);
@@ -206,7 +216,9 @@ mod tests {
             declare i32 @write(i32, i32, i32) #0\n\
             attributes #0 = { \"wasm-import-module\"=\"dartforge_host_v1\" \"wasm-import-name\"=\"write\" }\n\
             @msg = private constant [3 x i8] c\"ok\\0A\"\n\
-            define i32 @dartforge_abi_version() { ret i32 1 }\n";
+            define i32 @dartforge_abi_version() { ret i32 1 }\n\
+            define i32 @dartforge_resume() { ret i32 0 }\n\
+            define double @dartforge_delay_us() { ret double 0.0 }\n";
         let runtime = dir.path().join("libempty.a");
         std::fs::write(&runtime, b"!<arch>\n").unwrap();
         let lld = lld(&clang);

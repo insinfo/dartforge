@@ -13,6 +13,10 @@ use wasmtime::{Caller, Config, Engine, Linker, Memory, Module, Store};
 /// The ABI version this host implements (`dartforge_abi_version`).
 pub const ABI_VERSION: i32 = 1;
 
+/// The status of `dartforge_run`/`dartforge_resume` while the program waits for
+/// a timer.
+pub const PENDING: i32 = -1;
+
 /// Status codes of `write`, `random_fill` and `time_zone`.
 pub mod write_status {
     pub const OK: i32 = 0;
@@ -77,6 +81,8 @@ struct HostState {
     stderr: Vec<u8>,
     /// The origin of `clock_monotonic_us`.
     start: std::time::Instant,
+    /// The runtime options `option` answers.
+    options: std::collections::HashMap<String, String>,
 }
 
 /// The `[offset, offset + length)` range of the linear memory, checked without
@@ -96,6 +102,13 @@ fn range(
 /// reject what the gate let through by mistake.
 fn profile_engine() -> Result<Engine, RunError> {
     let mut config = Config::new();
+    // The engine's own stack for the module's frames: the 8 MiB a native
+    // thread of the VM has (the default, 512 KiB, gave a fifth of the VM's
+    // recursion depth). `run` gives the module a thread with room for it.
+    // (Wasmtime requires its async stack, unused here, to be at least as large.)
+    config
+        .async_stack_size(ENGINE_STACK + (1 << 20))
+        .max_wasm_stack(ENGINE_STACK);
     config
         .wasm_multi_value(true)
         .wasm_bulk_memory(true)
@@ -183,6 +196,40 @@ fn time_zone(
     name.len() as i32
 }
 
+/// `option(name_offset, name_length, out_offset, out_capacity)`: copies up to
+/// `out_capacity` bytes of the option's value and returns its full length, or
+/// -1 when the option is not set (or a range is outside the memory).
+fn option(
+    mut caller: Caller<'_, HostState>,
+    name_offset: i32,
+    name_length: i32,
+    out_offset: i32,
+    out_capacity: i32,
+) -> i32 {
+    let (Some(name), Some(out)) = (
+        range(&caller, name_offset, name_length),
+        range(&caller, out_offset, out_capacity),
+    ) else {
+        return write_status::OUT_OF_RANGE;
+    };
+    let memory = caller.data().memory.expect("checked by range");
+    let name = String::from_utf8_lossy(&memory.data(&caller)[name]).into_owned();
+    let Some(value) = caller.data().options.get(&name).cloned() else {
+        return -1;
+    };
+    let n = value.len().min(out.len());
+    memory.data_mut(&mut caller)[out.start..out.start + n].copy_from_slice(&value.as_bytes()[..n]);
+    value.len() as i32
+}
+
+/// The runtime options of this process: its `DARTFORGE_*` variables, and only
+/// those (the module does not see the rest of the environment).
+pub fn options_from_environment() -> std::collections::HashMap<String, String> {
+    std::env::vars()
+        .filter(|(name, _)| name.starts_with("DARTFORGE_"))
+        .collect()
+}
+
 /// `exit(status)`: stops the module, unwinding its frames, with `status`.
 fn exit(_caller: Caller<'_, HostState>, status: i32) -> wasmtime::Result<()> {
     Err(wasmtime::Error::new(ModuleExit(status)))
@@ -195,6 +242,35 @@ fn exit(_caller: Caller<'_, HostState>, status: i32) -> wasmtime::Result<()> {
 /// When the module does not run at all ([`RunError`]); a trap during the run is
 /// an [`Outcome`] with `trap`.
 pub fn run(bytes: &[u8]) -> Result<Outcome, RunError> {
+    run_with_options(bytes, std::collections::HashMap::new())
+}
+
+/// [`run`] with the runtime options `option` answers (`DARTFORGE_*`).
+///
+/// # Errors
+/// As [`run`].
+pub fn run_with_options(
+    bytes: &[u8],
+    options: std::collections::HashMap<String, String>,
+) -> Result<Outcome, RunError> {
+    // The module runs on its own thread, whose stack holds the engine stack
+    // ([`ENGINE_STACK`]) and the host's frames.
+    let bytes = bytes.to_vec();
+    std::thread::Builder::new()
+        .stack_size(ENGINE_STACK + (8 << 20))
+        .spawn(move || run_here(&bytes, options))
+        .map_err(|e| RunError::Engine(format!("the module thread: {e}")))?
+        .join()
+        .map_err(|_| RunError::Engine("the module thread panicked".to_string()))?
+}
+
+/// The engine stack the module's frames may use.
+pub const ENGINE_STACK: usize = 8 << 20;
+
+fn run_here(
+    bytes: &[u8],
+    options: std::collections::HashMap<String, String>,
+) -> Result<Outcome, RunError> {
     let policy = Policy {
         required_exports: vec![
             "memory".to_string(),
@@ -213,6 +289,7 @@ pub fn run(bytes: &[u8]) -> Result<Outcome, RunError> {
             stdout: Vec::new(),
             stderr: Vec::new(),
             start: std::time::Instant::now(),
+            options,
         },
     );
     let mut linker = Linker::<HostState>::new(&engine);
@@ -223,6 +300,7 @@ pub fn run(bytes: &[u8]) -> Result<Outcome, RunError> {
         .and_then(|l| l.func_wrap(HOST_MODULE, "random_fill", random_fill))
         .and_then(|l| l.func_wrap(HOST_MODULE, "time_zone", time_zone))
         .and_then(|l| l.func_wrap(HOST_MODULE, "exit", exit))
+        .and_then(|l| l.func_wrap(HOST_MODULE, "option", option))
         .map_err(|e| RunError::Engine(e.to_string()))?;
     let instance = linker
         .instantiate(&mut store, &module)
@@ -248,7 +326,32 @@ pub fn run(bytes: &[u8]) -> Result<Outcome, RunError> {
         sha256: report.sha256,
         ..Outcome::default()
     };
-    match entry.call(&mut store, ()) {
+    // `-1`: the program waits for a timer; sleep for the delay the module
+    // asks for and resume it, until it returns its status.
+    let mut result = entry.call(&mut store, ());
+    while let Ok(PENDING) = result {
+        let resume = instance
+            .get_typed_func::<(), i32>(&mut store, "dartforge_resume")
+            .and_then(|resume| {
+                let delay = instance
+                    .get_typed_func::<(), f64>(&mut store, "dartforge_delay_us")?
+                    .call(&mut store, ())?;
+                if delay.is_finite() && delay > 0.0 {
+                    std::thread::sleep(std::time::Duration::from_secs_f64(delay / 1e6));
+                } else if !delay.is_finite() {
+                    // A timer too far away to represent: the program waits forever.
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(3600));
+                    }
+                }
+                Ok(resume)
+            });
+        result = match resume {
+            Ok(resume) => resume.call(&mut store, ()),
+            Err(e) => Err(e),
+        };
+    }
+    match result {
         Ok(status) => outcome.status = Some(status),
         Err(e) => match e.downcast_ref::<ModuleExit>() {
             Some(ModuleExit(status)) => outcome.status = Some(*status),

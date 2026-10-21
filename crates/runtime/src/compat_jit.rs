@@ -106,7 +106,7 @@ pub unsafe extern "C" fn dartforge_set_program_package_config(data: *const u8, s
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_package_config() -> i64 {
     let selected = program_package_config().lock().unwrap_or_else(|error| error.into_inner()).clone();
-    let path = selected.unwrap_or_else(|| std::env::var("DARTFORGE_PACKAGE_CONFIG").ok());
+    let path = selected.unwrap_or_else(|| crate::console::env_var("DARTFORGE_PACKAGE_CONFIG").ok());
     match path {
         Some(c) if !c.is_empty() => HEAP.with(|h| h.borrow_mut().allocate_str(&c)),
         _ => 0,

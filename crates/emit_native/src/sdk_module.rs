@@ -21,6 +21,8 @@ mod function_attributes;
 
 /// The overlay target in `native_sdk/libraries.json`.
 pub const OVERLAY_TARGET: &str = "dartforge_native";
+/// The overlay section of the WebAssembly target.
+pub const WASM_OVERLAY_TARGET: &str = "dartforge_wasm";
 
 /// The libraries that the native backend compiles from the SDK source (decision 1 of
 /// NATIVO-PLANO §7.1), in approximate dependency order. `typed_data`
@@ -43,6 +45,60 @@ pub const SOURCE_LIBRARIES: &[&str] = &[
     "mirrors",
 ];
 
+/// [`SOURCE_LIBRARIES`] of the WebAssembly target: without `dart:mirrors`, which
+/// dart2wasm does not have either (the `dartforge_wasm` overlay section).
+pub const WASM_SOURCE_LIBRARIES: &[&str] = &[
+    "_internal",
+    "core",
+    "_compact_hash",
+    "collection",
+    "math",
+    "convert",
+    "async",
+    "typed_data",
+    "isolate",
+    "developer",
+    "nativewrappers",
+    "ffi",
+    "_http",
+    "io",
+];
+
+/// The SDK libraries compiled from source for the selected destination.
+pub fn source_libraries() -> &'static [&'static str] {
+    if crate::target::is_wasm() {
+        WASM_SOURCE_LIBRARIES
+    } else {
+        SOURCE_LIBRARIES
+    }
+}
+
+/// The layout for loading the SDK's own libraries (the synthetic entry that
+/// imports all of them): the target's restrictions on what user code may import
+/// (`user_import_errors`, dart2wasm's `dart:ffi`) do not apply to the SDK.
+fn sdk_sources_layout(mut sdk: SdkLayout) -> SdkLayout {
+    sdk.user_import_errors.clear();
+    sdk
+}
+
+/// `dart.library.<name>` of a layout: each library present in it, with its
+/// `supported` flag (`libraries.json`), as the CFE defines the variables.
+pub fn library_support(sdk: &SdkLayout) -> std::collections::HashMap<String, bool> {
+    sdk.libraries
+        .iter()
+        .map(|(name, library)| (name.clone(), library.supported))
+        .collect()
+}
+
+/// The overlay section of the selected destination (`native_sdk/libraries.json`).
+pub fn overlay_target() -> &'static str {
+    if crate::target::is_wasm() {
+        WASM_OVERLAY_TARGET
+    } else {
+        OVERLAY_TARGET
+    }
+}
+
 /// Overlay directory: `DARTFORGE_NATIVE_SDK`, otherwise the `native_sdk/`
 /// of the repository that compiled this binary.
 pub fn overlay_dir() -> PathBuf {
@@ -57,7 +113,7 @@ pub fn overlay_dir() -> PathBuf {
 
 /// The native SDK: the `vm` section of `lib_dir` with the overlay.
 pub fn load_native_sdk(lib_dir: &Path) -> Result<SdkLayout, String> {
-    SdkLayout::load_with_overlay(lib_dir, &overlay_dir(), OVERLAY_TARGET)
+    SdkLayout::load_with_overlay(lib_dir, &overlay_dir(), overlay_target())
 }
 
 /// Inference diagnostics in the bodies of an SDK library.
@@ -83,12 +139,12 @@ pub fn measure_sdk_inference(lib_dir: &Path) -> Result<Vec<LibraryInference>, St
     use dartforge_intern::Interner;
     use dartforge_types::table::{CoreTypes, TypeTable};
 
-    let sdk = load_native_sdk(lib_dir)?;
+    let sdk = sdk_sources_layout(load_native_sdk(lib_dir)?);
     let tmp = std::env::temp_dir().join(format!("dartforge-medir-sdk-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
     let entry = tmp.join("main.dart");
     let mut source = String::new();
-    for b in SOURCE_LIBRARIES {
+    for b in source_libraries() {
         source.push_str(&format!("import 'dart:{b}';\n"));
     }
     source.push_str("void main() {}\n");
@@ -110,7 +166,7 @@ pub fn measure_sdk_inference(lib_dir: &Path) -> Result<Vec<LibraryInference>, St
     let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
 
     let mut exit = Vec::new();
-    for name in SOURCE_LIBRARIES {
+    for name in source_libraries() {
         let uri = format!("dart:{name}");
         let Some(idx) = program.libraries.iter().position(|l| l.uri == uri) else {
             return Err(format!("{uri} did not load"));
@@ -147,7 +203,7 @@ pub fn registration_symbol(uri: &str) -> String {
 
 /// The registration functions of the [`SOURCE_LIBRARIES`], in order.
 pub fn sdk_records() -> Vec<String> {
-    SOURCE_LIBRARIES
+    source_libraries()
         .iter()
         .map(|b| registration_symbol(&format!("dart:{b}")))
         .collect()
@@ -205,7 +261,7 @@ pub fn runtime_cids(ctx: &crate::context::Context) -> Vec<i64> {
 fn load_source_libraries(
     lib_dir: &Path,
 ) -> Result<(dartforge_elements::Program, dartforge_intern::Interner), String> {
-    let sdk = load_native_sdk(lib_dir)?;
+    let sdk = sdk_sources_layout(load_native_sdk(lib_dir)?);
     let tmp = std::env::temp_dir().join(format!(
         "dartforge-sdk-fonte-{}-{:?}",
         std::process::id(),
@@ -214,7 +270,7 @@ fn load_source_libraries(
     std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
     let entry = tmp.join("main.dart");
     let mut source = String::new();
-    for b in SOURCE_LIBRARIES {
+    for b in source_libraries() {
         source.push_str(&format!("import 'dart:{b}';\n"));
     }
     source.push_str("void main() {}\n");
@@ -271,7 +327,7 @@ pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::Id
                         .map(|l| {
                             l.uri
                                 .strip_prefix("dart:")
-                                .is_some_and(|n| SOURCE_LIBRARIES.contains(&n))
+                                .is_some_and(|n| source_libraries().contains(&n))
                         })
                         .collect();
                     Ok(crate::context::sdk_class_ids(
@@ -350,10 +406,11 @@ fn emit_sdk_modules(
 ) -> Result<Vec<SdkLibrary>, String> {
     use dartforge_types::table::{CoreTypes, TypeTable};
     let (program, interner) = load_source_libraries(lib_dir)?;
+    let support = library_support(&load_native_sdk(lib_dir)?);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
     let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-    let libs: Vec<_> = SOURCE_LIBRARIES
+    let libs: Vec<_> = source_libraries()
         .iter()
         .filter_map(|b| {
             let uri = format!("dart:{b}");
@@ -364,7 +421,7 @@ fn emit_sdk_modules(
                 .map(|i| dartforge_elements::model::LibraryId(i as u32))
         })
         .collect();
-    if libs.len() != SOURCE_LIBRARIES.len() {
+    if libs.len() != source_libraries().len() {
         return Err("source SDK library outside the program".to_string());
     }
     let (bodies, _) = dartforge_types::infer_library_bodies(
@@ -395,6 +452,7 @@ fn emit_sdk_modules(
         ctx.arc_memory = arc_memory;
         ctx.enable_asserts = flags.enable_asserts;
         ctx.product = flags.product;
+        ctx.library_support = support.clone();
         ctx.production = production;
         if symbolic_stack_trace {
             ctx.link_debug();
@@ -615,7 +673,11 @@ fn sdk_key_with_overlay(
     }
     // Replacement bytes are selected by the layout, not by their physical directory.
     // Their relative dependencies still resolve from the original SDK logical paths.
-    let sdk = SdkLayout::load_with_overlay(lib_dir, overlay, OVERLAY_TARGET)?;
+    let sdk = sdk_sources_layout(SdkLayout::load_with_overlay(
+        lib_dir,
+        overlay,
+        overlay_target(),
+    )?);
     let mut files = Vec::new();
     join(lib_dir, &mut files, &mut Default::default())?;
     join(overlay, &mut files, &mut Default::default())?;
@@ -626,7 +688,7 @@ fn sdk_key_with_overlay(
     let temporary = tempfile::tempdir().map_err(|e| format!("SDK key source closure: {e}"))?;
     let entry = temporary.path().join("main.dart");
     let mut source = String::new();
-    for name in SOURCE_LIBRARIES {
+    for name in source_libraries() {
         if sdk.library(name).is_some() {
             source.push_str(&format!("import 'dart:{name}';\n"));
         }
@@ -884,8 +946,12 @@ pub fn compiled_sdk_for(
     profile: SdkProfile,
     flags: crate::DartFlags,
 ) -> Result<CompiledSdk, String> {
-    if crate::target::is_wasm() {
-        return Err("the source SDK for WebAssembly (the `wasm` library set of the SDK, no shared library) is not part of this build yet (docs/PLANO-WASM-MVP.md, phase W3)".into());
+    // A WebAssembly module links everything statically: no shared library.
+    if crate::target::is_wasm() && profile == SdkProfile::Development {
+        return Err(
+            "internal error: the development SDK (a shared library) was requested for WebAssembly"
+                .into(),
+        );
     }
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -912,16 +978,21 @@ pub fn compiled_sdk_for(
     let root = crate::cache::native_cache_dir().join("sdk");
     let dir = root.join(&key);
     let dll_name = format!("dfsdk_{}", &key[..16]);
-    let dll_file = crate::target::shared_name(&dll_name);
+    // The shared library of the development profile, which WebAssembly never has.
+    let dll_file = if crate::target::is_wasm() {
+        String::new()
+    } else {
+        crate::target::shared_name(&dll_name)
+    };
     let ext_obj = crate::target::ext_object();
     let ready = |d: &Path, cold| CompiledSdk {
-        objects: SOURCE_LIBRARIES
+        objects: source_libraries()
             .iter()
             .map(|b| d.join(format!("{b}.{ext_obj}")))
             .collect(),
         // Both profiles: production prunes at link time (`pruning::assemble`), and
         // both prune the HIR of the program (`pruning::prune_hir`).
-        summaries: SOURCE_LIBRARIES
+        summaries: source_libraries()
             .iter()
             .map(|b| d.join(format!("{b}.poda")))
             .collect(),
@@ -946,7 +1017,11 @@ pub fn compiled_sdk_for(
         }
         return Ok(ready(&dir, None));
     }
-    let runtime_dll = crate::cache::RuntimeCache::for_dll()?;
+    let runtime_dll = if crate::target::is_wasm() {
+        None
+    } else {
+        Some(crate::cache::RuntimeCache::for_dll()?)
+    };
     let t0 = std::time::Instant::now();
     let tmp = root.join(format!("{key}.tmp.{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
@@ -977,7 +1052,7 @@ pub fn compiled_sdk_for(
     std::fs::write(tmp.join("exportados.def"), def).map_err(|e| e.to_string())?;
     let keep_ir = std::env::var_os("DARTFORGE_KEEP_IR").is_some();
     let mut summary = String::new();
-    for (b, lib) in SOURCE_LIBRARIES.iter().zip(&libs) {
+    for (b, lib) in source_libraries().iter().zip(&libs) {
         if keep_ir {
             std::fs::write(tmp.join(format!("{b}.ll")), &lib.ir).map_err(|e| e.to_string())?;
         }
@@ -994,7 +1069,7 @@ pub fn compiled_sdk_for(
     std::fs::write(tmp.join("recusados.tsv"), summary).map_err(|e| e.to_string())?;
     // Each library in a generator, at most 4 at the same time (the memory of
     // a large LLVM module is the measure, not the cores).
-    let queue = std::sync::Mutex::new(SOURCE_LIBRARIES.iter().zip(&libs).collect::<Vec<_>>());
+    let queue = std::sync::Mutex::new(source_libraries().iter().zip(&libs).collect::<Vec<_>>());
     let errors = std::sync::Mutex::new(Vec::new());
     std::thread::scope(|s| {
         for _ in 0..4 {
@@ -1036,8 +1111,12 @@ pub fn compiled_sdk_for(
                 .map(|lib| (lib.uri.as_str(), lib.ir.as_str()))
                 .collect::<Vec<_>>(),
         );
-        let inventory_runtime = crate::cache::RuntimeCache::for_production()?.lib_path;
-        let inventory_artifacts: Vec<_> = SOURCE_LIBRARIES
+        let inventory_runtime = if crate::target::is_wasm() {
+            crate::cache::RuntimeCache::for_wasm()?.lib_path
+        } else {
+            crate::cache::RuntimeCache::for_production()?.lib_path
+        };
+        let inventory_artifacts: Vec<_> = source_libraries()
             .iter()
             .flat_map(|library| [format!("{library}.{ext_obj}"), format!("{library}.poda")])
             .collect();
@@ -1072,7 +1151,7 @@ pub fn compiled_sdk_for(
         .iter()
         .flat_map(|lib| lib.tables.iter().cloned())
         .collect();
-    let allocation_artifacts: Vec<_> = SOURCE_LIBRARIES
+    let allocation_artifacts: Vec<_> = source_libraries()
         .iter()
         .flat_map(|b| [format!("{b}.{ext_obj}"), format!("{b}.poda")])
         .collect();
@@ -1096,11 +1175,17 @@ pub fn compiled_sdk_for(
             .filter(|n| **n != "main")
             .map(|n| n.to_string())
             .collect();
-        let mut entries: Vec<PathBuf> = SOURCE_LIBRARIES
+        let mut entries: Vec<PathBuf> = source_libraries()
             .iter()
             .map(|b| tmp.join(format!("{b}.{ext_obj}")))
             .collect();
-        entries.push(runtime_dll.lib_path.clone());
+        entries.push(
+            runtime_dll
+                .as_ref()
+                .expect("native SDK DLL")
+                .lib_path
+                .clone(),
+        );
         crate::linker::link(
             &crate::linker::ld_lld(clang),
             crate::linker::SysrootLinux::locate(clang)?,
@@ -1127,8 +1212,8 @@ pub fn compiled_sdk_for(
         let exit = std::process::Command::new(clang)
             .current_dir(&tmp)
             .arg("-shared")
-            .args(SOURCE_LIBRARIES.iter().map(|b| format!("{b}.{ext_obj}")))
-            .arg(&runtime_dll.lib_path)
+            .args(source_libraries().iter().map(|b| format!("{b}.{ext_obj}")))
+            .arg(&runtime_dll.as_ref().expect("native SDK DLL").lib_path)
             .arg("-Wl,/DEF:exportados.def")
             .args(crate::target::link_arguments())
             .arg("-o")
@@ -1153,11 +1238,17 @@ pub fn compiled_sdk_for(
         // CRT (`linker_windows.rs`); the `.def` exports the
         // runtime and the SDK, and the import library comes out next to the DLL.
         use crate::linker_windows as lw;
-        let mut entries: Vec<PathBuf> = SOURCE_LIBRARIES
+        let mut entries: Vec<PathBuf> = source_libraries()
             .iter()
             .map(|b| tmp.join(format!("{b}.{ext_obj}")))
             .collect();
-        entries.push(runtime_dll.lib_path.clone());
+        entries.push(
+            runtime_dll
+                .as_ref()
+                .expect("native SDK DLL")
+                .lib_path
+                .clone(),
+        );
         lw::link(
             &lw::lld_link(clang),
             lw::SysrootWindows::locate(clang)?,
@@ -1184,11 +1275,17 @@ pub fn compiled_sdk_for(
             .filter(|n| **n != "main")
             .map(|n| n.to_string())
             .collect();
-        let mut entries: Vec<PathBuf> = SOURCE_LIBRARIES
+        let mut entries: Vec<PathBuf> = source_libraries()
             .iter()
             .map(|b| tmp.join(format!("{b}.{ext_obj}")))
             .collect();
-        entries.push(runtime_dll.lib_path.clone());
+        entries.push(
+            runtime_dll
+                .as_ref()
+                .expect("native SDK DLL")
+                .lib_path
+                .clone(),
+        );
         let install_name = format!("@rpath/{dll_file}");
         lm::link(
             &lm::ld64_lld(clang),
@@ -1276,12 +1373,12 @@ pub fn measure_sdk_lowering(lib_dir: &Path) -> Result<Vec<SdkMember>, String> {
     use dartforge_intern::Interner;
     use dartforge_types::table::{CoreTypes, TypeTable};
 
-    let sdk = load_native_sdk(lib_dir)?;
+    let sdk = sdk_sources_layout(load_native_sdk(lib_dir)?);
     let tmp = std::env::temp_dir().join(format!("dartforge-lower-sdk-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
     let entry = tmp.join("main.dart");
     let mut source = String::new();
-    for b in SOURCE_LIBRARIES {
+    for b in source_libraries() {
         source.push_str(&format!("import 'dart:{b}';\n"));
     }
     source.push_str("void main() {}\n");
@@ -1303,7 +1400,7 @@ pub fn measure_sdk_lowering(lib_dir: &Path) -> Result<Vec<SdkMember>, String> {
         .filter(|(_, l)| {
             l.uri
                 .strip_prefix("dart:")
-                .is_some_and(|n| SOURCE_LIBRARIES.contains(&n))
+                .is_some_and(|n| source_libraries().contains(&n))
         })
         .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
         .collect();
@@ -1565,7 +1662,7 @@ mod tests {
         // and `convert_patch.dart` (JSON, docs/NATIVO-PLANO.md); 30 with
         // `convert/json.dart` (writing in UTF-8, §13.2).
         assert_eq!(sdk.replacements.len(), 30);
-        for b in SOURCE_LIBRARIES {
+        for b in source_libraries() {
             assert!(sdk.library(b).is_some(), "dart:{b} outside the layout");
         }
     }
@@ -1667,7 +1764,7 @@ mod tests {
             println!("{n:>5}  {m}");
         }
         if let Ok(dir) = std::env::var("DARTFORGE_SDK_IR_DIR") {
-            for (b, l) in SOURCE_LIBRARIES.iter().zip(&libs) {
+            for (b, l) in source_libraries().iter().zip(&libs) {
                 std::fs::write(Path::new(&dir).join(format!("{b}.ll")), &l.ir).unwrap();
                 let r: String = l
                     .rejected

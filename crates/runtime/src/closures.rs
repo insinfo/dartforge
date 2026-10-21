@@ -248,8 +248,22 @@ pub extern "C" fn dartforge_native_Function_apply(arguments: i64, names: i64) ->
             // SAFETY: `dartforge_closure_entry` returns the address of a uniform
             // entry generated with the signature (closure, arguments, descriptor).
             // Through the port (`exceptions_tables.rs`): both pointers pass as
-            // words, the same argument passing.
-            dart_r3(code as usize, function, args.as_ptr() as i64, desc.as_ptr() as i64)
+            // words, the same argument passing on the 64-bit targets.
+            #[cfg(not(target_arch = "wasm32"))]
+            let result = dart_r3(code as usize, function, args.as_ptr() as i64, desc.as_ptr() as i64);
+            // WebAssembly checks the exact signature of an indirect call, and its
+            // pointers are 32-bit: the entry is called with its own type (no
+            // ports or ARC there to go through).
+            #[cfg(target_arch = "wasm32")]
+            #[allow(unsafe_code)]
+            let result = {
+                // SAFETY: `dartforge_closure_entry` returns the table index of a
+                // uniform entry with this signature.
+                let entry: extern "C" fn(i64, *const i64, *const i64) -> i64 =
+                    unsafe { std::mem::transmute(code as usize) };
+                entry(function, args.as_ptr(), desc.as_ptr())
+            };
+            result
         })
     })
 }

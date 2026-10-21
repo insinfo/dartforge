@@ -14,8 +14,8 @@ pub mod report;
 
 pub use corpus::{Program, list};
 pub use oracles::{
-    Environment, dart_oracle, dartforge, dartforge_jit, dartforge_native, dartforge_native_ir,
-    dartforge_production, ddc_oracle,
+    Environment, dart_oracle, dart2wasm_oracle, dartforge, dartforge_jit, dartforge_native,
+    dartforge_native_ir, dartforge_production, ddc_oracle,
 };
 pub use process::Output;
 pub use report::{
@@ -46,6 +46,10 @@ pub struct Options {
     /// With `jit`: also link and run the AOT of the **same** IR, require both
     /// to be equal program by program and measure the times (`--jit-aot`).
     pub jit_aot: bool,
+    /// Native mode compiled to a WebAssembly module (`wasm32-linear`) and run by
+    /// the independent executor (`dartforge-wasm-run`); the process selects the
+    /// destination once (`--wasm`).
+    pub wasm: bool,
 }
 
 impl Default for Options {
@@ -57,13 +61,20 @@ impl Default for Options {
             with_production: false,
             jit: false,
             jit_aot: false,
+            wasm: false,
         }
     }
 }
 
 /// Runs a program on the requested executors.
 pub fn run_program(env: &Environment, program: &Program, op: Options) -> ProgramResult {
+    // The WebAssembly target answers to dart2wasm, where the web semantics
+    // differ from the VM (`dart:io`, isolates, `dart:ffi`).
     let dart = dart_oracle(env, program);
+    // The WebAssembly target also answers to dart2wasm (`ProgramResult::alternative`).
+    let alternative = op
+        .wasm
+        .then(|| dart2wasm_oracle(env, program, &env.output_dir("dart2wasm", program)));
     // The JS production profile is independent of the chosen backend: it is a
     // fourth executor of the same program, and it can run alongside native.
     // The executor names passed to `output_dir` are directories on disk.
@@ -94,6 +105,7 @@ pub fn run_program(env: &Environment, program: &Program, op: Options) -> Program
                 native: true,
                 production,
                 jit,
+                alternative: None,
             };
         }
         let forge = op
@@ -107,6 +119,7 @@ pub fn run_program(env: &Environment, program: &Program, op: Options) -> Program
             native: true,
             production,
             jit: None,
+            alternative,
         }
     } else {
         let ddc = ddc_oracle(env, program, &env.output_dir("ddc", program));
@@ -121,6 +134,7 @@ pub fn run_program(env: &Environment, program: &Program, op: Options) -> Program
             native: false,
             production,
             jit: None,
+            alternative: None,
         }
     }
 }

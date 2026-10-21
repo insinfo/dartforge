@@ -44,8 +44,9 @@ export async function sha256Hex(bytes) {
  * module writes. Resolves to `{ sha256, status, trap }`: `status` is
  * `dartforge_run`'s result, `trap` the engine error when it did not return.
  * Rejects only when the module does not run at all (compile, link or ABI).
+ * `options` are the runtime options `option` answers (`DARTFORGE_*` names).
  */
-export async function runModule(bytes, sinks) {
+export async function runModule(bytes, sinks, options = {}) {
   const sha256 = await sha256Hex(bytes);
   let memory = null;
   const imports = {
@@ -97,6 +98,16 @@ export async function runModule(bytes, sinks) {
       exit(status) {
         throw new ModuleExit(status);
       },
+      option(nameOffset, nameLength, outOffset, outCapacity) {
+        const name = range(memory, nameOffset, nameLength);
+        const out = range(memory, outOffset, outCapacity);
+        if (name === null || out === null) return WRITE_OUT_OF_RANGE;
+        const key = new TextDecoder().decode(new Uint8Array(memory.buffer, name[0], name[1] - name[0]));
+        if (!Object.hasOwn(options, key)) return -1;
+        const bytes = new TextEncoder().encode(String(options[key]));
+        new Uint8Array(memory.buffer, out[0], out[1] - out[0]).set(bytes.subarray(0, out[1] - out[0]));
+        return bytes.length;
+      },
     },
   };
   const { instance } = await WebAssembly.instantiate(bytes, imports);
@@ -108,7 +119,15 @@ export async function runModule(bytes, sinks) {
   if (version !== ABI_VERSION) throw new Error(`module ABI ${version}, host ABI ${ABI_VERSION}`);
   if (typeof exports.dartforge_run !== "function") throw new Error("no dartforge_run");
   try {
-    return { sha256, status: exports.dartforge_run(), trap: null };
+    // `-1`: the program waits for a timer; resume it after the delay it asks
+    // for, from the event loop, without blocking the page.
+    let status = exports.dartforge_run();
+    while (status === -1) {
+      const delay = exports.dartforge_delay_us() / 1000;
+      await new Promise((resolve) => setTimeout(resolve, Number.isFinite(delay) ? delay : 2 ** 31 - 1));
+      status = exports.dartforge_resume();
+    }
+    return { sha256, status, trap: null };
   } catch (e) {
     if (e instanceof ModuleExit) return { sha256, status: e.status, trap: null };
     return { sha256, status: null, trap: String(e) };

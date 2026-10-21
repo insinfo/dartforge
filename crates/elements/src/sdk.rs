@@ -46,6 +46,10 @@ pub struct SdkLayout {
     /// Overlay (`load_with_overlay`): SDK file, by normalized path → the
     /// file that replaces it. Empty without an overlay.
     pub replacements: HashMap<PathBuf, PathBuf>,
+    /// SDK libraries a library outside the SDK may not import on this target,
+    /// with the compiler's message (the overlay's `user_import_errors`:
+    /// dart2wasm refuses `dart:ffi` in user code).
+    pub user_import_errors: HashMap<String, String>,
 }
 
 /// Command-line language options: `--language-version x.y` (the current
@@ -147,6 +151,7 @@ impl SdkLayout {
             current_version: LanguageVersion::CURRENT,
             experiments: Vec::new(),
             replacements: HashMap::new(),
+            user_import_errors: HashMap::new(),
         })
     }
 
@@ -232,6 +237,7 @@ impl SdkLayout {
             current_version: LanguageVersion::CURRENT,
             experiments: Vec::new(),
             replacements: HashMap::new(),
+            user_import_errors: HashMap::new(),
         })
     }
 
@@ -269,6 +275,57 @@ impl SdkLayout {
             .and_then(|b| b.as_str())
             .ok_or_else(|| format!("{target}.base missing in {}", path.display()))?;
         let mut sdk = Self::load(lib_dir, base)?;
+        // A target may change whole library entries of its base (another set
+        // of patches, `supported: false`) and drop libraries its platform does
+        // not have; the paths stay relative to the SDK's `lib/`.
+        if let Some(entries) = section_.get("libraries").and_then(|l| l.as_object()) {
+            for (name, entry) in entries {
+                if !sdk.libraries.contains_key(name) {
+                    return Err(format!(
+                        "{target}.libraries[{name}] changes a library the base {base} does not have ({})",
+                        path.display()
+                    ));
+                }
+                let library = Self::library_entry(name, entry, lib_dir)?;
+                for file in std::iter::once(&library.path).chain(&library.patches) {
+                    if !file.is_file() {
+                        return Err(format!(
+                            "{target}.libraries[{name}] points to {}, which does not exist",
+                            file.display()
+                        ));
+                    }
+                }
+                sdk.libraries.insert(name.clone(), library);
+            }
+        }
+        if let Some(errors) = section_
+            .get("user_import_errors")
+            .and_then(|e| e.as_object())
+        {
+            for (name, message) in errors {
+                let message = message.as_str().ok_or_else(|| {
+                    format!(
+                        "{target}.user_import_errors[{name}] is not a string in {}",
+                        path.display()
+                    )
+                })?;
+                sdk.user_import_errors
+                    .insert(name.clone(), message.to_string());
+            }
+        }
+        if let Some(names) = section_.get("remove").and_then(|r| r.as_array()) {
+            for name in names {
+                let name = name.as_str().ok_or_else(|| {
+                    format!("{target}.remove has a non-string in {}", path.display())
+                })?;
+                if sdk.libraries.remove(name).is_none() {
+                    return Err(format!(
+                        "{target}.remove names {name}, which the base {base} does not have ({})",
+                        path.display()
+                    ));
+                }
+            }
+        }
         if let Some(swaps) = section_.get("replaces").and_then(|s| s.as_object()) {
             for (original, new_) in swaps {
                 let new_ = new_.as_str().ok_or_else(|| {
@@ -343,35 +400,42 @@ impl SdkLayout {
             .and_then(|l| l.as_object())
             .ok_or_else(|| format!("section {target}.libraries missing in {}", path.display()))?;
         for (name, entry) in section {
-            let uri = entry
-                .get("uri")
-                .and_then(|u| u.as_str())
-                .ok_or_else(|| format!("library {name} without uri"))?;
-            let patches = match entry.get("patches") {
-                None => Vec::new(),
-                Some(serde_json::Value::String(one)) => vec![lib_dir.join(one)],
-                Some(serde_json::Value::Array(many)) => many
-                    .iter()
-                    .filter_map(|p| p.as_str())
-                    .map(|p| lib_dir.join(p))
-                    .collect(),
-                Some(_) => return Err(format!("library {name} with invalid patches")),
-            };
-            let supported = entry
-                .get("supported")
-                .and_then(|s| s.as_bool())
-                .unwrap_or(true);
-            libraries.insert(
-                name.clone(),
-                SdkLibrary {
-                    name: name.clone(),
-                    path: lib_dir.join(uri),
-                    patches,
-                    supported,
-                },
-            );
+            libraries.insert(name.clone(), Self::library_entry(name, entry, lib_dir)?);
         }
         Ok(())
+    }
+
+    /// One `libraries.json` entry: `uri`, `patches` (one or many) and
+    /// `supported`, the paths relative to the SDK's `lib/`.
+    fn library_entry(
+        name: &str,
+        entry: &serde_json::Value,
+        lib_dir: &Path,
+    ) -> Result<SdkLibrary, String> {
+        let uri = entry
+            .get("uri")
+            .and_then(|u| u.as_str())
+            .ok_or_else(|| format!("library {name} without uri"))?;
+        let patches = match entry.get("patches") {
+            None => Vec::new(),
+            Some(serde_json::Value::String(one)) => vec![lib_dir.join(one)],
+            Some(serde_json::Value::Array(many)) => many
+                .iter()
+                .filter_map(|p| p.as_str())
+                .map(|p| lib_dir.join(p))
+                .collect(),
+            Some(_) => return Err(format!("library {name} with invalid patches")),
+        };
+        let supported = entry
+            .get("supported")
+            .and_then(|s| s.as_bool())
+            .unwrap_or(true);
+        Ok(SdkLibrary {
+            name: name.to_string(),
+            path: lib_dir.join(uri),
+            patches,
+            supported,
+        })
     }
 
     pub fn library(&self, name: &str) -> Option<&SdkLibrary> {

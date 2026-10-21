@@ -58,6 +58,57 @@ thread_local! {
     static EVENT_LOOP_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+// A WebAssembly module never blocks inside the event loop: the browser's thread
+// cannot wait, and the host owns the clock. When only future timers remain,
+// the loop records the earliest deadline, marks itself suspended and returns;
+// the module's entry reports "pending" (host ABI v1), and the host calls
+// `dartforge_resume` (`wasm_entry.rs`) once the delay has passed.
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    /// The loop returned to the host (`Some`), with the deadline of the next
+    /// timer (`None`: a timer too far away to represent).
+    static SUSPENDED: std::cell::Cell<Option<Option<crate::clock::Instant>>> =
+        const { std::cell::Cell::new(None) };
+    /// The generated-code function the loop calls closures through, kept for
+    /// `dartforge_resume`.
+    static LOOP_CALL: std::cell::Cell<Option<extern "C" fn(i64) -> i64>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Whether the last event loop returned suspended (WebAssembly).
+#[cfg(target_arch = "wasm32")]
+fn event_loop_suspended() -> bool {
+    SUSPENDED.with(|s| s.get().is_some())
+}
+
+/// Microseconds until the next timer of a suspended loop (0 when already due;
+/// `f64::INFINITY` for a timer too far away to represent).
+#[cfg(target_arch = "wasm32")]
+fn event_loop_delay_micros() -> f64 {
+    match SUSPENDED.with(|s| s.get()) {
+        Some(Some(due)) => due.saturating_duration_since(crate::clock::Instant::now()).as_micros() as f64,
+        Some(None) => f64::INFINITY,
+        None => 0.0,
+    }
+}
+
+/// Runs a suspended loop again (`dartforge_resume`).
+#[cfg(target_arch = "wasm32")]
+fn resume_event_loop() {
+    SUSPENDED.with(|s| s.set(None));
+    if let Some(call) = LOOP_CALL.with(|c| c.get()) {
+        dartforge_event_loop(call);
+    }
+}
+
+/// Where the native loop waits for `due` (or for a message), a module returns
+/// to the host instead.
+#[cfg(target_arch = "wasm32")]
+fn suspend_event_loop(call: extern "C" fn(i64) -> i64, due: Option<crate::clock::Instant>) {
+    LOOP_CALL.with(|c| c.set(Some(call)));
+    SUSPENDED.with(|s| s.set(Some(due)));
+}
+
 // Current port/message roots are single-frame state. Until nested turns have
 // their own roots and scheduling contract, reject entry before touching queues
 // or serving work inside an active Dart/native callback frame.
@@ -413,7 +464,10 @@ pub extern "C" fn dartforge_event_loop(call: extern "C" fn(i64) -> i64) {
             continue;
         }
         let Some((deadline, seq, id)) = next_offset else {
-            if has_live_port() {
+            // A module's only isolate has nobody else to send it a message: a
+            // live port alone ends the program, as dart2wasm's does when the
+            // JavaScript event loop empties.
+            if has_live_port() && !cfg!(target_arch = "wasm32") {
                 if collect_at_event_idle_boundary() {
                     continue;
                 }
@@ -427,16 +481,32 @@ pub extern "C" fn dartforge_event_loop(call: extern "C" fn(i64) -> i64) {
             if collect_at_event_idle_boundary() {
                 continue;
             }
-            wait_message(event_wait_deadline(None), false);
-            continue;
+            #[cfg(target_arch = "wasm32")]
+            {
+                suspend_event_loop(call, None);
+                return;
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                wait_message(event_wait_deadline(None), false);
+                continue;
+            }
         };
         if crate::clock::Instant::now() < due {
             // Waits for the deadline, waking earlier if a message arrives.
             if collect_at_event_idle_boundary() {
                 continue;
             }
-            wait_message(event_wait_deadline(Some(due)), false);
-            continue;
+            #[cfg(target_arch = "wasm32")]
+            {
+                suspend_event_loop(call, Some(due));
+                return;
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                wait_message(event_wait_deadline(Some(due)), false);
+                continue;
+            }
         }
         EVENTS.with(|e| e.borrow_mut().queue.remove(&(deadline, seq)));
         let firing = EVENTS.with(|e| {

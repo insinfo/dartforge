@@ -19,7 +19,7 @@ impl ProgramResult {
     /// let output = Output { stdout: "ok\n".into(), stderr: String::new(), code: 0 };
     /// let result = ProgramResult { program: Program::test("example"),
     ///     dart: output.clone(), ddc: output, forge: None, native: false,
-    ///     production: None, jit: None };
+    ///     production: None, jit: None, alternative: None };
     /// assert!(result.oracle_failure().is_none());
     /// ```
     pub fn oracle_failure(&self) -> Option<String> {
@@ -93,6 +93,7 @@ mod tests {
             native,
             production: None,
             jit: None,
+            alternative: None,
         }
     }
 

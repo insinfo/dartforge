@@ -1,0 +1,1 @@
+{"sha256":"f6752c2e6e59192c288bb8e793056d5aeb6cc4cb810a38af8106fd1bae2738e4","status":0,"trap":null,"stdout":"microtask, delayed 10, periodic 3, timer 200\nwaited at least 20 ms: true\n","stderr":"","userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"}

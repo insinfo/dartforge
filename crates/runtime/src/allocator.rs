@@ -122,7 +122,7 @@ fn put_in_list(c: usize, p: *mut u8) -> bool {
 /// `DARTFORGE_ALLOCATOR_NO_CACHE=1`.
 pub fn enable_allocation_cache() {
     let disabled =
-        std::env::var_os("DARTFORGE_ALLOCATOR_NO_CACHE").is_some_and(|v| !v.is_empty() && v != "0");
+        crate::console::env_var_os("DARTFORGE_ALLOCATOR_NO_CACHE").is_some_and(|v| !v.is_empty() && v != "0");
     let _ = ALLOCATION_CACHE.try_with(|k| k.enabled_flag.set(!disabled));
 }
 

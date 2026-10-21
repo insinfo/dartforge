@@ -1,7 +1,7 @@
 # Plano de implementação: DartForge → LLVM → WebAssembly MVP
 
-Data: 20/10/2026. **Estado (21/10/2026): W0, W1 e W2 concluídos; W3 em
-diante não iniciados.** O W0 prova o perfil binário e a ABI de host com um módulo escalar
+Data: 20/10/2026. **Estado (21/10/2026): W0 a W3 concluídos; W4 em
+andamento.** O W0 prova o perfil binário e a ABI de host com um módulo escalar
 (LLVM IR + fragmento Rust com `std`), não Dart→Wasm: este documento ainda não
 registra execução Dart→Wasm bem-sucedida.
 
@@ -385,6 +385,45 @@ evidências em `bench/results/2026-10-21-wasm-w2/`.
 
 **Aceite:** a ligação usa o runtime de produção; GC sob estresse e verificador de
 raízes passam nos programas que já executam. Desabilitar GC não aprova nada.
+
+**Resultado (21/10/2026): aceito.** Reproduzir com `scripts/wasm-w3.sh` e
+`dartforge-differential --wasm --corpus corpus/native` (com `--gc-stress` e
+`DARTFORGE_CHECK_SHADOW=1`); evidências em `bench/results/2026-10-21-wasm-w3/`.
+
+| item | resultado |
+|---|---|
+| SDK do alvo | seção `dartforge_wasm` do overlay: base `vm` (o runtime implementa os natives da VM) com as mesmas trocas; `dart:io` e `dart:isolate` com os patches em Dart puro do próprio SDK (`_internal/wasm/lib/io_patch.dart`, `isolate_patch.dart`: importáveis, `UnsupportedError` no uso); `dart:ffi` com `supported: false` e import recusado em código de usuário com a mensagem do dart2wasm; sem `_builtin`, `_vmservice`, `vmservice_io`, `cli`, `concurrent` e `mirrors`. O carregador aceita por alvo `libraries` (troca de entradas), `remove` e `user_import_errors` |
+| constantes | `dart.library.<nome>` vem do layout do alvo (definida para cada biblioteca presente, `true` se suportada; `mirrors` só fora do perfil de produção). Corrigiu também o nativo, que dava `false` para todas: agora `dart run` e `dart compile exe` batem com a VM, e o Wasm com o dart2wasm (menos `js_interop`, que entra com o interop) |
+| ligação | o SDK vai sempre estático (perfil de produção, bitcode com LTO do `wasm-ld` e as features do perfil); o `compile-wasm` compila como o `dart compile wasm` (asserts desligados sem `--enable-asserts`) |
+| entrada | o emissor escreve `dartforge_run`, que entrega a entrada ao `dartforge_init` como o `main` C nativo; sem a preparação do embedder de `dart:io` (`Platform.version`, `Platform.script`); `main(List<String>)` recebe a lista vazia |
+| laço de eventos | o módulo nunca bloqueia: com só timers futuros o laço devolve `-1`, o host espera `dartforge_delay_us` e chama `dartforge_resume` (no navegador por `setTimeout`); uma porta viva sem timers termina o programa, como no dart2wasm |
+| opções | `DARTFORGE_*` (GC forçado, estatísticas, sabotagens) chegam ao runtime pelo import `option`; o executor só repassa essas variáveis |
+| ABI de chamada | o WebAssembly confere a assinatura exata das chamadas indiretas: o `Function.apply` do runtime chama a entrada uniforme com o tipo dela (`ptr` é de 32 bits); callbacks FFI sem o atributo `nest`, que o Wasm não tem |
+| executor | pilha do motor de 8 MiB numa thread própria (o padrão de 512 KiB dava um quinto da profundidade da VM) |
+| harness | `--wasm` compila cada programa para `.wasm` e o roda no `dartforge-wasm-run`, com duas referências: a VM e o dart2wasm (`dart compile wasm` no Node por `runtime/wasm/run_dart2wasm.mjs`, que reporta erros como a VM). Passa o que é igual a uma delas, ou igual à VM até o ponto em que falta um recurso da web e falha ali com a mesma mensagem do dart2wasm |
+| corpus nativo em Wasm | **137/140**, também com o verificador de raízes e com GC forçado (219 coletas num programa que sem estresse não coleta); 37 seguem o dart2wasm por falta de recurso da plataforma (`dart:io`, isolados, `dart:ffi`, `mirrors`) |
+| hosts | `scripts/wasm-w3.sh`: hello, timers e três programas do corpus com o mesmo hash e a saída do `dart run` no Wasmtime, no Node e no Chrome |
+| regressão | corpus nativo 140/140 nos cinco modos; corpus JS 242/242 em desenvolvimento e produção |
+
+Política de referência quando a VM e o dart2wasm divergem: o que é capacidade da
+plataforma (bibliotecas, `dart:io`, isolados, `dart:ffi`, fuso no navegador) segue o
+dart2wasm; o que é detalhe de implementação em que o dart2wasm se afasta da VM
+(nomes de classes internas como `IndexError`/`_Future`, textos de erro, caixa de
+`'ß'.toUpperCase()` pelo JavaScript, `Int32x4` sem *wrap*) segue a VM, como o
+DartForge nativo.
+
+Abertos para o W4:
+
+1. **`StackOverflowError` capturável.** Os três programas de estouro de pilha
+   viram trap da pilha do motor (no dart2wasm também falham, sem captura). A
+   verificação linear não dispara porque uma função sem raízes não consome pilha
+   linear: cada quadro verificado precisa reservar pilha linear proporcional, e
+   o host informar o orçamento da sua pilha de motor.
+2. **Quadros do motor.** A profundidade máxima no Node é 7 mil quadros contra 14
+   mil do dart2wasm: os quadros têm o dobro do tamanho.
+3. **Tamanho.** Hello com 1,9 MB contra 47 KB do dart2wasm (que usa strings e
+   números do JavaScript): o runtime inteiro e o SDK sem poda por mundo fechado.
+4. **Interop JS** (`dart:js_interop`), com `dart.library.js_interop` verdadeiro.
 
 ### W4 — Paridade com a VM e o dart2wasm
 

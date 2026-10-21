@@ -374,6 +374,60 @@ pub fn dart_oracle(env: &Environment, program: &Program) -> Output {
     s
 }
 
+/// The reference of the WebAssembly target: the official `dart compile wasm`
+/// (`--enable-asserts`, like DartForge's development flags) run by Node through
+/// `runtime/wasm/run_dart2wasm.mjs`, which reports an escaping error like the
+/// VM (`Unhandled exception:`, 255). A program dart2wasm refuses is a compile
+/// error (254), as with the VM.
+pub fn dart2wasm_oracle(env: &Environment, program: &Program, dir: &Path) -> Output {
+    let sdk = match env.oracle(program) {
+        Ok(s) => s,
+        Err(e) => return Output::error(e),
+    };
+    // The runner decides how a failure is reported: a new runner is a new
+    // oracle, never a cached answer of the old one.
+    let runner = env.root.join("runtime/wasm/run_dart2wasm.mjs");
+    let runner_version = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        std::fs::read(&runner).unwrap_or_default().hash(&mut h);
+        h.finish()
+    };
+    let label = sdk.label(&format!("dart2wasm-ea-{runner_version:016x}"));
+    let key = cache_key(program);
+    if let Some(s) = cache_read(env, &label, &key) {
+        return s;
+    }
+    let _ = std::fs::create_dir_all(dir);
+    let module = dir.join("main.wasm");
+    let mut args: Vec<String> = vec!["compile".into(), "wasm".into(), "--enable-asserts".into()];
+    args.extend(experiments_arg(program));
+    args.push(program.entry.to_string_lossy().into_owned());
+    args.push("-o".into());
+    args.push(module.to_string_lossy().into_owned());
+    let compiled = run(&sdk.dart(), &args, program.dir(), env.timeout);
+    let s = if compiled.code != 0 {
+        Output {
+            stdout: String::new(),
+            stderr: compiled.stdout + &compiled.stderr,
+            code: 254,
+        }
+    } else {
+        run(
+            "node",
+            &[
+                runner.to_string_lossy().into_owned(),
+                dir.join("main.mjs").to_string_lossy().into_owned(),
+                module.to_string_lossy().into_owned(),
+            ],
+            dir,
+            env.timeout,
+        )
+    };
+    cache_write(env, &label, &key, &s);
+    s
+}
+
 // ---------------------------------------------------------------- negative programs
 
 /// The comparable output of an executor that **rejected** a negative program
@@ -663,7 +717,10 @@ pub fn dartforge(env: &Environment, program: &Program, dir: &Path) -> Output {
 /// DartForge Native: compiles via `dartforge_emit_native::compile` and then runs the binary.
 pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Output {
     let _ = std::fs::create_dir_all(dir);
-    let exe_name = if cfg!(windows) {
+    let wasm = dartforge_emit_native::target::is_wasm();
+    let exe_name = if wasm {
+        format!("{}.wasm", program.name)
+    } else if cfg!(windows) {
         format!("{}.exe", program.name)
     } else {
         program.name.clone()
@@ -723,9 +780,17 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
     } else {
         &[]
     };
+    // A module runs in the independent executor, which passes the
+    // `DARTFORGE_*` variables on to the runtime (host ABI `option`).
+    let executor = wasm.then(wasm_executor);
+    let module = exe_path.to_string_lossy().into_owned();
+    let (program_path, arguments): (String, Vec<String>) = match &executor {
+        Some(run) => (run.clone(), vec![module.clone()]),
+        None => (module.clone(), Vec::new()),
+    };
     let s = run_with_env(
-        &exe_path.to_string_lossy(),
-        &[],
+        &program_path,
+        &arguments,
         dir,
         env.native_timeout,
         &env.extra_path,
@@ -737,6 +802,23 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
         let _ = std::fs::remove_file(&exe_path);
     }
     s
+}
+
+/// The executor of WebAssembly modules: `DARTFORGE_WASM_RUN`, otherwise
+/// `dartforge-wasm-run` next to this binary.
+fn wasm_executor() -> String {
+    if let Some(path) = std::env::var_os("DARTFORGE_WASM_RUN") {
+        return path.to_string_lossy().into_owned();
+    }
+    let name = if cfg!(windows) {
+        "dartforge-wasm-run.exe"
+    } else {
+        "dartforge-wasm-run"
+    };
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(name)))
+        .map_or_else(|| name.to_string(), |p| p.to_string_lossy().into_owned())
 }
 
 /// Only the native backend's emission: the program's LLVM IR, without Clang,

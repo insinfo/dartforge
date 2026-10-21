@@ -560,7 +560,14 @@ pub fn run_compile_wasm(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::
             .into());
         }
     }
-    run_compile_native(args)
+    // `dart compile wasm` compiles for production: asserts off and
+    // `dart.vm.product` true unless `--enable-asserts`; the module links its SDK
+    // statically, through the production pipeline, in every case.
+    let mut args = args.to_vec();
+    if !args.iter().any(|a| a == "--optimize") {
+        args.push("--optimize".into());
+    }
+    run_compile_native(&args)
 }
 
 #[cfg(feature = "native")]

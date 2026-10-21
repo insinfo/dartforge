@@ -102,9 +102,16 @@ fn clamp_hint<T: PartialOrd + Copy>(v: T, lo: T, hi: T, negative: impl Fn(T) -> 
         m
     }
 }
-#[cfg(not(target_arch = "aarch64"))]
+#[cfg(not(any(target_arch = "aarch64", target_arch = "wasm32")))]
 fn clamp_hint<T: PartialOrd + Copy>(v: T, lo: T, hi: T, _negative: impl Fn(T) -> bool) -> T {
     simd_max(simd_min(v, hi), lo)
+}
+/// dart2wasm's `clamp` (`_internal/wasm/lib/simd.dart`): `m = v > hi ? hi : v`,
+/// then `m < lo ? lo : m`; a NaN lane stays NaN.
+#[cfg(target_arch = "wasm32")]
+fn clamp_hint<T: PartialOrd + Copy>(v: T, lo: T, hi: T, _negative: impl Fn(T) -> bool) -> T {
+    let m = if v > hi { hi } else { v };
+    if m < lo { lo } else { m }
 }
 
 /// The `shuffle`/`shuffleMix` mask: `0..255`, otherwise `RangeError`.

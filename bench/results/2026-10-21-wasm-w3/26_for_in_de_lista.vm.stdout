@@ -1,0 +1,19 @@
+fixa 28 100
+aa,ab,ad,ba,bb,bd,ca,cb,cd
+modificada: true 4
+encolheu
+minha 120 1
+int 1
+double 2.5
+String x
+Null null
+bool true
+List<int> [1]
+int 4611686018427387904
+ds 8.0 [1.5, 2.5]
+ultimo 6
+[10, 20, 30]
+async 10
+imutavel 3
+imutavel 4
+grande 4999950000

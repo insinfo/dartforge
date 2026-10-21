@@ -490,7 +490,7 @@ pub struct Context {
 /// code always goes to the runtime (the answer is the same).
 pub fn inline_class() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *SIM.get_or_init(|| std::env::var_os("DARTFORGE_NO_INLINE_CLASS").is_none())
+    *SIM.get_or_init(|| crate::console::env_var_os("DARTFORGE_NO_INLINE_CLASS").is_none())
 }
 
 const _: () = {
@@ -807,7 +807,7 @@ pub fn sabotage(name: &str) -> bool {
     static ENABLED: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
     ENABLED
         .get_or_init(|| {
-            std::env::var("DARTFORGE_SABOTAGE")
+            crate::console::env_var("DARTFORGE_SABOTAGE")
                 .unwrap_or_default()
                 .split(',')
                 .map(|s| s.trim().to_string())
@@ -824,7 +824,7 @@ pub fn sabotage(name: &str) -> bool {
 /// an anomaly of the walk aborts instead of just ending it.
 fn checked_walk() -> bool {
     static SIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *SIM.get_or_init(|| std::env::var("DARTFORGE_GC_WALK").is_ok_and(|v| v == "check"))
+    *SIM.get_or_init(|| crate::console::env_var("DARTFORGE_GC_WALK").is_ok_and(|v| v == "check"))
 }
 
 /// Ends the process: a map the runtime cannot read is a lost
@@ -1720,7 +1720,7 @@ struct Schedule {
 
 impl Schedule {
     fn from_env() -> Option<Schedule> {
-        let v = std::env::var("DARTFORGE_GC_SCHEDULE").ok()?;
+        let v = crate::console::env_var("DARTFORGE_GC_SCHEDULE").ok()?;
         let (seed, rate) = v.split_once(',')?;
         let seed: u64 = seed.trim().parse().ok()?;
         let rate: u64 = rate.trim().parse().ok().filter(|&t| t > 0)?;
@@ -2019,11 +2019,11 @@ impl Heap {
             marking_work: 0,
             pending: Vec::new(),
             byte_threshold: 2 * YOUNG_LIMIT,
-            growth: std::env::var("DARTFORGE_GC_GROWTH")
+            growth: crate::console::env_var("DARTFORGE_GC_GROWTH")
                 .ok()
                 .and_then(|v| v.parse::<usize>().ok())
                 .map_or(GROWTH, |c| c.max(110)),
-            young_limit: std::env::var("DARTFORGE_GC_YOUNG_KB")
+            young_limit: crate::console::env_var("DARTFORGE_GC_YOUNG_KB")
                 .ok()
                 .and_then(|v| v.parse::<usize>().ok())
                 .map_or(YOUNG_LIMIT, |kb| (kb * 1024).max(64 * 1024)),
@@ -2034,7 +2034,7 @@ impl Heap {
             permanents: crate::hash::HashSet::default(),
             constants: crate::hash::HashMap::default(),
             tearoff_code: crate::hash::HashMap::default(),
-            gc_disabled: std::env::var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
+            gc_disabled: crate::console::env_var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
             collection_deferred: 0,
             globals: crate::hash::HashMap::default(),
             area_roots: Vec::new(),
@@ -2052,33 +2052,36 @@ impl Heap {
             external: 0,
             exact_estimated_bytes: 0,
             objects: ObjectSpace::new(
-                stress || cfg!(test) || std::env::var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1"),
+                stress
+                    || cfg!(test)
+                    || crate::console::env_var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1"),
             ),
             published: false,
             context: std::ptr::null(),
-            runtime_tlab: std::env::var_os("DARTFORGE_NO_RUNTIME_TLAB").is_none_or(|v| v != "1"),
-            tlab_blocks: std::env::var("DARTFORGE_TLAB_BLOCKS")
+            runtime_tlab: crate::console::env_var_os("DARTFORGE_NO_RUNTIME_TLAB")
+                .is_none_or(|v| v != "1"),
+            tlab_blocks: crate::console::env_var("DARTFORGE_TLAB_BLOCKS")
                 .ok()
                 .and_then(|v| v.parse::<usize>().ok())
                 .map_or(TLAB_BLOCKS, |n| n.clamp(1, 1 << 16)),
             young_bytes: 0,
             arc: None,
             minor_collection: false,
-            aging: std::env::var("DARTFORGE_GC_AGING").as_deref() != Ok("0"),
+            aging: crate::console::env_var("DARTFORGE_GC_AGING").as_deref() != Ok("0"),
             aging_now: false,
             survivor_state: SURVIVOR,
             aging_pause: (0, 0),
             minors_since_full: 0,
             work_in_full: 0,
-            verify: std::env::var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1"),
+            verify: crate::console::env_var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1"),
             validate_handles: stress
                 || cfg!(any(test, debug_assertions))
                 // Poison only catches use-after-free in validation.
-                || std::env::var("DARTFORGE_GC_POISON").is_ok_and(|v| !v.is_empty() && v != "0")
-                || std::env::var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1")
-                || std::env::var("DARTFORGE_VALIDATE_HANDLES").as_deref() == Ok("1"),
-            trace: std::env::var("DARTFORGE_GC_TRACE").as_deref() == Ok("1"),
-            memory: std::env::var("DARTFORGE_GC_MEMORY")
+                || crate::console::env_var("DARTFORGE_GC_POISON").is_ok_and(|v| !v.is_empty() && v != "0")
+                || crate::console::env_var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1")
+                || crate::console::env_var("DARTFORGE_VALIDATE_HANDLES").as_deref() == Ok("1"),
+            trace: crate::console::env_var("DARTFORGE_GC_TRACE").as_deref() == Ok("1"),
+            memory: crate::console::env_var("DARTFORGE_GC_MEMORY")
                 .ok()
                 .and_then(|v| v.parse::<u8>().ok())
                 .unwrap_or(0),
@@ -2256,7 +2259,7 @@ impl Heap {
     /// Reads the heap ceiling from the environment once, at creation.
     fn limit_from_env() -> usize {
         const DEFAULT: usize = 256 * 1024 * 1024;
-        match std::env::var("DARTFORGE_HEAP_MAX_MB") {
+        match crate::console::env_var("DARTFORGE_HEAP_MAX_MB") {
             Ok(v) => match v.trim().parse::<usize>() {
                 Ok(0) => usize::MAX,
                 Ok(mb) => mb.saturating_mul(1024 * 1024),
@@ -5510,7 +5513,7 @@ mod object_space {
     #[ignore = "measurement"]
     fn linked_list_in_heap() {
         let mut heap = Heap::new(false);
-        heap.trace = std::env::var("DARTFORGE_GC_TRACE").as_deref() == Ok("1");
+        heap.trace = crate::console::env_var("DARTFORGE_GC_TRACE").as_deref() == Ok("1");
         let frame = heap.push_frame_with_slots(1);
         for _ in 0..6 {
             let t = crate::clock::Instant::now();
@@ -6826,17 +6829,18 @@ impl Heap {
             state: crate::arc::ArcHeapState::new(),
             snapshots: crate::hash::HashMap::default(),
             ephemerons: ArcEphemerons::default(),
-            check: std::env::var("DARTFORGE_ARC_CHECK").is_ok_and(|v| v == "1"),
-            cycles: match std::env::var("DARTFORGE_ARC_CYCLES").as_deref() {
+            check: crate::console::env_var("DARTFORGE_ARC_CHECK").is_ok_and(|v| v == "1"),
+            cycles: match crate::console::env_var("DARTFORGE_ARC_CYCLES").as_deref() {
                 Ok("always") => Some(true),
                 Ok("never") => Some(false),
                 _ => None,
             },
-            pure: !std::env::var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "1"),
+            pure: !crate::console::env_var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "1"),
         });
-        arc.state.trace_log = std::env::var("DARTFORGE_ARC_TRACE").is_ok_and(|v| v == "1");
+        arc.state.trace_log =
+            crate::console::env_var("DARTFORGE_ARC_TRACE").is_ok_and(|v| v == "1");
         arc.state.retain_dead_candidates =
-            std::env::var("DARTFORGE_ARC_RETAIN_DEAD_CANDIDATES").is_ok_and(|v| v == "1");
+            crate::console::env_var("DARTFORGE_ARC_RETAIN_DEAD_CANDIDATES").is_ok_and(|v| v == "1");
         arc.state.without_edges = Some(block_without_refs);
         let reached_set = self.reachable_by_tracing();
         for &x in &reached_set {
@@ -8978,7 +8982,7 @@ mod arc_no_heap {
 
     /// How many seeds: `DF_ARC_SEEDS` widens the search outside CI.
     fn seeds(pattern: u64) -> u64 {
-        std::env::var("DF_ARC_SEEDS")
+        crate::console::env_var("DF_ARC_SEEDS")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(pattern)

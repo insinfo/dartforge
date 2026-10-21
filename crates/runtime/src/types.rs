@@ -339,7 +339,7 @@ impl Universe {
     fn new() -> Self {
         let mut u = Universe {
             // Runtime-only ablation: both paths produce the same canonical type.
-            memo_list_tuple_enabled: !std::env::var("DARTFORGE_RTI_LIST_TUPLE_CACHE")
+            memo_list_tuple_enabled: !crate::console::env_var("DARTFORGE_RTI_LIST_TUPLE_CACHE")
                 .is_ok_and(|value| value == "0"),
             ..Universe::default()
         };
