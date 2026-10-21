@@ -8,7 +8,7 @@ de 25,22 MB, árvores 1,75× mais lentas) são do commit `eb6d25ab` e já não v
 
 | uso | situação | recomendação |
 |---|---|---|
-| Servidor HTTP e CLI nativos (AOT) | correto no corpus, memória estável em 10 milhões de pedidos e menor que a do Dart, vazão 80–95% do Dart | pode ir para produção com implantação gradual e o Dart como plano B |
+| Servidor HTTP e CLI nativos (AOT) | correto no corpus, memória estável em 10 milhões de pedidos e menor que a do Dart, vazão ~70% do Dart com keep-alive | pode ir para produção com implantação gradual e o Dart como plano B |
 | Desktop nativo (dart_ui, File Explorer) | smoke AOT passa; executável 1,59× o do Dart | pode ir para produção onde o tamanho do instalador não é crítico |
 | Web (JS de produção) | correto no corpus e num projeto real, saída idêntica à VM; arquivo ~2× o do dart2js | serve para sistemas internos; para sites públicos o tamanho ainda pesa |
 | Modo A1 (`--exceptions tables`) | correto no corpus; desenrolar um `StackOverflowError` profundo é lento | usar o modo padrão (A0) em produção |
@@ -25,14 +25,25 @@ de 25,22 MB, árvores 1,75× mais lentas) são do commit `eb6d25ab` e já não v
   **byte a byte igual** ao `dart run`.
 - File Explorer AOT: abre, renderiza dois quadros e o smoke do menu de contexto passa.
 
-**Servidor HTTP sob carga** (`bench/comparison/server.dart`, rota `/json`, `ab -k -c 32`):
+**Servidor HTTP sob carga** (`bench/comparison/server.dart`, rota `/json`).
+
+Com o `ab` (HTTP/1.0, sem reaproveitar conexão por causa do corpo `chunked`) os dois
+ficam em 26–35 mil pedidos por segundo, mas o número mede mais o cliente que o servidor.
+Com um gerador HTTP/1.1 com keep-alive (4 isolados × 8 conexões, compilado pelo Dart AOT):
 
 | | DartForge AOT | Dart AOT |
 |---|---:|---:|
-| pedidos por segundo | 26–29 mil | 27–35 mil |
+| pedidos por segundo | 42 mil | 61 mil |
+| CPU do servidor por pedido | 29,7 µs | 22,8 µs |
 | RSS no início | 15,2 MB | 23,3 MB |
 | RSS depois de 1,2 milhão de pedidos | 17,6 MB | 52,7 MB |
 | RSS depois de 2, 5, 8 e 10 milhões de pedidos | 19,0 / 19,1 / 19,1 / 18,7 MB | não medido |
+
+As chamadas de sistema custam o mesmo nos dois (`write` e `read` ≈ um terço do thread
+principal). A diferença é o código: a pilha `_http` em Dart, a máquina `async` e o runtime
+em Rust somam cerca de 20 µs por pedido contra 12 µs no Dart, num perfil achatado em que
+nenhum item passa de 5% (RTI em sítios do SDK com muitos tipos, crescimento de listas,
+coleta jovem, acesso a variáveis por thread no macOS). O modo A1 dá o mesmo resultado.
 
 Não há vazamento. Depois de cada coleta completa ficam cerca de 50 KiB ocupados e 2,3 a
 3,2 MB de páginas (`DARTFORGE_GC_MEMORY=1`), e o `malloc` não cresce entre os instantâneos
@@ -57,8 +68,7 @@ buffers médios do runtime que crescem até o pico e por mais blocos de páginas
 | artefato | DartForge | Dart | razão |
 |---|---:|---:|---:|
 | File Explorer AOT | 19,50 MB | 12,26 MB | 1,59× |
-| JS, testes do `new_sali/core` | 462–596 KB | 266–290 KB (`-O2`) | 1,6–2,1× |
-| JS, mesmos testes, gzip | 144–174 KB | 84–91 KB | 1,6–2,0× |
+| JS, testes do `new_sali/core` | 455–486 KB | 266–290 KB (`-O2`) | 1,6–1,8× |
 | JS, hello | 47 KB | 34 KB (`-O2`), 5 KB (`-O4`) | 1,4× / 9× |
 
 O DartForge compila o JS de produção cerca de duas vezes mais rápido que o dart2js.
@@ -74,19 +84,23 @@ O DartForge compila o JS de produção cerca de duas vezes mais rápido que o da
 
 ## Lacunas, em ordem de prioridade
 
-1. **Tamanho do JS (~2× o dart2js).** O JS de produção segue o modelo de objetos do DDC
-   (nomes privados por símbolo, `dartx`, assinaturas para chamadas dinâmicas). No hello o
-   piso vem dos membros de `Object` tratados como universais no mundo fechado
-   (`crates/world`, `universal_names`): `toString` puxa o RTI inteiro. Fechar a diferença
-   exige gerar o modelo de objetos no estilo do dart2js, não ajustes pontuais.
-2. **`async` 1,3× o Dart.** O que sobra é a própria máquina de estados no estilo do
+1. **Tamanho do JS (~1,7× o dart2js).** `3dfd321d` tirou até 19% ao manter membros de
+   extensão vivos só para receptores do seu tipo `on` (o `&` de `int` mantinha o
+   `petitparser` inteiro, e o `window.document` do runtime mantinha o `xml`). O próximo
+   ganho é a propagação de valores de argumento do dart2js: ele prova que `testOn` é sempre
+   nulo e elimina `boolean_selector`, `source_span`, `string_scanner` e `stream_channel`, que
+   aqui somam cerca de 160 KB sem minificação. No hello o piso vem dos membros de `Object`
+   tratados como universais (`universal_names`): `toString` puxa o RTI inteiro.
+2. **Vazão HTTP ~70% do Dart.** Perfil achatado; os ganhos estruturais são o modelo `async`
+   da VM, o contexto da thread em registrador e menos chamadas ao runtime em Rust.
+3. **`async` 1,3× o Dart.** O que sobra é a própria máquina de estados no estilo do
    dart2js (`_propagateToListeners`, closures por `await`). A saída é o modelo da VM.
-3. **Enums e constantes como objetos da imagem.** Hoje cada `T.a` lê uma flag de
+4. **Enums e constantes como objetos da imagem.** Hoje cada `T.a` lê uma flag de
    inicialização e pode chamar o getter; com objetos estáticos a comparação vira um
    endereço constante e o tamanho cai.
-4. **Contexto da thread em registrador.** Cada função lê o contexto por TLS (cinco
+5. **Contexto da thread em registrador.** Cada função lê o contexto por TLS (cinco
    instruções na entrada); é a maior parte do que falta nas árvores.
-5. **Desenrolamento em A1** a ~1,5 µs por quadro no macOS (o dyld relê o Mach-O a cada
+6. **Desenrolamento em A1** a ~1,5 µs por quadro no macOS (o dyld relê o Mach-O a cada
    quadro). Só pesa em exceções que atravessam muitos quadros.
 
 ## Como reproduzir
