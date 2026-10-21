@@ -841,6 +841,13 @@ impl<'a> LlvmEmitter<'a> {
                 name_str.as_bytes(),
             );
         }
+        for (name_str, _) in self.module.tearoff_names.values() {
+            Self::register_string(
+                &mut self.string_constants,
+                &mut self.string_index,
+                name_str.as_bytes(),
+            );
+        }
     }
 
     /// Adds `bytes` to the constant table, if not there yet.

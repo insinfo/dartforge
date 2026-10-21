@@ -1316,6 +1316,11 @@ pub struct Module {
     /// (§13.14): `(entry symbol, kind)`, kind 1 for
     /// `_StreamIterator._onData` and 2 for `_StreamController._add`.
     pub stack_trace_tearoffs: Vec<(String, i64)>,
+    /// The entry of each function tear-off the module creates, with the
+    /// function's Dart name and whether it is static: the `toString` of the
+    /// closure says `from Function 'name':[ static].` (the VM's
+    /// `Closure::ToCString`), registered at startup.
+    pub tearoff_names: std::collections::BTreeMap<String, (String, bool)>,
     /// The ids of the program classes, `(id, library, class)`: written
     /// in the IR (`; df.class …`) so that the next generation of a JIT
     /// reload gives the same id to the same class (J03, `Context::with_previous_ids`).

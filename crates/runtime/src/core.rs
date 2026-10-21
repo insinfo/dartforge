@@ -200,6 +200,9 @@ thread_local! {
     static TO_STRING: std::cell::Cell<Option<extern "C" fn(i64) -> i64>> = const { std::cell::Cell::new(None) };
     static HEAP: RefCell<Heap> = RefCell::new(Heap::for_isolate(crate::console::env_var_os("DARTFORGE_GC_STRESS").is_some()));
     static CLASS_NAMES: RefCell<HashMap<i64, String>> = RefCell::new(HashMap::default());
+    /// The function of each tear-off entry, by code (`dartforge_register_tearoff`):
+    /// its Dart name and whether it is static.
+    pub(crate) static TEAROFF_NAMES: RefCell<HashMap<i64, (String, bool)>> = RefCell::new(HashMap::default());
     static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::default());
     /// The already computed answers of [`is_subclass`]: every type check goes
     /// through here (the covariance of each `Map.[]=`, for example), and the graph
@@ -370,6 +373,19 @@ pub unsafe extern "C" fn dartforge_register_class_name(class_id: i64, ptr: *cons
     };
     let name = std::str::from_utf8(bytes).expect("UTF-8").to_string();
     CLASS_NAMES.with(|map| map.borrow_mut().insert(class_id, name));
+}
+
+/// Registers the entry `code` of a function tear-off: the function's name and
+/// whether it is static, for the closure's `toString` (`Object_toString`).
+///
+/// # Safety
+/// `ptr` points to `len` readable UTF-8 bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_register_tearoff(code: *const u8, ptr: *const u8, len: i64, is_static: u8) {
+    let len = usize::try_from(len).expect("invalid length");
+    let bytes = if len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(ptr, len) } };
+    let name = String::from_utf8_lossy(bytes).into_owned();
+    TEAROFF_NAMES.with(|map| map.borrow_mut().insert(code as usize as i64, (name, is_static != 0)));
 }
 
 /// Registers a direct subtyping relation: sub_id <: super_id.

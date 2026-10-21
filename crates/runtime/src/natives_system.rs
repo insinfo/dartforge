@@ -125,6 +125,19 @@ pub extern "C" fn dartforge_native_Object_toString(this: i64) -> i64 {
         return HEAP.with(|h| h.borrow_mut().allocate_str(&t));
     }
     let cid = dartforge_value_class(this);
+    // A closure: the VM's `Closure::ToCString` — its signature and, for a
+    // tear-off, the function (`from Function 'name':[ static].`).
+    if cid == i64::from(crate::layout::cid::CLOSURE) {
+        let code = HEAP.with(|h| h.borrow().closure(this).map(|c| c.code));
+        let signature = type_text_of_value(this);
+        let from = code
+            .and_then(|code| TEAROFF_NAMES.with(|m| m.borrow().get(&code).cloned()))
+            .map(|(name, is_static)| {
+                format!(" from Function '{name}':{}.", if is_static { " static" } else { "" })
+            })
+            .unwrap_or_default();
+        return HEAP.with(|h| h.borrow_mut().allocate_str(&format!("Closure: {signature}{from}")));
+    }
     // A generic with reified arguments: the name includes the arguments
     // (`Instance of 'Caixa<int>'`), like the VM; without arguments, the class's
     // registered name.

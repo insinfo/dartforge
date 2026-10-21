@@ -84,6 +84,14 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
+        decl: "declare void @dartforge_register_tearoff(ptr, ptr, i64, i8)",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
         decl: "declare i64 @dartforge_object_new(i64, i64)",
         effects: ALLOCATES_WITHOUT_THROWING,
     },

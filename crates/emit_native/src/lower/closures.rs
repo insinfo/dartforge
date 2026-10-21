@@ -704,6 +704,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn absorb(&mut self, mut b: FnBuilder<'a, 'c>) {
         b.close_stack_trace();
         self.inline_policies.extend(b.inline_policies);
+        self.tearoff_names.extend(b.tearoff_names);
         self.errors.extend(b.errors);
         self.extra_globals.extend(b.extra_globals);
         self.dart_scalar_parameters.extend(b.dart_scalar_parameters);
@@ -1221,6 +1222,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn function_tearoff(&mut self, fid: usize) -> Operand {
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$tear");
+        self.note_tearoff(&symbol_ent, fid);
         if self.ctx.arc_memory {
             self.arc_shared_functions.insert(symbol_ent.clone());
         }
@@ -1358,12 +1360,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Tear-off of an instance method: a new closure with the receiver in the
     /// environment; the entry calls the member with the dispatch through the receiver.
+    /// Records the tear-off entry `symbol` of `fid` (`Module::tearoff_names`):
+    /// the VM's name of the function (`C.` and `C.named` for a constructor)
+    /// and whether it is static.
+    fn note_tearoff(&mut self, symbol: &str, fid: usize) {
+        use dartforge_elements::model::FunctionKind;
+        let f = &self.ctx.program.functions[fid];
+        let constructor = f.factory
+            || matches!(
+                f.kind,
+                FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+            );
+        let name = self.ctx.symbol_name(f.name).to_string();
+        let (name, is_static) = match f.class {
+            Some(c) if constructor => (
+                format!(
+                    "{}.{name}",
+                    self.ctx
+                        .symbol_name(self.ctx.program.classes[c.0 as usize].name)
+                ),
+                true,
+            ),
+            Some(_) => (name, f.static_),
+            None => (name, true),
+        };
+        self.tearoff_names
+            .insert(symbol.to_string(), (name, is_static));
+    }
+
     pub fn method_tearoff(&mut self, recv: Operand, fid: usize, span: Span) -> Operand {
         if let Some(error) = self.interop_tearoff(fid, span) {
             return error;
         }
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$tearm");
+        self.note_tearoff(&symbol_ent, fid);
         if self.ctx.arc_memory {
             self.arc_shared_functions.insert(symbol_ent.clone());
         }
@@ -1624,6 +1655,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Operand {
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$teari");
+        self.note_tearoff(&symbol_ent, fid);
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
@@ -1698,6 +1730,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$teari");
+        self.note_tearoff(&symbol_ent, fid);
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
@@ -1956,6 +1989,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$tear");
+        self.note_tearoff(&symbol_ent, fid);
         if self.ctx.arc_memory {
             self.arc_shared_functions.insert(symbol_ent.clone());
         }

@@ -78,6 +78,8 @@ pub struct FnBuilder<'a, 'c> {
     /// Per-body frame ABI, transported with separately lowered functions.
     pub async_frame_layouts: Vec<(String, ValueId, String, usize)>,
     pub inline_policies: std::collections::HashMap<String, crate::hir::InlinePolicy>,
+    /// The tear-off entries this function creates (`Module::tearoff_names`).
+    pub tearoff_names: std::collections::BTreeMap<String, (String, bool)>,
     pub labeled_break_targets: HashMap<SymbolId, BlockId>,
     pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
     pub pending_labels: Vec<SymbolId>,
@@ -367,6 +369,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             extra_functions: Vec::new(),
             async_frame_layouts: Vec::new(),
             inline_policies: std::collections::HashMap::new(),
+            tearoff_names: std::collections::BTreeMap::new(),
             labeled_break_targets: HashMap::new(),
             labeled_continue_targets: HashMap::new(),
             pending_labels: Vec::new(),
@@ -637,6 +640,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .arc_direct_local_functions
             .extend(self.arc_direct_local_functions);
         module.inline_policies.extend(self.inline_policies);
+        module.tearoff_names.extend(self.tearoff_names);
         module.async_frame_layouts.extend(self.async_frame_layouts);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);

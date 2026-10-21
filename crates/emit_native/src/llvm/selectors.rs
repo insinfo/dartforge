@@ -292,6 +292,25 @@ impl LlvmEmitter<'_> {
             )
             .unwrap();
         }
+        // The name of each function tear-off of the module, for the closure's
+        // `toString` (`Module::tearoff_names`); an entry the pruning removed has
+        // no closure to describe.
+        let defined: std::collections::HashSet<&str> =
+            module.functions.iter().map(|f| f.symbol.as_str()).collect();
+        for (symbol, (name, is_static)) in &module.tearoff_names {
+            if !defined.contains(symbol.as_str()) {
+                continue;
+            }
+            let idx = self.string_const_index(name.as_bytes()).unwrap_or(0);
+            writeln!(
+                body,
+                "  call void @dartforge_register_tearoff(ptr @{}, ptr @.str.{idx}, i64 {}, i8 {})",
+                symbol,
+                name.len(),
+                u8::from(*is_static)
+            )
+            .unwrap();
+        }
         for (sub, sup) in &module.subtyping_edges {
             writeln!(
                 body,

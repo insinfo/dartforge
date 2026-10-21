@@ -1738,6 +1738,15 @@ pub(crate) fn text_with_arguments(v: i64) -> Option<String> {
     })
 }
 
+/// The text of the runtime type of a `Ref` value (`runtimeType.toString()`).
+pub(crate) fn type_text_of_value(v: i64) -> String {
+    RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let t = ref_type(&mut u, v);
+        u.text(t)
+    })
+}
+
 /// The type of a `Ref` value.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_rti_of_value(v: i64) -> i64 {
