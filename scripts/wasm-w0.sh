@@ -1,12 +1,12 @@
 #!/bin/zsh
-# W0 proof of the wasm32-mvp profile (docs/PLANO-WASM-MVP.md): builds the scalar
-# module from tests/wasm/w0 (LLVM IR + a no_std Rust fragment), gates it as
-# strict MVP, runs the same file in the independent executor (Wasmi), in Node
-# (V8) and in headless Chrome, and compares hashes and output with values
-# computed independently. Writes the evidence to $OUT (default
+# W0 proof of the wasm32-linear profile (docs/PLANO-WASM-MVP.md): builds the
+# scalar module from tests/wasm/w0 (LLVM IR + a Rust fragment with std), gates
+# it, runs the same file in the independent executor (Wasmtime), in Node (V8)
+# and in headless Chrome, and compares hashes and output with values computed
+# independently. Writes the evidence to $OUT (default
 # bench/results/2026-10-21-wasm-w0).
 #
-# Requires: DARTFORGE_CLANG (LLVM 22.1.8 with lld), rustc with wasm32v1-none,
+# Requires: DARTFORGE_CLANG (LLVM 22.1.8 with lld), rustc with wasm32-unknown-unknown,
 # node, and Google Chrome (CHROME to override the path).
 set -euo pipefail
 ROOT=${0:A:h:h}
@@ -19,35 +19,41 @@ NODE=${NODE:-node}
 CHROME=${CHROME:-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"}
 mkdir -p $WORK $OUT
 
-# 1. Build: the generated-code side and the Rust side, both for the MVP CPU.
-$CLANG --target=wasm32-unknown-unknown -mcpu=mvp -O2 -c $SRC/scalar.ll -o $WORK/scalar.o
-rustc --edition 2024 --target wasm32v1-none -C target-cpu=mvp -C panic=abort -C opt-level=2 \
-  --crate-type staticlib --crate-name dfrt $SRC/rt.rs -o $WORK/librt.a
-$LLD -flavor wasm $WORK/scalar.o $WORK/librt.a -o $WORK/w0.wasm --no-entry \
+# 1. Build: the generated-code side and the Rust side, with the profile's
+# features (LLVM's generic CPU plus SIMD128, tail calls, extended constants and
+# exnref exception handling).
+FEATURES=(-mcpu=generic -msimd128 -mtail-call -mextended-const -mexception-handling
+  -mllvm -wasm-enable-eh -mllvm -wasm-use-legacy-eh=false)
+$CLANG --target=wasm32-unknown-unknown $FEATURES -O2 -c $SRC/scalar.ll -o $WORK/scalar.o
+$CLANG --target=wasm32-unknown-unknown -mexception-handling -c $SRC/tag.s -o $WORK/tag.o
+rustc --edition 2024 --target wasm32-unknown-unknown -C target-feature=+simd128,+tail-call,+extended-const \
+  -C panic=abort -C opt-level=2 --crate-type staticlib --crate-name dfrt $SRC/rt.rs -o $WORK/librt.a
+# 2 pages at start: the Rust probe's allocations must grow the memory.
+$LLD -flavor wasm $WORK/scalar.o $WORK/tag.o $WORK/librt.a -o $WORK/w0.wasm --no-entry \
   --export=dartforge_run --export=dartforge_abi_version \
-  -z stack-size=65536 --initial-memory=262144 --max-memory=16777216 --strip-debug
+  -z stack-size=65536 --initial-memory=131072 --max-memory=16777216 --strip-debug
 cp $WORK/w0.wasm $OUT/w0.wasm
 
-# 2. Gate: strict MVP, only dartforge_host_v1 imports.
+# 2. Gate: the profile, only dartforge_host_v1 imports.
 cargo run -q --release -p dartforge-wasm-gate --target-dir $ROOT/target/wasm -- \
   $OUT/w0.wasm --export dartforge_run --export dartforge_abi_version --json > $OUT/gate.json
 SHA=$(python3 -c "import json,sys;print(json.load(open('$OUT/gate.json'))['sha256'])")
 
-# 2b. Negative control: the same IR for LLVM's generic CPU uses post-MVP
-# instructions (sign extension), and the gate must refuse it.
-$CLANG --target=wasm32-unknown-unknown -mcpu=generic -O2 -c $SRC/scalar.ll -o $WORK/scalar-generic.o
-$LLD -flavor wasm $WORK/scalar-generic.o $WORK/librt.a -o $WORK/w0-generic.wasm --no-entry \
-  --export=dartforge_run --export=dartforge_abi_version -z stack-size=65536 --strip-debug
+# 2b. Negative control: LLVM atomics over a shared memory (threads) are outside
+# the profile, and the gate must refuse the module.
+$CLANG --target=wasm32-unknown-unknown -mcpu=generic -matomics -O2 -c $SRC/threads.ll -o $WORK/threads.o
+$LLD -flavor wasm $WORK/threads.o -o $WORK/w0-threads.wasm --no-entry --export=dartforge_run \
+  --shared-memory --max-memory=1048576 --strip-debug
 if cargo run -q --release -p dartforge-wasm-gate --target-dir $ROOT/target/wasm -- \
-  $WORK/w0-generic.wasm --export dartforge_run > /dev/null 2> $OUT/negative-control.txt; then
-  echo "W0 FAILED: the gate accepted the generic-CPU module"; exit 1
+  $WORK/w0-threads.wasm --export dartforge_run > /dev/null 2> $OUT/negative-control.txt; then
+  echo "W0 FAILED: the gate accepted the shared-memory module"; exit 1
 fi
 sed -i.bak "s|$WORK/||" $OUT/negative-control.txt && rm $OUT/negative-control.txt.bak
 
 # 3. The same file in three hosts.
 cargo build -q --release -p dartforge-wasm-host --target-dir $ROOT/target/wasm
 DARTFORGE_WASM_REPORT=1 $ROOT/target/wasm/release/dartforge-wasm-run $OUT/w0.wasm \
-  > $OUT/wasmi.stdout 2> $OUT/wasmi.stderr; echo $? > $OUT/wasmi.status
+  > $OUT/wasmtime.stdout 2> $OUT/wasmtime.stderr; echo $? > $OUT/wasmtime.status
 DARTFORGE_WASM_REPORT=1 $NODE $ROOT/runtime/wasm/run_node.mjs $OUT/w0.wasm \
   > $OUT/node.stdout 2> $OUT/node.stderr; echo $? > $OUT/node.status
 $NODE $ROOT/runtime/wasm/browser_page.mjs $OUT/w0.wasm $WORK/w0.html
@@ -81,13 +87,15 @@ expected = [
     ("u", -21),
     ("h", ((2**63 - 1) * (2**63 - 1)) >> 64),
     ("s", wrap(1099511627776 - 5 + 2**63 - 1)),
-    ("v", sum(i * i for i in range(1000)) * 100 + len(f"1000-{sum(i * i for i in range(1000))}")),
+    ("v", sum(i * i for i in range(1000)) * 100 + len(f"1000-{sum(i * i for i in range(1000))}") + 1),
+    ("c", 42),
+    ("n", 0),
 ]
 text = "".join(f"{k}={v}\n" for k, v in expected)
 chrome = json.load(open(f"{out}/chrome.json"))
 hosts = {
-    "wasmi": {"stdout": open(f"{out}/wasmi.stdout").read(), "status": int(open(f"{out}/wasmi.status").read()),
-              "sha256": open(f"{out}/wasmi.stderr").read().split("sha256 ")[-1].strip()},
+    "wasmtime": {"stdout": open(f"{out}/wasmtime.stdout").read(), "status": int(open(f"{out}/wasmtime.status").read()),
+              "sha256": open(f"{out}/wasmtime.stderr").read().split("sha256 ")[-1].strip()},
     "node": {"stdout": open(f"{out}/node.stdout").read(), "status": int(open(f"{out}/node.status").read()),
              "sha256": open(f"{out}/node.stderr").read().split("sha256 ")[-1].strip()},
     "chrome": {"stdout": chrome.get("stdout"), "status": chrome.get("status"), "sha256": chrome.get("sha256"),

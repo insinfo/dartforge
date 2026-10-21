@@ -1,30 +1,32 @@
-# ABI de host v1 do DartForge para `wasm32-mvp`
+# ABI de host v1 do DartForge para `wasm32-linear`
 
-Data: 21/10/2026. **Estado: subconjunto do W0** (saída e execução). As demais
+Data: 21/10/2026. **Estado: primeira parte, do W0** (saída e execução). As demais
 operações da §3.4 do [plano](PLANO-WASM-MVP.md) (relógios, entropia, agendamento,
 recursos opcionais) entram nesta mesma versão antes do W5; o que já está aqui não
 muda de significado.
 
-A ABI é o único contrato entre um módulo `wasm32-mvp` e quem o executa. O mesmo
+A ABI é o único contrato entre um módulo `wasm32-linear` e quem o executa. O mesmo
 arquivo `.wasm`, byte a byte, roda nos dois adaptadores:
 
 | adaptador | onde | motor |
 |---|---|---|
-| executor independente | `crates/wasm_host` (`dartforge-wasm-run`) | Wasmi 2.0.0, só recursos MVP |
+| executor independente | `crates/wasm_host` (`dartforge-wasm-run`) | Wasmtime 50.0.0 (Cranelift), só as features do perfil |
 | navegador e Node | `runtime/wasm/dartforge_host_v1.mjs` | `WebAssembly` do motor JS |
 
 ## Perfil do módulo
 
-Todo módulo passa pelo portão estrito (`crates/wasm_gate`, `dartforge-wasm-gate`)
-antes de executar; o executor recusa o que o portão recusa.
+Todo módulo passa pelo portão (`crates/wasm_gate`, `dartforge-wasm-gate`) antes de
+executar; o executor recusa o que o portão recusa.
 
-- Validação com `wasmparser` 0.262.0 e `WasmFeatures::MVP`: nada de sign-extension,
-  conversões saturantes, bulk memory, multivalue, reference types, SIMD, threads,
-  EH, tail calls, memory64, multi-memory nem WasmGC.
+- Validação com `wasmparser` 0.262.0 restrito ao perfil `wasm32-linear` do
+  [plano](PLANO-WASM-MVP.md) §3.1: WebAssembly 2.0 (sign-extension, conversões sem
+  trap, bulk memory, multivalue, reference types, SIMD128) mais tail calls,
+  extended constant expressions e exceções com `exnref`. Recusados: WasmGC, typed
+  function references, threads e memória compartilhada, EH legado, relaxed SIMD,
+  memory64 e multi-memory.
 - Imports só de funções e só do módulo `dartforge_host_v1`. Memória, tabela e
   globais importadas são recusadas (nada de WASI, `env` ou libc).
-- Nenhuma global exportada (a extensão `mutable-globals` fica fora do perfil
-  estrito, mesmo que o alvo Rust `wasm32v1-none` a declare em `target_features`).
+- Nenhuma global exportada: a ABI exporta funções e a memória.
 - No máximo uma memória e uma tabela; páginas iniciais limitadas pela política.
 - A seção `target_features` é só informativa: a prova é a validação.
 
@@ -68,7 +70,7 @@ enquanto o plano não declarar a v1 fechada (W5); um módulo só importa o que u
 
 ## Evidência
 
-`scripts/wasm-w0.sh` gera um módulo com LLVM 22.1.8 (`-mcpu=mvp`) e um fragmento
-Rust `no_std` (`wasm32v1-none`, `target-cpu=mvp`), passa no portão e executa o mesmo
-arquivo no Wasmi, no Node 24 (V8) e no Chrome headless. Resultados em
+`scripts/wasm-w0.sh` gera um módulo com LLVM 22.1.8 e um fragmento Rust com `std`
+(`wasm32-unknown-unknown`), com as features do perfil, passa no portão e executa o
+mesmo arquivo no Wasmtime, no Node 24 (V8) e no Chrome headless. Resultados em
 `bench/results/2026-10-21-wasm-w0/`.

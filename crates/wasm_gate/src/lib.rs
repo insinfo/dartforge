@@ -1,19 +1,22 @@
-//! The binary gate of DartForge's `wasm32-mvp` profile (docs/PLANO-WASM-MVP.md
-//! §3.1, phase W0).
+//! The binary gate of DartForge's `wasm32-linear` profile (docs/PLANO-WASM-MVP.md
+//! §3.1): WebAssembly over a 32-bit linear memory, as Rust and C++ produce it,
+//! with the runtime's own collector and no WasmGC.
 //!
 //! A module passes only when
 //!
-//! * `wasmparser`, configured with exactly [`WasmFeatures::MVP`] (the original
-//!   feature set: no sign extension, saturating conversions, bulk memory,
-//!   reference types, multi-value, SIMD, threads, exceptions, tail calls,
-//!   memory64, multi-memory, GC nor import/export of mutable globals),
-//!   validates every instruction, type and section;
+//! * `wasmparser`, configured with exactly [`PROFILE`] (WebAssembly 2.0 —
+//!   sign extension, saturating conversions, bulk memory, reference types,
+//!   multi-value, SIMD128 — plus tail calls, extended constant expressions and
+//!   exception handling with `exnref`: what LLVM and Chrome both support),
+//!   validates every instruction, type and section. WasmGC, typed function
+//!   references, threads and shared memory, legacy exceptions, relaxed SIMD
+//!   (not deterministic across hosts), memory64 and multi-memory are refused;
 //! * every import is a function of an allowed module (the host ABI namespace,
 //!   `dartforge_host_v1` by default): no imported memory, table or global, so
 //!   the module owns its linear memory and nothing from WASI, libc or the
 //!   engine sneaks in;
-//! * it defines at most one memory and one table, and exports every symbol the
-//!   policy requires.
+//! * it defines at most one memory and one table, exports no global, and
+//!   exports every symbol the policy requires.
 //!
 //! The `target_features` custom section LLVM writes is reported, never trusted:
 //! the validator decides from the code itself. The report carries the SHA-256 of
@@ -24,6 +27,15 @@ use wasmparser::{ExternalKind, Parser, Payload, TypeRef, Validator, WasmFeatures
 
 /// The host ABI namespace of the first version (docs/PLANO-WASM-MVP.md §3.4).
 pub const HOST_MODULE: &str = "dartforge_host_v1";
+
+/// The profile's name, in reports and diagnostics.
+pub const PROFILE_NAME: &str = "wasm32-linear";
+
+/// The features of the `wasm32-linear` profile.
+pub const PROFILE: WasmFeatures = WasmFeatures::WASM2
+    .union(WasmFeatures::TAIL_CALL)
+    .union(WasmFeatures::EXTENDED_CONST)
+    .union(WasmFeatures::EXCEPTIONS);
 
 /// What a module may import and must export.
 #[derive(Clone, Debug)]
@@ -68,8 +80,8 @@ impl Report {
     /// The report as JSON, for evidence files.
     pub fn to_json(&self) -> serde_json::Value {
         serde_json::json!({
-            "profile": "wasm32-mvp",
-            "validator": "wasmparser 0.262.0 WasmFeatures::MVP",
+            "profile": PROFILE_NAME,
+            "validator": "wasmparser 0.262.0, WasmFeatures::WASM2 | TAIL_CALL | EXTENDED_CONST | EXCEPTIONS",
             "sha256": self.sha256,
             "bytes": self.bytes,
             "imports": self.imports.iter().map(|(m, n)| format!("{m}.{n}")).collect::<Vec<_>>(),
@@ -101,15 +113,15 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// Validates `bytes` against the strict MVP profile and `policy`. Every
+/// Validates `bytes` against the `wasm32-linear` profile and `policy`. Every
 /// violation is listed, so a failing gate explains itself.
 ///
 /// # Errors
 /// The violations, when there is any.
 pub fn validate(bytes: &[u8], policy: &Policy) -> Result<Report, Vec<String>> {
     let mut errors = Vec::new();
-    if let Err(e) = Validator::new_with_features(WasmFeatures::MVP).validate_all(bytes) {
-        errors.push(format!("not valid in the MVP feature set: {e}"));
+    if let Err(e) = Validator::new_with_features(PROFILE).validate_all(bytes) {
+        errors.push(format!("not valid in the {PROFILE_NAME} profile: {e}"));
         return Err(errors);
     }
     let mut report = Report {
@@ -251,8 +263,8 @@ mod tests {
           (call_indirect (type $t) (i64.const 21) (i32.const 0))))"#;
 
     #[test]
-    fn mvp_module_with_host_imports_passes() {
-        let r = validate(&module(GOOD), &policy()).expect("MVP module");
+    fn module_with_host_imports_passes() {
+        let r = validate(&module(GOOD), &policy()).expect("profile module");
         assert_eq!(
             r.imports,
             vec![("dartforge_host_v1".into(), "write".into())]
@@ -262,39 +274,91 @@ mod tests {
         assert_eq!(r.sha256.len(), 64);
     }
 
-    /// Each control must fail: one post-MVP feature or ABI violation at a time.
+    /// What LLVM's generic CPU and Rust's default wasm target emit passes.
+    #[test]
+    fn profile_features_pass() {
+        let cases: &[(&str, &str)] = &[
+            ("sign-extension", "(i64.extend8_s (i64.const 1))"),
+            (
+                "saturating conversion",
+                "(i64.trunc_sat_f64_s (f64.const 1))",
+            ),
+            (
+                "bulk memory",
+                "(memory.fill (i32.const 0) (i32.const 0) (i32.const 1)) (i64.const 0)",
+            ),
+            (
+                "SIMD128",
+                "(i64x2.extract_lane 0 (i64x2.add (v128.const i64x2 1 2) (v128.const i64x2 3 4)))",
+            ),
+            ("tail call", "(return_call $seven)"),
+            (
+                "exceptions with exnref",
+                "(block $h (result i64) (try_table (result i64) (catch $e $h) (throw $e (i64.const 1))))",
+            ),
+        ];
+        for (name, body) in cases {
+            let text = format!(
+                r#"(module (memory (export "memory") 1)
+                   (tag $e (param i64))
+                   (func $seven (result i64) (i64.const 7))
+                   (func $pair (result i64 i64) (i64.const 1) (i64.const 2))
+                   (func (export "run") (result i64) {body}))"#
+            );
+            validate(&module(&text), &policy())
+                .unwrap_or_else(|e| panic!("the gate refused {name}: {e:?}"));
+        }
+    }
+
+    /// Each control must fail: one feature outside the profile or one ABI
+    /// violation at a time.
     #[test]
     fn negative_controls_fail() {
         let cases: &[(&str, &str, &str)] = &[
             (
-                "sign-extension",
-                "MVP",
-                r#"(module (memory (export "memory") 1)
-                   (func (export "run") (result i64) (i64.extend8_s (i64.const 1))))"#,
+                "WasmGC struct",
+                "PROFILE",
+                r#"(module (type $p (struct (field i64)))
+                   (memory (export "memory") 1)
+                   (func (export "run") (result i64)
+                     (struct.get $p 0 (struct.new $p (i64.const 1)))))"#,
             ),
             (
-                "saturating conversion",
-                "MVP",
-                r#"(module (memory (export "memory") 1)
-                   (func (export "run") (result i64) (i64.trunc_sat_f64_s (f64.const 1))))"#,
+                "shared memory and atomics",
+                "PROFILE",
+                r#"(module (memory (export "memory") 1 1 shared)
+                   (func (export "run") (result i64) (i64.atomic.load (i32.const 0))))"#,
             ),
             (
-                "bulk memory",
-                "MVP",
+                "legacy exception handling",
+                "PROFILE",
+                r#"(module (tag $e) (memory (export "memory") 1)
+                   (func (export "run") (result i64)
+                     try (result i64) throw $e catch $e i64.const 0 end))"#,
+            ),
+            (
+                "relaxed SIMD",
+                "PROFILE",
                 r#"(module (memory (export "memory") 1)
                    (func (export "run") (result i64)
-                     (memory.fill (i32.const 0) (i32.const 0) (i32.const 1)) (i64.const 0)))"#,
+                     (i64x2.extract_lane 0 (i64x2.relaxed_laneselect
+                       (v128.const i64x2 1 2) (v128.const i64x2 3 4) (v128.const i64x2 0 0)))))"#,
             ),
             (
-                "multi-value",
-                "MVP",
-                r#"(module (memory (export "memory") 1)
-                   (func (result i64 i64) (i64.const 1) (i64.const 2))
+                "memory64",
+                "PROFILE",
+                r#"(module (memory (export "memory") i64 1)
+                   (func (export "run") (result i64) (i64.const 0)))"#,
+            ),
+            (
+                "multi-memory",
+                "PROFILE",
+                r#"(module (memory (export "memory") 1) (memory 1)
                    (func (export "run") (result i64) (i64.const 0)))"#,
             ),
             (
                 "mutable global export",
-                "MVP",
+                "exported global",
                 r#"(module (memory (export "memory") 1)
                    (global (export "g") (mut i32) (i32.const 0))
                    (func (export "run") (result i64) (i64.const 0)))"#,
@@ -321,12 +385,13 @@ mod tests {
             ),
         ];
         for (name, reason, text) in cases {
-            // Texts with post-MVP instructions still parse: `wat` knows them.
+            // `wat` parses every proposal; the gate is what refuses.
             let bytes = module(text);
             let errors = validate(&bytes, &policy())
                 .expect_err(&format!("the gate accepted the control {name}"));
+            let reason = reason.replace("PROFILE", "not valid in the wasm32-linear profile");
             assert!(
-                errors.iter().any(|e| e.contains(reason)),
+                errors.iter().any(|e| e.contains(&reason)),
                 "{name} failed for another reason: {errors:?}"
             );
         }
@@ -334,10 +399,10 @@ mod tests {
 
     #[test]
     fn target_features_are_reported_not_trusted() {
-        // `+sign-ext` declared, but no such instruction used: the code decides.
+        // `+atomics` declared, but no such instruction used: the code decides.
         let mut bytes = module(GOOD);
-        let mut section = vec![1u8, b'+', 8];
-        section.extend_from_slice(b"sign-ext");
+        let mut section = vec![1u8, b'+', 7];
+        section.extend_from_slice(b"atomics");
         let name = b"target_features";
         let mut payload = vec![name.len() as u8];
         payload.extend_from_slice(name);
@@ -346,6 +411,6 @@ mod tests {
         bytes.push(payload.len() as u8);
         bytes.extend_from_slice(&payload);
         let r = validate(&bytes, &policy()).expect("declared features do not decide");
-        assert_eq!(r.declared_features, vec!["+sign-ext".to_string()]);
+        assert_eq!(r.declared_features, vec!["+atomics".to_string()]);
     }
 }

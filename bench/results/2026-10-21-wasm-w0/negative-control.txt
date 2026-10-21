@@ -1,1 +1,1 @@
-w0-generic.wasm: not valid in the MVP feature set: zero byte expected (at offset 0x3b5)
+w0-threads.wasm: not valid in the wasm32-linear profile: threads must be enabled for shared memories (at offset 0x1a)

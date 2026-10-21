@@ -13,6 +13,37 @@ declare i32 @dfrt_format_i64(i64, ptr)
 declare i64 @dfrt_mul_hi(i64, i64)
 declare i64 @dfrt_checked_sum(ptr, i32)
 declare i64 @dfrt_alloc_probe(i32)
+declare void @dfrt_init()
+
+; Wasm exception handling (exnref): what LLVM makes of invoke/catchpad.
+declare void @llvm.wasm.throw(i32, ptr)
+declare i32 @__gxx_wasm_personality_v0(...)
+@payload = internal global i32 7
+
+define internal void @maybe_throw(i32 %x) noinline {
+  %c = icmp sgt i32 %x, 0
+  br i1 %c, label %t, label %r
+t:
+  call void @llvm.wasm.throw(i32 0, ptr @payload)
+  unreachable
+r:
+  ret void
+}
+
+; 42 when `maybe_throw` threw and the handler caught, 0 when it returned.
+define internal i64 @catch_probe(i32 %x) noinline personality ptr @__gxx_wasm_personality_v0 {
+entry:
+  invoke void @maybe_throw(i32 %x) to label %ok unwind label %dispatch
+ok:
+  ret i64 0
+dispatch:
+  %cs = catchswitch within none [label %catch] unwind to caller
+catch:
+  %cp = catchpad within %cs [ptr null]
+  catchret from %cp to label %caught
+caught:
+  ret i64 42
+}
 
 @line = internal global [64 x i8] zeroinitializer, align 8
 @words = internal global [4 x i64] zeroinitializer, align 8
@@ -65,11 +96,11 @@ define i32 @dartforge_abi_version() {
 
 define i32 @dartforge_run() {
 entry:
+  call void @dfrt_init()
   ; Recursive calls and i64 adds.
   %f = call i64 @fib(i64 30)
   call void @emit(i8 102, i64 %f)
-  ; Sign extension of a byte: shifts under the MVP CPU, `i64.extend8_s`
-  ; (post-MVP) under LLVM's generic CPU -- the script's negative control.
+  ; Sign extension of a byte (`i64.extend8_s` in the profile).
   %fb = add i64 %f, 160
   %byte = trunc i64 %fb to i8
   %sx = sext i8 %byte to i64
@@ -87,7 +118,7 @@ entry:
   call void @emit(i8 97, i64 %sa)
   %sl = lshr i64 -1, 60
   call void @emit(i8 108, i64 %sl)
-  ; double -> int of an in-range value (MVP `i64.trunc_f64_s`, no saturating form).
+  ; double -> int of an in-range value.
   %x = fdiv double 1.0e10, 3.0
   %xi = fptosi double %x to i64
   call void @emit(i8 120, i64 %xi)
@@ -113,6 +144,10 @@ entry:
   call void @emit(i8 115, i64 %sum)
   %v = call i64 @dfrt_alloc_probe(i32 1000)
   call void @emit(i8 118, i64 %v)
+  %c1 = call i64 @catch_probe(i32 1)
+  call void @emit(i8 99, i64 %c1)
+  %c0 = call i64 @catch_probe(i32 0)
+  call void @emit(i8 110, i64 %c0)
   ret i32 0
 }
 

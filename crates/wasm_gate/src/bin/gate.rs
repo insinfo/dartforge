@@ -1,5 +1,5 @@
 //! `dartforge-wasm-gate <module.wasm> [--import-module M]... [--export E]... [--json]`:
-//! validates a module against the strict `wasm32-mvp` profile and prints its
+//! validates a module against the `wasm32-linear` profile and prints its
 //! report (or every violation, with exit status 1).
 
 use dartforge_wasm_gate::{Policy, validate};
@@ -47,7 +47,7 @@ fn main() {
             serde_json::to_string_pretty(&report.to_json()).unwrap()
         ),
         Ok(report) => {
-            println!("{file}: valid wasm32-mvp, sha256 {}", report.sha256);
+            println!("{file}: valid wasm32-linear, sha256 {}", report.sha256);
             println!("  imports: {:?}", report.imports);
             println!("  exports: {:?}", report.exports);
             println!(

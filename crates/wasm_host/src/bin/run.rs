@@ -1,4 +1,4 @@
-//! `dartforge-wasm-run <module.wasm>`: runs a `wasm32-mvp` module in the
+//! `dartforge-wasm-run <module.wasm>`: runs a `wasm32-linear` module in the
 //! independent executor. Stdout and stderr are the module's; the exit status is
 //! `dartforge_run`'s, 70 for an engine trap and 2 when the module did not run.
 

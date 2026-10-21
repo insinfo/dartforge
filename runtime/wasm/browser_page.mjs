@@ -15,7 +15,7 @@ if (!file || !out) {
 const adapter = readFileSync(fileURLToPath(new URL("./dartforge_host_v1.mjs", import.meta.url)), "utf8")
   .replace(/^export /gm, "");
 const wasm = readFileSync(file).toString("base64");
-const page = `<!doctype html><meta charset="utf-8"><title>DartForge wasm32-mvp</title>
+const page = `<!doctype html><meta charset="utf-8"><title>DartForge wasm32-linear</title>
 <pre id="result">pending</pre>
 <script type="module">
 ${adapter}

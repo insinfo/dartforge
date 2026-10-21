@@ -2,40 +2,64 @@
 
 Data: 20/10/2026. **Estado (21/10/2026): W0 concluído; W1 em diante não
 iniciados.** O W0 prova o perfil binário e a ABI de host com um módulo escalar
-(LLVM IR + fragmento Rust), não Dart→Wasm: este documento ainda não registra
-execução Dart→Wasm bem-sucedida.
+(LLVM IR + fragmento Rust com `std`), não Dart→Wasm: este documento ainda não
+registra execução Dart→Wasm bem-sucedida.
 
 ## 1. Objetivo e contrato de entrega
 
-Adicionar um destino AOT Wasm32 ao DartForge, reaproveitando frontend, resolução,
-HIR, otimizações compatíveis e geração LLVM. O mesmo arquivo `.wasm` deverá
-executar no navegador e em um executor independente que implemente a ABI de host
-do DartForge. A primeira entrega usa Dart 3.6.2 como referência semântica.
+Adicionar ao DartForge um compilador AOT de Dart para WebAssembly que compila **qualquer programa Dart
+que o `dart compile wasm` oficial compila**, com o mesmo comportamento, gerando
+WebAssembly MVP em memória linear, como fazem Rust e C++: coletor de lixo,
+alocador, exceções e RTI próprios dentro da memória linear, sem WasmGC. O mesmo
+arquivo `.wasm` executa no navegador e em um executor independente que implemente
+a ABI de host do DartForge. Referência semântica: Dart 3.6.2.
 
-“MVP” significa o conjunto original de recursos WebAssembly, não apenas um
-produto inicial incompleto. Cada marco terá dois estados separados:
+“MVP”, nos nomes destes documentos, quer dizer **WebAssembly de memória linear
+sem WasmGC**, do jeito que Rust e C++ compilam, e não um produto incompleto nem o
+conjunto de 2017. O perfil (`wasm32-linear`, §3.1) usa as extensões que o LLVM e o
+Chrome suportam. **Não existe subconjunto de Dart catalogado**: a linguagem inteira e o mesmo
+conjunto de bibliotecas do dart2wasm oficial (`libraries.json`, alvo `wasm`):
 
-1. **Conformidade binária:** módulo inteiro e dependências respeitam o perfil MVP.
-2. **Cobertura Dart:** conjunto de recursos/bibliotecas efetivamente implementados,
-   com recusas explícitas para o restante.
+| biblioteca | contrato |
+|---|---|
+| `dart:core` (inclusive `BigInt`, `RegExp`, `Uri`, `DateTime`, `StackTrace`, `Expando`, `WeakReference`, `Finalizer`, records, `Symbol`) | completa, como na VM |
+| `dart:async` (`Future`, `Stream`, `Timer`, zonas, microtasks), `dart:collection`, `dart:convert`, `dart:math`, `dart:typed_data` (inclusive `Float32x4`/`Int32x4`/`Float64x2`, sobre SIMD128) | completas |
+| `dart:developer` | o que o dart2wasm oferece |
+| `dart:js_interop`, `dart:js_interop_unsafe`, `dart:js_util` | completas no host JS, com valores JS em tabela de handles do adaptador (sem `externref`) |
+| `dart:ffi` | `Pointer` sobre a memória linear e `@Native` ligado a funções Wasm/imports, como no dart2wasm |
+| `dart:isolate` | mesmo comportamento do dart2wasm (`UnsupportedError` onde ele lança) |
+| `dart:io` | não suportada, como no dart2wasm (`dart.library.io` falso) |
+| imports `deferred` | suportados |
 
-Não anunciar suporte geral a Dart, `dart:io`, FFI ou aplicações gráficas por ter
-executado aritmética, hello ou um objeto LLVM isolado. Não usar o compilador
-oficial Dart→Wasm para produzir os artefatos próprios; ele pode ser uma referência
-adicional, identificada separadamente dos oráculos VM/JS.
+Constantes `dart.library.*`, imports condicionais e `const bool.fromEnvironment`
+seguem o alvo `wasm` do SDK, então pacotes que já funcionam no dart2wasm compilam
+sem mudança. Onde o dart2wasm difere da VM por ser web (números, `identical`,
+`Platform`), vale o comportamento do dart2wasm; no resto, o da VM.
 
-### Critérios da primeira versão utilizável
+**Sem código provisório.** Cada fase entrega código definitivo: o compilador é o
+pipeline atual (`emit_native`) com um descritor de destino, e o runtime é o
+`crates/runtime` atual compilado para wasm32 com a camada de plataforma trocada,
+não um runtime reduzido que depois precisaria ser reescrito. Nada de stub que
+finge sucesso, de exceção que vira trap, de recurso “documentado como
+limitação”: o que o dart2wasm faz, este destino faz.
 
-- AOT standalone de programas com classes, closures, coleções, strings, tipos,
-  exceções verificadas e GC, 
-- Bibliotecas portáteis de `core`, `collection`, `typed_data` e `convert` necessárias
-  ao corpus aprovado; suporte `async` acrescentado antes de declarar esse perfil.
-- Mesmo SHA-256 do `.wasm` executado no navegador e no executor independente.
-- Nenhum import implícito de libc, POSIX, Win32, AppKit ou WASI.
-- Sem WasmGC, threads compartilhadas, SIMD, EH Wasm ou outras extensões pós-MVP.
-- Compatibilidade do frontend/ABI dos cinco destinos nativos preservada.
-- Instalação e execução documentadas, sem LLVM/Dart SDK exigidos em produção
-  para apenas executar um módulo já compilado.
+Não usar o compilador oficial Dart→Wasm para produzir os artefatos próprios; ele
+é oráculo e comparador (exige WasmGC, presente no Node 24 e no Chrome atuais).
+
+### Critério de entrega
+
+- Corpus nativo inteiro (`corpus/native`) e corpus JS inteiro (`corpus/js`) com a
+  saída igual à da VM (ou à do dart2wasm onde a semântica web manda), em modo
+  normal e com GC forçado; os testes web do `new_sali/core` iguais ao `dart run`.
+- Programas que só existem no dart2wasm (`js_interop`, `deferred`) iguais ao
+  dart2wasm no navegador.
+- Mesmo SHA-256 do `.wasm` no navegador e no executor independente (programas
+  sem `js_interop`; com ele, o host é o JS, como no oficial).
+- Nenhum import de libc, POSIX, Win32, AppKit ou WASI; nenhuma extensão fora do
+  perfil da §3.1 (WasmGC entre elas), no módulo final e em todas as dependências.
+- Tamanho e velocidade medidos contra o `dart compile wasm -O2/-O4`; a meta é ser
+  menor e não mais lento.
+- Destinos nativos e JS sem regressão.
 
 ## 2. Base existente e lacunas confirmadas
 
@@ -47,7 +71,7 @@ adicional, identificada separadamente dos oráculos VM/JS.
 | LLVM instalado | Clang lista `wasm32`/`wasm64`; `lld -flavor wasm` disponível | Registrar WebAssembly no LLVM embutido e controlar features em ambos os geradores |
 | Driver | Seleção imutável de destino e caches por alvo | Separar arquitetura, ambiente de execução, formato e capacidades de plataforma |
 | Runtime | Objetos, RTI, tracing, exceção pendente, raízes explícitas | Heap linear, contexto por instância, plataforma portátil e runtime Wasm compilável |
-| SDK | Fontes e overlays revisados, efeitos/ownership catalogados | Perfil/overlays Wasm e fronteiras de host verificadas |
+| SDK | Fontes e overlays revisados, efeitos/ownership catalogados | Alvo `wasm` do `libraries.json` (constantes, imports condicionais, patches) e fronteiras de host |
 
 Pontos de entrada para leitura antes das alterações:
 
@@ -108,35 +132,32 @@ Extrair novos módulos/crates somente quando a separação do núcleo/host estiv
 definida; não começar por duplicar frontend ou runtime. Usar nomes/APIs/código
 em inglês e preservar a seleção de fontes revisadas usada pelas provas atuais.
 
-### 3.1 Perfil binário fixado
+### 3.1 Perfil binário fixado: `wasm32-linear`
 
-Identificador proposto: `wasm32-mvp`, mapeado internamente para
-`wasm32-unknown-unknown` mais um perfil explícito de features e ABI.
-Um triple sozinho não descreve o contrato completo.
+Alvo LLVM `wasm32-unknown-unknown`, memória linear de 32 bits, uma memória e uma
+tabela de funções. Regra de admissão de uma extensão: **o LLVM a gera e o Chrome a
+executa**, e ela não é WasmGC. Fica de fora o que contraria o modelo de memória
+linear ou o determinismo, cada item por um motivo:
 
-Baseline: memória linear de 32 bits, uma memória e, quando houver chamadas
-indiretas, uma tabela de funções com inicialização compatível com MVP. Usar
-tipos numéricos MVP e no máximo um resultado direto por função. Agregados usam
-memória de saída/convenção revisada, sem depender de multivalue.
+| extensão | perfil | motivo |
+|---|---|---|
+| sign-extension, conversões sem trap, bulk memory, multivalue, reference types, globais mutáveis | dentro | padrão do LLVM 22 (`-mcpu=generic`) e do Rust |
+| SIMD128 | dentro | LLVM, Chrome 91, Firefox 89, Safari 16.4 |
+| tail calls | dentro | LLVM, Chrome 112, Firefox 121, Safari 18.2 |
+| extended constant expressions | dentro | LLVM, Chrome 114, Firefox 112, Safari 17.4 |
+| exception handling com `exnref` | dentro | LLVM 22, Chrome 137, Firefox 131, Safari 18.4, Node 24.15; candidato para as exceções Dart (§3.3) |
+| WasmGC e typed function references | fora | o coletor é o do runtime, na memória linear |
+| EH legado (`try`/`catch` antigos) | fora | substituído por `exnref` |
+| relaxed SIMD | fora | resultados diferentes entre motores |
+| threads e memória compartilhada | fora | exige isolamento entre origens (COOP/COEP) na página; o dart2wasm não tem isolates com threads |
+| memory64 | fora | ponteiros de 32 bits são mais rápidos; Safari ainda não tem |
+| multi-memory, wide arithmetic, custom page sizes, stack switching | fora | sem uso no LLVM ou sem suporte estável no Chrome |
 
-Recusar instruções/formatos de GC, reference-types adicionais, bulk-memory,
-sign-extension pós-MVP, conversões saturantes pós-MVP, SIMD, atomics/threads,
-exception handling, tail calls, memory64, multi-memory e multivalue. Globais
-mutáveis internas necessárias ao código LLVM não devem ser confundidas com a
-extensão de importação/exportação de globais mutáveis: esta também será excluída
-do perfil estrito. Exportar funções de acesso quando necessário.
-
-Fixar `target-cpu=mvp` e features em **todos** os insumos: programa, SDK Dart,
-runtime Rust, `core`/`alloc`, builtins e qualquer biblioteca auxiliar. Auditar a
-compatibilidade do toolchain Rust/LLVM selecionado; o LLVM usado por rustc pode
-ter versão diferente do LLVM usado na emissão Dart.
-
-Não confiar nos padrões atuais de `wasm32-unknown-unknown`, em um comentário
-`target_features`, nem no cabeçalho `\0asm` como prova. Uma etapa obrigatória
-validará instruções, seções, tipos, imports e limites do módulo final com
-ferramenta/configuração versionadas que rejeitem recursos fora do perfil.
-`wasm32v1-none` não substitui automaticamente o MVP estrito: o perfil documentado
-pelo Rust inclui `mutable-globals`.
+Todos os insumos usam as mesmas features: programa, SDK Dart, runtime Rust
+(`std` do alvo `wasm32-unknown-unknown`), builtins e bibliotecas auxiliares. A seção
+`target_features` não serve de prova: o portão (`crates/wasm_gate`) valida o módulo
+final com `wasmparser` restrito ao perfil e recusa o resto. O executor independente
+(`crates/wasm_host`, Wasmtime) liga as mesmas features e nenhuma outra.
 
 ### 3.2 Valores, ponteiros, heap e chamadas
 
@@ -171,28 +192,29 @@ O perfil Wasm deverá ter um núcleo sem dependências de SO, preferencialmente
 Isso não exige converter o compilador host nem todo o runtime desktop para
 `no_std`; exige isolar as dependências para o artefato Wasm.
 
-Inicialmente: tracing GC e shadow stack explícita, contexto por instância,
-single-thread. Portar os contratos de objetos e raízes existentes. Priorizar
-uma primeira coleta não movente se isso reduzir os pré-requisitos; a escolha
-deve ser registrada no marco de heap e não alterar identidade, weak references
-ou finalização anunciadas como suportadas. A evolução geracional é posterior à
-correção do coletor básico. ARC e mapas de pilha nativos não são requisitos iniciais.
+Coletor: o mesmo do nativo (preciso, geracional, shadow stack explícita),
+contexto por instância, uma thread. Não escrever um coletor “simples” para depois
+trocar: identidade, weak references, `Expando` e `Finalizer` funcionam desde o
+primeiro programa. ARC e mapas de pilha nativos não entram no destino Wasm.
 
 Não localizar raízes na stack opaca do engine nem ler `sp`/`rsp` ou usar
 registradores TLS nativos. Referências vivas em chamadas, alocações, closures,
 globais, async e retornos precisam ser visíveis ao coletor. Auditoria específica
 das raízes em otimizações/LTO e nas fronteiras com o host.
 
-Usar o modelo de exceção pendente/verificações. `throw`, `catch`, `rethrow` e
-`finally` preservam ordem de efeitos e limpeza sem Wasm EH ou `setjmp/longjmp`.
+Exceções Dart: as duas implementações do nativo servem aqui. O modelo de exceção
+pendente (A0) não depende do motor; o modelo por tabelas (A1, `invoke`/`landingpad`)
+vira EH Wasm com `exnref`, que o LLVM 22 já gera (W0). Medir as duas no W3 e ficar
+com a mais rápida, sem `setjmp/longjmp`. `throw`, `catch`, `rethrow` e `finally`
+preservam ordem de efeitos e limpeza.
 Panic do runtime, trap Wasm, erro retornado pelo host e exceção Dart têm caminhos
 distintos. Não declarar um trap irrecuperável como exceção Dart capturável.
 
-Para stack overflow, definir um orçamento instrumentado e verificar os limites
-dos engines; profundidade fixa não garante prevenir todo overflow da stack
-Wasm. Se não houver garantia demonstrada de `StackOverflowError` capturável,
-registrar a limitação e mantê-la fora da cobertura aprovada. Stack traces
-iniciais usam metadados próprios de funções/locais, sem unwinder nativo.
+`StackOverflowError` precisa ser capturável como na VM: verificação de
+profundidade na entrada das funções contra um orçamento menor que o limite da
+pilha LLVM (`__stack_pointer`) e que a pilha do motor, medido nos motores
+suportados, para que a exceção Dart sempre ocorra antes da trap. Stack traces usam
+metadados próprios de funções, sem unwinder nativo.
 
 ### 3.4 ABI comum de host v1
 
@@ -224,28 +246,23 @@ controlados. Uma exceção JS lançada por um adaptador não pode atravessar a
 fronteira como se o unwinding Dart tivesse ocorrido; adaptadores capturam e
 traduzem falhas nos termos da ABI.
 
-### 3.5 Biblioteca padrão e perfis de ambiente
+### 3.5 Biblioteca padrão e ambiente
 
-Produzir um mapa explícito de biblioteca/API/capacidade. Núcleo portátil não
-declara `dart:io`, bibliotecas dinâmicas ou DOM como disponíveis. Imports
-condicionais e constantes `dart.library.*` precisam refletir o perfil compilado,
-incluindo dependências transitivas e fontes geradas. Não detectar “Linux” pelo
-sistema onde o compilador está rodando.
+O conjunto de bibliotecas é o da §1, com as constantes `dart.library.*` do alvo
+`wasm` do SDK, incluindo dependências transitivas e fontes geradas. Não detectar
+“Linux” pelo sistema onde o compilador está rodando.
 
-Para o **mesmo binário nos dois ambientes**, manter as mesmas decisões de
-compilação e ABI; diferenças de capacidades do host são consultadas em runtime.
-Um futuro perfil exclusivamente web com interop DOM pode produzir outro módulo,
-mas deve ser identificado como tal. Não prometer que alterar somente o loader
-muda constantes Dart já dobradas durante a compilação.
-
-`dart:ffi` nativo, `DynamicLibrary`, ponteiros do host, sockets POSIX, subprocessos
-e filesystem geral ficam fora do perfil portátil inicial. Erros são detectados
-na compilação quando conhecidos, ou retornados pela operação quando dependem
-da capacidade fornecida pelo host. Não inserir stubs que retornem sucesso falso.
+Para o **mesmo binário nos dois ambientes**, as decisões de compilação e a ABI são
+as mesmas; o que depende do host (relógio, entropia, timers, JS) passa pela ABI.
+`dart:js_interop` exige o host JS, como no dart2wasm: o executor independente
+recusa na instanciação um módulo que importa o namespace JS, com mensagem clara.
+`dart:io` não existe neste alvo, como no oficial; `dart:ffi` opera sobre a memória
+linear e funções ligadas ao módulo, nunca sobre bibliotecas dinâmicas do host.
 
 ## 4. Fases, dependências e portas de aceite
 
-Nenhum item abaixo está marcado como concluído. O trabalho será dividido em
+A ordem das fases é ordem de trabalho, não de escopo: cada fase entrega código
+definitivo, e só a soma delas cumpre o critério da §1. O trabalho será dividido em
 commits revisáveis em `main`, sem branches/worktrees adicionais por padrão.
 
 ### W0 — Inventário e prova técnica limitada
@@ -268,16 +285,15 @@ evidências em `bench/results/2026-10-21-wasm-w0/`.
 
 | item | resultado |
 |---|---|
-| toolchain | LLVM/Clang/LLD 22.1.8 (`--target=wasm32-unknown-unknown -mcpu=mvp`); rustc 1.98.1 com `wasm32v1-none`, `-C target-cpu=mvp -C panic=abort`, `core`/`alloc` pré-compilados do alvo |
-| portão | `crates/wasm_gate`: `wasmparser` 0.262.0 com `WasmFeatures::MVP`, imports só de funções de `dartforge_host_v1`, nenhuma global exportada, uma memória/tabela; controles negativos por motivo (sign-ext, saturantes, bulk, multivalue, global mutável exportada, WASI, memória importada, export ausente) |
-| controle negativo real | o mesmo IR com `-mcpu=generic` gera `i64.extend8_s` e o portão recusa |
-| ABI LLVM↔Rust | `i64` por valor e por buffer alinhado, `i128` (`__multi3`), divisão/resto com sinal, deslocamentos, `fptosi`, chamada indireta por tabela, panic controlado (stderr + `unreachable`), `alloc` com allocator próprio (`Vec` crescente, `format!`) |
-| módulo | 12.672 bytes, 48 funções, 4 páginas iniciais e 256 máximas, um import (`dartforge_host_v1.write`); `target_features` declara `+mutable-globals` (vem do alvo Rust), mas não há global importada/exportada |
-| hosts | mesmo SHA-256 e mesma saída, status 0, no Wasmi 2.0.0 (`crates/wasm_host`, só MVP), no Node 24.21.0 (V8) e no Chrome 155 headless; saída comparada com valores calculados em Python |
-| ABI de host | subconjunto v1 fixado em [WASM-HOST-ABI-V1.md](WASM-HOST-ABI-V1.md) |
+| toolchain | LLVM/Clang/LLD 22.1.8 (`-mcpu=generic -msimd128 -mtail-call -mextended-const -mexception-handling`, EH `exnref`); rustc 1.98.1 com `wasm32-unknown-unknown` e `std` |
+| portão | `crates/wasm_gate`: `wasmparser` 0.262.0 com o perfil da §3.1, imports só de funções de `dartforge_host_v1`, nenhuma global exportada, uma memória/tabela; controles positivos (sign-ext, saturantes, bulk, SIMD, tail call, `exnref`) e negativos (WasmGC, memória compartilhada, EH legado, relaxed SIMD, memory64, multi-memory, global exportada, WASI, memória importada, export ausente) |
+| controle negativo real | módulo LLVM com `atomicrmw` e `--shared-memory`: o portão recusa |
+| ABI LLVM↔Rust | `i64` por valor e por buffer, `i128` (`__multi3`), divisão/resto com sinal, deslocamentos, `fptosi`, chamada indireta por tabela, exceção LLVM (`invoke`/`catchpad` → `try_table`) lançada e capturada, `std` do Rust (dlmalloc com `memory.grow` a partir de 2 páginas, `Vec`, `format!`, `thread_local!`, hook de panic pela ABI) |
+| módulo | 27.968 bytes, 96 funções, um import (`dartforge_host_v1.write`) |
+| hosts | mesmo SHA-256 e mesma saída, status 0, no Wasmtime 50.0.0 (`crates/wasm_host`, Cranelift, só o perfil), no Node 24.21.0 (V8) e no Chrome 155 headless; saída comparada com valores calculados em Python |
+| ABI de host | primeira parte da v1 fixada em [WASM-HOST-ABI-V1.md](WASM-HOST-ABI-V1.md) |
 
-Limites: Node e Chrome usam o mesmo motor (V8); Firefox e Safari ficam para o W5.
-O fragmento Rust do W0 não usa `std`; o runtime real usa.
+Limites: Node e Chrome usam o mesmo motor (V8); Firefox e Safari entram no W5.
 
 **Inventário do runtime (`crates/runtime`, 64 fragmentos, ~59 mil linhas).** O que
 precisa de outra implementação ou ficar fora do perfil Wasm:
@@ -287,14 +303,15 @@ precisa de outra implementação ou ficar fora do perfil Wasm:
 | páginas por `mmap`/`VirtualAlloc` | `space.rs` | reservas na memória linear (`memory.grow`) |
 | `thread_local!` (contexto da thread, caches) | 23 fragmentos, inclusive `core`, `heap`, `gc_roots`, `selectors` | contexto por instância (uma thread por módulo) |
 | `std::process::exit/abort` | `core`, `heap`, `gc_roots`, `selectors` | status de `dartforge_run` e trap controlada |
-| `std::thread` (isolados, coletor auxiliar, testes) | 20 fragmentos | isolados fora do primeiro perfil |
-| `std::fs`, `std::net`, `std::process`, `std::env` | fragmentos `io_*`, `natives_system` | fora do perfil, com recusa explícita |
+| `std::thread` (isolados, coletor auxiliar, testes) | 20 fragmentos | uma thread; `Isolate` como no dart2wasm |
+| `std::fs`, `std::net`, `std::process`, `std::env` | fragmentos `io_*`, `natives_system` | não entram: `dart:io` não existe no alvo `wasm` |
 | `std::time` | 13 fragmentos | relógios da ABI v1 |
-| rustls/ring, zlib (`libz-sys` em C), cifras de `tls_formats` | `tls`, `tls_formats`, `zlib` | fora do primeiro perfil |
+| rustls/ring, zlib (`libz-sys` em C), cifras de `tls_formats` | `tls`, `tls_formats`, `zlib` | não entram (são de `dart:io`) |
 | `extern "C"` do SO e `cfg(unix/windows/target_os)` | ~40 fragmentos | seleção de fragmentos por perfil (W1/W2) |
 
 O seletor de fragmentos de `crates/runtime/build.rs` é o ponto de partida: o perfil
-Wasm escolhe um subconjunto, e um fragmento que dependa de SO não pode entrar nele.
+Wasm escolhe os fragmentos das bibliotecas da §1 com a camada de plataforma Wasm;
+nenhum fragmento é reescrito em versão reduzida.
 
 ### W1 — Modelo de destino, ABI e caches
 
@@ -325,40 +342,40 @@ Nenhum cache/bundle incompatível pode ser aceito por alteração manual do mani
 memória e contexto não vazam entre instâncias. Falhas não corrompem o estado
 ou viram sucesso silencioso. OOM irrecuperável deve ser distinguido de erro Dart.
 
-### W3 — Primeiro Dart real e coleta precisa
+### W3 — Pipeline Dart completo com o runtime real
 
-1. Compilar hello, aritmética, chamadas, strings e classes simples pelo pipeline
-   DartForge completo, com SDK/overlays Wasm.
-2. Portar tracing/shadow stack e barreiras efetivamente necessárias ao coletor.
-3. Cobrir raízes em campos/globais, closures, laços, chamadas indiretas e retornos.
-4. Implementar exceção pendente, limpeza e unwinding lógico de frames.
-5. Executar alocações repetidas e GC forçado em todas as oportunidades previstas.
+1. Compilar pelo pipeline DartForge completo, com o alvo `wasm` do SDK, usando o
+   runtime real (não um runtime de bootstrap): objetos, strings, RTI, closures,
+   coleções, exceções pendentes e o coletor geracional.
+2. Shadow stack, barreiras e raízes em campos/globais, closures, laços, chamadas
+   indiretas e retornos, com o verificador de raízes do nativo.
+3. `throw`/`catch`/`finally`/`rethrow`, stack traces e `StackOverflowError`
+   capturável (§3.3).
+4. Rodar o corpus nativo inteiro, normal e com `--gc-stress`, e registrar cada
+   divergência como defeito a corrigir, não como exclusão.
 
-**Aceite:** stdout e efeitos iguais à VM nos casos aprovados, GC sob estresse,
-raízes precisas e memória reutilizada em execuções repetidas. Desabilitar GC
-para passar hello não aprova este marco. Nenhum código deve requerer WasmGC/EH.
+**Aceite:** a ligação usa o runtime de produção; GC sob estresse e verificador de
+raízes passam nos programas que já executam. Desabilitar GC não aprova nada.
 
-### W4 — Semântica Dart e bibliotecas portáteis
+### W4 — Paridade com a VM e o dart2wasm
 
-1. Classes/herança, dispatch, closures/tear-offs e parâmetros nomeados/opcionais.
-2. Generics, RTI, `is`/`as`, null safety e casts implícitos/ordem de avaliação.
-3. List/Map/Set, iteração, igualdade/hashCode e identidade de constantes.
-4. Unicode/UTF-16 Dart, strings, buffers, UTF-8 de fronteira e typed data.
-5. JSON/base64 e demais APIs de `convert` selecionadas; matemática e RegExp
-   entram apenas com cobertura específica, sem herdar automaticamente o selo.
-6. Validar inteiros, shifts, divisão/remainder, overflow, NaN/−0 e conversões
-   double→int, inclusive sem instruções saturantes pós-MVP. Definir diferenças
-   permitidas entre VM e o backend web antes de interpretar divergências.
+1. Corpus nativo e JS inteiros iguais à VM, normal e com GC forçado.
+2. Bibliotecas da §1 completas: `core` (inclusive `BigInt`, `RegExp`, `Uri`,
+   `DateTime`, weak references, finalizers), `collection`, `convert`, `math`,
+   `typed_data` (inclusive as classes SIMD sobre SIMD128), `developer`, `ffi` sobre
+   a memória linear.
+3. Inteiros, shifts, divisão/resto, overflow, NaN/−0 e double→int; onde a VM e o dart2wasm divergem, seguir o dart2wasm e
+   registrar o caso no corpus.
+4. Testes web do `new_sali/core` iguais ao `dart run`.
 
-**Aceite:** corpus versionado por recurso, testes positivos/negativos e
-comparação de saída/efeitos/exceções com oráculo adequado. Publicar cobertura
-e diferenças; não medir só o exit code do engine.
+**Aceite:** zero divergências no corpus, com GC forçado; diferenças em relação à
+VM só onde o dart2wasm também difere, cada uma com teste.
 
 ### W5 — Dois hosts, mesmo módulo
 
 1. Implementar adaptador JS pequeno, independente do compilador, para browsers.
-2. Implementar host de executor, inicialmente apoiado em uma engine incorporável
-   como Wasmtime; fixar versão/configuração e não exigir a CLI WASI pura.
+2. Executor independente (`crates/wasm_host`, Wasmtime fixado e restrito ao
+   perfil), sem exigir a CLI WASI.
 3. Definir API de entrada/conclusão, argumentos, códigos de saída e diagnóstico.
 4. Tratar atualização de views JS após `memory.grow`, strings e buffers copiados.
 5. Validar callbacks, encerramento, capacidade ausente, host que retorna erro,
@@ -369,20 +386,19 @@ independente; Safari/WebKit é a próxima porta antes da declaração de suporte
 à web nessa plataforma. Não compilar separadamente para “provar” mesmo módulo.
 Nenhum host fornece privilégios de filesystem/rede por padrão.
 
-### W6 — Async e integração de ambiente
+### W6 — Async, JS interop e deferred
 
-1. Microtasks, Future/Stream e máquinas de estado com raízes vivas.
-2. Timers/cancelamento e ordem de eventos, erros assíncronos e encerramento.
-3. Testar conclusões síncronas/atrasadas, cancelamento tardio e IDs obsoletos.
-4. Adicionar I/O opt-in por capacidade: primeiro operações assíncronas pequenas,
-   depois rede/arquivos virtuais segundo contratos separados.
-5. Avaliar isolates com instâncias/heaps separados e cópia de mensagens.
-   Threads/shared-memory não são introduzidos no perfil MVP para imitá-los.
+1. Event loop completo: microtasks, `Future`/`Stream`, zonas, `Timer` e
+   cancelamento, erros assíncronos e encerramento, com raízes vivas nas máquinas
+   de estado; timers pela ABI (no JS, `setTimeout`; no executor, laço próprio).
+2. `dart:js_interop`, `js_interop_unsafe` e `js_util` com tabela de handles JS no
+   adaptador, liberação por finalizer e callbacks Dart chamados pelo JS fora do GC.
+3. Imports `deferred` (módulos carregados sob demanda ou ligados no mesmo módulo,
+   com o mesmo comportamento observável do dart2wasm).
+4. Testar conclusões síncronas/atrasadas, cancelamento tardio e IDs obsoletos.
 
-**Aceite:** scheduler determinístico de teste e oráculo real, sem reentrada
+**Aceite:** corpus `async` e de interop iguais à VM/dart2wasm, sem reentrada
 durante GC, sem busy loop quando ocioso e sem bloquear o event loop do browser.
-Programas CPU-bound permanecem síncronos até existir execução em worker ou outra
-política explícita; event loop não torna laços computacionais preemptivos.
 
 ### W7 — CLI, distribuição e homologação
 
@@ -420,11 +436,11 @@ corpus e registrar a versão; até lá, identificar nominalmente os browsers val
 
 | Camada | Verificação obrigatória |
 |---|---|
-| Binário | Validator MVP estrito no módulo final, debug/release/LTO; imports/exports permitidos |
+| Binário | Portão do perfil no módulo final, debug/release/LTO; imports/exports permitidos |
 | ABI/layout | Rust↔LLVM↔host; limites, alinhamentos, i64 por buffer, função indireta, overflow |
 | Runtime | Heap/allocator, GC forçado, erros, callbacks, duas instâncias e encerramento |
-| Linguagem | Corpus com oráculos fixados e expectativas de efeitos/exceções; recusas explícitas |
-| Bibliotecas | Cobertura por API de core/collection/typed_data/convert/async e recursos opcionais |
+| Linguagem | Corpus nativo e JS inteiros contra a VM, normal e com GC forçado; dart2wasm onde a semântica web manda |
+| Bibliotecas | Todas as bibliotecas da §1; testes web do `new_sali/core`; programas `js_interop`/`deferred` contra o dart2wasm |
 | Integração | Browser + executor com o mesmo hash; erros de import/capacidade/versão |
 | Regressão nativa | Testes/contratos existentes nos cinco destinos, AOT/JIT desktop nos três SOs |
 | Distribuição | Toolchain/cache limpos, relocação, ausência de dependências de máquina |
@@ -495,14 +511,10 @@ A especificação dos hosts começa em W1; implementações de W5 só se estabil
 após o ABI/GC de W3. Packaging e CI podem ser preparados progressivamente,
 mas não antecipam a homologação final.
 
-Prioridade inicial: módulo escalar → núcleo de heap → Dart hello real com GC/exception check →
-corpus portátil → mesmo binário browser/executor → async → distribuição.
-
-Fora da primeira entrega: LLVM JIT dentro do browser, hot reload equivalente
-ao JIT desktop, dynamic linking Wasm, WASI Component Model, threads compartilhadas,
-SIMD, WasmGC, FFI nativo arbitrário e execução do explorador desktop completo.
-Um futuro backend dart_ui para canvas/WebGL/DOM requer plano próprio; o
-backend Win32/AppKit/Wayland existente não se torna web ao gerar Wasm.
+Fora do destino (o dart2wasm também não tem): `dart:io`, `dart:mirrors`,
+`dart:html`, isolates com threads, LLVM JIT dentro do browser e hot reload. Fora do
+perfil pelos motivos da §3.1: WasmGC, threads com memória compartilhada, relaxed
+SIMD e memory64. Um backend `dart_ui` para canvas/WebGL/DOM requer plano próprio.
 
 ## 9. Referências e natureza das decisões
 

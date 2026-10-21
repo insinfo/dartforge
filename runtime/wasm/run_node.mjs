@@ -1,4 +1,4 @@
-// `node runtime/wasm/run_node.mjs <module.wasm>`: runs a `wasm32-mvp` module
+// `node runtime/wasm/run_node.mjs <module.wasm>`: runs a `wasm32-linear` module
 // through the browser adapter in Node (V8). Exit status: `dartforge_run`'s,
 // 70 for a trap, 2 when the module did not run. With DARTFORGE_WASM_REPORT set,
 // prints the module's SHA-256 on stderr.

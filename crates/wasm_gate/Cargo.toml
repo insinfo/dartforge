@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Strict WebAssembly MVP gate for DartForge's wasm32-mvp profile"
+description = "Binary gate of DartForge's wasm32-linear profile"
 
 [lints]
 workspace = true

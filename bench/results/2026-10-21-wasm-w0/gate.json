@@ -1,9 +1,20 @@
 {
-  "bytes": 12672,
+  "bytes": 27968,
   "declared_features": [
-    "+mutable-globals"
+    "+bulk-memory",
+    "+bulk-memory-opt",
+    "+call-indirect-overlong",
+    "+exception-handling",
+    "+extended-const",
+    "+multivalue",
+    "+mutable-globals",
+    "+nontrapping-fptoint",
+    "+reference-types",
+    "+sign-ext",
+    "+simd128",
+    "+tail-call"
   ],
-  "defined_functions": 48,
+  "defined_functions": 96,
   "exports": [
     "memory:memory",
     "dartforge_abi_version:func",
@@ -14,11 +25,11 @@
   ],
   "memories": 1,
   "memory_pages": {
-    "initial": 4,
+    "initial": 2,
     "maximum": 256
   },
-  "profile": "wasm32-mvp",
-  "sha256": "694df81f7296ab788047807e49da81b685b74d6db283af60f0b99cb4a7972ad0",
+  "profile": "wasm32-linear",
+  "sha256": "a62763c9d42efe0968a2628498d85d7e8ace9cfa8728c3784468d1441af642d3",
   "tables": 1,
-  "validator": "wasmparser 0.262.0 WasmFeatures::MVP"
+  "validator": "wasmparser 0.262.0, WasmFeatures::WASM2 | TAIL_CALL | EXTENDED_CONST | EXCEPTIONS"
 }

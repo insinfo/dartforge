@@ -1,6 +1,6 @@
-// The browser (and Node) side of DartForge's host ABI v1 for `wasm32-mvp`
+// The browser (and Node) side of DartForge's host ABI v1 for `wasm32-linear`
 // modules (docs/WASM-HOST-ABI-V1.md). The independent executor
-// (`crates/wasm_host`, Wasmi) implements the same contract, so one `.wasm`
+// (`crates/wasm_host`, Wasmtime) implements the same contract, so one `.wasm`
 // file, byte for byte, runs in both.
 //
 // Only portable pieces: `WebAssembly`, `crypto.subtle` and typed arrays. No

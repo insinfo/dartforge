@@ -1,5 +1,5 @@
-//! The independent executor of DartForge `wasm32-mvp` modules: Wasmi, an
-//! interpreter, configured with exactly the MVP feature set, implementing the
+//! The independent executor of DartForge `wasm32-linear` modules: Wasmtime
+//! (Cranelift), configured with exactly the profile's features, implementing the
 //! host ABI v1 (`dartforge_host_v1`, docs/WASM-HOST-ABI-V1.md). The browser
 //! adapter (`runtime/wasm/dartforge_host_v1.mjs`) implements the same contract,
 //! so one `.wasm` file, unchanged, runs in both.
@@ -8,7 +8,7 @@
 //! the executor never runs what the profile does not admit.
 
 use dartforge_wasm_gate::{HOST_MODULE, Policy};
-use wasmi::{Caller, Config, Engine, Extern, Linker, Memory, Module, Store};
+use wasmtime::{Caller, Config, Engine, Linker, Memory, Module, Store};
 
 /// The ABI version this host implements (`dartforge_abi_version`).
 pub const ABI_VERSION: i32 = 1;
@@ -38,7 +38,7 @@ pub struct Outcome {
 /// Why a module did not run at all.
 #[derive(Debug)]
 pub enum RunError {
-    /// The strict MVP gate refused it.
+    /// The profile gate refused it.
     Gate(Vec<String>),
     /// The engine refused it (parse, link or instantiation).
     Engine(String),
@@ -49,7 +49,7 @@ pub enum RunError {
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RunError::Gate(e) => write!(f, "rejected by the wasm32-mvp gate: {}", e.join("; ")),
+            RunError::Gate(e) => write!(f, "rejected by the wasm32-linear gate: {}", e.join("; ")),
             RunError::Engine(e) => write!(f, "engine: {e}"),
             RunError::Abi(e) => write!(f, "host ABI: {e}"),
         }
@@ -62,25 +62,27 @@ struct HostState {
     stderr: Vec<u8>,
 }
 
-/// Wasmi with exactly the MVP features: every later proposal off, so the
-/// engine itself would reject what the gate let through by mistake.
-fn mvp_engine() -> Engine {
-    let mut config = Config::default();
+/// Wasmtime with exactly the `wasm32-linear` features: the engine itself would
+/// reject what the gate let through by mistake.
+fn profile_engine() -> Result<Engine, RunError> {
+    let mut config = Config::new();
     config
-        .wasm_mutable_global(false)
-        .wasm_sign_extension(false)
-        .wasm_saturating_float_to_int(false)
-        .wasm_multi_value(false)
+        .wasm_multi_value(true)
+        .wasm_bulk_memory(true)
+        .wasm_reference_types(true)
+        .wasm_simd(true)
+        .wasm_tail_call(true)
+        .wasm_extended_const(true)
+        .wasm_exceptions(true)
+        .wasm_relaxed_simd(false)
+        .wasm_gc(false)
+        .wasm_function_references(false)
         .wasm_multi_memory(false)
-        .wasm_bulk_memory(false)
-        .wasm_reference_types(false)
-        .wasm_tail_call(false)
-        .wasm_extended_const(false)
+        .wasm_memory64(false)
         .wasm_custom_page_sizes(false)
         .wasm_wide_arithmetic(false)
-        .floats(true);
-    // memory64 and SIMD are compiled out (the `memory64`/`simd` features are off).
-    Engine::new(&config)
+        .wasm_stack_switching(false);
+    Engine::new(&config).map_err(|e| RunError::Engine(e.to_string()))
 }
 
 /// `write(channel, offset, length)`: copies the bytes out of the linear memory
@@ -125,7 +127,7 @@ pub fn run(bytes: &[u8]) -> Result<Outcome, RunError> {
         ..Policy::default()
     };
     let report = dartforge_wasm_gate::validate(bytes, &policy).map_err(RunError::Gate)?;
-    let engine = mvp_engine();
+    let engine = profile_engine()?;
     let module = Module::new(&engine, bytes).map_err(|e| RunError::Engine(e.to_string()))?;
     let mut store = Store::new(
         &engine,
@@ -140,15 +142,14 @@ pub fn run(bytes: &[u8]) -> Result<Outcome, RunError> {
         .func_wrap(HOST_MODULE, "write", write)
         .map_err(|e| RunError::Engine(e.to_string()))?;
     let instance = linker
-        .instantiate_and_start(&mut store, &module)
+        .instantiate(&mut store, &module)
         .map_err(|e| RunError::Engine(e.to_string()))?;
     let memory = instance
-        .get_export(&store, "memory")
-        .and_then(Extern::into_memory)
+        .get_memory(&mut store, "memory")
         .ok_or_else(|| RunError::Abi("no exported memory".to_string()))?;
     store.data_mut().memory = Some(memory);
     let version = instance
-        .get_typed_func::<(), i32>(&store, "dartforge_abi_version")
+        .get_typed_func::<(), i32>(&mut store, "dartforge_abi_version")
         .map_err(|e| RunError::Abi(format!("dartforge_abi_version: {e}")))?
         .call(&mut store, ())
         .map_err(|e| RunError::Abi(format!("dartforge_abi_version trapped: {e}")))?;
@@ -158,7 +159,7 @@ pub fn run(bytes: &[u8]) -> Result<Outcome, RunError> {
         )));
     }
     let entry = instance
-        .get_typed_func::<(), i32>(&store, "dartforge_run")
+        .get_typed_func::<(), i32>(&mut store, "dartforge_run")
         .map_err(|e| RunError::Abi(format!("dartforge_run: {e}")))?;
     let mut outcome = Outcome {
         sha256: report.sha256,
@@ -166,7 +167,7 @@ pub fn run(bytes: &[u8]) -> Result<Outcome, RunError> {
     };
     match entry.call(&mut store, ()) {
         Ok(status) => outcome.status = Some(status),
-        Err(e) => outcome.trap = Some(e.to_string()),
+        Err(e) => outcome.trap = Some(format!("{e:#}")),
     }
     let state = store.into_data();
     outcome.stdout = state.stdout;
@@ -213,19 +214,45 @@ mod tests {
     }
 
     #[test]
-    fn wrong_abi_and_non_mvp_are_refused() {
+    fn profile_features_run() {
+        // Sign extension, SIMD128, a tail call and a caught Wasm exception:
+        // -128 + 4 + 7 = -117.
+        let o = run(&module(
+            r#"(module (memory (export "memory") 1)
+               (func (export "dartforge_abi_version") (result i32) (i32.const 1))
+               (func $tail (param i32) (result i32)
+                 (return_call $add (local.get 0)))
+               (tag $e (param i32))
+               (func $throws (result i32) (throw $e (i32.const 7)))
+               (func $seven (result i32)
+                 (block $h (result i32)
+                   (try_table (result i32) (catch $e $h) (call $throws))))
+               (func $add (param i32) (result i32) (i32.add (local.get 0) (call $seven)))
+               (func (export "dartforge_run") (result i32)
+                 (call $tail (i32.add (i32.extend8_s (i32.const 128))
+                   (i32x4.extract_lane 1 (i32x4.add (v128.const i32x4 0 1 0 0)
+                                                    (v128.const i32x4 0 3 0 0)))))))"#,
+        ))
+        .expect("runs");
+        assert_eq!((o.status, o.trap), (Some(-117), None));
+    }
+
+    #[test]
+    fn wrong_abi_and_outside_profile_are_refused() {
         let wrong = module(
             r#"(module (memory (export "memory") 1)
                (func (export "dartforge_abi_version") (result i32) (i32.const 2))
                (func (export "dartforge_run") (result i32) (i32.const 0)))"#,
         );
         assert!(matches!(run(&wrong), Err(RunError::Abi(_))));
-        let modern = module(
+        let wasm_gc = module(
             r#"(module (memory (export "memory") 1)
                (func (export "dartforge_abi_version") (result i32) (i32.const 1))
-               (func (export "dartforge_run") (result i32) (i32.extend8_s (i32.const 1))))"#,
+               (type $p (struct (field i32)))
+               (func (export "dartforge_run") (result i32)
+                 (struct.get $p 0 (struct.new $p (i32.const 0)))))"#,
         );
-        assert!(matches!(run(&modern), Err(RunError::Gate(_))));
+        assert!(matches!(run(&wasm_gc), Err(RunError::Gate(_))));
         let unknown = module(
             r#"(module (import "env" "abort" (func))
                (memory (export "memory") 1)
