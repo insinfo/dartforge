@@ -25,6 +25,17 @@ declare ptr @llvm.stacksave.p0()
 ; The roots frame: previous frame, slot count, two slots.
 %frame = type { ptr, i64, [2 x i64] }
 
+; The module entry, as the emitter writes it: the program's entry and its
+; `toString` (here the identity: nothing calls it) handed to the runtime.
+declare i32 @dartforge_init(ptr, ptr)
+define i64 @to_string(i64 %v) {
+  ret i64 %v
+}
+define i32 @dartforge_run() {
+  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @to_string)
+  ret i32 %r
+}
+
 define void @dartforge_entry() {
 entry:
   %ctx = call ptr @dartforge_context()
