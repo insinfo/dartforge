@@ -398,7 +398,11 @@ impl ArcSlot {
 
     #[inline(always)]
     fn get(&self) -> Option<&HeapArc> {
-        if cfg!(target_arch = "wasm32") { None } else { self.0.as_deref() }
+        if cfg!(target_arch = "wasm32") {
+            None
+        } else {
+            self.0.as_deref()
+        }
     }
 
     #[inline(always)]
@@ -418,7 +422,11 @@ impl ArcSlot {
 
     #[inline(always)]
     pub(crate) fn as_mut(&mut self) -> Option<&mut Box<HeapArc>> {
-        if cfg!(target_arch = "wasm32") { None } else { self.0.as_mut() }
+        if cfg!(target_arch = "wasm32") {
+            None
+        } else {
+            self.0.as_mut()
+        }
     }
 
     #[inline(always)]
@@ -428,7 +436,11 @@ impl ArcSlot {
 
     #[inline(always)]
     pub(crate) fn take(&mut self) -> Option<Box<HeapArc>> {
-        if cfg!(target_arch = "wasm32") { None } else { self.0.take() }
+        if cfg!(target_arch = "wasm32") {
+            None
+        } else {
+            self.0.take()
+        }
     }
 
     pub(crate) fn set(&mut self, arc: Box<HeapArc>) {
