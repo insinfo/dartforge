@@ -14,6 +14,24 @@ pub extern "C" fn dartforge_abi_version() -> i32 {
 /// for a timer: the host calls `dartforge_resume` after `dartforge_delay_us`.
 const PENDING: i32 = -1;
 
+/// What they return when the program has no event of its own left but
+/// JavaScript still holds a Dart callback or object (`js_interop.rs`): the
+/// program goes on when the host calls back, as in dart2wasm, and ends with the
+/// host.
+const WAITING: i32 = -2;
+
+/// The status of a program whose loop returned: pending, waiting for the host,
+/// or ended (its exit status).
+fn loop_status() -> i32 {
+    if event_loop_suspended() {
+        return PENDING;
+    }
+    if js_host_waiting() {
+        return WAITING;
+    }
+    finish_program()
+}
+
 /// Microseconds until the module wants `dartforge_resume` (after a `-1`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_delay_us() -> f64 {
@@ -21,14 +39,12 @@ pub extern "C" fn dartforge_delay_us() -> f64 {
 }
 
 /// Continues a program that returned `-1`: runs the events that are due and
-/// returns the exit status, or `-1` again while timers remain.
+/// returns the exit status, `-1` again while timers remain, or `-2` while only
+/// the host can call back.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_resume() -> i32 {
     resume_event_loop();
-    if event_loop_suspended() {
-        return PENDING;
-    }
-    finish_program()
+    loop_status()
 }
 
 /// `main`'s arguments in a module: none, as dart2wasm's `main` receives without

@@ -167,6 +167,24 @@ fn fails_like(vm: &Output, dart2wasm: &Output, forge: &Output) -> bool {
         && vm.stdout.starts_with(&forge.stdout)
 }
 
+/// dart2wasm's output under the reference policy (docs/PLANO-WASM-MVP.md):
+/// where dart2wasm departs from the VM in an implementation detail, DartForge
+/// follows the VM — the cast message (`type 'X' is not a subtype of type 'Y'`,
+/// with dart2wasm's capital `Type`) and the class of a string that came from
+/// JavaScript (`JSStringImpl`, a VM `String`). What a program that only
+/// dart2wasm runs (`dart:js_interop`) is compared with.
+fn dart2wasm_by_policy(o: &Output) -> Output {
+    let text = |t: &str| {
+        t.replace("Type '", "type '")
+            .replace("JSStringImpl", "String")
+    };
+    Output {
+        stdout: text(&o.stdout),
+        stderr: text(&o.stderr),
+        code: o.code,
+    }
+}
+
 fn first_differing_line(a: &str, b: &str) -> usize {
     let mut la = a.split_inclusive('\n');
     let mut lb = b.split_inclusive('\n');
@@ -201,6 +219,7 @@ impl ProgramResult {
         match &self.alternative {
             Some(other) if compare(other, forge).is_none() => None,
             Some(other) if fails_like(self.reference(), other, forge) => None,
+            Some(other) if compare(&dart2wasm_by_policy(other), forge).is_none() => None,
             _ => Some(divergence),
         }
     }
@@ -209,7 +228,9 @@ impl ProgramResult {
     pub fn matches_only_dart2wasm(&self) -> bool {
         match (&self.forge, &self.alternative) {
             (Some(forge), Some(other)) => {
-                compare(self.reference(), forge).is_some() && compare(other, forge).is_none()
+                compare(self.reference(), forge).is_some()
+                    && (compare(other, forge).is_none()
+                        || compare(&dart2wasm_by_policy(other), forge).is_none())
             }
             _ => false,
         }
@@ -1026,6 +1047,25 @@ mod tests {
             stderr: String::new(),
             code,
         }
+    }
+
+    /// A program only dart2wasm runs (`dart:js_interop`) passes with dart2wasm's
+    /// output under the reference policy: the VM's cast text and `String` for a
+    /// string that came from JavaScript; any other difference is a divergence.
+    #[test]
+    fn dart2wasm_output_follows_the_reference_policy() {
+        let dart2wasm = s(
+            "s: str JSStringImpl\nyi: threw _TypeError: Type 'Null' is not a subtype of type 'int' in type cast\n",
+            0,
+        );
+        let forge = s(
+            "s: str String\nyi: threw _TypeError: type 'Null' is not a subtype of type 'int' in type cast\n",
+            0,
+        );
+        assert_eq!(compare(&dart2wasm_by_policy(&dart2wasm), &forge), None);
+        assert!(compare(&dart2wasm, &forge).is_some());
+        let other = s("s: str String\nyi: 3\n", 0);
+        assert!(compare(&dart2wasm_by_policy(&dart2wasm), &other).is_some());
     }
 
     #[test]

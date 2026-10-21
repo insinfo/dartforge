@@ -9,7 +9,15 @@
 
 library dart._js_types;
 
+import 'dart:_internal';
 import 'dart:_js_helper' as js;
+import 'dart:collection';
+import 'dart:js_interop';
+import 'dart:math';
+import 'dart:typed_data';
+
+part 'js_array.dart';
+part 'js_typed_array.dart';
 
 typedef JSAnyRepType = js.JSValue;
 

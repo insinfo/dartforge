@@ -85,8 +85,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// The kind of a declared type, and whether it is nullable; `None`: the type
-    /// does not cross.
-    fn snippet_kind(&self, ty: TypeId, js_value: ClassId) -> Option<(Kind, bool)> {
+    /// does not cross. With `int64`, an `int` is a `BigInt`.
+    fn snippet_kind(&self, ty: TypeId, js_value: ClassId, int64: bool) -> Option<(Kind, bool)> {
         let ty = self.ctx.erase(ty);
         if self.ctx.is_void(ty) {
             return Some((Kind::Void, false));
@@ -107,6 +107,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let kind = match self.ctx.symbol_name(c.name) {
             "String" => return Some((Kind::Text, *nullable)),
             "double" => Kind::Number,
+            "int" if int64 => Kind::Int64,
             "int" => Kind::Integer,
             "bool" => Kind::Boolean,
             _ => return None,
@@ -141,9 +142,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             return self.unsupported(&format!("snippet `{member}` is an instance member"), span);
         }
+        let int64 = crate::natives::js_int64(
+            self.ctx.program,
+            self.ctx.interner,
+            &self.ctx.program.functions[fid],
+        );
+        let names: Vec<String> = data
+            .parameters
+            .iter()
+            .map(|p| {
+                p.name
+                    .map(|n| self.ctx.symbol_name(n).to_string())
+                    .unwrap_or_default()
+            })
+            .collect();
         let mut values = Vec::with_capacity(declared.len());
         for (i, &ty) in declared.iter().enumerate() {
-            match self.snippet_kind(ty, js.class) {
+            match self.snippet_kind(ty, js.class, int64.contains(&names[i])) {
                 Some((Kind::Void, _)) | None => {
                     return self.unsupported(
                         &format!("snippet `{member}`: parameter {i} of a type that does not cross"),
@@ -157,7 +172,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     };
                     let repr = match kind {
                         Kind::Number => Type::F64,
-                        Kind::Integer => Type::I64,
+                        Kind::Integer | Kind::Int64 => Type::I64,
                         Kind::Boolean => Type::I1,
                         _ => Type::Ref,
                     };
@@ -165,7 +180,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
         }
-        let Some((ret, ret_nullable)) = self.snippet_kind(return_type, js.class) else {
+        let Some((ret, ret_nullable)) =
+            self.snippet_kind(return_type, js.class, int64.iter().any(|n| n == "return"))
+        else {
             return self.unsupported(
                 &format!("snippet `{member}`: a return type that does not cross"),
                 span,
@@ -231,7 +248,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     (b, Type::I8)
                 }
                 Kind::Number => (self.coerce(value.clone(), Type::F64), Type::F64),
-                Kind::Integer => (self.coerce(value.clone(), Type::I64), Type::I64),
+                Kind::Integer | Kind::Int64 => (self.coerce(value.clone(), Type::I64), Type::I64),
                 // Converted below, after every handle is read.
                 Kind::Text => (value.clone(), Type::Ref),
                 Kind::Void => unreachable!("void does not cross as an argument"),
@@ -260,7 +277,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             code: code.to_string(),
         };
         let ret_ty = match ret {
-            Kind::Value | Kind::Text | Kind::Integer => Type::I64,
+            Kind::Value | Kind::Text | Kind::Integer | Kind::Int64 => Type::I64,
             Kind::Number => Type::F64,
             Kind::Boolean | Kind::JsBoolean => Type::I8,
             Kind::Void => Type::Void,

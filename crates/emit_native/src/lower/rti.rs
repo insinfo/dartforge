@@ -1128,6 +1128,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !self.generic_function(fid) {
             return;
         }
+        self.call_site = call.map(|(_, arguments)| (fid, arguments.span.start));
         let params = self.type_params_of(fid);
         let extension = self.receiver_pattern(fid);
         let n_ext = extension.map_or(0, |(n, _)| n);

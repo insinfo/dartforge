@@ -421,9 +421,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let n = self.fast_length(&list, ix, false);
         self.typed_data = None;
-        if let Indexable::Typed(_) | Indexable::Simd { .. } = ix {
+        if let Indexable::Typed(_) | Indexable::Simd { .. } = ix
+            && !crate::target::is_wasm()
+        {
             // The static type guarantees the typed list of the type: the length
-            // is that one.
+            // is that one. On WebAssembly the list may be a JavaScript-backed one
+            // (`dart:_js_types`), whose `@df.typed_len` is 0: the getter answers.
             return n;
         }
         // 0: empty, or not a runtime list — the getter answers.

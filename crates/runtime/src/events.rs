@@ -392,6 +392,9 @@ pub extern "C" fn dartforge_native_DartForge_Timer_cancel(id: i64) {
 /// generated-code function that calls a closure without arguments.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_event_loop(call: extern "C" fn(i64) -> i64) {
+    // A module's loop also runs after the host's callbacks (`js_interop.rs`).
+    #[cfg(target_arch = "wasm32")]
+    LOOP_CALL.with(|c| c.set(Some(call)));
     let Some(_loop_guard) = EventLoopGuard::enter() else {
         if dartforge_exception_pending() == 0 {
             let error = allocate_state_error("Nested Dart event turns are unavailable");

@@ -634,6 +634,7 @@ impl LlvmEmitter<'_> {
                     writeln!(self.out, "  %js{v}.{i} = sitofp i64 {value} to double").unwrap();
                     format!("double %js{v}.{i}")
                 }
+                (Kind::Int64, Type::I64) => format!("i64 {value}"),
                 (Kind::Value | Kind::Text, Type::I64) => {
                     writeln!(self.out, "  %js{v}.{i} = trunc i64 {value} to i32").unwrap();
                     format!("i32 %js{v}.{i}")
@@ -653,7 +654,9 @@ impl LlvmEmitter<'_> {
         );
         match (snippet.ret, ret_ty) {
             (Kind::Void, Type::Void) => writeln!(self.out, "  {call}").unwrap(),
-            (Kind::Number, Type::F64) => writeln!(self.out, "  %v{v} = {call}").unwrap(),
+            (Kind::Number, Type::F64) | (Kind::Int64, Type::I64) => {
+                writeln!(self.out, "  %v{v} = {call}").unwrap()
+            }
             (Kind::Value | Kind::Text | Kind::Integer, Type::I64) => {
                 writeln!(self.out, "  %js{v}.r = {call}").unwrap();
                 writeln!(self.out, "  %v{v} = sext i32 %js{v}.r to i64").unwrap();
@@ -667,24 +670,51 @@ impl LlvmEmitter<'_> {
         }
     }
 
-    /// The export of `dartforge_js_throw` in a module that calls snippets: a weak
-    /// definition, so the copies of several objects become one export, kept
-    /// through LTO by `@llvm.used` (nothing in the module calls it).
-    fn emit_js_throw_export(&mut self) {
+    /// The runtime entries the adapter calls (`crate::js_interop::EXPORTS`) in
+    /// a module that calls snippets: weak definitions, so the copies of several
+    /// objects become one export each, kept through LTO by `@llvm.used`
+    /// (nothing in the module calls them).
+    fn emit_js_exports(&mut self) {
         if !self.js_snippets {
             return;
         }
+        let mut used = Vec::new();
+        for (k, (name, ret, params)) in crate::js_interop::EXPORTS.iter().enumerate() {
+            let formals: Vec<String> = params
+                .iter()
+                .enumerate()
+                .map(|(i, t)| format!("{t} %a{i}"))
+                .collect();
+            let actuals = formals.join(", ");
+            // `dartforge_js_throw` is in the runtime's table (`externs.rs`).
+            if *name != crate::js_interop::THROW_EXPORT {
+                writeln!(self.out, "declare {ret} @{name}({})", params.join(", ")).unwrap();
+            }
+            let call = format!("call {ret} @{name}({actuals})");
+            let body = if *ret == "void" {
+                format!("  {call}\n  ret void")
+            } else {
+                format!("  %r = {call}\n  ret {ret} %r")
+            };
+            writeln!(
+                self.out,
+                "define weak {ret} @df.js.export.{k}({}) \"wasm-export-name\"=\"{name}\" {{\n{body}\n}}",
+                formals.join(", ")
+            )
+            .unwrap();
+            used.push(format!("ptr @df.js.export.{k}"));
+        }
         writeln!(
             self.out,
-            "define weak void @df.js.throw.export() \"wasm-export-name\"=\"{}\" {{\n  call void @dartforge_js_throw()\n  ret void\n}}\n\
-             @llvm.used = appending global [1 x ptr] [ptr @df.js.throw.export], section \"llvm.metadata\"",
-            crate::js_interop::THROW_EXPORT
+            "@llvm.used = appending global [{} x ptr] [{}], section \"llvm.metadata\"",
+            used.len(),
+            used.join(", ")
         )
         .unwrap();
     }
 
     pub(super) fn emit_external_declarations(&mut self) {
-        self.emit_js_throw_export();
+        self.emit_js_exports();
         self.emit_owned_thunks();
         self.emit_scope_thunks();
         self.emit_stack_trace_names();

@@ -973,6 +973,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Some(dartforge_elements::model::Element::Class(c)) => Some(c),
             _ => None,
         });
+        // An extension type (an SDK one has a class id too, `dart:js_interop`'s
+        // JS types): the test is that of its erasure, through the RTI.
+        if cid.is_some_and(|c| self.ctx.is_extension_type(c)) {
+            return None;
+        }
         let Some((class, id)) = cid.and_then(|c| Some((c, self.ctx.class_id_of(c)?))) else {
             return without_class(self);
         };
@@ -1036,16 +1041,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .take()
             .filter(|(f, _)| *f == fid)
             .map(|(_, s)| s);
+        if super::js_members::create_js_interop_wrapper(self.ctx, fid) {
+            let offset = self
+                .call_site
+                .take()
+                .filter(|(f, _)| *f == fid)
+                .map(|(_, o)| o);
+            let r = self.lower_js_interop_wrapper(args, offset);
+            return Some(self.coerce(r, self.return_repr(fid)));
+        }
         let f = &self.ctx.program.functions[fid];
-        if f.external
-            && let Some(member) = super::js_members::interop_member(self.ctx, fid)
-        {
+        if let Some(member) = super::js_members::interop_member(self.ctx, fid) {
             let span = Span { start: 0, end: 0 };
+            let getter_of_variable = member
+                .as_ref()
+                .is_ok_and(|m| m.shape == super::js_members::Shape::Getter);
             let r = match member {
                 Ok(member) => self.call_interop(fid, &member, this, args, shape),
                 Err(message) => self.unsupported(&message, span),
             };
-            let ret = self.return_repr(fid);
+            // The getter of an `external` field or variable: its declared type.
+            let ret = match self.ctx.program.functions[fid].variable {
+                Some(v) if getter_of_variable => {
+                    self.repr(super::members::variable_type(self.ctx, v))
+                }
+                _ => self.return_repr(fid),
+            };
             return Some(if ret == Type::Void {
                 Operand::Constant(Constant::Null)
             } else {
@@ -1059,6 +1080,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             && p.0 as usize != fid
         {
             return Some(self.call_direct(p.0 as usize, this, args.to_vec()));
+        }
+        if let Some(name) = crate::natives::address_of(self.ctx.program, self.ctx.interner, f) {
+            let library = f.library;
+            let target = self.ctx.program.functions.iter().position(|g| {
+                g.library == library
+                    && g.class.is_none()
+                    && g.extension.is_none()
+                    && self.ctx.symbol_name(g.name) == name
+            });
+            return Some(match target {
+                Some(t) => Operand::Constant(Constant::Function(super::symbol_of(self.ctx, t))),
+                None => self.unsupported(
+                    &format!("address of `{name}`, which the library does not define"),
+                    Span { start: 0, end: 0 },
+                ),
+            });
         }
         if let Some(code) = crate::natives::js_snippet(self.ctx.program, self.ctx.interner, f) {
             let r = self.call_snippet(fid, &code, args);

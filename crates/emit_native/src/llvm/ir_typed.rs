@@ -26,16 +26,10 @@ use super::LlvmEmitter;
 use crate::hir::*;
 use std::fmt::Write;
 
-/// The helpers for typed lists, core lists and SIMD (§3.5), printed in the
-/// prelude of each module by `emit_runtime_decls`. The numeric constants are
-/// those of `layout` (checked in the `contract_offsets` test).
-pub const HELPERS: &str = "\
-define internal i64 @df.typed_len(i64 %t) alwaysinline {
-  %a = add i64 %t, 14
-  %p = inttoptr i64 %a to ptr
-  %n = load i64, ptr %p, align 8, !invariant.load !{}
-  ret i64 %n
-}
+/// The helpers after `@df.typed_len`, the same on every target.
+macro_rules! helpers_after_length {
+    () => {
+        "\
 define internal i64 @df.typed_data(i64 %t) alwaysinline {
   %a = add i64 %t, 22
   %p = inttoptr i64 %a to ptr
@@ -160,7 +154,46 @@ define internal i64 @df.simd_box(<2 x i64> %v, i64 %cid) alwaysinline {
   store <2 x i64> %v, ptr %p, align 8
   ret i64 %h
 }
-";
+"
+    };
+}
+
+/// The helpers for typed lists, core lists and SIMD (§3.5), printed in the
+/// prelude of each module by `emit_runtime_decls`. The numeric constants are
+/// those of `layout` (checked in the `contract_offsets` test).
+pub const HELPERS: &str = concat!(
+    "\
+define internal i64 @df.typed_len(i64 %t) alwaysinline {
+  %a = add i64 %t, 14
+  %p = inttoptr i64 %a to ptr
+  %n = load i64, ptr %p, align 8, !invariant.load !{}
+  ret i64 %n
+}
+",
+    helpers_after_length!()
+);
+
+/// [`HELPERS`] on the WebAssembly target, where a `dart:typed_data` list may
+/// also be dart2wasm's JavaScript-backed one (`dart:_js_types`): the length of
+/// an object that is not a typed list of the runtime (cids 22..66) is 0, so
+/// every fast path guarded by it goes to the dispatch (`lower/typed_items.rs`).
+pub const HELPERS_WASM: &str = concat!(
+    "\
+define internal i64 @df.typed_len(i64 %t) alwaysinline {
+  %ca = add i64 %t, 2
+  %cp = inttoptr i64 %ca to ptr
+  %c = load i32, ptr %cp, align 4, !invariant.load !{}
+  %d = sub i32 %c, 22
+  %typed = icmp ult i32 %d, 44
+  %a = add i64 %t, 14
+  %p = inttoptr i64 %a to ptr
+  %n = load i64, ptr %p, align 8, !invariant.load !{}
+  %r = select i1 %typed, i64 %n, i64 0
+  ret i64 %r
+}
+",
+    helpers_after_length!()
+);
 
 /// The effects of the helpers called by the lowering as `CallRuntime` (the name without
 /// `@`): `(name, allocates, throws)`. `externs::effects_of` (P0) consults them instead of

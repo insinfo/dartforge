@@ -201,6 +201,9 @@ pub struct FnBuilder<'a, 'c> {
     /// matched last (`lower/js_members.rs`: dart2wasm passes only those to
     /// JavaScript); the next `call_external` of that function takes it.
     pub(crate) call_shape: Option<(usize, super::js_members::CallShape)>,
+    /// The generic function `arm_tuple_with_receiver` armed last and where its
+    /// argument list starts (the key of its inferred type arguments).
+    pub(crate) call_site: Option<(usize, usize)>,
     /// The static type of `this` in an extension member (the `on`): the
     /// implicit receiver of another extension call.
     pub this_extension: Option<(
@@ -400,6 +403,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             creation_type: None,
             armed_tuple: None,
             call_shape: None,
+            call_site: None,
             this_extension: None,
             this_ext_type: None,
             constructor_return: None,

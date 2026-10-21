@@ -35,9 +35,9 @@ executar; o executor recusa o que o portão recusa.
 |---|---|---|
 | `memory` | memória | a memória linear do módulo, definida por ele |
 | `dartforge_abi_version` | `() -> i32` | devolve `1`; outro valor faz o host recusar o módulo sem executar |
-| `dartforge_run` | `() -> i32` | executa o programa e devolve o status de saída, ou `-1` enquanto ele espera um timer |
+| `dartforge_run` | `() -> i32` | executa o programa e devolve o status de saída, `-1` enquanto ele espera um timer, ou `-2` enquanto só o host pode chamá-lo de volta |
 | `dartforge_delay_us` | `() -> f64` | depois de um `-1`: microssegundos até o próximo timer (`inf` se distante demais) |
-| `dartforge_resume` | `() -> i32` | continua o programa depois do atraso; status ou `-1` de novo |
+| `dartforge_resume` | `() -> i32` | continua o programa depois do atraso; status, `-1` ou `-2` |
 
 O host chama `dartforge_abi_version` e, se for `1`, `dartforge_run` uma única vez.
 O módulo nunca bloqueia esperando um timer: com só timers futuros, o laço de
@@ -143,7 +143,26 @@ converte os argumentos (handle → valor; string → valor, consumindo o handle;
 handle novo; número e inteiro pelo `ToNumber`/`ToInt32` da fronteira). Se o
 trecho lança, o import chama o export **`dartforge_js_throw`** e devolve 0: ao
 voltar, o código Dart encontra a exceção pendente, um `_JavaScriptError` como o
-do dart2wasm. O módulo exporta `dartforge_js_throw` sempre que tem trechos.
+do dart2wasm. O módulo exporta, sempre que tem trechos:
+
+| export | tipo | contrato |
+|---|---|---|
+| `dartforge_js_throw` | `()` | o trecho em curso lançou uma exceção JS: fica pendente no Dart como `_JavaScriptError` |
+| `dartforge_js_call` | `(trampolim, ref, argc) -> i32` | o JS chama uma função Dart (`Function.toJS`): `ref` é o `DartRef` do callback, os argumentos ficam no adaptador; devolve o handle do resultado, ou `-1 - id` da exceção Dart que escapou |
+| `dartforge_js_drain` | `() -> f64` | depois de um callback no turno do próprio host: roda as microtarefas e os timers vencidos; devolve os microssegundos até o próximo timer, `-1` aguardando o host, `-2` programa encerrado |
+| `dartforge_js_rethrow` | `(id)` | a exceção Dart `id`, que atravessou o JS, volta a ficar pendente |
+| `dartforge_js_discard` | `(id)` | o JS descartou a exceção `id` sem relançá-la |
+| `dartforge_js_report` | `(id) -> i32` | a exceção `id` chegou ao laço de eventos do host: o programa termina como com exceção não tratada (status 255, via `exit`) |
+| `dartforge_js_dart_release` | `(id)` | o JS soltou o `DartRef` do objeto Dart `id` (o `FinalizationRegistry` do adaptador) |
+
+Um objeto Dart que o JS segura (`toJSBox`, `ExternalDartReference`, o callback
+de `Function.toJS`) é um `DartRef` do adaptador com o id de uma raiz global do
+runtime, o mesmo id para o mesmo objeto enquanto o JS o mantém. Enquanto houver
+um, o programa sem eventos próprios devolve `-2` em vez de terminar: ele continua
+quando o host chama de volta, como no dart2wasm, e termina com o host. Uma
+exceção Dart que escapa de um callback atravessa o JS como `DartError`; o próximo
+trecho que a captura a relança no Dart, intacta, e o host que a recebe no seu
+laço chama `report()`.
 
 O companheiro exporta `abi = 1` e `snippets(r)`, que devolve as funções dos
 imports por nome; `r` é o `Interop` do adaptador (`get`, `take`, `ref`, `fail`).

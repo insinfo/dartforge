@@ -33,6 +33,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         call: Option<(ast::ExprId, &ast::Arguments)>,
         span: Span,
     ) -> Operand {
+        // `f.toJS` / `f.toJSCaptureThis` of `dart:js_interop`: by the static type
+        // of `f` (`lower/js_members.rs`).
+        if let Some(capture_this) = super::js_members::function_to_js(self.ctx, fid) {
+            return self.lower_function_to_js(recv, receiver, capture_this, span);
+        }
+        // `v.isA<T>()` of `dart:js_interop`: by the type argument.
+        if super::js_members::is_a(self.ctx, fid) {
+            return self.lower_is_a(recv, call, span);
+        }
         // The tuple of this call does not leak into the outer one (an extension
         // getter may be an argument of an already armed generic call).
         let saved = self.armed_tuple.take();
@@ -54,7 +63,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
     ) -> Operand {
         let f = &self.ctx.program.functions[fid];
-        if !super::user_function(self.ctx, fid) || !super::members::has_body(self.ctx, fid) {
+        // An `external` field of an interop type (`external int x;`) has
+        // accessors without a body: the interop lowering is their body.
+        let interop = super::js_members::interop_member(self.ctx, fid).is_some();
+        if !super::user_function(self.ctx, fid)
+            || !(super::members::has_body(self.ctx, fid) || interop)
+        {
             return self.unsupported("SDK extension member", span);
         }
         if f.static_ {
@@ -111,7 +125,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
             return self.read_element(el, span);
         }
-        if f.kind == FunctionKind::Getter || f.static_ {
+        // The getter of an `external` field of an interop type is read too.
+        if f.kind == FunctionKind::Getter || f.kind == FunctionKind::ImplicitAccessor || f.static_ {
             return self.call_extension(recv, fid, &[], receiver, None, span);
         }
         self.extension_tearoff(recv, fid, receiver, span)

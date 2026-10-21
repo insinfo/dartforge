@@ -362,12 +362,24 @@ fn member_js_name(ctx: &Context, f: &FunctionElement) -> String {
     own.unwrap_or_else(|| ctx.symbol_name(f.name).trim_end_matches('=').to_string())
 }
 
-fn accessor_shape(ctx: &Context, f: &FunctionElement) -> Option<Shape> {
+/// Whether `fid` is the setter of a field or variable (its implicit accessor
+/// takes the value).
+fn implicit_setter(ctx: &Context, fid: usize) -> bool {
+    ctx.program.functions[fid].kind == FunctionKind::ImplicitAccessor
+        && ctx
+            .outline
+            .functions
+            .get(fid)
+            .is_some_and(|d| d.parameters.len() == 1)
+}
+
+fn accessor_shape(ctx: &Context, fid: usize) -> Option<Shape> {
+    let f = &ctx.program.functions[fid];
     let name = ctx.symbol_name(f.name);
     Some(match f.kind {
         FunctionKind::Getter => Shape::Getter,
         FunctionKind::Setter => Shape::Setter,
-        FunctionKind::ImplicitAccessor if name.ends_with('=') => Shape::Setter,
+        FunctionKind::ImplicitAccessor if implicit_setter(ctx, fid) => Shape::Setter,
         FunctionKind::ImplicitAccessor => Shape::Getter,
         FunctionKind::Operator if name == "[]" => Shape::IndexGet,
         FunctionKind::Operator if name == "[]=" => Shape::IndexSet,
@@ -389,7 +401,11 @@ fn has_named_parameters(ctx: &Context, fid: usize) -> bool {
 /// `Err` names an interop operator dart2wasm does not support either.
 pub(crate) fn interop_member(ctx: &Context, fid: usize) -> Option<Result<InteropMember, String>> {
     let f = &ctx.program.functions[fid];
-    if !f.external || f.patched_by.is_some() {
+    // The accessors of an `external` field or top-level variable are external.
+    let external = f.external
+        || f.variable
+            .is_some_and(|v| ctx.program.variables[v.0 as usize].external);
+    if !external || f.patched_by.is_some() {
         return None;
     }
     let constructor = matches!(f.node, FunctionRef::Constructor { .. })
@@ -425,7 +441,7 @@ pub(crate) fn interop_member(ctx: &Context, fid: usize) -> Option<Result<Interop
                     selector: class_string,
                 }));
             }
-            let shape = match operator(accessor_shape(ctx, f)) {
+            let shape = match operator(accessor_shape(ctx, fid)) {
                 Ok(s) => s,
                 Err(e) => return Some(Err(e)),
             };
@@ -464,7 +480,7 @@ pub(crate) fn interop_member(ctx: &Context, fid: usize) -> Option<Result<Interop
             if !f.static_ {
                 return None;
             }
-            let shape = match operator(accessor_shape(ctx, f)) {
+            let shape = match operator(accessor_shape(ctx, fid)) {
                 Ok(s) => s,
                 Err(e) => return Some(Err(e)),
             };
@@ -484,7 +500,7 @@ pub(crate) fn interop_member(ctx: &Context, fid: usize) -> Option<Result<Interop
         if !interop_on_type(ctx, on) {
             return None;
         }
-        let shape = match operator(accessor_shape(ctx, f)) {
+        let shape = match operator(accessor_shape(ctx, fid)) {
             Ok(s) => s,
             Err(e) => return Some(Err(e)),
         };
@@ -496,7 +512,7 @@ pub(crate) fn interop_member(ctx: &Context, fid: usize) -> Option<Result<Interop
     }
     let (unit, meta) = function_metadata(ctx, f)?;
     let own = js_annotation(ctx, unit, meta)?;
-    let shape = match operator(accessor_shape(ctx, f)) {
+    let shape = match operator(accessor_shape(ctx, fid)) {
         Ok(s) => s,
         Err(e) => return Some(Err(e)),
     };
@@ -641,8 +657,26 @@ impl FnBuilder<'_, '_> {
         let Some(data) = self.ctx.outline.functions.get(fid) else {
             return self.unsupported("JS interop member without a signature", span);
         };
-        let parameters: Vec<_> = data.parameters.to_vec();
-        let return_type = data.return_type;
+        let mut parameters: Vec<_> = data.parameters.to_vec();
+        let mut return_type = data.return_type;
+        // The accessors of an `external` field or variable: the declared type
+        // of the variable.
+        if let Some(v) = self.ctx.program.functions[fid].variable {
+            let ty = super::members::variable_type(self.ctx, v);
+            match member.shape {
+                Shape::Setter => match parameters.first_mut() {
+                    Some(p) => p.ty = ty,
+                    None => parameters.push(dartforge_types::resolve::ParameterTypeData {
+                        name: None,
+                        external_name: None,
+                        ty,
+                        required: true,
+                        kind: ast::ParameterKind::Required,
+                    }),
+                },
+                _ => return_type = ty,
+            }
+        }
         use ast::ParameterKind;
         // The parameters that cross: by the shape of the member and of the call.
         let mut used: Vec<usize> = Vec::new();
@@ -740,6 +774,673 @@ impl FnBuilder<'_, '_> {
                 None => self.unsupported(&format!("dart:_js_helper without {name}"), span),
             },
         }
+    }
+}
+
+/// The implicit getter (or setter) of an `external` interop variable (`@JS()
+/// external int foo;`), whose reads and writes are the interop member's.
+pub(crate) fn interop_variable_accessor(
+    ctx: &Context,
+    vid: dartforge_elements::model::VariableId,
+    setter: bool,
+) -> Option<usize> {
+    if !ctx.program.variables[vid.0 as usize].external {
+        return None;
+    }
+    ctx.program
+        .functions
+        .iter()
+        .enumerate()
+        .find(|(i, f)| f.variable == Some(vid) && implicit_setter(ctx, *i) == setter)
+        .map(|(i, _)| i)
+        .filter(|&i| interop_member(ctx, i).is_some())
+}
+
+/// Whether `fid` is `FunctionToJSExportedDartFunction.toJS` (`Some(false)`) or
+/// `.toJSCaptureThis` (`Some(true)`) of `dart:js_interop`.
+pub(crate) fn function_to_js(ctx: &Context, fid: usize) -> Option<bool> {
+    let f = &ctx.program.functions[fid];
+    let e = f.extension?;
+    if ctx.program.library(f.library).uri != "dart:js_interop"
+        || ctx.program.extensions[e.0 as usize]
+            .name
+            .is_none_or(|n| ctx.symbol_name(n) != "FunctionToJSExportedDartFunction")
+    {
+        return None;
+    }
+    match ctx.symbol_name(f.name) {
+        "toJS" => Some(false),
+        "toJSCaptureThis" => Some(true),
+        _ => None,
+    }
+}
+
+/// Whether `fid` is `createJSInteropWrapper` of `dart:js_interop`.
+pub(crate) fn create_js_interop_wrapper(ctx: &Context, fid: usize) -> bool {
+    let f = &ctx.program.functions[fid];
+    f.class.is_none()
+        && f.extension.is_none()
+        && ctx.program.library(f.library).uri == "dart:js_interop"
+        && ctx.symbol_name(f.name) == "createJSInteropWrapper"
+}
+
+/// `@JSExport(…)` among `metadata`: `Some("")` without a name.
+fn js_export_annotation(
+    ctx: &Context,
+    unit: dartforge_elements::model::UnitId,
+    metadata: &[ast::Annotation],
+) -> Option<String> {
+    metadata.iter().find_map(|a| {
+        let Some(Element::Class(c)) = annotation_element(ctx, unit, a) else {
+            return None;
+        };
+        let class = &ctx.program.classes[c.0 as usize];
+        if ctx.symbol_name(class.name) != "JSExport" || !interop_library(ctx, class.library) {
+            return None;
+        }
+        let name = a
+            .arguments
+            .as_ref()
+            .and_then(|args| args.args.first())
+            .and_then(
+                |arg| match &ctx.program.unit(unit).ast.expr(arg.value).kind {
+                    ast::ExprKind::String(s) => s.constant_value().map(|v| v.to_string_lossy()),
+                    _ => None,
+                },
+            )
+            .unwrap_or_default();
+        Some(name)
+    })
+}
+
+/// What an export of a Dart object makes a property of the JavaScript object.
+#[derive(Clone, Debug)]
+pub(crate) enum ExportMember {
+    /// The tear-off of the method, as a JavaScript function.
+    Method(usize),
+    /// Accessors: the name of the Dart getter and of the setter, with the type
+    /// of the value, and the library of the member (for private names).
+    Accessors {
+        getter: Option<(SymbolId, TypeId)>,
+        setter: Option<(SymbolId, TypeId)>,
+        library: LibraryId,
+    },
+}
+
+/// The exports of a class (dart2wasm's `ExportChecker`): its exportable
+/// members and those of its superclasses (an override replaces the inherited
+/// member), each with `@JSExport` or in a class with `@JSExport`, by export
+/// name (`@JSExport('name')` or the Dart name), in declaration order.
+pub(crate) fn exports_of(ctx: &Context, c: ClassId) -> Vec<(String, ExportMember)> {
+    let mut chain = Vec::new();
+    let mut current = Some(c);
+    while let Some(k) = current {
+        if Some(k) == ctx.core.object_class {
+            break;
+        }
+        chain.push(k);
+        let class = &ctx.program.classes[k.0 as usize];
+        chain.extend(class.mixin_classes.iter().rev());
+        current = class.supertype_class;
+    }
+    chain.reverse();
+    // By Dart name (`x` and `x=`): the member that wins and its export name.
+    #[derive(Clone)]
+    enum Slot {
+        Method(usize),
+        Getter(SymbolId, TypeId),
+        Setter(SymbolId, TypeId),
+    }
+    // The export name, the member and its library.
+    type Entry = Option<(String, Slot, LibraryId)>;
+    let mut members: Vec<(String, Entry)> = Vec::new();
+    let mut put = |key: String, entry: Entry| match members.iter_mut().find(|(k, _)| *k == key) {
+        Some(m) => m.1 = entry,
+        None => members.push((key, entry)),
+    };
+    for k in chain {
+        let class = &ctx.program.classes[k.0 as usize];
+        let class_exported = class_metadata(ctx, k)
+            .is_some_and(|(u, meta)| js_export_annotation(ctx, u, meta).is_some());
+        for (i, f) in ctx.program.functions.iter().enumerate() {
+            if f.class != Some(k) || f.static_ || f.abstract_ || f.external || f.factory {
+                continue;
+            }
+            let exportable = match f.kind {
+                FunctionKind::Function | FunctionKind::Getter | FunctionKind::Setter => {
+                    f.variable.is_none()
+                        && ctx
+                            .outline
+                            .functions
+                            .get(i)
+                            .is_some_and(|d| d.type_params.is_empty())
+                }
+                _ => false,
+            };
+            if !exportable {
+                continue;
+            }
+            let own =
+                function_metadata(ctx, f).and_then(|(u, meta)| js_export_annotation(ctx, u, meta));
+            let name = ctx.symbol_name(f.name).trim_end_matches('=').to_string();
+            let entry = (own.is_some() || class_exported).then(|| {
+                let export = own
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| name.clone());
+                let slot = match f.kind {
+                    FunctionKind::Function => Slot::Method(i),
+                    FunctionKind::Getter => Slot::Getter(
+                        f.name,
+                        ctx.outline
+                            .functions
+                            .get(i)
+                            .map_or(ctx.core.dynamic_, |d| d.return_type),
+                    ),
+                    _ => Slot::Setter(
+                        f.name,
+                        ctx.outline
+                            .functions
+                            .get(i)
+                            .and_then(|d| d.parameters.first().map(|p| p.ty))
+                            .unwrap_or(ctx.core.dynamic_),
+                    ),
+                };
+                (export, slot, f.library)
+            });
+            let key = if f.kind == FunctionKind::Setter {
+                format!("{name}=")
+            } else {
+                name
+            };
+            put(key, entry);
+        }
+        for &v in &class.fields {
+            let var = &ctx.program.variables[v.0 as usize];
+            if var.static_ || var.external || class.representation == Some(v) {
+                continue;
+            }
+            let own = match var.node {
+                VariableRef::Field { unit, member, .. } => js_export_annotation(
+                    ctx,
+                    unit,
+                    &ctx.program.unit(unit).ast.member(member).metadata,
+                ),
+                _ => None,
+            };
+            let name = ctx.symbol_name(var.name).to_string();
+            let ty = super::members::variable_type(ctx, v);
+            let export = (own.is_some() || class_exported).then(|| {
+                own.clone()
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| name.clone())
+            });
+            put(
+                name.clone(),
+                export
+                    .clone()
+                    .map(|e| (e, Slot::Getter(var.name, ty), var.library)),
+            );
+            if !var.final_ && !var.const_ {
+                put(
+                    format!("{name}="),
+                    export.map(|e| (e, Slot::Setter(var.name, ty), var.library)),
+                );
+            }
+        }
+    }
+    let mut exports: Vec<(String, ExportMember)> = Vec::new();
+    for (_, entry) in members {
+        let Some((export, slot, library)) = entry else {
+            continue;
+        };
+        match slot {
+            Slot::Method(f) => exports.push((export, ExportMember::Method(f))),
+            Slot::Getter(n, t) | Slot::Setter(n, t) => {
+                let setter = matches!(slot, Slot::Setter(..));
+                match exports.iter_mut().find(|(e, _)| *e == export) {
+                    Some((
+                        _,
+                        ExportMember::Accessors {
+                            getter, setter: s, ..
+                        },
+                    )) => {
+                        if setter {
+                            *s = Some((n, t));
+                        } else {
+                            *getter = Some((n, t));
+                        }
+                    }
+                    _ => exports.push((
+                        export,
+                        ExportMember::Accessors {
+                            getter: (!setter).then_some((n, t)),
+                            setter: setter.then_some((n, t)),
+                            library,
+                        },
+                    )),
+                }
+            }
+        }
+    }
+    exports
+}
+
+/// Whether `fid` is `JSAnyUtilityExtension.isA` of `dart:js_interop`.
+pub(crate) fn is_a(ctx: &Context, fid: usize) -> bool {
+    let f = &ctx.program.functions[fid];
+    f.extension.is_some_and(|e| {
+        ctx.program.library(f.library).uri == "dart:js_interop"
+            && ctx.program.extensions[e.0 as usize]
+                .name
+                .is_some_and(|n| ctx.symbol_name(n) == "JSAnyUtilityExtension")
+            && ctx.symbol_name(f.name) == "isA"
+    })
+}
+
+/// The JS type of `dart:js_interop` that an interop extension type wraps, at the
+/// end of its chain of representations.
+fn core_js_type(ctx: &Context, c: ClassId) -> Option<ClassId> {
+    let mut current = c;
+    for _ in 0..64 {
+        let class = &ctx.program.classes[current.0 as usize];
+        if class.kind != ClassKind::ExtensionType {
+            return None;
+        }
+        if ctx.program.library(class.library).uri == "dart:js_interop"
+            && ctx.symbol_name(class.name).starts_with("JS")
+        {
+            return Some(current);
+        }
+        let t = ctx
+            .outline
+            .variables
+            .get(class.representation?.0 as usize)?
+            .declared_type?;
+        match ctx.table.get(t) {
+            Ty::ExtensionType { decl, .. } => current = *decl,
+            _ => return None,
+        }
+    }
+    None
+}
+
+impl FnBuilder<'_, '_> {
+    /// `createJSInteropWrapper<T>(object, [proto])` (dart2wasm's
+    /// `_createExport`): a JavaScript object (or one with the prototype `proto`)
+    /// with a property per export of `T`'s class — a method is its tear-off as
+    /// a JavaScript function, getters and setters an accessor property
+    /// (`Object.defineProperty`).
+    pub(super) fn lower_js_interop_wrapper(
+        &mut self,
+        args: &[Operand],
+        offset: Option<usize>,
+    ) -> Operand {
+        let span = Span { start: 0, end: 0 };
+        let Some(&ty) = offset
+            .and_then(|o| self.ctx.bodies.units[self.unit_id.0 as usize].instantiation(o))
+            .and_then(|a| a.first())
+        else {
+            return self.unsupported("createJSInteropWrapper without its type argument", span);
+        };
+        let Ty::Interface { class, .. } = self.ctx.table.get(ty) else {
+            return self.unsupported("createJSInteropWrapper of a type that is not a class", span);
+        };
+        let class = *class;
+        let (Some(object), Some(set_helper), Some(accessor_helper)) = (
+            self.js_helper_function("jsExportObject"),
+            self.js_helper_function("jsExportProperty"),
+            self.js_helper_function("jsExportAccessor"),
+        ) else {
+            return self.unsupported("dart:_js_helper without the export helpers", span);
+        };
+        let instance = self.coerce(
+            args.first()
+                .cloned()
+                .unwrap_or(Operand::Constant(Constant::Null)),
+            Type::Ref,
+        );
+        let proto = self.coerce(
+            args.get(1)
+                .cloned()
+                .unwrap_or(Operand::Constant(Constant::Null)),
+            Type::Ref,
+        );
+        let literal = self.call_direct(object, None, vec![proto]);
+        for (name, member) in exports_of(self.ctx, class) {
+            let name_op = self.emit(
+                Instruction::Const(Constant::StringWtf8(name.into_bytes())),
+                Type::Ref,
+            );
+            match member {
+                ExportMember::Method(m) => {
+                    let tear_off = self.method_tearoff(instance.clone(), m, span);
+                    let signature = self.ctx.outline.functions[m].signature;
+                    let f = self.lower_function_to_js(tear_off, Some(signature), false, span);
+                    self.call_direct(set_helper, None, vec![literal.clone(), name_op, f]);
+                }
+                ExportMember::Accessors {
+                    getter,
+                    setter,
+                    library,
+                } => {
+                    let g = match getter {
+                        Some((n, t)) => {
+                            let closure =
+                                self.export_accessor_closure(instance.clone(), n, library, false);
+                            let result = self.callback_result_kind(t);
+                            self.wrap_closure(closure, "", result, 0, 0)
+                        }
+                        None => Operand::Constant(Constant::Null),
+                    };
+                    let s = match setter {
+                        Some((n, t)) => {
+                            let closure =
+                                self.export_accessor_closure(instance.clone(), n, library, true);
+                            let kind = self.callback_kind(t).to_string();
+                            self.wrap_closure(closure, &kind, "v", 1, 1)
+                        }
+                        None => Operand::Constant(Constant::Null),
+                    };
+                    self.call_direct(accessor_helper, None, vec![literal.clone(), name_op, g, s]);
+                }
+            }
+        }
+        literal
+    }
+
+    /// `jsFunctionToJS` of a closure with the given description.
+    fn wrap_closure(
+        &mut self,
+        closure: Operand,
+        kinds: &str,
+        result: &str,
+        positional: i64,
+        required: i64,
+    ) -> Operand {
+        let Some(helper) = self.js_helper_function("jsFunctionToJS") else {
+            return self.unsupported(
+                "dart:_js_helper without jsFunctionToJS",
+                Span { start: 0, end: 0 },
+            );
+        };
+        let kinds = self.emit(
+            Instruction::Const(Constant::StringWtf8(kinds.as_bytes().to_vec())),
+            Type::Ref,
+        );
+        let result = self.emit(
+            Instruction::Const(Constant::StringWtf8(result.as_bytes().to_vec())),
+            Type::Ref,
+        );
+        self.call_direct(
+            helper,
+            None,
+            vec![
+                closure,
+                kinds,
+                result,
+                Operand::Constant(Constant::Int(positional)),
+                Operand::Constant(Constant::Int(required)),
+                Operand::Constant(Constant::Bool(false)),
+            ],
+        )
+    }
+
+    /// The result code of a callback returning `ty` (`jsFunctionToJS`).
+    fn callback_result_kind(&self, ty: TypeId) -> &'static str {
+        let ty = self.ctx.erase(ty);
+        if self.ctx.is_void(ty) {
+            "v"
+        } else if self.js_value_type(ty).is_some() {
+            "r"
+        } else {
+            "j"
+        }
+    }
+
+    /// A closure that reads (`() => object.name`) or writes
+    /// (`(v) { object.name = v; }`) the member `name` of `object` by its
+    /// selector: the getter and setter of an export.
+    fn export_accessor_closure(
+        &mut self,
+        object: Operand,
+        name: SymbolId,
+        library: LibraryId,
+        setter: bool,
+    ) -> Operand {
+        use super::closures::{DefaultValue, EntryParam};
+        use super::sdk_source::{AccessKind, selector_string};
+        let name_str = self.ctx.symbol_name(name).trim_end_matches('=').to_string();
+        let kind = if setter {
+            AccessKind::Write
+        } else {
+            AccessKind::Read
+        };
+        let selector = selector_string(self.ctx, kind, &name_str, library);
+        let symbol = format!(
+            "df.jsexport.{}.{}",
+            if setter { "set" } else { "get" },
+            crate::context::escape_str(&selector)
+        );
+        if !self.done_entries.contains(&symbol) {
+            self.done_entries.insert(symbol.clone());
+            let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol.clone(), name_str, Type::Ref);
+            let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
+            let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
+            let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
+            e.declare_arc_uniform_return();
+            let env = e.closure_context(clo);
+            let receiver = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
+            let params: Vec<EntryParam> = if setter {
+                vec![EntryParam {
+                    name: None,
+                    kind: ast::ParameterKind::Required,
+                    required: true,
+                    pattern: DefaultValue::Absent,
+                }]
+            } else {
+                Vec::new()
+            };
+            if let Some(vals) = e.unpack(&params, args, desc) {
+                let evaluated: Vec<super::members::Evaluated> =
+                    vals.into_iter().map(|v| (None, v)).collect();
+                let r = e.call_by_selector(receiver, selector, &evaluated);
+                let r = if setter {
+                    Operand::Constant(Constant::Null)
+                } else {
+                    e.coerce(r, Type::Ref)
+                };
+                e.terminate(Terminator::Return(Some(r)));
+            }
+            self.absorb(e);
+        }
+        let object = self.coerce(object, Type::Ref);
+        let env = self.emit(
+            Instruction::AllocEnv {
+                values: vec![object],
+            },
+            Type::Ref,
+        );
+        self.emit(
+            Instruction::AllocClosure {
+                code_symbol: symbol,
+                env,
+            },
+            Type::Ref,
+        )
+    }
+
+    /// `v.isA<T>()`, as dart2wasm 3.6 lowers it: `JSAny` is any value but `null`;
+    /// `JSNumber`, `JSBoolean`, `JSString`, `JSSymbol` and `JSBigInt` are a
+    /// `typeof`; `JSTypedArray`, an `instanceof` of the typed arrays' common
+    /// prototype; any other type is an `instanceof` of the constructor its JS
+    /// name names (`@JS` or the Dart name, with the library's prefix); a
+    /// nullable `T` also accepts `null` (`jsIsA` in `dart:_js_helper`).
+    pub(super) fn lower_is_a(
+        &mut self,
+        value: Operand,
+        call: Option<(ast::ExprId, &ast::Arguments)>,
+        span: Span,
+    ) -> Operand {
+        let Some((_, arguments)) = call else {
+            return self.unsupported("isA without a call", span);
+        };
+        let Some(&ty) = self.ctx.bodies.units[self.unit_id.0 as usize]
+            .instantiation(arguments.span.start)
+            .and_then(|a| a.first())
+        else {
+            return self.unsupported("isA without its type argument", span);
+        };
+        let (decl, nullable) = match self.ctx.table.get(ty) {
+            Ty::ExtensionType { decl, nullable, .. } => (*decl, *nullable),
+            _ => return self.unsupported("isA of a type that is not a JS type", span),
+        };
+        let Some(core) = core_js_type(self.ctx, decl) else {
+            return self.unsupported("isA of a type that is not a JS type", span);
+        };
+        let core_name = self
+            .ctx
+            .symbol_name(self.ctx.program.classes[core.0 as usize].name);
+        let (mode, name) = match core_name {
+            "JSAny" if decl == core => (0, String::new()),
+            "JSNumber" if decl == core => (1, "number".to_string()),
+            "JSBoolean" if decl == core => (1, "boolean".to_string()),
+            "JSString" if decl == core => (1, "string".to_string()),
+            "JSSymbol" if decl == core => (1, "symbol".to_string()),
+            "JSBigInt" if decl == core => (1, "bigint".to_string()),
+            // `TypedArray` is not a global: the prototype the typed arrays share.
+            "JSTypedArray" if decl == core => (3, String::new()),
+            _ => {
+                let class = &self.ctx.program.classes[decl.0 as usize];
+                let own = class_metadata(self.ctx, decl)
+                    .and_then(|(u, meta)| js_annotation(self.ctx, u, meta));
+                (
+                    2,
+                    top_level_js_string(
+                        self.ctx,
+                        own,
+                        self.ctx.symbol_name(class.name),
+                        class.library,
+                    ),
+                )
+            }
+        };
+        let Some(helper) = self.js_helper_function("jsIsA") else {
+            return self.unsupported("dart:_js_helper without jsIsA", span);
+        };
+        let v = self.coerce(value, Type::Ref);
+        let name = self.emit(
+            Instruction::Const(Constant::StringWtf8(name.into_bytes())),
+            Type::Ref,
+        );
+        self.call_direct(
+            helper,
+            None,
+            vec![
+                v,
+                Operand::Constant(Constant::Bool(nullable)),
+                Operand::Constant(Constant::Int(mode)),
+                name,
+            ],
+        )
+    }
+
+    /// The conversion code of a callback's parameter of type `ty`
+    /// (`jsFunctionToJS` in `dart:_js_helper`).
+    fn callback_kind(&self, ty: TypeId) -> char {
+        let ty = self.ctx.erase(ty);
+        if let Some(nullable) = self.js_value_type(ty) {
+            return if nullable { 'r' } else { 'R' };
+        }
+        if let Ty::TypeParameter { param, .. } = self.ctx.table.get(ty) {
+            let bound = self.ctx.erase(self.ctx.table.param(*param).bound);
+            if self.js_value_type(bound).is_some() {
+                return 'r';
+            }
+        }
+        match self.core_class_name(ty) {
+            Some(("int", false)) => 'i',
+            Some(("int", true)) => 'I',
+            Some(("double", false)) => 'd',
+            Some(("double", true)) => 'D',
+            Some(("num", false)) => 'n',
+            Some(("num", true)) => 'N',
+            Some(("bool", false)) => 'b',
+            Some(("bool", true)) => 'B',
+            Some(("String", false)) => 's',
+            Some(("String", true)) => 'S',
+            _ => 'o',
+        }
+    }
+
+    /// `f.toJS`: the wrapper of the adapter for `f`, described by its static type
+    /// (`jsFunctionToJS`).
+    pub(super) fn lower_function_to_js(
+        &mut self,
+        function: Operand,
+        receiver: Option<TypeId>,
+        capture_this: bool,
+        span: Span,
+    ) -> Operand {
+        if !crate::target::is_wasm() {
+            return self.unsupported("Function.toJS outside the WebAssembly target", span);
+        }
+        let Some(ty) = receiver.map(|t| self.ctx.erase(t)) else {
+            return self.unsupported(
+                "Function.toJS without the static type of the function",
+                span,
+            );
+        };
+        let Ty::Function {
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } = self.ctx.table.get(ty).clone()
+        else {
+            return self.unsupported("Function.toJS on a value without a function type", span);
+        };
+        if !named.is_empty() {
+            return self.unsupported("Function.toJS of a function with named parameters", span);
+        }
+        let kinds: String = positional
+            .iter()
+            .chain(optional.iter())
+            .map(|&t| self.callback_kind(t))
+            .collect();
+        let ret = self.ctx.erase(ret);
+        let result = if self.ctx.is_void(ret) {
+            "v"
+        } else if self.js_value_type(ret).is_some() {
+            "r"
+        } else {
+            "j"
+        };
+        let Some(helper) = self.js_helper_function("jsFunctionToJS") else {
+            return self.unsupported("dart:_js_helper without jsFunctionToJS", span);
+        };
+        let f = self.coerce(function, Type::Ref);
+        let kinds = self.emit(
+            Instruction::Const(Constant::StringWtf8(kinds.into_bytes())),
+            Type::Ref,
+        );
+        let result = self.emit(
+            Instruction::Const(Constant::StringWtf8(result.as_bytes().to_vec())),
+            Type::Ref,
+        );
+        let total = (positional.len() + optional.len()) as i64;
+        self.call_direct(
+            helper,
+            None,
+            vec![
+                f,
+                kinds,
+                result,
+                Operand::Constant(Constant::Int(total)),
+                Operand::Constant(Constant::Int(positional.len() as i64)),
+                Operand::Constant(Constant::Bool(capture_this)),
+            ],
+        )
     }
 }
 

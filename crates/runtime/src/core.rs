@@ -67,11 +67,11 @@ pub extern "C" fn dartforge_init(input: extern "C" fn(), to_string_fn: extern "C
     mark_main_isolate();
     input();
     // A WebAssembly module whose loop waits for a timer returns to the host
-    // ("pending"); `dartforge_resume` finishes it (`wasm_entry.rs`).
+    // ("pending"), or for the host's callbacks ("waiting"); `dartforge_resume`
+    // and the callbacks go on (`wasm_entry.rs`, `js_interop.rs`).
     #[cfg(target_arch = "wasm32")]
-    if event_loop_suspended() {
-        return PENDING;
-    }
+    return loop_status();
+    #[cfg(not(target_arch = "wasm32"))]
     finish_program()
 }
 

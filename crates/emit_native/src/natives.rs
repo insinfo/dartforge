@@ -275,6 +275,9 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("DartForge_int_toString"),
     // The JavaScript interop of WebAssembly modules (`dart:_js_helper`).
     runtime("DartForge_js_attach"),
+    runtime("DartForge_js_dart_object"),
+    runtime("DartForge_js_dart_ref"),
+    runtime("DartForge_js_typed_data_address"),
     runtime("DartForge_json_close_list"),
     runtime("DartForge_json_mark"),
     runtime("DartForge_json_push"),
@@ -999,6 +1002,45 @@ pub fn js_snippet(
         .into_iter()
         .find(|strings| strings.first().and_then(|t| t.as_deref()) == Some("dartforge:js"))
         .and_then(|strings| strings.get(1).cloned().flatten())
+}
+
+/// The function an `external` of the SDK returns the address of
+/// (`@pragma('dartforge:address-of', '<name>')`: a top-level function of the same
+/// library), for the runtime to call it back (the WebAssembly target's
+/// `Function.toJS`, `dart:_js_helper`).
+pub fn address_of(
+    program: &dartforge_elements::Program,
+    interner: &dartforge_intern::Interner,
+    f: &dartforge_elements::model::FunctionElement,
+) -> Option<String> {
+    if !f.external || !program.library(f.library).uri.starts_with("dart:") {
+        return None;
+    }
+    pragma_strings(program, interner, f)
+        .into_iter()
+        .find(|strings| strings.first().and_then(|t| t.as_deref()) == Some("dartforge:address-of"))
+        .and_then(|strings| strings.get(1).cloned().flatten())
+}
+
+/// The `int` parameters (by name, and `return` for the result) of a snippet
+/// that cross as JavaScript `BigInt`s (`@pragma('dartforge:js-int64',
+/// 'value,return')`).
+pub fn js_int64(
+    program: &dartforge_elements::Program,
+    interner: &dartforge_intern::Interner,
+    f: &dartforge_elements::model::FunctionElement,
+) -> Vec<String> {
+    pragma_strings(program, interner, f)
+        .into_iter()
+        .filter(|strings| strings.first().and_then(|t| t.as_deref()) == Some("dartforge:js-int64"))
+        .filter_map(|strings| strings.get(1).cloned().flatten())
+        .flat_map(|names| {
+            names
+                .split(',')
+                .map(|n| n.trim().to_string())
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 /// The arguments of each `@pragma` of the function: the text of each string

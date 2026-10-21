@@ -523,6 +523,35 @@ Estado (21/10/2026):
   (`int` exige inteiro; `double`/`num`/`bool`/`String` por `dartifyRaw` e cast;
   tipo JS não anulável com `null` → *null check*). Faltam *tear-offs* e variáveis
   `external`.
+- **(3) completo:** campos e variáveis `external` (acessores implícitos) e o
+  construtor nomeado de extension type com argumentos de tipo explícitos
+  (`E<T>._(…)`, um bug geral do compilador, também no nativo).
+- **(4) feito:** `Function.toJS` e
+  `toJSCaptureThis` pela descrição do tipo estático (`jsFunctionToJS`), um único
+  trampolim Dart (`_jsCall`, chamado por endereço pelo export
+  `dartforge_js_call`) com o despacho por `arguments.length` e as conversões do
+  dart2wasm; objetos Dart no JS como `DartRef` (raiz global do runtime, mesmo id
+  para o mesmo objeto, `FinalizationRegistry`); `toJSBox`,
+  `ExternalDartReference`, `JSPromise.toDart`; exceção Dart atravessando o JS nos
+  dois sentidos (`DartError`); o laço de eventos depois dos callbacks do host e o
+  status `-2` (aguardando o host). `isA<T>()` também (incremento 2).
+  `createJSInteropWrapper<T>` com `@JSExport` como o `ExportChecker` do
+  dart2wasm: membros exportáveis da cadeia de superclasses de `T` (o *override*
+  substitui o herdado), da classe anotada ou anotados um a um, com o nome de
+  `@JSExport('x')`; método é propriedade com o *tear-off* convertido, getter e
+  setter uma propriedade acessora (`Object.defineProperty`, não enumerável). O
+  mundo fechado (`native_world.rs`) mantém os membros da cadeia de `T` como
+  seletores externos.
+- **(5) feito**, menos `toJSProxyOrRef`: `JSArrayImpl` (lista viva sobre o array
+  JS) e as listas tipadas, `ByteBuffer` e `ByteData` sobre o JS do dart2wasm
+  (`native_sdk/wasm/js_array.dart`, `js_typed_array.dart`), com 64 bits como
+  `BigInt` (`@pragma('dartforge:js-int64')`); a cópia Dart → JS lê a memória
+  linear de uma vez. No wasm, `@df.typed_len` só reconhece listas tipadas do
+  runtime (cids 22..65): um `Uint8List` do JS cai no despacho em vez do atalho.
+- **(6) em andamento:** `corpus/wasm_interop/` (as sondas acima, contra o
+  dart2wasm) e os programas de interop do corpus JS (`--filter interop`); o
+  harness roda no Node o módulo que tem `.mjs` companheiro e compara com o
+  dart2wasm sob a política de referência.
 - Diferenças que seguem a política de referência (VM): o `runtimeType` de uma
   string vinda do JS é `String` (no dart2wasm, `JSStringImpl`) e as mensagens de
   cast têm o texto da VM (`type 'X' is not…`).

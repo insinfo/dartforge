@@ -178,7 +178,7 @@ external bool isJSDataView(JSValue? o);
 external bool isJSArray(JSValue? o);
 
 @pragma('dartforge:js',
-    "o => typeof o === 'function' && o[r.wrappedDartFunction] !== undefined")
+    "o => typeof o === 'function' && o[r.wrappedDartFunction] === true")
 external bool isJSWrappedDartFunction(JSValue? o);
 
 @pragma('dartforge:js', 'o => o instanceof Object')
@@ -296,8 +296,135 @@ JSValue? jsifyRaw(Object? o) {
   if (o is num) return toJSNumber(o.toDouble());
   if (o is JSValue) return o;
   if (o is String) return jsStringFromDartString(o);
-  if (o is List<Object?>) return jsArrayFromDartList(o);
-  return null;
+  if (o is js_types.JSArrayBase) {
+    if (o is js_types.JSInt8ArrayImpl) return o.toJSArrayJSValue();
+    if (o is js_types.JSUint8ArrayImpl) return o.toJSArrayJSValue();
+    if (o is js_types.JSUint8ClampedArrayImpl) return o.toJSArrayJSValue();
+    if (o is js_types.JSInt16ArrayImpl) return o.toJSArrayJSValue();
+    if (o is js_types.JSUint16ArrayImpl) return o.toJSArrayJSValue();
+    if (o is js_types.JSInt32ArrayImpl) return o.toJSArrayJSValue();
+    if (o is js_types.JSUint32ArrayImpl) return o.toJSArrayJSValue();
+    if (o is js_types.JSFloat32ArrayImpl) return o.toJSArrayJSValue();
+    if (o is js_types.JSFloat64ArrayImpl) return o.toJSArrayJSValue();
+  } else if (o is TypedData) {
+    if (o is Int8List) return jsInt8ArrayFromDartInt8List(o);
+    if (o is Uint8List) return jsUint8ArrayFromDartUint8List(o);
+    if (o is Uint8ClampedList) {
+      return jsUint8ClampedArrayFromDartUint8ClampedList(o);
+    }
+    if (o is Int16List) return jsInt16ArrayFromDartInt16List(o);
+    if (o is Uint16List) return jsUint16ArrayFromDartUint16List(o);
+    if (o is Int32List) return jsInt32ArrayFromDartInt32List(o);
+    if (o is Uint32List) return jsUint32ArrayFromDartUint32List(o);
+    if (o is Float32List) return jsFloat32ArrayFromDartFloat32List(o);
+    if (o is Float64List) return jsFloat64ArrayFromDartFloat64List(o);
+    if (o is js_types.JSDataViewImpl) return o.toJSValue;
+    if (o is ByteData) return jsDataViewFromDartByteData(o, o.lengthInBytes);
+  } else if (o is List<Object?>) {
+    return jsArrayFromDartList(o);
+  } else if (o is ByteBuffer) {
+    if (o is js_types.JSArrayBufferImpl) return o.toJSValue;
+    return jsArrayBufferFromDartByteBuffer(o);
+  }
+  return jsObjectFromDartObject(o);
+}
+
+// The JavaScript copy of a typed list of the runtime: its bytes, read from the
+// linear memory (`r.memory`) in one slice; an object that is not one of the
+// runtime's (a view the program wrote) goes element by element.
+
+@pragma("vm:external-name", "DartForge_js_typed_data_address")
+external int _typedDataAddress(TypedData data);
+
+@pragma('dartforge:js', '(p, n) => new Int8Array(r.memory.buffer.slice(p, p + n))')
+external JSValue _int8ArrayOf(int address, int bytes);
+
+@pragma('dartforge:js', '(p, n) => new Uint8Array(r.memory.buffer.slice(p, p + n))')
+external JSValue _uint8ArrayOf(int address, int bytes);
+
+@pragma('dartforge:js',
+    '(p, n) => new Uint8ClampedArray(r.memory.buffer.slice(p, p + n))')
+external JSValue _uint8ClampedArrayOf(int address, int bytes);
+
+@pragma('dartforge:js', '(p, n) => new Int16Array(r.memory.buffer.slice(p, p + n))')
+external JSValue _int16ArrayOf(int address, int bytes);
+
+@pragma('dartforge:js', '(p, n) => new Uint16Array(r.memory.buffer.slice(p, p + n))')
+external JSValue _uint16ArrayOf(int address, int bytes);
+
+@pragma('dartforge:js', '(p, n) => new Int32Array(r.memory.buffer.slice(p, p + n))')
+external JSValue _int32ArrayOf(int address, int bytes);
+
+@pragma('dartforge:js', '(p, n) => new Uint32Array(r.memory.buffer.slice(p, p + n))')
+external JSValue _uint32ArrayOf(int address, int bytes);
+
+@pragma('dartforge:js', '(p, n) => new Float32Array(r.memory.buffer.slice(p, p + n))')
+external JSValue _float32ArrayOf(int address, int bytes);
+
+@pragma('dartforge:js', '(p, n) => new Float64Array(r.memory.buffer.slice(p, p + n))')
+external JSValue _float64ArrayOf(int address, int bytes);
+
+@pragma('dartforge:js', '(p, n) => new DataView(r.memory.buffer.slice(p, p + n))')
+external JSValue _dataViewOf(int address, int bytes);
+
+@pragma('dartforge:js', '(k, n) => new globalThis[k](n)')
+external JSValue _newTypedArray(String constructor, int length);
+
+@pragma('dartforge:js', '(a, i, v) => { a[i] = v; }')
+external void _setNumber(JSValue a, int i, double v);
+
+JSValue _copied(TypedData l, JSValue Function(int, int) slice, String constructor) {
+  final address = _typedDataAddress(l);
+  if (address >= 0) return slice(address, l.lengthInBytes);
+  final list = l as List<num>;
+  final copy = _newTypedArray(constructor, list.length);
+  for (var i = 0; i < list.length; i++) {
+    _setNumber(copy, i, list[i].toDouble());
+  }
+  return copy;
+}
+
+JSValue jsInt8ArrayFromDartInt8List(Int8List l) =>
+    _copied(l, _int8ArrayOf, 'Int8Array');
+
+JSValue jsUint8ArrayFromDartUint8List(Uint8List l) =>
+    _copied(l, _uint8ArrayOf, 'Uint8Array');
+
+JSValue jsUint8ClampedArrayFromDartUint8ClampedList(Uint8ClampedList l) =>
+    _copied(l, _uint8ClampedArrayOf, 'Uint8ClampedArray');
+
+JSValue jsInt16ArrayFromDartInt16List(Int16List l) =>
+    _copied(l, _int16ArrayOf, 'Int16Array');
+
+JSValue jsUint16ArrayFromDartUint16List(Uint16List l) =>
+    _copied(l, _uint16ArrayOf, 'Uint16Array');
+
+JSValue jsInt32ArrayFromDartInt32List(Int32List l) =>
+    _copied(l, _int32ArrayOf, 'Int32Array');
+
+JSValue jsUint32ArrayFromDartUint32List(Uint32List l) =>
+    _copied(l, _uint32ArrayOf, 'Uint32Array');
+
+JSValue jsFloat32ArrayFromDartFloat32List(Float32List l) =>
+    _copied(l, _float32ArrayOf, 'Float32Array');
+
+JSValue jsFloat64ArrayFromDartFloat64List(Float64List l) =>
+    _copied(l, _float64ArrayOf, 'Float64Array');
+
+JSValue jsDataViewFromDartByteData(ByteData data, int length) {
+  final address = _typedDataAddress(data);
+  if (address >= 0) return _dataViewOf(address, length);
+  final bytes = Uint8List(length);
+  for (var i = 0; i < length; i++) {
+    bytes[i] = data.getUint8(i);
+  }
+  return _dataViewOf(_typedDataAddress(bytes), length);
+}
+
+JSValue? jsArrayBufferFromDartByteBuffer(ByteBuffer buffer) {
+  ByteData byteData = ByteData.view(buffer);
+  JSValue dataView = jsDataViewFromDartByteData(byteData, byteData.lengthInBytes);
+  return getPropertyRaw(dataView, 'buffer'.toJSValue);
 }
 
 /// Constants that represent the possible types of a JavaScript value that can
@@ -368,8 +495,35 @@ Object? dartifyRaw(JSValue? ref, [int? refType]) {
     ExternRefType.number => toDartNumber(ref),
     ExternRefType.string => jsStringToDartString(ref!),
     ExternRefType.array => toDartList(ref),
-    _ => ref,
+    ExternRefType.int8Array => js_types.JSInt8ArrayImpl.fromJSArray(ref),
+    ExternRefType.uint8Array => js_types.JSUint8ArrayImpl.fromJSArray(ref),
+    ExternRefType.uint8ClampedArray =>
+      js_types.JSUint8ClampedArrayImpl.fromJSArray(ref),
+    ExternRefType.int16Array => js_types.JSInt16ArrayImpl.fromJSArray(ref),
+    ExternRefType.uint16Array => js_types.JSUint16ArrayImpl.fromJSArray(ref),
+    ExternRefType.int32Array => js_types.JSInt32ArrayImpl.fromJSArray(ref),
+    ExternRefType.uint32Array => js_types.JSUint32ArrayImpl.fromJSArray(ref),
+    ExternRefType.float32Array => js_types.JSFloat32ArrayImpl.fromJSArray(ref),
+    ExternRefType.float64Array => js_types.JSFloat64ArrayImpl.fromJSArray(ref),
+    ExternRefType.arrayBuffer => js_types.JSArrayBufferImpl.fromRef(ref),
+    ExternRefType.dataView => js_types.JSDataViewImpl.fromRef(ref),
+    _ => isJSWrappedDartFunction(ref)
+        ? jsExportedDartFunctionToDart(ref!)
+        : _isDartRef(ref)
+            ? jsObjectToDartObject(ref)
+            : ref,
   };
+}
+
+bool _isDartRef(JSValue? ref) => _dartRefId(ref) >= 0;
+
+JSArray<T> toJSArray<T extends JSAny?>(List<T> list) {
+  int length = list.length;
+  JSArray<T> result = JSArray<T>.withLength(length);
+  for (int i = 0; i < length; i++) {
+    result[i] = list[i];
+  }
+  return result;
 }
 
 List<JSAny?> toDartListJSAny(JSValue? ref) => List<JSAny?>.generate(
@@ -417,3 +571,180 @@ String jsResultString(int ref) => dartifyRaw(JSValue.box(ref)) as String;
 String? jsResultNullableString(int ref) => dartifyRaw(JSValue.box(ref)) as String?;
 
 Object? jsResultAny(int ref) => dartifyRaw(JSValue.box(ref));
+
+// Dart objects in JavaScript: the id of a global root of the runtime
+// (crates/runtime/src/js_interop.rs) inside a `DartRef` of the adapter, the
+// same for the same object while JavaScript keeps it.
+
+@pragma("vm:external-name", "DartForge_js_dart_ref")
+external int _dartRef(Object object);
+
+@pragma("vm:external-name", "DartForge_js_dart_object")
+external Object _dartObject(int id);
+
+@pragma('dartforge:js', 'id => r.dartRef(id)')
+external JSValue _dartRefValue(int id);
+
+@pragma('dartforge:js', 'o => o instanceof r.DartRef ? o.id : -1')
+external int _dartRefId(JSValue? o);
+
+/// The JavaScript value of a Dart object (dart2wasm's `externalize`).
+JSValue jsObjectFromDartObject(Object object) => _dartRefValue(_dartRef(object));
+
+/// The Dart object of a JavaScript value [jsObjectFromDartObject] made.
+Object jsObjectToDartObject(JSValue? ref) {
+  final id = _dartRefId(ref);
+  if (id < 0) {
+    throw 'Expected a Dart object, but got a JS value instead.';
+  }
+  return _dartObject(id);
+}
+
+// `Function.toJS` (crates/emit_native/src/lower/js_members.rs): the compiler
+// describes the static type of the function and the wrapper of the adapter calls
+// it back through `_jsCall`, as dart2wasm's trampolines: as many
+// arguments as JavaScript passed, between the required and the positional
+// count, each converted by its type (`kinds`: `r`/`R` a nullable/non-nullable
+// JS type, `i`/`I` int, `d`/`D` double, `n`/`N` num, `b`/`B` bool, `s`/`S`
+// String, `o` anything else), and the result by its type (`v` void, `r` a JS
+// type, `j` anything else).
+
+final class _JSCallback {
+  final Function function;
+  final String kinds;
+  final String result;
+  final int positional;
+  final int required;
+
+  _JSCallback(
+      this.function, this.kinds, this.result, this.positional, this.required);
+}
+
+JSFunction jsFunctionToJS(Function function, String kinds, String result,
+    int positional, int required, bool captureThis) {
+  final callback = _JSCallback(function, kinds, result, positional, required);
+  return _wrapDartFunction(
+      jsObjectFromDartObject(callback),
+      captureThis ? positional - 1 : positional,
+      captureThis,
+      _jsCallAddress()) as JSFunction;
+}
+
+@pragma('dartforge:js',
+    '(f, n, t, p) => r.wrapDartFunction(f, n, t !== 0, p)')
+external JSValue _wrapDartFunction(
+    JSValue f, int length, bool captureThis, int trampoline);
+
+/// The address of [_jsCall], which the runtime calls for the wrapper
+/// (`dartforge_js_call`).
+@pragma('dartforge:address-of', '_jsCall')
+external int _jsCallAddress();
+
+@pragma('dartforge:js', 'f => f.dartFunction')
+external JSValue _dartFunctionOf(JSValue f);
+
+// `createJSInteropWrapper` (dart2wasm's `_createExport`): the object, a
+// property per exported method and an accessor property per exported getter
+// and setter.
+
+/// The object of an export: `{}`, or an object with the prototype `proto`.
+@pragma('dartforge:js', 'p => p == null ? {} : Object.create(p)')
+external JSValue jsExportObject(JSValue? proto);
+
+/// `o[name] = f`: an exported method.
+@pragma('dartforge:js', '(o, n, f) => { o[n] = f; }')
+external void jsExportProperty(JSValue o, String name, JSValue f);
+
+/// `Object.defineProperty(o, name, {get, set})`: an exported getter and setter.
+@pragma('dartforge:js', '''(o, n, g, s) => {
+  const d = {};
+  if (g != null) d.get = g;
+  if (s != null) d.set = s;
+  Object.defineProperty(o, n, d);
+}''')
+external void jsExportAccessor(
+    JSValue o, String name, JSValue? getter, JSValue? setter);
+
+/// The Dart function a [jsFunctionToJS] wrapper calls.
+Function jsExportedDartFunctionToDart(JSValue ref) {
+  if (!isJSWrappedDartFunction(ref)) {
+    throw 'Expected JS wrapped function, but got type ${typeof(ref)}.';
+  }
+  return (jsObjectToDartObject(_dartFunctionOf(ref)) as _JSCallback).function;
+}
+
+@pragma('dartforge:js', 'i => r.argument(i)')
+external JSValue? _callbackArgument(int i);
+
+Object? _convertArgument(int kind, JSValue? v) => switch (kind) {
+      0x72 /* r */ => v,
+      0x52 /* R */ => v!,
+      0x69 /* i */ => _toDartNullableInt(v) as int,
+      0x49 /* I */ => _toDartNullableInt(v),
+      0x64 /* d */ => dartifyRaw(v) as double,
+      0x44 /* D */ => dartifyRaw(v) as double?,
+      0x6e /* n */ => dartifyRaw(v) as num,
+      0x4e /* N */ => dartifyRaw(v) as num?,
+      0x62 /* b */ => dartifyRaw(v) as bool,
+      0x42 /* B */ => dartifyRaw(v) as bool?,
+      0x73 /* s */ => dartifyRaw(v) as String,
+      0x53 /* S */ => dartifyRaw(v) as String?,
+      _ => dartifyRaw(v),
+    };
+
+// The runtime calls it for the adapter (`dartforge_js_call`): the handle of the
+// result, which the adapter reads before anything else runs.
+int _jsCall(Object callback, int argc) {
+  final c = callback as _JSCallback;
+  final int count;
+  if (argc >= c.positional) {
+    count = c.positional;
+  } else if (argc >= c.required) {
+    count = argc;
+  } else {
+    throw 'Too few arguments passed. '
+        'Expected ${c.required} or more, got $argc instead.';
+  }
+  final arguments = List<Object?>.filled(count, null);
+  for (var i = 0; i < count; i++) {
+    arguments[i] =
+        _convertArgument(c.kinds.codeUnitAt(i), _callbackArgument(i));
+  }
+  final r = Function.apply(c.function, arguments);
+  return switch (c.result) {
+    'v' => 0,
+    'r' => JSValue.unbox(r as JSValue?),
+    _ => JSValue.unbox(jsifyRaw(r)),
+  };
+}
+
+// `v.isA<T>()` (crates/emit_native/src/lower/js_members.rs): `mode` 0 is any
+// value but `null`, 1 a `typeof` of `name`, 2 an `instanceof` of the
+// constructor `name` names from `globalThis` (`instanceOfString`), 3 a typed
+// array (`TypedArray` is not a global: the prototype the typed arrays share).
+bool jsIsA(JSValue? v, bool nullable, int mode, String name) {
+  if (v == null) return nullable;
+  return switch (mode) {
+    0 => true,
+    1 => _typeofIs(v, name),
+    3 => _isTypedArray(v),
+    _ => _instanceOfString(v, name),
+  };
+}
+
+@pragma('dartforge:js', 'o => o instanceof Object.getPrototypeOf(Int8Array)')
+external bool _isTypedArray(JSValue o);
+
+@pragma('dartforge:js', '(o, t) => typeof o === t')
+external bool _typeofIs(JSValue o, String type);
+
+@pragma('dartforge:js', '''(o, n) => {
+    if (n.length === 0) return false;
+    let c = globalThis;
+    for (const p of n.split('.')) {
+      c = c[p];
+      if (c == null) return false;
+    }
+    return o instanceof c;
+  }''')
+external bool _instanceOfString(JSValue o, String name);

@@ -6,6 +6,7 @@ import 'dart:_internal' show patch;
 import 'dart:_js_helper' as js_helper;
 import 'dart:_js_helper' hide JS;
 import 'dart:_js_types' as js_types;
+import 'dart:async' show Completer;
 import 'dart:js_interop_unsafe' as unsafe;
 import 'dart:js_util' as js_util;
 import 'dart:typed_data';
@@ -67,6 +68,12 @@ extension NullableObjectUtilExtension on Object? {
 // -----------------------------------------------------------------------------
 // JSExportedDartFunction <-> Function
 @patch
+extension JSExportedDartFunctionToFunction on JSExportedDartFunction {
+  @patch
+  Function get toDart => jsExportedDartFunctionToDart(toJSValue!);
+}
+
+@patch
 extension FunctionToJSExportedDartFunction on Function {
   @patch
   JSExportedDartFunction get toJS => throw UnimplementedError(
@@ -78,6 +85,339 @@ extension FunctionToJSExportedDartFunction on Function {
       "'toJSCaptureThis' should never directly be called. Calls to "
       "'toJSCaptureThis' should have been transformed by the interop "
       'transformer.');
+}
+
+// Embedded global property for wrapped Dart objects passed via JS interop.
+//
+// This is a Symbol so that different Dart applications don't share Dart
+// objects from different Dart runtimes. We expect all JSBoxedDartObjects to
+// have this Symbol.
+final JSValue _jsBoxedDartObjectProperty = _newBoxSymbol();
+
+@pragma('dartforge:js', '() => Symbol("jsBoxedDartObjectProperty")')
+external JSValue _newBoxSymbol();
+
+@pragma('dartforge:js', '(o, s) => o[s]')
+external JSValue? _getSymbolProperty(JSValue? o, JSValue? s);
+
+@pragma('dartforge:js', '(o, s, v) => o[s] = v')
+external void _setSymbolProperty(JSValue? o, JSValue? s, JSValue? v);
+
+// -----------------------------------------------------------------------------
+// JSBoxedDartObject <-> Object
+@patch
+extension JSBoxedDartObjectToObject on JSBoxedDartObject {
+  @patch
+  Object get toDart {
+    final val = _getSymbolProperty(toJSValue, _jsBoxedDartObjectProperty);
+    if (val == null) {
+      throw 'Expected a wrapped Dart object, but got a JS object or a wrapped '
+          'Dart object from a separate runtime instead.';
+    }
+    return jsObjectToDartObject(val);
+  }
+}
+
+@patch
+extension ObjectToJSBoxedDartObject on Object {
+  @patch
+  JSBoxedDartObject get toJSBox {
+    if (this is JSValue) {
+      throw 'Attempting to box non-Dart object.';
+    }
+    final box = JSObject();
+    _setSymbolProperty(
+        box.toJSValue, _jsBoxedDartObjectProperty, jsObjectFromDartObject(this));
+    return JSBoxedDartObject._(box._jsObject);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// ExternalDartReference <-> Object
+@patch
+extension ExternalDartReferenceToObject<T extends Object?>
+    on ExternalDartReference<T> {
+  @patch
+  T get toDartObject {
+    final t = this._externalDartReference;
+    return (t == null ? null : jsObjectToDartObject(t)) as T;
+  }
+}
+
+@patch
+extension ObjectToExternalDartReference<T extends Object?> on T {
+  @patch
+  ExternalDartReference<T> get toExternalReference {
+    final t = this;
+    return ExternalDartReference<T>._(
+        t == null ? null : jsObjectFromDartObject(t));
+  }
+}
+
+// JSPromise -> Future
+@patch
+extension JSPromiseToFuture<T extends JSAny?> on JSPromise<T> {
+  @patch
+  Future<T> get toDart {
+    final completer = Completer<T>();
+    final success = (JSAny? r) {
+      // Note that we explicitly type the parameter as `JSAny?` instead of `T`.
+      // This is because if there's a `TypeError` with the cast, we want to
+      // bubble that up through the completer, so we end up doing a try-catch
+      // here to do so.
+      try {
+        final value = r as T;
+        completer.complete(value);
+      } catch (e) {
+        completer.completeError(e);
+      }
+    }.toJS;
+    final error = (JSAny? e) {
+      if (e == null) {
+        // Note that we pass false as a default. It's not currently possible to
+        // be able to differentiate between null and undefined.
+        completer.completeError(js_util.NullRejectionException(false));
+        return;
+      }
+      completer.completeError(e);
+    }.toJS;
+    promiseThen(toJSValue, success.toJSValue, error.toJSValue);
+    return completer.future;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSArrayBuffer <-> ByteBuffer
+@patch
+extension JSArrayBufferToByteBuffer on JSArrayBuffer {
+  @patch
+  ByteBuffer get toDart => js_types.JSArrayBufferImpl.fromRef(toJSValue);
+}
+
+@patch
+extension ByteBufferToJSArrayBuffer on ByteBuffer {
+  @patch
+  JSArrayBuffer get toJS {
+    final t = this;
+    return JSArrayBuffer._(t is js_types.JSArrayBufferImpl
+        ? t.toJSValue!
+        : jsArrayBufferFromDartByteBuffer(t)!);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSDataView <-> ByteData
+@patch
+extension JSDataViewToByteData on JSDataView {
+  @patch
+  ByteData get toDart => js_types.JSDataViewImpl.fromRef(toJSValue);
+}
+
+@patch
+extension ByteDataToJSDataView on ByteData {
+  @patch
+  JSDataView get toJS {
+    final t = this;
+    return JSDataView._(t is js_types.JSDataViewImpl
+        ? t.toJSValue!
+        : jsDataViewFromDartByteData(t, lengthInBytes));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSInt8Array <-> Int8List
+@patch
+extension JSInt8ArrayToInt8List on JSInt8Array {
+  @patch
+  Int8List get toDart => js_types.JSInt8ArrayImpl.fromJSArray(toJSValue);
+}
+
+@patch
+extension Int8ListToJSInt8Array on Int8List {
+  @patch
+  JSInt8Array get toJS {
+    final t = this;
+    return JSInt8Array._(t is js_types.JSInt8ArrayImpl
+        ? t.toJSArrayJSValue()!
+        : jsInt8ArrayFromDartInt8List(t));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSUint8Array <-> Uint8List
+@patch
+extension JSUint8ArrayToUint8List on JSUint8Array {
+  @patch
+  Uint8List get toDart => js_types.JSUint8ArrayImpl.fromJSArray(toJSValue);
+}
+
+@patch
+extension Uint8ListToJSUint8Array on Uint8List {
+  @patch
+  JSUint8Array get toJS {
+    final t = this;
+    return JSUint8Array._(t is js_types.JSUint8ArrayImpl
+        ? t.toJSArrayJSValue()!
+        : jsUint8ArrayFromDartUint8List(t));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSUint8ClampedArray <-> Uint8ClampedList
+@patch
+extension JSUint8ClampedArrayToUint8ClampedList on JSUint8ClampedArray {
+  @patch
+  Uint8ClampedList get toDart =>
+      js_types.JSUint8ClampedArrayImpl.fromJSArray(toJSValue);
+}
+
+@patch
+extension Uint8ClampedListToJSUint8ClampedArray on Uint8ClampedList {
+  @patch
+  JSUint8ClampedArray get toJS {
+    final t = this;
+    return JSUint8ClampedArray._(t is js_types.JSUint8ClampedArrayImpl
+        ? t.toJSArrayJSValue()!
+        : jsUint8ClampedArrayFromDartUint8ClampedList(t));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSInt16Array <-> Int16List
+@patch
+extension JSInt16ArrayToInt16List on JSInt16Array {
+  @patch
+  Int16List get toDart => js_types.JSInt16ArrayImpl.fromJSArray(toJSValue);
+}
+
+@patch
+extension Int16ListToJSInt16Array on Int16List {
+  @patch
+  JSInt16Array get toJS {
+    final t = this;
+    return JSInt16Array._(t is js_types.JSInt16ArrayImpl
+        ? t.toJSArrayJSValue()!
+        : jsInt16ArrayFromDartInt16List(t));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSUint16Array <-> Uint16List
+@patch
+extension JSUint16ArrayToInt16List on JSUint16Array {
+  @patch
+  Uint16List get toDart => js_types.JSUint16ArrayImpl.fromJSArray(toJSValue);
+}
+
+@patch
+extension Uint16ListToJSInt16Array on Uint16List {
+  @patch
+  JSUint16Array get toJS {
+    final t = this;
+    return JSUint16Array._(t is js_types.JSUint16ArrayImpl
+        ? t.toJSArrayJSValue()!
+        : jsUint16ArrayFromDartUint16List(t));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSInt32Array <-> Int32List
+@patch
+extension JSInt32ArrayToInt32List on JSInt32Array {
+  @patch
+  Int32List get toDart => js_types.JSInt32ArrayImpl.fromJSArray(toJSValue);
+}
+
+@patch
+extension Int32ListToJSInt32Array on Int32List {
+  @patch
+  JSInt32Array get toJS {
+    final t = this;
+    return JSInt32Array._(t is js_types.JSInt32ArrayImpl
+        ? t.toJSArrayJSValue()!
+        : jsInt32ArrayFromDartInt32List(t));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSUint32Array <-> Uint32List
+@patch
+extension JSUint32ArrayToUint32List on JSUint32Array {
+  @patch
+  Uint32List get toDart => js_types.JSUint32ArrayImpl.fromJSArray(toJSValue);
+}
+
+@patch
+extension Uint32ListToJSUint32Array on Uint32List {
+  @patch
+  JSUint32Array get toJS {
+    final t = this;
+    return JSUint32Array._(t is js_types.JSUint32ArrayImpl
+        ? t.toJSArrayJSValue()!
+        : jsUint32ArrayFromDartUint32List(t));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSFloat32Array <-> Float32List
+@patch
+extension JSFloat32ArrayToFloat32List on JSFloat32Array {
+  @patch
+  Float32List get toDart =>
+      js_types.JSFloat32ArrayImpl.fromJSArray(toJSValue);
+}
+
+@patch
+extension Float32ListToJSFloat32Array on Float32List {
+  @patch
+  JSFloat32Array get toJS {
+    final t = this;
+    return JSFloat32Array._(t is js_types.JSFloat32ArrayImpl
+        ? t.toJSArrayJSValue()!
+        : jsFloat32ArrayFromDartFloat32List(t));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSFloat64Array <-> Float64List
+@patch
+extension JSFloat64ArrayToFloat64List on JSFloat64Array {
+  @patch
+  Float64List get toDart =>
+      js_types.JSFloat64ArrayImpl.fromJSArray(toJSValue);
+}
+
+@patch
+extension Float64ListToJSFloat64Array on Float64List {
+  @patch
+  JSFloat64Array get toJS {
+    final t = this;
+    return JSFloat64Array._(t is js_types.JSFloat64ArrayImpl
+        ? t.toJSArrayJSValue()!
+        : jsFloat64ArrayFromDartFloat64List(t));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// JSArray <-> List
+@patch
+extension JSArrayToList<T extends JSAny?> on JSArray<T> {
+  @patch
+  List<T> get toDart => js_types.JSArrayImpl<T>(toJSValue!);
+}
+
+@patch
+extension ListToJSArray<T extends JSAny?> on List<T> {
+  JSArray<T>? get _underlyingArray {
+    final t = this;
+    return t is js_types.JSArrayImpl
+        // Explicit cast to avoid using the extension method.
+        ? JSArray<T>._((t as js_types.JSArrayImpl).toJSValue)
+        : null;
+  }
+
+  @patch
+  JSArray<T> get toJS => _underlyingArray ?? toJSArray<T>(this);
 }
 
 // -----------------------------------------------------------------------------

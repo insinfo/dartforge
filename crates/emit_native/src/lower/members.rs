@@ -2584,6 +2584,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(value) = self.read_platform_flag(vid) {
             return value;
         }
+        // `@JS() external T name;`: the interop getter.
+        if let Some(getter) = super::js_members::interop_variable_accessor(self.ctx, vid, false) {
+            return self.call_direct(getter, None, Vec::new());
+        }
         if let Some(v) = self.read_native_variable(vid, span) {
             return v;
         }
@@ -2696,6 +2700,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Stores a global (and marks it initialized).
     pub fn store_global(&mut self, vid: VariableId, val: Operand, span: Span) -> Operand {
         if self.store_native_variable(vid, val.clone(), span) {
+            return val;
+        }
+        // `@JS() external T name;`: the interop setter.
+        if let Some(setter) = super::js_members::interop_variable_accessor(self.ctx, vid, true) {
+            self.call_direct(setter, None, vec![val.clone()]);
             return val;
         }
         if !self

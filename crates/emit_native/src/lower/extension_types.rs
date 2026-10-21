@@ -30,15 +30,19 @@ use dartforge_types::resolved::{MemberRef, Resolved};
 use dartforge_types::table::TypeId;
 
 /// The extension type that declares `fid`, when it is a written instance
-/// member (method, getter, setter, operator; not the accessor of the
-/// representation nor a constructor).
+/// member (method, getter, setter, operator, or an accessor of an `external`
+/// field of an interop type; not the accessor of the representation nor a
+/// constructor).
 pub fn instance_owner(ctx: &Context, fid: usize) -> Option<ClassId> {
     let f = &ctx.program.functions[fid];
     let c = f.class?;
+    let external_field = f
+        .variable
+        .is_some_and(|v| ctx.program.variables[v.0 as usize].external);
     (ctx.is_extension_type(c)
         && !f.static_
-        && f.variable.is_none()
-        && matches!(f.node, FunctionRef::Function { .. }))
+        && (external_field
+            || (f.variable.is_none() && matches!(f.node, FunctionRef::Function { .. }))))
     .then_some(c)
 }
 
@@ -159,9 +163,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    /// The extension type that the expression names (`E`, `p.E`), if it is one.
+    /// The extension type that the expression names (`E`, `p.E`, `E<T>` — the
+    /// creation's static type carries the arguments), if it is one.
     pub fn named_extension_type(&self, ast: &ast::Ast, e: ExprId) -> Option<ClassId> {
         let c = match &ast.expr(e).kind {
+            ExprKind::TypeArguments { target, .. } => {
+                return self.named_extension_type(ast, *target);
+            }
             ExprKind::Identifier(n) => match self.ctx.get_resolved(self.unit_id, e).cloned() {
                 Some(Resolved::Element(Element::Class(c))) => c,
                 None if self.lookup_local(n.sym).is_none() => match self.resolve_by_name(n.sym)? {

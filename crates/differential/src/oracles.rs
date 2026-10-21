@@ -781,12 +781,26 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
         &[]
     };
     // A module runs in the independent executor, which passes the
-    // `DARTFORGE_*` variables on to the runtime (host ABI `option`).
-    let executor = wasm.then(wasm_executor);
+    // `DARTFORGE_*` variables on to the runtime (host ABI `option`); one that
+    // uses `dart:js_interop` (its companion `.mjs` next to it) needs a
+    // JavaScript host: Node, through the browser adapter.
     let module = exe_path.to_string_lossy().into_owned();
-    let (program_path, arguments): (String, Vec<String>) = match &executor {
-        Some(run) => (run.clone(), vec![module.clone()]),
-        None => (module.clone(), Vec::new()),
+    let companion = exe_path.with_extension("mjs");
+    let (program_path, arguments): (String, Vec<String>) = if !wasm {
+        (module.clone(), Vec::new())
+    } else if companion.is_file() {
+        (
+            "node".to_string(),
+            vec![
+                env.root
+                    .join("runtime/wasm/run_node.mjs")
+                    .to_string_lossy()
+                    .into_owned(),
+                module.clone(),
+            ],
+        )
+    } else {
+        (wasm_executor(), vec![module.clone()])
     };
     let s = run_with_env(
         &program_path,
@@ -800,6 +814,9 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
     // stay on disk on every pass. DARTFORGE_KEEP_EXE keeps them for debugging.
     if std::env::var_os("DARTFORGE_KEEP_EXE").is_none() {
         let _ = std::fs::remove_file(&exe_path);
+        if wasm {
+            let _ = std::fs::remove_file(&companion);
+        }
     }
     s
 }

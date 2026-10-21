@@ -1020,7 +1020,11 @@ impl<'a> LlvmEmitter<'a> {
         }
         self.out
             .push_str(&ir_lists::helpers(self.module.arc_memory));
-        self.out.push_str(ir_typed::HELPERS);
+        self.out.push_str(if crate::target::is_wasm() {
+            ir_typed::HELPERS_WASM
+        } else {
+            ir_typed::HELPERS
+        });
         let value_class = value_class(&self.module.runtime_cids);
         self.out.push_str(&value_class);
         self.out.push_str(&space_helpers());

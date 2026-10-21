@@ -90,6 +90,7 @@ pub fn compute(
         names.insert((*n).to_string());
     }
     names_written_in_sdk(program, interner, &mut names);
+    js_exported_names(program, interner, table, bodies, &mut names);
     r.selectors = names.into_iter().collect();
     let e = dartforge_world::WorldInput {
         program,
@@ -191,6 +192,65 @@ fn names_written_in_sdk(
                             names.insert(interner.resolve(n.sym).to_string());
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// `createJSInteropWrapper<T>(o)` (WebAssembly interop, `lower/js_members.rs`):
+/// JavaScript calls the exported members of `T`'s class by name on whatever
+/// object `o` is. Every instance member name of the program classes in that
+/// class's chain becomes an external selector — a superset of the
+/// `@JSExport` members.
+fn js_exported_names(
+    program: &Program,
+    interner: &Interner,
+    table: &TypeTable,
+    bodies: &BodyTypes,
+    names: &mut std::collections::BTreeSet<String>,
+) {
+    use dartforge_types::table::Type as Ty;
+    let Some(wrapper) = interner.lookup("createJSInteropWrapper") else {
+        return;
+    };
+    for lib in &program.libraries {
+        if lib.is_sdk {
+            continue;
+        }
+        for &u in &lib.units {
+            let a = &program.unit(u).ast;
+            for e in &a.exprs {
+                let ast::ExprKind::Call { target, arguments } = &e.kind else {
+                    continue;
+                };
+                let callee = match &a.expr(*target).kind {
+                    ast::ExprKind::Identifier(n) | ast::ExprKind::Property { name: n, .. } => n.sym,
+                    _ => continue,
+                };
+                if callee != wrapper {
+                    continue;
+                }
+                let Some(&ty) = bodies.units[u.0 as usize]
+                    .instantiation(arguments.span.start)
+                    .and_then(|t| t.first())
+                else {
+                    continue;
+                };
+                let Ty::Interface { class, .. } = table.get(ty) else {
+                    continue;
+                };
+                let mut chain = vec![*class];
+                while let Some(c) = chain.pop() {
+                    let class = &program.classes[c.0 as usize];
+                    if program.library(class.library).is_sdk {
+                        continue;
+                    }
+                    for n in class.instance_members.keys() {
+                        names.insert(interner.resolve(*n).trim_end_matches('=').to_string());
+                    }
+                    chain.extend(class.supertype_class);
+                    chain.extend(class.mixin_classes.iter().copied());
                 }
             }
         }
