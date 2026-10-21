@@ -13,7 +13,10 @@
 //! * `// erro-of-compilacao` — negative program: the VM, DDC and DartForge
 //!   must **reject it**, and the report compares the line of the first error;
 //! * `// experiments: a,b` — `--enable-experiment=a,b` in all three;
-//! * `// diverge-ddc: reason` — the web prints, by definition, something else.
+//! * `// diverge-ddc: reason` — the web prints, by definition, something else;
+//! * `// diverge-hosts: reason` — the WebAssembly hosts (the browser and the
+//!   executor) print, by definition of the host ABI, different things: the
+//!   browser cross-check (`DARTFORGE_BROWSER`) does not apply.
 //!
 //! A `PENDENTES` file in the corpus directory lists (one per line) the
 //! programs of features not implemented yet: they fail without failing the
@@ -37,6 +40,9 @@ pub struct Program {
     /// Reason declared in the header (`// diverge-ddc: …`) when the program,
     /// by definition, prints different things on the VM and on the web.
     pub diverge_ddc: Option<String>,
+    /// Reason declared in the header (`// diverge-hosts: …`) when the browser
+    /// and the executor print different things by definition.
+    pub diverge_hosts: Option<String>,
     /// `// requer-dart: x.y`: the current version the program runs in (3.6 without the header).
     pub requires: LanguageVersion,
     /// The entry's `// @dart=x.y`, when present.
@@ -53,6 +59,7 @@ pub struct Program {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Header {
     pub diverge_ddc: Option<String>,
+    pub diverge_hosts: Option<String>,
     pub requires: Option<LanguageVersion>,
     pub compile_error: bool,
     pub experiments: Vec<String>,
@@ -68,6 +75,8 @@ pub fn read_header(source: &str) -> Header {
         let rest = rest.trim_start();
         if let Some(m) = rest.strip_prefix("diverge-ddc:") {
             c.diverge_ddc.get_or_insert_with(|| m.trim().to_string());
+        } else if let Some(m) = rest.strip_prefix("diverge-hosts:") {
+            c.diverge_hosts.get_or_insert_with(|| m.trim().to_string());
         } else if let Some(v) = rest.strip_prefix("requer-dart:") {
             c.requires = c.requires.or(LanguageVersion::parse(v));
         } else if rest.trim_end() == "erro-de-compilacao" {
@@ -103,6 +112,7 @@ impl Program {
             forge_entry,
             files,
             diverge_ddc: c.diverge_ddc,
+            diverge_hosts: c.diverge_hosts,
             requires: c.requires.unwrap_or(LanguageVersion::FLOOR),
             marker: dartforge_frontend::features::version_marker(&source).map(|m| m.0),
             compile_error: c.compile_error,
@@ -119,6 +129,7 @@ impl Program {
             forge_entry: None,
             files: vec![],
             diverge_ddc: None,
+            diverge_hosts: None,
             requires: LanguageVersion::FLOOR,
             marker: None,
             compile_error: false,

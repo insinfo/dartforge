@@ -1,3 +1,5 @@
+// diverge-hosts: o nome do fuso é o do host (o navegador dá o de
+// Date.prototype.toString, como o dart2wasm; o executor, o de localtime_r, como a VM).
 // O fuso local de um instante é o das regras do fuso no ANO do instante,
 // como a VM (runtime/vm/os_win.cc: `LocalTime` com
 // `GetTimeZoneInformationForYear`; no Unix, `localtime_r`). O nativo no

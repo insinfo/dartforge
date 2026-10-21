@@ -476,6 +476,18 @@ VM só onde o dart2wasm também difere, cada uma com teste.
 5. Validar callbacks, encerramento, capacidade ausente, host que retorna erro,
    import faltante, assinatura errada e manifesto ABI incompatível.
 
+Estado (21/10/2026): `runtime/wasm/run_browser.mjs` roda um módulo no Chrome
+headless (a página de `browser_page.mjs`: o módulo em base64, o companheiro de
+interop embutido, timers no tempo virtual, o resultado publicado a cada mudança)
+e confere que o SHA-256 que o navegador instanciou é o do arquivo. Com
+`DARTFORGE_BROWSER` (o executável do Chromium), o harness `--wasm` roda cada
+módulo também no navegador e exige o mesmo status e a mesma saída do executor
+(Wasmtime/Cranelift × V8): corpus nativo 142/142 e `corpus/wasm_interop`
+13/13 no Chrome 155. Um programa que, pela ABI, imprime coisas diferentes nos
+dois hosts declara `// diverge-hosts:` (o nome do fuso do
+`123_fuso_horario_por_ano`). Faltam Firefox (não instalado nesta máquina) e
+Safari/WebKit.
+
 **Aceite:** o **mesmo hash** executa ao menos em Chromium, Firefox e executor
 independente; Safari/WebKit é a próxima porta antes da declaração de suporte
 à web nessa plataforma. Não compilar separadamente para “provar” mesmo módulo.

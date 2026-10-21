@@ -802,7 +802,7 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
     } else {
         (wasm_executor(), vec![module.clone()])
     };
-    let s = run_with_env(
+    let mut s = run_with_env(
         &program_path,
         &arguments,
         dir,
@@ -810,6 +810,32 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
         &env.extra_path,
         child_env,
     );
+    // W5 (docs/PLANO-WASM-MVP.md): with `DARTFORGE_BROWSER` (a Chromium), the
+    // same module also runs in the browser (`run_browser.mjs`), which must say
+    // exactly what the executor said.
+    if wasm && program.diverge_hosts.is_none() && std::env::var_os("DARTFORGE_BROWSER").is_some() {
+        let browser = run_with_env(
+            "node",
+            &[
+                env.root
+                    .join("runtime/wasm/run_browser.mjs")
+                    .to_string_lossy()
+                    .into_owned(),
+                module.clone(),
+            ],
+            dir,
+            env.native_timeout,
+            &env.extra_path,
+            child_env,
+        );
+        if (browser.code, &browser.stdout, &browser.stderr) != (s.code, &s.stdout, &s.stderr) {
+            s = Output::error(format!(
+                "[browser] the browser's run differs from the executor's: \
+                 status {} vs {}\n--- browser stdout\n{}--- browser stderr\n{}",
+                browser.code, s.code, browser.stdout, browser.stderr
+            ));
+        }
+    }
     // The executable has already said what it had to say; 214 of them would
     // stay on disk on every pass. DARTFORGE_KEEP_EXE keeps them for debugging.
     if std::env::var_os("DARTFORGE_KEEP_EXE").is_none() {
