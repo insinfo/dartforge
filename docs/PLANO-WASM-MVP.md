@@ -1,7 +1,9 @@
 # Plano de implementação: DartForge → LLVM → WebAssembly MVP
 
-Data: 20/10/2026. **Estado: planejamento; backend e runtime Wasm ainda não
-implementados.** Este documento não registra execução Dart→Wasm bem-sucedida.
+Data: 20/10/2026. **Estado (21/10/2026): W0 concluído; W1 em diante não
+iniciados.** O W0 prova o perfil binário e a ABI de host com um módulo escalar
+(LLVM IR + fragmento Rust), não Dart→Wasm: este documento ainda não registra
+execução Dart→Wasm bem-sucedida.
 
 ## 1. Objetivo e contrato de entrega
 
@@ -25,7 +27,7 @@ adicional, identificada separadamente dos oráculos VM/JS.
 ### Critérios da primeira versão utilizável
 
 - AOT standalone de programas com classes, closures, coleções, strings, tipos,
-  exceções verificadas e GC, dentro de um subconjunto explicitamente catalogado.
+  exceções verificadas e GC, 
 - Bibliotecas portáteis de `core`, `collection`, `typed_data` e `convert` necessárias
   ao corpus aprovado; suporte `async` acrescentado antes de declarar esse perfil.
 - Mesmo SHA-256 do `.wasm` executado no navegador e no executor independente.
@@ -260,6 +262,39 @@ commits revisáveis em `main`, sem branches/worktrees adicionais por padrão.
 resultado esperado e nenhuma dependência inesperada. **Não conta como Dart→Wasm.**
 Se Rust/LLVM ou builtins exigirem recursos extras, corrigir essa fronteira antes
 de portar o runtime; não renomear o perfil moderno como MVP.
+
+**Resultado (21/10/2026): aceito.** Reproduzir com `scripts/wasm-w0.sh`;
+evidências em `bench/results/2026-10-21-wasm-w0/`.
+
+| item | resultado |
+|---|---|
+| toolchain | LLVM/Clang/LLD 22.1.8 (`--target=wasm32-unknown-unknown -mcpu=mvp`); rustc 1.98.1 com `wasm32v1-none`, `-C target-cpu=mvp -C panic=abort`, `core`/`alloc` pré-compilados do alvo |
+| portão | `crates/wasm_gate`: `wasmparser` 0.262.0 com `WasmFeatures::MVP`, imports só de funções de `dartforge_host_v1`, nenhuma global exportada, uma memória/tabela; controles negativos por motivo (sign-ext, saturantes, bulk, multivalue, global mutável exportada, WASI, memória importada, export ausente) |
+| controle negativo real | o mesmo IR com `-mcpu=generic` gera `i64.extend8_s` e o portão recusa |
+| ABI LLVM↔Rust | `i64` por valor e por buffer alinhado, `i128` (`__multi3`), divisão/resto com sinal, deslocamentos, `fptosi`, chamada indireta por tabela, panic controlado (stderr + `unreachable`), `alloc` com allocator próprio (`Vec` crescente, `format!`) |
+| módulo | 12.672 bytes, 48 funções, 4 páginas iniciais e 256 máximas, um import (`dartforge_host_v1.write`); `target_features` declara `+mutable-globals` (vem do alvo Rust), mas não há global importada/exportada |
+| hosts | mesmo SHA-256 e mesma saída, status 0, no Wasmi 2.0.0 (`crates/wasm_host`, só MVP), no Node 24.21.0 (V8) e no Chrome 155 headless; saída comparada com valores calculados em Python |
+| ABI de host | subconjunto v1 fixado em [WASM-HOST-ABI-V1.md](WASM-HOST-ABI-V1.md) |
+
+Limites: Node e Chrome usam o mesmo motor (V8); Firefox e Safari ficam para o W5.
+O fragmento Rust do W0 não usa `std`; o runtime real usa.
+
+**Inventário do runtime (`crates/runtime`, 64 fragmentos, ~59 mil linhas).** O que
+precisa de outra implementação ou ficar fora do perfil Wasm:
+
+| dependência | onde | destino no W2 |
+|---|---|---|
+| páginas por `mmap`/`VirtualAlloc` | `space.rs` | reservas na memória linear (`memory.grow`) |
+| `thread_local!` (contexto da thread, caches) | 23 fragmentos, inclusive `core`, `heap`, `gc_roots`, `selectors` | contexto por instância (uma thread por módulo) |
+| `std::process::exit/abort` | `core`, `heap`, `gc_roots`, `selectors` | status de `dartforge_run` e trap controlada |
+| `std::thread` (isolados, coletor auxiliar, testes) | 20 fragmentos | isolados fora do primeiro perfil |
+| `std::fs`, `std::net`, `std::process`, `std::env` | fragmentos `io_*`, `natives_system` | fora do perfil, com recusa explícita |
+| `std::time` | 13 fragmentos | relógios da ABI v1 |
+| rustls/ring, zlib (`libz-sys` em C), cifras de `tls_formats` | `tls`, `tls_formats`, `zlib` | fora do primeiro perfil |
+| `extern "C"` do SO e `cfg(unix/windows/target_os)` | ~40 fragmentos | seleção de fragmentos por perfil (W1/W2) |
+
+O seletor de fragmentos de `crates/runtime/build.rs` é o ponto de partida: o perfil
+Wasm escolhe um subconjunto, e um fragmento que dependa de SO não pode entrar nele.
 
 ### W1 — Modelo de destino, ABI e caches
 

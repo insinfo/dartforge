@@ -1,0 +1,23 @@
+[package]
+name = "dartforge-wasm-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Independent executor of DartForge wasm32-mvp modules (host ABI v1)"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "dartforge-wasm-run"
+path = "src/bin/run.rs"
+
+[dependencies]
+# Pinned to the reviewed reference checkout (`/Volumes/ssd_dock/references/wasmi`):
+# an interpreter, independent of the browsers' engines.
+wasmi = { version = "=2.0.0", default-features = false, features = ["std", "validate", "stable"] }
+dartforge-wasm-gate = { path = "../wasm_gate" }
+
+[dev-dependencies]
+wat = "=1.262.0"

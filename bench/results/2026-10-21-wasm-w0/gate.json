@@ -1,0 +1,24 @@
+{
+  "bytes": 12672,
+  "declared_features": [
+    "+mutable-globals"
+  ],
+  "defined_functions": 48,
+  "exports": [
+    "memory:memory",
+    "dartforge_abi_version:func",
+    "dartforge_run:func"
+  ],
+  "imports": [
+    "dartforge_host_v1.write"
+  ],
+  "memories": 1,
+  "memory_pages": {
+    "initial": 4,
+    "maximum": 256
+  },
+  "profile": "wasm32-mvp",
+  "sha256": "694df81f7296ab788047807e49da81b685b74d6db283af60f0b99cb4a7972ad0",
+  "tables": 1,
+  "validator": "wasmparser 0.262.0 WasmFeatures::MVP"
+}

@@ -1,0 +1,25 @@
+[package]
+name = "dartforge-wasm-gate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Strict WebAssembly MVP gate for DartForge's wasm32-mvp profile"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "dartforge-wasm-gate"
+path = "src/bin/gate.rs"
+
+[dependencies]
+# Pinned to the version of the reviewed reference checkout
+# (`/Volumes/ssd_dock/references/wasm-tools`, docs/REFERENCIAS-WASM-MVP.md):
+# the feature masks are part of the evidence.
+wasmparser = "=0.262.0"
+sha2 = "0.10"
+serde_json = "1"
+
+[dev-dependencies]
+wat = "=1.262.0"
