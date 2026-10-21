@@ -753,6 +753,49 @@ fn resolve_reference(
     let Some(&lib) = libs.get(ident) else {
         return false;
     };
+    // An extension member (`lib["Ext|m"]`, `lib["Ext|get#m"]`, `lib["Ext|set#m"]`,
+    // `emit_js` `emit_extension_function`): the member of an extension of `lib`
+    // with that JS name, or of every unnamed one (more live, never less).
+    if let Some((ext_js, key)) = names.split_once('|') {
+        let (member, setter) = match key.strip_prefix("get#") {
+            Some(m) => (m, false),
+            None => match key.strip_prefix("set#") {
+                Some(m) => (m, true),
+                None => (key, false),
+            },
+        };
+        let mut ok = false;
+        for ext in &program.extensions {
+            if ext.library != lib {
+                continue;
+            }
+            if let Some(n) = ext.name
+                && interner.resolve(n) != ext_js
+            {
+                continue;
+            }
+            let keys = if setter {
+                vec![format!("{member}_="), format!("{member}=")]
+            } else {
+                vec![member.to_string()]
+            };
+            for k in keys {
+                let Some(sym) = interner.lookup(&k) else {
+                    continue;
+                };
+                for x in [ext.instance_members.get(&sym), ext.static_members.get(&sym)]
+                    .into_iter()
+                    .flatten()
+                {
+                    f.functions.push(*x);
+                    f.description
+                        .push(format!("extension member {r} cited in the text and pruned"));
+                    ok = true;
+                }
+            }
+        }
+        return ok;
+    }
     let (name, member) = match names.split_once('.') {
         Some((a, b)) => (a, Some(b)),
         None => (names, None),

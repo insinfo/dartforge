@@ -849,6 +849,17 @@ pub(crate) struct Engine<'a> {
     /// `resolution_world_builder.dart:232`), by name and by owner class
     /// (`NO_OWNER` for extension members).
     pending: HashMap<String, HashMap<ClassId, Vec<FunctionElementId>>>,
+    /// Extension members waiting for a use, by name, with the class of their
+    /// `on` type (`NO_OWNER` when it has none): only a use whose receiver may be
+    /// of that class wakes them ([`Engine::wake_extensions`]). A dynamic call
+    /// or a JavaScript property never dispatches to an extension member.
+    extension_pending: HashMap<String, Vec<(ClassId, FunctionElementId)>>,
+    /// `Object`, `Function` and `Record`: an extension on one of them applies to
+    /// receivers whose type has no class (a function type, a record), which a
+    /// use records without a receiver. An extension on any other class needs a
+    /// receiver of known static type — the emitter resolves extensions from the
+    /// same types — so a use without one (`dynamic`, a gap) does not wake it.
+    open_extension_targets: HashSet<ClassId>,
     all_members: HashSet<ClassId>,
     queue: VecDeque<Item>,
     /// Types (from the `TypeTable`) already scanned for classes.
@@ -1014,6 +1025,18 @@ impl<'a> Engine<'a> {
             js_names: HashSet::new(),
             constants: None,
             pending: HashMap::new(),
+            extension_pending: HashMap::new(),
+            open_extension_targets: ["Object", "Function", "Record"]
+                .iter()
+                .filter_map(|n| {
+                    let core = p.core?;
+                    let sym = e.interner.lookup(n)?;
+                    match p.library(core).declared.get(&sym).and_then(|b| b.getter) {
+                        Some(Element::Class(c)) => Some(c),
+                        _ => None,
+                    }
+                })
+                .collect(),
             all_members: HashSet::new(),
             queue: VecDeque::new(),
             seen_types: HashSet::new(),
@@ -1169,6 +1192,48 @@ impl<'a> Engine<'a> {
                 self.mark_fn_live(f);
             }
         }
+        self.wake_extensions(name, None);
+    }
+
+    /// Wakes the pending extension members named `name` that a use with the
+    /// receiver class `receiver` may reach: all of them when the receiver is
+    /// unknown, otherwise those whose `on` class is related to it.
+    fn wake_extensions(&mut self, name: &str, receiver: Option<ClassId>) {
+        let Some(list) = self.extension_pending.get_mut(name) else {
+            return;
+        };
+        let open = &self.open_extension_targets;
+        let mut wake = Vec::new();
+        list.retain(|&(on, f)| {
+            let hit = match receiver {
+                None => on == NO_OWNER || open.contains(&on),
+                Some(t) => on == NO_OWNER || reaches(&self.hier, &self.inst_sub, on, t),
+            };
+            if hit {
+                wake.push(f);
+            }
+            !hit
+        });
+        if list.is_empty() {
+            self.extension_pending.remove(name);
+        }
+        wake.sort();
+        for f in wake {
+            self.mark_fn_live(f);
+        }
+    }
+
+    /// The extension member `f` named `name` is already reached by the
+    /// selectors recorded so far ([`Engine::wake_extensions`]'s rule).
+    fn extension_reached(&self, name: &str, on: ClassId) -> bool {
+        if self.sel.contains(name) && (on == NO_OWNER || self.open_extension_targets.contains(&on))
+        {
+            return true;
+        }
+        self.sel_cone.get(name).is_some_and(|cs| {
+            cs.iter()
+                .any(|t| on == NO_OWNER || reaches(&self.hier, &self.inst_sub, on, *t))
+        })
     }
 
     /// A name called from outside the program (`dart.dsend`/`dput` in the
@@ -1273,6 +1338,7 @@ impl<'a> Engine<'a> {
         if let Some(l) = self.names_by_cone.get_mut(t.0 as usize) {
             l.push(name.to_string());
         }
+        self.wake_extensions(name, Some(t));
         // Wake up only the pending members of the same key inside the cone of
         // `t`; the rest stays pending (it is not pruning, it is waiting).
         let Some(by_owner) = self.pending.get_mut(name) else {
@@ -1280,8 +1346,6 @@ impl<'a> Engine<'a> {
         };
         let mut to_wake: Vec<ClassId> = Vec::new();
         for &k in by_owner.keys() {
-            // An extension member has no owner class: it lives by name, as
-            // before (the `on` applicability is the emitter's business).
             if k == NO_OWNER || reaches(&self.hier, &self.inst_sub, k, t) {
                 to_wake.push(k);
             }
@@ -1313,15 +1377,6 @@ impl<'a> Engine<'a> {
                 .any(|c| reaches(&self.hier, &self.inst_sub, class, *c)),
             None => false,
         }
-    }
-
-    /// The selector `name` is live in some way (unrestricted or restricted):
-    /// what extension members use, because they have no owner class for the
-    /// cone.
-    pub(crate) fn selector_any(&self, name: &str) -> bool {
-        self.sel.contains(name)
-            || self.sel_cone.contains_key(name)
-            || self.template_sel.contains(name)
     }
 
     /// The class of static type `t`, when it exists and is nominal: `C`,
@@ -1885,25 +1940,36 @@ impl<'a> Engine<'a> {
         }
         self.extensions_ready = true;
         let p = self.e.program;
-        for ext in p.extensions.iter() {
+        // Without operator selectors (the DDC `dart_sdk.js` calls operators the
+        // world does not see) an extension operator stays live, as before.
+        let operators_live = !self.operators_by_selector();
+        for (i, ext) in p.extensions.iter().enumerate() {
             if !self.is_user_lib(ext.library) {
                 continue;
             }
+            // The class of the `on` type: a use whose receiver is unrelated to
+            // it cannot resolve to this extension.
+            let on = self
+                .e
+                .outline
+                .extensions
+                .get(i)
+                .and_then(|x| self.class_of_type(x.on))
+                .unwrap_or(NO_OWNER);
             let mut members: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
                 ext.instance_members.iter().map(|(s, f)| (*s, *f)).collect();
             members.sort_by_key(|(_, f)| *f);
             for (key, f) in members {
                 let name = self.name(key).to_string();
-                if self.selector_any(name.as_str()) || p.function(f).kind == FunctionKind::Operator
+                if (operators_live && p.function(f).kind == FunctionKind::Operator)
+                    || self.extension_reached(name.as_str(), on)
                 {
                     self.mark_fn_live(f);
                 } else {
-                    self.pending
+                    self.extension_pending
                         .entry(name)
                         .or_default()
-                        .entry(NO_OWNER)
-                        .or_default()
-                        .push(f);
+                        .push((on, f));
                 }
             }
         }

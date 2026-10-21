@@ -178,6 +178,14 @@ fn closed_world_cases() {
             c.live("ext:grita") && !c.live("ext:cala"),
             "extension members by name",
         );
+        check(
+            c.live("Rio.corre") && c.live("Rio.some") && c.live("ext:rola"),
+            "class members and the extension member called on its `on` type live",
+        );
+        check(
+            !c.live("ext:corre") && !c.live("ext:some"),
+            "extension members dead under a call on another class or a dynamic call",
+        );
         // constructors
         check(
             c.level("Fab") == ClassLevel::Instantiated && c.live("Fab._"),

@@ -71,6 +71,21 @@ extension E on String {
   String cala() => this;
 }
 
+// Extension members only resolve on a receiver of their `on` type: a call on
+// another class or a dynamic call never keeps them live.
+class Pedra {}
+
+class Rio {
+  int corre() => 1;
+  int some() => 2;
+}
+
+extension EPedra on Pedra {
+  int corre() => 3;
+  int some() => 4;
+  int rola() => 5;
+}
+
 class Fab {
   Fab._();
   factory Fab() = Fab._;
@@ -139,6 +154,10 @@ void main() {
   print(Cor.verde);
   print(topoUsado());
   print('x'.grita());
+  print(Rio().corre());
+  dynamic rio = Rio();
+  print(rio.some());
+  print(Pedra().rola());
   Fab();
   var t = Tear.new;
   t();
