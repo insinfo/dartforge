@@ -13,6 +13,23 @@ export const HOST_MODULE = "dartforge_host_v1";
 export const WRITE_OK = 0;
 export const WRITE_OUT_OF_RANGE = -1;
 export const WRITE_BAD_CHANNEL = -2;
+export const UNAVAILABLE = -3;
+
+/** The module's `exit(status)`: thrown through its frames, caught by `runModule`. */
+class ModuleExit extends Error {
+  constructor(status) {
+    super(`the module exited with status ${status}`);
+    this.status = status;
+  }
+}
+
+/** `[start, end)` of linear memory, or null outside it (negatives included). */
+function range(memory, offset, length) {
+  if (memory === null || offset < 0 || length < 0) return null;
+  const start = offset >>> 0;
+  const end = start + (length >>> 0);
+  return end <= memory.buffer.byteLength ? [start, end] : null;
+}
 
 /** The SHA-256 of `bytes` in lowercase hex. */
 export async function sha256Hex(bytes) {
@@ -34,17 +51,51 @@ export async function runModule(bytes, sinks) {
   const imports = {
     [HOST_MODULE]: {
       write(channel, offset, length) {
-        if (memory === null) return WRITE_OUT_OF_RANGE;
+        const r = range(memory, offset, length);
+        if (r === null) return WRITE_OUT_OF_RANGE;
         // The view is taken at every call: `memory.grow` replaces the buffer.
-        const view = new Uint8Array(memory.buffer);
-        const start = offset >>> 0;
-        const len = length >>> 0;
-        if (offset < 0 || length < 0 || start + len > view.length) return WRITE_OUT_OF_RANGE;
-        const copy = view.slice(start, start + len);
+        const copy = new Uint8Array(memory.buffer).slice(r[0], r[1]);
         if (channel === 1) sinks.stdout(copy);
         else if (channel === 2) sinks.stderr(copy);
         else return WRITE_BAD_CHANNEL;
         return WRITE_OK;
+      },
+      // dart2wasm's `DateTime.now` reads `Date.now()` too (millisecond steps).
+      clock_realtime_us() {
+        return Date.now() * 1000;
+      },
+      clock_monotonic_us() {
+        return performance.now() * 1000;
+      },
+      random_fill(offset, length) {
+        const r = range(memory, offset, length);
+        if (r === null) return WRITE_OUT_OF_RANGE;
+        if (typeof crypto?.getRandomValues !== "function") return UNAVAILABLE;
+        const view = new Uint8Array(memory.buffer, r[0], r[1] - r[0]);
+        // `getRandomValues` fills at most 65 536 bytes per call.
+        for (let i = 0; i < view.length; i += 65536) {
+          crypto.getRandomValues(view.subarray(i, Math.min(i + 65536, view.length)));
+        }
+        return WRITE_OK;
+      },
+      // The same answers as dart2wasm's `DateTime` (date_patch_patch.dart): the
+      // offset from `getTimezoneOffset`, the name inside the parentheses of
+      // `Date.prototype.toString`.
+      time_zone(epochSeconds, offsetOut, nameOffset, nameCapacity) {
+        const out = range(memory, offsetOut, 4);
+        const name = range(memory, nameOffset, nameCapacity);
+        if (out === null || name === null) return WRITE_OUT_OF_RANGE;
+        const date = new Date(epochSeconds * 1000);
+        new DataView(memory.buffer).setInt32(out[0], -date.getTimezoneOffset() * 60, true);
+        const match = /\((.*)\)/.exec(date.toString());
+        const bytes = new TextEncoder().encode(match === null ? "" : match[1]);
+        new Uint8Array(memory.buffer, name[0], name[1] - name[0]).set(
+          bytes.subarray(0, name[1] - name[0]),
+        );
+        return bytes.length;
+      },
+      exit(status) {
+        throw new ModuleExit(status);
       },
     },
   };
@@ -59,6 +110,7 @@ export async function runModule(bytes, sinks) {
   try {
     return { sha256, status: exports.dartforge_run(), trap: null };
   } catch (e) {
+    if (e instanceof ModuleExit) return { sha256, status: e.status, trap: null };
     return { sha256, status: null, trap: String(e) };
   }
 }

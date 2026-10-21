@@ -1,0 +1,24 @@
+{
+  "bytes": 388094,
+  "declared_features": [],
+  "defined_functions": 443,
+  "exports": [
+    "memory:memory",
+    "dartforge_abi_version:func",
+    "dartforge_run:func"
+  ],
+  "imports": [
+    "dartforge_host_v1.clock_monotonic_us",
+    "dartforge_host_v1.write",
+    "dartforge_host_v1.exit"
+  ],
+  "memories": 1,
+  "memory_pages": {
+    "initial": 129,
+    "maximum": 1024
+  },
+  "profile": "wasm32-linear",
+  "sha256": "1c3aab82dd645ee75fdff8946d0f68df1462314ee7f1d57ba70af7c1d74c9b2e",
+  "tables": 1,
+  "validator": "wasmparser 0.262.0, WasmFeatures::WASM2 | TAIL_CALL | EXTENDED_CONST | EXCEPTIONS"
+}

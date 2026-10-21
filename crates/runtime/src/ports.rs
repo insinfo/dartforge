@@ -1009,7 +1009,7 @@ struct Message {
     graph: Graph,
     /// Tokens of the receiving heap for each `Same` occurrence.
     owners: Vec<u64>,
-    arrival: std::time::Instant,
+    arrival: crate::clock::Instant,
 }
 
 /// The messages of an isolate: those of the Dart ports and those of the control
@@ -1271,7 +1271,7 @@ fn post_to_queue(f: &IsolateQueue, port: i64, graph: Graph) {
             owners.push(HEAP.with(|heap| heap.borrow_mut().retain_message_owner(h)));
         }
     });
-    m.normal.push_back(Message { port, graph, owners, arrival: std::time::Instant::now() });
+    m.normal.push_back(Message { port, graph, owners, arrival: crate::clock::Instant::now() });
     f.notify();
 }
 
@@ -1543,13 +1543,13 @@ fn has_live_port() -> bool {
 }
 
 /// The arrival of the oldest message in the queue, if any.
-fn next_arrival() -> Option<std::time::Instant> {
+fn next_arrival() -> Option<crate::clock::Instant> {
     QUEUE.with(|f| f.messages.lock().unwrap_or_else(|e| e.into_inner()).normal.front().map(|m| m.arrival))
 }
 
 /// Waits for a message until `deadline` (or without deadline). Returns whether one arrived. With
 /// `control_only` (the isolate paused), only a control message wakes it.
-fn wait_message(deadline: Option<std::time::Instant>, control_only: bool) -> bool {
+fn wait_message(deadline: Option<crate::clock::Instant>, control_only: bool) -> bool {
     QUEUE.with(|f| {
         let mut m = f.messages.lock().unwrap_or_else(|e| e.into_inner());
         loop {
@@ -1569,7 +1569,7 @@ fn wait_message(deadline: Option<std::time::Instant>, control_only: bool) -> boo
             match deadline {
                 None => m = f.sig_num.wait(m).unwrap_or_else(|e| e.into_inner()),
                 Some(p) => {
-                    let current_time = std::time::Instant::now();
+                    let current_time = crate::clock::Instant::now();
                     if current_time >= p {
                         return false;
                     }

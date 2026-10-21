@@ -249,7 +249,7 @@ pub extern "C" fn dartforge_native_DartForge_print(line: i64) {
         with_string(line, |t| t.to_vm_utf8())
     };
     bytes.push(b'\n');
-    let mut out = std::io::stdout().lock();
+    let mut out = crate::console::stdout();
     let _ = out.write_all(&bytes);
 }
 

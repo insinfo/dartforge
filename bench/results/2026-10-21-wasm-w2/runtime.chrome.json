@@ -1,0 +1,1 @@
+{"sha256":"5e146e92947a48b202298c8c848d68d4671ad2b46c125bd0826bde4f14b24f6a","status":0,"trap":null,"stdout":"hello wasm\n-9223372036854775807\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n","stderr":"","userAgent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"}

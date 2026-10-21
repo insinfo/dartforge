@@ -150,6 +150,51 @@ mod tests {
             || a.contains("unresolved-symbols")));
     }
 
+    /// The real wasm32 runtime (`RuntimeCache::for_wasm`) with the W2 proof
+    /// program (tests/wasm/w2/runtime.ll): no symbol left undefined, and the
+    /// module imports only host ABI v1 functions.
+    #[test]
+    fn links_the_wasm_runtime_with_only_host_imports() {
+        let dir = tempfile::tempdir().unwrap();
+        let clang = crate::driver::NativeDriverOptions::default().clang;
+        let object = dir.path().join("runtime.o");
+        let status = Command::new(&clang)
+            .args(["--target=wasm32-unknown-unknown", "-O2", "-c"])
+            .args(crate::target::object_flags_for(crate::target::Os::Wasm))
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/wasm/w2/runtime.ll"))
+            .arg("-o")
+            .arg(&object)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let output = dir.path().join("runtime.wasm");
+        link(&Linkage {
+            lld: &lld(&clang),
+            objects: std::slice::from_ref(&object),
+            runtime: &crate::cache::RuntimeCache::for_wasm().unwrap().lib_path,
+            output: &output,
+            debug_info: false,
+        })
+        .unwrap();
+        let report = dartforge_wasm_gate::validate(
+            &std::fs::read(&output).unwrap(),
+            &dartforge_wasm_gate::Policy::default(),
+        )
+        .unwrap();
+        let known = [
+            "write",
+            "clock_realtime_us",
+            "clock_monotonic_us",
+            "random_fill",
+            "time_zone",
+            "exit",
+        ];
+        for (module, name) in &report.imports {
+            assert_eq!(module, dartforge_wasm_gate::HOST_MODULE);
+            assert!(known.contains(&name.as_str()), "unexpected import {name}");
+        }
+    }
+
     /// Clang's object with the profile's flags, linked by LLD with an empty
     /// runtime archive: a module the gate accepts. Then the same program with an
     /// unresolved symbol: the link fails instead of inventing an import.

@@ -19,6 +19,10 @@ path = "src/bin/run.rs"
 # feature for `exnref` objects; the WasmGC proposal itself stays off).
 wasmtime = { version = "=50.0.0", default-features = false, features = ["cranelift", "runtime", "std", "gc", "gc-drc"] }
 dartforge-wasm-gate = { path = "../wasm_gate" }
+# The host ABI's `time_zone`: the same values a native executable shows.
+dartforge-local-time = { path = "../local_time" }
+# The host ABI's `random_fill`: the operating system's generator.
+getrandom = "0.4"
 
 [dev-dependencies]
 wat = "=1.262.0"

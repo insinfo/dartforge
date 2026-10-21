@@ -1,9 +1,8 @@
 # ABI de host v1 do DartForge para `wasm32-linear`
 
-Data: 21/10/2026. **Estado: primeira parte, do W0** (saída e execução). As demais
-operações da §3.4 do [plano](PLANO-WASM-MVP.md) (relógios, entropia, agendamento,
-recursos opcionais) entram nesta mesma versão antes do W5; o que já está aqui não
-muda de significado.
+Data: 21/10/2026. **Estado: W0 e W2** (execução, saída, término, relógios,
+entropia e fuso). O agendamento de timers (W6) e o interop JS entram nesta mesma
+versão antes do W5; o que já está aqui não muda de significado.
 
 A ABI é o único contrato entre um módulo `wasm32-linear` e quem o executa. O mesmo
 arquivo `.wasm`, byte a byte, roda nos dois adaptadores:
@@ -39,7 +38,9 @@ executar; o executor recusa o que o portão recusa.
 | `dartforge_run` | `() -> i32` | executa o programa uma vez e devolve o status de saída |
 
 O host chama `dartforge_abi_version` e, se for `1`, `dartforge_run` uma única vez.
-O status devolvido é o código de saída do programa. Uma *trap* do motor
+O status devolvido é o código de saída do programa (0, ou 255 numa exceção não
+tratada, como a VM); um `exit` do módulo encerra a execução por dentro com o seu
+status. Os dois exports vêm do runtime (`crates/runtime/src/wasm_entry.rs`). Uma *trap* do motor
 (`unreachable`, acesso fora da memória, divisão por zero, pilha esgotada) é
 resultado separado do status: o host a reporta como falha do runtime, nunca como
 exceção Dart, e não encerra o próprio processo por causa dela. O executor de linha
@@ -62,6 +63,44 @@ são UTF-8, mas o host não os decodifica nem valida.
 O host lê a memória atual a cada chamada, então `memory.grow` entre chamadas é
 seguro. `write` não reentra no módulo.
 
+As faixas de memória de todos os imports seguem a mesma regra de `write`: fora da
+memória atual o import devolve `-1` e não escreve nada.
+
+### `exit(status: i32)`
+
+Encerra a execução do módulo com `status`, sem voltar: o host desenrola os quadros
+do módulo (no JS, lançando um erro que o adaptador captura; no Wasmtime, um erro do
+import) e reporta `status` como resultado de `dartforge_run`, como o `proc_exit`
+do WASI. O runtime o usa para `exit` de erros fatais e para memória esgotada
+(`Out of memory: …` no stderr e status 255).
+
+### `clock_realtime_us() -> f64`
+
+Microssegundos desde a época Unix (UTC), o relógio civil de `DateTime.now`. O
+navegador devolve `Date.now() * 1000`, a mesma resolução de milissegundo do
+dart2wasm; o executor devolve microssegundos, como a VM.
+
+### `clock_monotonic_us() -> f64`
+
+Microssegundos desde uma origem do host, nunca decrescente: `Stopwatch`, timers e
+estatísticas do coletor. Navegador: `performance.now() * 1000`.
+
+### `random_fill(offset: i32, length: i32) -> i32`
+
+Preenche a faixa com o gerador criptográfico do host (`crypto.getRandomValues` no
+navegador, o do sistema operacional no executor): `Random()` sem semente e
+`Random.secure`. Devolve `0`, `-1` (faixa inválida) ou `-3` (host sem gerador); o
+runtime trata `-3` como falha, nunca recorre a uma fonte fraca.
+
+### `time_zone(epoch_seconds: f64, offset_out: i32, name_offset: i32, name_capacity: i32) -> i32`
+
+O fuso local no instante dado: escreve o deslocamento em segundos a leste de UTC
+(`i32` little-endian) em `offset_out` e até `name_capacity` bytes do nome em UTF-8
+em `name_offset`; devolve o comprimento completo do nome (`-1` com faixa
+inválida). O navegador responde como o `DateTime` do dart2wasm (`getTimezoneOffset`
+e o nome entre parênteses de `Date.prototype.toString`); o executor, como a VM
+nativa (`localtime_r`; no Windows, as regras da zona para o ano).
+
 ## Versionamento
 
 Mudar assinatura ou significado de qualquer item acima exige `dartforge_host_v2`
@@ -69,6 +108,10 @@ e outra versão em `dartforge_abi_version`. Acrescentar imports à v1 é permiti
 enquanto o plano não declarar a v1 fechada (W5); um módulo só importa o que usa.
 
 ## Evidência
+
+`scripts/wasm-w2.sh` liga o runtime real do DartForge para wasm32 a um programa
+de prova e executa o mesmo arquivo no Wasmtime, no Node e no Chrome, com OOM e
+duas instâncias (`bench/results/2026-10-21-wasm-w2/`).
 
 `scripts/wasm-w0.sh` gera um módulo com LLVM 22.1.8 e um fragmento Rust com `std`
 (`wasm32-unknown-unknown`), com as features do perfil, passa no portão e executa o

@@ -583,6 +583,13 @@ pub extern "C" fn dartforge_native_Ffi_dl_open(file_path: i64) -> i64 {
         }
         h as i64
     }
+    // A module links its native code statically (`@Native`); it has no loader.
+    #[cfg(target_arch = "wasm32")]
+    {
+        throw_ffi_argument_error(format!(
+            "Failed to load dynamic library '{text}': a WebAssembly module has no dynamic libraries"
+        ))
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -601,6 +608,11 @@ pub extern "C" fn dartforge_native_Ffi_dl_executableLibrary() -> i64 {
     {
         // SAFETY: the executable's module.
         unsafe { dl::GetModuleHandleW(std::ptr::null()) as i64 }
+    }
+    // The module itself, like the process: no symbol table to search at run time.
+    #[cfg(target_arch = "wasm32")]
+    {
+        PROCESS_HANDLE
     }
 }
 
@@ -625,6 +637,12 @@ fn search_for(handle: i64, name: &std::ffi::CStr) -> usize {
         // SAFETY: a handle from `LoadLibraryW` and a valid C name.
         unsafe { dl::GetProcAddress(handle as usize, name.as_ptr()) }
     }
+    // Native symbols of a module are resolved at link time, never by name.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (handle, name);
+        0
+    }
 }
 
 /// `Ffi_dl_lookup(handle, symbolName)`: the address, or `ArgumentError`.
@@ -640,6 +658,8 @@ pub extern "C" fn dartforge_native_Ffi_dl_lookup(handle: i64, name: i64) -> i64 
         let detail = dl::error();
         #[cfg(windows)]
         let detail = format!("error code {}", unsafe { dl::GetLastError() });
+        #[cfg(target_arch = "wasm32")]
+        let detail = "a WebAssembly module resolves native symbols at link time (@Native)";
         return throw_ffi_argument_error(format!("Failed to lookup symbol '{text}': {detail}"));
     }
     p as i64

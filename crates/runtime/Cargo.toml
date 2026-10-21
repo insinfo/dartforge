@@ -8,6 +8,13 @@ publish = false
 workspace = true
 
 [dependencies]
+# The local time zone of `DateTime` (native targets; WebAssembly asks the host).
+dartforge-local-time = { path = "../local_time" }
+
+# Everything below belongs to `dart:io`, which the WebAssembly target does not
+# have (docs/PLANO-WASM-MVP.md §1): its fragments are left out of the wasm32
+# runtime (build.rs), and so are their crates.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # The TLS of `dart:io` (fragment `tls`): rustls with the `ring` provider (
 # `ring` also gives the SHA-1 of `X509Certificate.sha1`), the system roots
 # and, without any, Mozilla's.
@@ -31,6 +38,11 @@ cbc = "0.1"
 des = "0.8"
 rc2 = "0.8"
 md-5 = "0.10"
+
+# The compressed RTI tables (`rti_table.rs`) on WebAssembly: the same deflate
+# format through the pure-Rust backend, with no C zlib to build for wasm32.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [features]
 # The profile of the `abi` module (see build.rs): no feature is the JIT; `aot` and

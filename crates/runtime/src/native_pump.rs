@@ -140,7 +140,7 @@ impl NativePump {
         self.pending.take()
     }
 
-    fn run(&self, deadline: Option<std::time::Instant>, poll: bool) {
+    fn run(&self, deadline: Option<crate::clock::Instant>, poll: bool) {
         // Consume the Rust latch only for a blocking wait. CF also retains its
         // source signal, covering notification between this check and entering CF.
         if !poll && self.take_notification() {
@@ -152,7 +152,7 @@ impl NativePump {
                 0.0
             } else {
                 deadline.map_or(1.0e10, |d| {
-                    d.saturating_duration_since(std::time::Instant::now())
+                    d.saturating_duration_since(crate::clock::Instant::now())
                         .as_secs_f64()
                 })
             };

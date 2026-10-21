@@ -13,11 +13,49 @@
 //! semantic flags are the same in both (opt-level 2, no overflow-checks, no
 //! debug-assertions): the root `Cargo.toml` pins this crate's profile to what the
 //! AOT's `rustc -O` gives. The `tests/single_source.rs` test checks it.
+// On WebAssembly `std`'s standard streams discard their bytes: the runtime's
+// `print!` family writes through the host ABI instead (`console`). These
+// definitions shadow `std`'s in every module and fragment of the crate.
+#[cfg(target_arch = "wasm32")]
+#[allow(unused_macros)]
+macro_rules! print {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = write!($crate::console::stdout(), $($arg)*);
+    }};
+}
+#[cfg(target_arch = "wasm32")]
+macro_rules! println {
+    () => { print!("\n") };
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!($crate::console::stdout(), $($arg)*);
+    }};
+}
+#[cfg(target_arch = "wasm32")]
+macro_rules! eprint {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = write!($crate::console::stderr(), $($arg)*);
+    }};
+}
+#[cfg(target_arch = "wasm32")]
+macro_rules! eprintln {
+    () => { eprint!("\n") };
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!($crate::console::stderr(), $($arg)*);
+    }};
+}
+
 /// The ARC core with cycle collection (docs/ARC-CICLOS-ESPECIFICACAO.md §19, §22).
 pub mod arc;
 pub mod boxes;
+pub mod clock;
+pub mod console;
 pub mod hash;
 pub mod heap;
+pub mod host;
 /// The block layout contract (docs/NATIVO-ESPACO-UNIFICADO.md §3.1).
 pub mod layout;
 pub mod lists;

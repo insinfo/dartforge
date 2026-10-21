@@ -159,6 +159,18 @@ mod executable_memory {
         fn GetCurrentProcess() -> usize;
     }
 
+    /// WebAssembly code cannot write executable memory: a module never makes a
+    /// trampoline (`create` refuses native callbacks there first).
+    #[cfg(target_arch = "wasm32")]
+    fn map_pages() -> Option<usize> {
+        None
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    unsafe fn write_code(_p: *mut u8, _input: usize, _ctx: usize) {
+        unreachable!("WebAssembly has no executable memory for trampolines")
+    }
+
     #[cfg(unix)]
     fn map_pages() -> Option<usize> {
         const PROT_RWX: i32 = 1 | 2 | 4;
@@ -373,6 +385,11 @@ fn closure_code(clo: i64) -> i64 {
 
 /// Creates the trampoline of `ctx` and registers it.
 fn install_callback(ctx: Box<CallbackContext>) -> Result<usize, String> {
+    // dart2wasm has no native callbacks either: a module cannot write code, and
+    // its function table is fixed at link time.
+    if cfg!(target_arch = "wasm32") {
+        return Err("native callbacks (NativeCallable, Pointer.fromFunction) are not available in WebAssembly".to_string());
+    }
     let Some(memory) = executable_memory::allocate() else {
         return Err("could not allocate executable memory for a native callback".to_string());
     };
@@ -436,7 +453,7 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_sync_new(
         return 0;
     }
     let timeout = std::time::Duration::from_micros(timeout_micros as u64);
-    if std::time::Instant::now().checked_add(timeout).is_none() {
+    if crate::clock::Instant::now().checked_add(timeout).is_none() {
         throw_argument_error("Synchronous callback queue timeout exceeds the native clock range");
         return 0;
     }
@@ -808,7 +825,7 @@ enum SyncRequestState {
 struct SyncCallbackRequest {
     context: usize,
     owner_thread: std::thread::ThreadId,
-    deadline: std::time::Instant,
+    deadline: crate::clock::Instant,
     exceptional: i64,
     state: std::sync::Mutex<SyncRequestState>,
     ready: std::sync::Condvar,
@@ -910,7 +927,7 @@ fn wait_sync_request(request: &SyncCallbackRequest) -> i64 {
                 state = request.ready.wait(state).unwrap_or_else(|e| e.into_inner());
             }
             SyncRequestState::Pending => {
-                let now = std::time::Instant::now();
+                let now = crate::clock::Instant::now();
                 if now >= request.deadline {
                     *state = SyncRequestState::Cancelled;
                     request.ready.notify_all();
@@ -977,7 +994,7 @@ pub unsafe extern "C" fn dartforge_ffi_callback_sync(
     let Some(_edge) = SyncWaitEdge::register(c.owner_thread) else {
         return c.exceptional;
     };
-    let Some(deadline) = std::time::Instant::now().checked_add(c.sync_timeout) else {
+    let Some(deadline) = crate::clock::Instant::now().checked_add(c.sync_timeout) else {
         return c.exceptional;
     };
     static NEXT_ID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
@@ -1044,7 +1061,7 @@ fn request_from_message(message: i64) -> Option<(i64, std::sync::Arc<SyncCallbac
     Some((id, request))
 }
 
-fn claim_sync_request(request: &SyncCallbackRequest, now: std::time::Instant) -> bool {
+fn claim_sync_request(request: &SyncCallbackRequest, now: crate::clock::Instant) -> bool {
     let mut state = request.state.lock().unwrap_or_else(|e| e.into_inner());
     if !matches!(*state, SyncRequestState::Pending) {
         return false;
@@ -1070,7 +1087,7 @@ pub extern "C" fn dartforge_native_DartForge_ffi_callback_sync_claim(message: i6
     let Some((id, request)) = request_from_message(message) else {
         return 0;
     };
-    let claimed = claim_sync_request(&request, std::time::Instant::now());
+    let claimed = claim_sync_request(&request, crate::clock::Instant::now());
     let cancelled = matches!(
         *request.state.lock().unwrap_or_else(|e| e.into_inner()),
         SyncRequestState::Cancelled

@@ -46,13 +46,6 @@ fn throw_os_error(e: &OsError) {
     }
 }
 
-/// Throws `ArgumentError(message)` (the VM's API errors).
-fn throw_argument_error(message: &str) {
-    let msg = allocate_str(message);
-    let e = with_roots(&[msg], || dartforge_argument_error_new(msg, 0));
-    with_roots(&[e], || dartforge_exception_throw(e, 3));
-}
-
 // ---------------------------------------------------------------------------
 // The `_NativeSocket` natives.
 

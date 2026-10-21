@@ -2,3 +2,5 @@
 channel = "1.98.1"
 profile = "minimal"
 components = ["rustfmt", "clippy", "rust-analyzer"]
+# The WebAssembly runtime (`wasm32-linear`, crates/emit_native/build.rs).
+targets = ["wasm32-unknown-unknown"]

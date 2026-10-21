@@ -61,6 +61,6 @@ fn gc_policy_collect_if_idle() -> bool {
 }
 
 /// Eligibility deadline for an explicit idle request; does not keep an isolate alive.
-fn gc_policy_idle_deadline() -> Option<std::time::Instant> {
+fn gc_policy_idle_deadline() -> Option<crate::clock::Instant> {
     HEAP.with(|h| h.borrow().gc_policy_idle_deadline())
 }

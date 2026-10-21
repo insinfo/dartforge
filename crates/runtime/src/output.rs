@@ -33,7 +33,7 @@ fn print_string(t: crate::text::TextRef<'_>) {
     use std::io::Write;
     let mut bytes = t.to_vm_utf8();
     bytes.push(b'\n');
-    let mut out = std::io::stdout().lock();
+    let mut out = crate::console::stdout();
     let _ = out.write_all(&bytes);
 }
 

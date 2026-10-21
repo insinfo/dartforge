@@ -1,7 +1,7 @@
 # Plano de implementação: DartForge → LLVM → WebAssembly MVP
 
-Data: 20/10/2026. **Estado (21/10/2026): W0 concluído; W1 em diante não
-iniciados.** O W0 prova o perfil binário e a ABI de host com um módulo escalar
+Data: 20/10/2026. **Estado (21/10/2026): W0, W1 e W2 concluídos; W3 em
+diante não iniciados.** O W0 prova o perfil binário e a ABI de host com um módulo escalar
 (LLVM IR + fragmento Rust com `std`), não Dart→Wasm: este documento ainda não
 registra execução Dart→Wasm bem-sucedida.
 
@@ -355,6 +355,21 @@ Nenhum cache/bundle incompatível pode ser aceito por alteração manual do mani
 **Aceite:** runtime liga sem imports ocultos; allocations não se sobrepõem;
 memória e contexto não vazam entre instâncias. Falhas não corrompem o estado
 ou viram sucesso silencioso. OOM irrecuperável deve ser distinguido de erro Dart.
+
+**Resultado (21/10/2026): aceito.** Reproduzir com `scripts/wasm-w2.sh`;
+evidências em `bench/results/2026-10-21-wasm-w2/`.
+
+| item | resultado |
+|---|---|
+| fonte única | o runtime wasm32 é o mesmo `crates/runtime`: o `build.rs` deixa de fora só os fragmentos de `dart:io`, TLS e zlib (`NATIVE_ONLY`) e acrescenta a entrada do módulo (`WASM_ONLY`, `wasm_entry.rs`); os crates de `dart:io` só entram fora do wasm32, e as tabelas RTI comprimidas usam o `flate2` em Rust puro |
+| código movido, não copiado | utilitários que moravam por acaso em fragmentos de `dart:io` foram para o fragmento comum `dart_values` (erros, listas, `native_field`, caminhos, `Platform.script`); o código de saída global foi para `core`; o fuso horário da VM virou o crate `dartforge-local-time`, usado pelo runtime nativo e pelo executor |
+| plataforma | módulos `clock` (`Instant` e relógio civil), `console` (stdout, stderr, `exit`) e `host` (imports da ABI v1); no wasm32 as macros `print!`/`eprintln!` do crate escrevem pelo host, porque o `std` desse alvo descarta os streams; limites da pilha pelos símbolos `__stack_low`/`__stack_high` do `wasm-ld` |
+| layout compartilhado | os campos do `Context` lidos pelo código gerado viraram células de 8 bytes (`Slot`): no wasm32 o ponteiro fica na metade baixa e a alta é zero, então os offsets e o IR são os mesmos em todos os destinos; os vetores apontados são indexados por `getelementptr ptr` e acompanham o tamanho do ponteiro; `RootFrame` e `Header` já tinham o mesmo layout |
+| alocação | as páginas do heap vêm do alocador do Rust (dlmalloc sobre `memory.grow`), um único dono da memória linear; quando a memória não cresce, o alocador global imprime `Out of memory: …` e encerra com 255 em vez de uma trap muda |
+| fora do Wasm, com erro explícito | `DynamicLibrary.open` (`ArgumentError`, sem carregador de bibliotecas), callbacks nativos (`NativeCallable`, como no dart2wasm); `Isolate.spawn` cabe ao patch `dart:isolate` do alvo `wasm` (W3) |
+| build | `rust-toolchain.toml` instala `wasm32-unknown-unknown`; o `build.rs` do `emit_native` compila a variante wasm32 do runtime (`RuntimeCache::for_wasm`), igual em qualquer host |
+| prova | `tests/wasm/w2/runtime.ll` segue o contrato do código gerado (quadro de raízes em `ctx + 8`, valores relidos após cada alocação): 200 mil concatenações com coletas jovens e completas que movem as strings vivas, `i64` extremo, relógios, gerador, fuso e o limite de pilha lido em `ctx + 376` dentro da pilha linear; módulo de 393 KB, só imports da ABI v1, nenhum símbolo indefinido; mesma saída e mesmo hash no Wasmtime 50, no Node 24 e no Chrome 155; duas instâncias no mesmo host dão a mesma saída; com memória máxima de 64 MiB, `Out of memory: the WebAssembly memory reached 43 MiB …` e status 255 nos três hosts |
+| regressão | testes do runtime, do `emit_native` e da CLI; corpus nativo nos cinco modos |
 
 ### W3 — Pipeline Dart completo com o runtime real
 

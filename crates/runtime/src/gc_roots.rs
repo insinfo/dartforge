@@ -165,7 +165,22 @@ fn stack_bounds() -> Option<(usize, usize)> {
     }
 }
 
-#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+/// The linear-memory stack of a WebAssembly module: the bounds `wasm-ld` defines
+/// around the `-z stack-size` region (`linker_wasm.rs`). The stack check of the
+/// generated code compares LLVM's `__stack_pointer` with the limit below it.
+#[cfg(target_arch = "wasm32")]
+#[allow(unsafe_code)]
+fn stack_bounds() -> Option<(usize, usize)> {
+    unsafe extern "C" {
+        static __stack_low: u8;
+        static __stack_high: u8;
+    }
+    // SAFETY: symbols the linker defines; only their addresses are taken.
+    let (low, high) = unsafe { (&raw const __stack_low as usize, &raw const __stack_high as usize) };
+    (low < high).then_some((low, high))
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos", target_arch = "wasm32")))]
 fn stack_bounds() -> Option<(usize, usize)> {
     None
 }

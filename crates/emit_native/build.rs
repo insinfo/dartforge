@@ -297,8 +297,95 @@ fn precompile_runtime() {
             .unwrap_or_else(|e| panic!("copiar {}: {e}", produced.display()));
         std::fs::rename(&tmp, &lib).expect("publish the precompiled runtime");
     }
+    precompile_wasm_runtime(&workspace, &exit, &sources, skip);
     println!(
         "cargo::rustc-env=DARTFORGE_RUNTIME_BUILD_DIR={}",
         exit.display()
     );
+}
+
+/// The target of the WebAssembly runtime and the profile's features
+/// (`target::WASM_FEATURES`, docs/PLANO-WASM-MVP.md §3.1).
+const WASM_TARGET: &str = "wasm32-unknown-unknown";
+const WASM_RUSTFLAGS: &str = "-Ctarget-feature=+simd128,+tail-call,+extended-const";
+
+/// The fourth variant: the runtime `staticlib` of `wasm32-linear` modules
+/// (feature `aot`, [`ABORT`]), the same for every compiler host. It does not
+/// inherit the host build's flags (a host CPU flag means nothing to wasm32).
+/// `rust-toolchain.toml` installs the target.
+fn precompile_wasm_runtime(workspace: &Path, exit: &Path, sources: &[PathBuf], skip: bool) {
+    let mut h = blake3::Hasher::new();
+    h.update(b"dartforge-runtime-wasm\0");
+    h.update(WASM_TARGET.as_bytes());
+    h.update(b"\0");
+    h.update(WASM_RUSTFLAGS.as_bytes());
+    h.update(b"\0");
+    for f in sources {
+        let text: Vec<u8> = std::fs::read(f)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|&b| b != b'\r')
+            .collect();
+        h.update(f.file_name().unwrap_or_default().as_encoded_bytes());
+        h.update(&[0]);
+        h.update(&text);
+        h.update(&[0]);
+    }
+    let name = format!("dartforge_rtwasm_{}.a", &h.finalize().to_hex()[..32]);
+    println!("cargo::rustc-env=DARTFORGE_RUNTIME_WASM={name}");
+    let lib = exit.join(&name);
+    if skip || lib.is_file() {
+        return;
+    }
+    let target_dir = exit.join("cargo-runtime-wasm");
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let mut cmd = std::process::Command::new(cargo);
+    cmd.arg("build")
+        .arg("--release")
+        .arg("--locked")
+        .arg("--manifest-path")
+        .arg(workspace.join("Cargo.toml"))
+        .args([
+            "-p",
+            "dartforge-runtime-static",
+            "--features",
+            "aot",
+            "--target",
+            WASM_TARGET,
+        ])
+        .args(ABORT)
+        .arg("--target-dir")
+        .arg(&target_dir);
+    if std::env::var_os("CARGO_NET_OFFLINE").is_some() {
+        cmd.arg("--offline");
+    }
+    for v in [
+        "RUSTC_WORKSPACE_WRAPPER",
+        "CARGO_TARGET_DIR",
+        "CARGO_BUILD_TARGET_DIR",
+        "CARGO_BUILD_TARGET",
+        "RUSTFLAGS",
+    ] {
+        cmd.env_remove(v);
+    }
+    let ws = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf());
+    let flags = format!(
+        "{WASM_RUSTFLAGS}\x1f--remap-path-prefix={}=dartforge",
+        ws.display()
+    );
+    cmd.env("CARGO_ENCODED_RUSTFLAGS", flags);
+    let status = cmd.status().expect("run the build's cargo");
+    assert!(
+        status.success(),
+        "the WebAssembly runtime compilation for {WASM_TARGET} failed (is the target installed? rust-toolchain.toml lists it)"
+    );
+    let produced = target_dir
+        .join(WASM_TARGET)
+        .join("release")
+        .join("libdartforge_runtime_static.a");
+    let tmp = exit.join(format!("{name}.tmp"));
+    std::fs::copy(&produced, &tmp).unwrap_or_else(|e| panic!("copy {}: {e}", produced.display()));
+    std::fs::rename(&tmp, &lib).expect("publish the precompiled WebAssembly runtime");
 }

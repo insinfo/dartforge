@@ -483,12 +483,6 @@ fn main_arguments() -> &'static std::sync::Mutex<Option<Vec<String>>> {
     &A
 }
 
-/// The `Platform.script` when the process is not the program itself (the JIT): the
-/// bytes of the `.dart` path.
-fn program_script() -> &'static std::sync::Mutex<Option<Vec<u8>>> {
-    static S: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
-    &S
-}
 
 /// Sets the program's `Platform.script` (before `main`).
 pub fn set_program_script(file_path: Vec<u8>) {
@@ -853,14 +847,8 @@ pub extern "C" fn dartforge_native_Stdout_AnsiSupported(fd: i64) -> i64 {
 // ---------------------------------------------------------------------------
 // The current process (`exit`, `exitCode`, `sleep`, `pid`).
 
-/// The global exit code (`Process::GlobalExitCode`), which the normal end of the
-/// program returns.
-static EXIT_CODE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
-
-/// The code the process ends with when the program finishes without an error.
-fn global_exit_code() -> i32 {
-    EXIT_CODE.load(std::sync::atomic::Ordering::Relaxed) as i32
-}
+// The global exit code (`EXIT_CODE`) lives in the `core` fragment, which the
+// end of the program reads on every target.
 
 /// `Process_Exit`: ends the process right away (the VM uses `_exit`, without the
 /// global destructors; `std`'s standard output is flushed first).

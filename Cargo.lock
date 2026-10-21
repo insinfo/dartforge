@@ -687,6 +687,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "dartforge-local-time"
+version = "0.1.0"
+
+[[package]]
 name = "dartforge-lsp"
 version = "0.1.0"
 dependencies = [
@@ -752,6 +756,7 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "cbc",
+ "dartforge-local-time",
  "des",
  "flate2",
  "libz-sys",
@@ -808,7 +813,9 @@ dependencies = [
 name = "dartforge-wasm-host"
 version = "0.1.0"
 dependencies = [
+ "dartforge-local-time",
  "dartforge-wasm-gate",
+ "getrandom 0.4.3",
  "wasmtime",
  "wat",
 ]

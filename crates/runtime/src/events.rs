@@ -47,7 +47,7 @@ struct Events {
     active: crate::hash::HashMap<i64, LoopTimer>,
     next_id: i64,
     next_root: i64,
-    start: Option<std::time::Instant>,
+    start: Option<crate::clock::Instant>,
     /// Application-owned native event dispatcher and its persistent heap root.
     native_dispatcher: Option<(i64, i64)>,
 }
@@ -106,12 +106,12 @@ impl Events {
         }
     }
 
-    fn timer_instant(&self, deadline: i64) -> Option<std::time::Instant> {
+    fn timer_instant(&self, deadline: i64) -> Option<crate::clock::Instant> {
         self.start?
             .checked_add(std::time::Duration::from_millis(deadline.max(0) as u64))
     }
 
-    fn timer_delay_micros(&mut self, now: std::time::Instant) -> i64 {
+    fn timer_delay_micros(&mut self, now: crate::clock::Instant) -> i64 {
         let Some((deadline, _, _)) = self.next_active_timer() else {
             return -1;
         };
@@ -129,7 +129,7 @@ impl Events {
 
     /// Milliseconds of the isolate's monotonic clock.
     fn current_time(&mut self) -> i64 {
-        let start = *self.start.get_or_insert_with(std::time::Instant::now);
+        let start = *self.start.get_or_insert_with(crate::clock::Instant::now);
         i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX)
     }
 
@@ -185,7 +185,7 @@ pub extern "C" fn dartforge_native_DartForge_event_next_deadline_micros() -> i64
     EVENTS.with(|events| {
         events
             .borrow_mut()
-            .timer_delay_micros(std::time::Instant::now())
+            .timer_delay_micros(crate::clock::Instant::now())
     })
 }
 
@@ -200,7 +200,7 @@ fn collect_at_event_idle_boundary() -> bool {
     gc_policy_collect_if_idle()
 }
 
-fn event_wait_deadline(timer: Option<std::time::Instant>) -> Option<std::time::Instant> {
+fn event_wait_deadline(timer: Option<crate::clock::Instant>) -> Option<crate::clock::Instant> {
     match (timer, gc_policy_idle_deadline()) {
         (Some(a), Some(b)) => Some(a.min(b)),
         (a, b) => a.or(b),
@@ -430,7 +430,7 @@ pub extern "C" fn dartforge_event_loop(call: extern "C" fn(i64) -> i64) {
             wait_message(event_wait_deadline(None), false);
             continue;
         };
-        if std::time::Instant::now() < due {
+        if crate::clock::Instant::now() < due {
             // Waits for the deadline, waking earlier if a message arrives.
             if collect_at_event_idle_boundary() {
                 continue;
@@ -947,7 +947,7 @@ mod tests_event_deadline_snapshot {
 
     #[test]
     fn active_deadlines_use_submillisecond_relative_clock_and_clean_cancellations() {
-        let start = std::time::Instant::now();
+        let start = crate::clock::Instant::now();
         let mut events = Events {
             start: Some(start),
             ..Events::default()
@@ -970,7 +970,7 @@ mod tests_event_deadline_snapshot {
 
     #[test]
     fn fractional_microsecond_future_is_positive_and_large_deadlines_saturate() {
-        let start = std::time::Instant::now();
+        let start = crate::clock::Instant::now();
         let mut events = Events {
             start: Some(start),
             ..Events::default()
@@ -991,7 +991,7 @@ mod tests_event_deadline_snapshot {
         assert_eq!(dartforge_native_DartForge_event_next_deadline_micros(), -1);
         EVENTS.with(|events| {
             let mut events = events.borrow_mut();
-            events.start = Some(std::time::Instant::now());
+            events.start = Some(crate::clock::Instant::now());
             active(&mut events, 1, 10_000);
             events.immediates.push_back((0, 0));
         });
@@ -1004,7 +1004,7 @@ mod tests_event_deadline_snapshot {
                 port: 0,
                 graph: Graph::null_val(),
                 owners: vec![],
-                arrival: std::time::Instant::now(),
+                arrival: crate::clock::Instant::now(),
             })
         });
         assert_eq!(dartforge_native_DartForge_event_next_deadline_micros(), 0);

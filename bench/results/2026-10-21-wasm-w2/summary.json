@@ -1,0 +1,60 @@
+{
+  "runtime": {
+    "sha256": "5e146e92947a48b202298c8c848d68d4671ad2b46c125bd0826bde4f14b24f6a",
+    "hosts": {
+      "wasmtime": {
+        "stdout": "hello wasm\n-9223372036854775807\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n",
+        "stderr": "[dartforge-wasm-run] sha256 5e146e92947a48b202298c8c848d68d4671ad2b46c125bd0826bde4f14b24f6a\n",
+        "status": 0,
+        "sha256": "5e146e92947a48b202298c8c848d68d4671ad2b46c125bd0826bde4f14b24f6a",
+        "passed": true
+      },
+      "node": {
+        "stdout": "hello wasm\n-9223372036854775807\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n",
+        "stderr": "[run_node] sha256 5e146e92947a48b202298c8c848d68d4671ad2b46c125bd0826bde4f14b24f6a\n",
+        "status": 0,
+        "sha256": "5e146e92947a48b202298c8c848d68d4671ad2b46c125bd0826bde4f14b24f6a",
+        "passed": true
+      },
+      "chrome": {
+        "stdout": "hello wasm\n-9223372036854775807\ntrue\ntrue\ntrue\ntrue\ntrue\ntrue\n",
+        "stderr": "",
+        "status": 0,
+        "sha256": "5e146e92947a48b202298c8c848d68d4671ad2b46c125bd0826bde4f14b24f6a",
+        "trap": null,
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+        "passed": true
+      }
+    }
+  },
+  "oom": {
+    "sha256": "1c3aab82dd645ee75fdff8946d0f68df1462314ee7f1d57ba70af7c1d74c9b2e",
+    "hosts": {
+      "wasmtime": {
+        "stdout": "",
+        "stderr": "Out of memory: the WebAssembly memory reached 43 MiB and cannot grow to allocate 33558528 more bytes.\n[dartforge-wasm-run] sha256 1c3aab82dd645ee75fdff8946d0f68df1462314ee7f1d57ba70af7c1d74c9b2e\n",
+        "status": 255,
+        "sha256": "1c3aab82dd645ee75fdff8946d0f68df1462314ee7f1d57ba70af7c1d74c9b2e",
+        "passed": true
+      },
+      "node": {
+        "stdout": "",
+        "stderr": "Out of memory: the WebAssembly memory reached 43 MiB and cannot grow to allocate 33558528 more bytes.\n[run_node] sha256 1c3aab82dd645ee75fdff8946d0f68df1462314ee7f1d57ba70af7c1d74c9b2e\n",
+        "status": 255,
+        "sha256": "1c3aab82dd645ee75fdff8946d0f68df1462314ee7f1d57ba70af7c1d74c9b2e",
+        "passed": true
+      },
+      "chrome": {
+        "stdout": "",
+        "stderr": "Out of memory: the WebAssembly memory reached 43 MiB and cannot grow to allocate 33558528 more bytes.\n",
+        "status": 255,
+        "sha256": "1c3aab82dd645ee75fdff8946d0f68df1462314ee7f1d57ba70af7c1d74c9b2e",
+        "trap": null,
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+        "passed": true
+      }
+    }
+  },
+  "two_instances": true,
+  "passed": true
+}

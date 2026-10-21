@@ -820,8 +820,8 @@ mod arc_port_tests {
                 HELPERS.with(|a| a.borrow_mut().insert("_dartforgeDatagram".into(), pc));
                 emitter.send_to(&[1, 2, 3], dest).unwrap();
                 let mut r = 0;
-                let limit = std::time::Instant::now() + std::time::Duration::from_secs(2);
-                while std::time::Instant::now() < limit {
+                let limit = crate::clock::Instant::now() + std::time::Duration::from_secs(2);
+                while crate::clock::Instant::now() < limit {
                     r = dartforge_arc_socket_recvfrom_owned_v1(socket);
                     if r != 0 || dartforge_exception_pending() != 0 { break; }
                     std::thread::yield_now();

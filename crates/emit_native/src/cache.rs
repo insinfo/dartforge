@@ -45,10 +45,12 @@ pub struct RuntimeCache {
 }
 
 /// The refusal of every native runtime variant for WebAssembly: a module links
-/// the `wasm32-unknown-unknown` runtime, never the compiler host's.
+/// [`RuntimeCache::for_wasm`], never the compiler host's runtime.
 fn refuse_for_wasm() -> Result<(), String> {
     if crate::target::is_wasm() {
-        return Err("the WebAssembly runtime (wasm32-unknown-unknown) is not part of this build yet (docs/PLANO-WASM-MVP.md, phase W2); compile-wasm stops before linking".into());
+        return Err(
+            "internal error: a native runtime was requested for a WebAssembly module".into(),
+        );
     }
     Ok(())
 }
@@ -82,6 +84,14 @@ impl RuntimeCache {
             return Ok(Self { lib_path });
         }
         precompiled_runtime(env!("DARTFORGE_RUNTIME_PRODUCTION")).map(|lib_path| Self { lib_path })
+    }
+}
+
+impl RuntimeCache {
+    /// The `wasm32-unknown-unknown` runtime of WebAssembly modules (built with
+    /// the compiler, the same on every host: no target bundle).
+    pub fn for_wasm() -> Result<Self, String> {
+        precompiled_runtime(env!("DARTFORGE_RUNTIME_WASM")).map(|lib_path| Self { lib_path })
     }
 }
 

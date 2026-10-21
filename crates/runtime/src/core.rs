@@ -16,7 +16,7 @@ unsafe extern "C" {
 }
 
 /// Invokes once the program linked against the Rust runtime.
-#[cfg(not(any(dartforge_runtime_embedded, dartforge_runtime_dll)))]
+#[cfg(not(any(dartforge_runtime_embedded, dartforge_runtime_dll, target_arch = "wasm32")))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
     // The context of the main thread before any generated prologue (see
@@ -122,7 +122,7 @@ pub fn finalize_program() -> i32 {
             // The VM's format and code (`Unhandled exception:`, the message, the
             // stack trace; 255). The stack trace is what the runtime has of the exception.
             use std::io::Write;
-            let mut err = std::io::stderr().lock();
+            let mut err = crate::console::stderr();
             let _ = writeln!(err, "Unhandled exception:\n{detail}");
             if !trace.is_empty() {
                 let _ = write!(err, "{trace}");
@@ -160,6 +160,16 @@ pub fn finalize_program() -> i32 {
         HEAP.with(|heap| eprint!("[memory] end of program\n{}", heap.borrow().memory_report()));
     }
     global_exit_code()
+}
+
+/// The global exit code (`Process::GlobalExitCode`), which the normal end of the
+/// program returns: `dart:io`'s `exitCode` sets it (fragment `io_platform`); a
+/// target without `dart:io` keeps 0.
+static EXIT_CODE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// The code the process ends with when the program finishes without an error.
+fn global_exit_code() -> i32 {
+    EXIT_CODE.load(std::sync::atomic::Ordering::Relaxed) as i32
 }
 
 use crate::heap::{CONTEXT, Heap, Text, StringMut};

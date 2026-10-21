@@ -30,15 +30,15 @@ pub struct HeapStats {
 /// A bounded policy for automatic collection, independent of RC/destruction.
 #[derive(Debug)]
 struct AutomaticGcPolicy {
-    origin: std::time::Instant,
-    window: Option<(std::time::Instant, usize)>,
+    origin: crate::clock::Instant,
+    window: Option<(crate::clock::Instant, usize)>,
     debt: bool,
     idle_requested: bool,
 }
 impl Default for AutomaticGcPolicy {
     fn default() -> Self {
         Self {
-            origin: std::time::Instant::now(),
+            origin: crate::clock::Instant::now(),
             window: None,
             debt: false,
             idle_requested: false,
@@ -46,14 +46,14 @@ impl Default for AutomaticGcPolicy {
     }
 }
 impl AutomaticGcPolicy {
-    fn refresh(&mut self, now: std::time::Instant) {
+    fn refresh(&mut self, now: crate::clock::Instant) {
         if self.window.is_some_and(|(deadline, _)| now >= deadline) {
             self.window = None;
         }
     }
     fn arm(
         &mut self,
-        now: std::time::Instant,
+        now: crate::clock::Instant,
         duration: std::time::Duration,
         budget: usize,
     ) -> i64 {
@@ -85,7 +85,7 @@ impl AutomaticGcPolicy {
     }
     fn collect_before(
         &mut self,
-        now: std::time::Instant,
+        now: crate::clock::Instant,
         bytes: usize,
         ordinary: bool,
         forced: bool,
@@ -387,6 +387,37 @@ pub struct RootFrame {
 pub static dartforge_context_slot: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
+/// A [`Context`] field the generated code reads at a fixed offset: an 8-byte cell
+/// on every target. On wasm32 the 4-byte pointer or `usize` sits in the low half
+/// (little-endian) and the high half stays zero, so both the `load ptr` and the
+/// `load i64` of the generated code read it, and the offsets and the IR are the
+/// same on every target (docs/PLANO-WASM-MVP.md §3.2).
+#[repr(C, align(8))]
+pub struct Slot<T> {
+    value: T,
+    #[cfg(target_pointer_width = "32")]
+    high: u32,
+}
+
+impl<T> Slot<T> {
+    pub const fn new(value: T) -> Self {
+        Slot {
+            value,
+            #[cfg(target_pointer_width = "32")]
+            high: 0,
+        }
+    }
+}
+
+impl<T> std::ops::Deref for Slot<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.value
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<Slot<*const u8>>() == 8);
+
 /// The thread context that the generated code reads and writes directly, without
 /// a call (`llvm/mod.rs`): the pending exception (mirror of
 /// `exceptions::EXCEPTION`, checked after each call) and the top of
@@ -398,13 +429,13 @@ pub struct Context {
     /// 1 with a pending exception (offset 0).
     pub pending: std::cell::Cell<u8>,
     /// The top frame of the shadow stack (offset 8).
-    pub top: std::cell::Cell<*const RootFrame>,
+    pub top: Slot<std::cell::Cell<*const RootFrame>>,
     /// The globals area of each module in this isolate, by module id
     /// (`@df.area_id`; 0 = no id): the fast path of the function
     /// prologue (`@df.get_area`). Address of the elements (offset 16)
     /// and length (24); a null entry goes to the runtime.
-    pub areas: std::cell::Cell<*const *mut i64>,
-    pub n_areas: std::cell::Cell<usize>,
+    pub areas: Slot<std::cell::Cell<*const *mut i64>>,
+    pub n_areas: Slot<std::cell::Cell<usize>>,
     /// The isolate's interrupt request (offset 32): the control port
     /// sets it, from another thread, when a control message arrives
     /// (`ports.rs`). The generated code reads it, atomically, at the start of each loop
@@ -414,13 +445,13 @@ pub struct Context {
     /// of a field of something that is not an object of the space uses this object
     /// instead of the header at `h - 2` (`llvm/mod.rs`), and reads zeros, as
     /// `dartforge_object_get` did.
-    pub empties: *const Header,
+    pub empties: Slot<*const Header>,
     /// The classes with a registered method table (offset 48; one
     /// 0/1 byte per id, `selectors.rs`) and how many (56): the inline allocation
     /// of a class that registers the table on the first allocation
     /// (`dartforge_object_new_t`) only skips the runtime after registration.
-    pub registered: std::cell::Cell<*const u8>,
-    pub n_registered: std::cell::Cell<usize>,
+    pub registered: Slot<std::cell::Cell<*const u8>>,
+    pub n_registered: Slot<std::cell::Cell<usize>>,
     /// The isolate's TLAB (offset 64): for each number of fields
     /// `n ≤ TLAB_N`, a range `[cursor, end)` of contiguous free blocks of the
     /// object space already counted as allocation
@@ -428,7 +459,7 @@ pub struct Context {
     /// `72 + 16n`. The generated code allocates by advancing the cursor one block (the
     /// VM's *bump pointer*, `llvm/mod.rs`); an exhausted range goes to the runtime,
     /// which refills it.
-    pub tlab: [[std::cell::Cell<*mut u8>; 2]; TLAB_N + 1],
+    pub tlab: [[Slot<std::cell::Cell<*mut u8>>; 2]; TLAB_N + 1],
     /// The subtype bitmaps (`selectors.rs`, fragment `core.rs`): for
     /// each target class `C` (index; offset 336), the address of the bitmap
     /// in which bit `cid` says whether `cid <: C` (null = not computed yet), and
@@ -436,22 +467,22 @@ pub struct Context {
     /// `cid` outside it goes to the runtime (`dartforge_is_subclass`, which also
     /// builds the bitmap on the first lookup). A new subclass registration
     /// (loading, a reload) clears the bitmaps.
-    pub subtypes: std::cell::Cell<*const *const u64>,
-    pub n_subtypes: std::cell::Cell<usize>,
-    pub subtype_width: std::cell::Cell<usize>,
+    pub subtypes: Slot<std::cell::Cell<*const *const u64>>,
+    pub n_subtypes: Slot<std::cell::Cell<usize>>,
+    pub subtype_width: Slot<std::cell::Cell<usize>>,
     /// The handles (address + 2) of the static `true` (offset
     /// 360) and `false` (368) boxes of this runtime: `@df.box_bool` and
     /// `@df.unbox_bool` read them from here, without referencing the
     /// `dartforge_true`/`_falso` data of another image (the executable and the SDK
     /// DLL each have their own copy; only the active runtime's is canonical).
-    pub true_value: *const u8,
-    pub false_value: *const u8,
+    pub true_value: Slot<*const u8>,
+    pub false_value: Slot<*const u8>,
     /// The thread's native stack limit (offset 376): the prologue of
     /// each function that calls another compares the address of its frame with it
     /// and, below it, throws `StackOverflowError` instead of overflowing the system
     /// stack (the VM's `stack_overflow_check`). 0 = not computed yet
     /// (fragment `gc_roots.rs`, `dartforge_context`); 1 = no known limit.
-    pub stack_limit: std::cell::Cell<usize>,
+    pub stack_limit: Slot<std::cell::Cell<usize>>,
 }
 
 /// The `is C` read inline by the generated code ([`Context::subtypes`]). To
@@ -485,20 +516,20 @@ thread_local! {
     pub static CONTEXT: Context = const {
         Context {
             pending: std::cell::Cell::new(0),
-            top: std::cell::Cell::new(std::ptr::null()),
-            areas: std::cell::Cell::new(std::ptr::null()),
-            n_areas: std::cell::Cell::new(0),
+            top: Slot::new(std::cell::Cell::new(std::ptr::null())),
+            areas: Slot::new(std::cell::Cell::new(std::ptr::null())),
+            n_areas: Slot::new(std::cell::Cell::new(0)),
             interrupt: std::sync::atomic::AtomicU8::new(0),
-            empties: &raw const EMPTY_OBJECT.header,
-            registered: std::cell::Cell::new(std::ptr::null()),
-            n_registered: std::cell::Cell::new(0),
-            tlab: [const { [std::cell::Cell::new(std::ptr::null_mut()), std::cell::Cell::new(std::ptr::null_mut())] }; TLAB_N + 1],
-            subtypes: std::cell::Cell::new(std::ptr::null()),
-            n_subtypes: std::cell::Cell::new(0),
-            subtype_width: std::cell::Cell::new(0),
-            true_value: (&raw const dartforge_true).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize),
-            false_value: (&raw const dartforge_false).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize),
-            stack_limit: std::cell::Cell::new(0),
+            empties: Slot::new(&raw const EMPTY_OBJECT.header),
+            registered: Slot::new(std::cell::Cell::new(std::ptr::null())),
+            n_registered: Slot::new(std::cell::Cell::new(0)),
+            tlab: [const { [Slot::new(std::cell::Cell::new(std::ptr::null_mut())), Slot::new(std::cell::Cell::new(std::ptr::null_mut()))] }; TLAB_N + 1],
+            subtypes: Slot::new(std::cell::Cell::new(std::ptr::null())),
+            n_subtypes: Slot::new(std::cell::Cell::new(0)),
+            subtype_width: Slot::new(std::cell::Cell::new(0)),
+            true_value: Slot::new((&raw const dartforge_true).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize)),
+            false_value: Slot::new((&raw const dartforge_false).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize)),
+            stack_limit: Slot::new(std::cell::Cell::new(0)),
         }
     };
 }
@@ -578,7 +609,7 @@ fn visit_frames(mut f: impl FnMut(i64)) {
                 && (*previous).n as u64 & FRAME_ORDERED != 0
             {
                 eprintln!("dartforge: dead root frame on the shadow stack");
-                std::process::exit(3);
+                crate::console::exit(3);
             }
             q = previous;
         }
@@ -605,8 +636,10 @@ const DWARF_SP: u16 = 31;
 #[cfg(target_arch = "aarch64")]
 const DWARF_FP: u16 = 29;
 #[cfg(not(target_arch = "aarch64"))]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 const DWARF_SP: u16 = 7;
 #[cfg(not(target_arch = "aarch64"))]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 const DWARF_FP: u16 = 6;
 
 /// The DWARF registers preserved across a call, by the target's
@@ -618,17 +651,22 @@ const PRESERVED: u32 = ((1 << 11) - 1) << 19;
 #[cfg(all(not(target_arch = "aarch64"), windows))]
 const PRESERVED: u32 = (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (0xF << 12);
 #[cfg(all(not(target_arch = "aarch64"), not(windows)))]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 const PRESERVED: u32 = (1 << 3) | (1 << 6) | (0xF << 12);
 
 /// The kind of a map root: slot relative to SP, slot relative to FP, or
 /// register (the value is its DWARF number).
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 const ROOT_AT_SP: u8 = 0;
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 const ROOT_AT_FP: u8 = 1;
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 const ROOT_IN_REGISTER: u8 = 2;
 
 /// A function with a stack map in an image: the address of its start and
 /// where the description is, which is only decoded on the first lookup
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.5 and §14.5, E3.2).
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 #[derive(Clone, Copy)]
 struct FunctionWithMap {
     start: u64,
@@ -647,6 +685,7 @@ struct FunctionWithMap {
 /// offset order; and the roots, (kind, slot offset in bytes
 /// or DWARF register number): [`ROOT_AT_SP`], [`ROOT_AT_FP`],
 /// [`ROOT_IN_REGISTER`].
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 #[derive(Default)]
 struct FunctionRecords {
     records: Vec<(u32, u32, u32)>,
@@ -670,6 +709,7 @@ unsafe impl Send for StackMap {}
 #[allow(unsafe_code)]
 unsafe impl Sync for StackMap {}
 
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 impl StackMap {
     fn new(key: usize) -> Self {
         StackMap {
@@ -1047,6 +1087,7 @@ unsafe fn read_dfgm(mut p: *const u8, size: usize, base: usize, map: &mut StackM
 /// # Safety
 /// `f` comes from [`read_stackmaps`] or [`read_dfgm`] over a mapped section.
 #[allow(unsafe_code)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
     let mut d = FunctionRecords::default();
     // SAFETY: the reads follow the format starting at `f.data`.
@@ -1197,6 +1238,7 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
 /// it has a map and the address has no record, it is a defect of the emitter or of the
 /// converter, and the process aborts. Returns whether the frame had a map.
 #[allow(unsafe_code)]
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 fn visit_frame(
     maps: &[StackMap],
     exact_start: Option<u64>,
@@ -1239,6 +1281,7 @@ fn visit_frame(
 
 /// An anomaly of the walk (SP that does not grow, outside the stack): ends the
 /// walk; with `DARTFORGE_GC_WALK=check`, aborts.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))] // stack maps are native only
 fn walk_anomaly(reason: &str) {
     if checked_walk() {
         map_rejected(&format!("stack walk anomaly: {reason}"));
@@ -2253,7 +2296,7 @@ impl Heap {
             total / mib,
             limit / mib
         );
-        std::process::exit(255);
+        crate::console::exit(255);
     }
 
     /// Gets the singleton of an enum value, protecting the internal allocations.
@@ -2739,7 +2782,7 @@ impl Heap {
         // The clock only expires a window: without one, `refresh` does nothing
         // (and external growth comes with every socket read and buffer write).
         if self.gc_policy.window.is_some() {
-            self.gc_policy.refresh(std::time::Instant::now());
+            self.gc_policy.refresh(crate::clock::Instant::now());
         }
         let pressure = self.allocations >= YOUNG_COUNT
             || self.young_bytes >= self.young_limit
@@ -2756,7 +2799,7 @@ impl Heap {
     pub(crate) fn gc_policy_defer(&mut self, duration: std::time::Duration, budget: usize) -> i64 {
         let status = self
             .gc_policy
-            .arm(std::time::Instant::now(), duration, budget);
+            .arm(crate::clock::Instant::now(), duration, budget);
         if status == 1 {
             self.return_tlabs();
         }
@@ -2775,7 +2818,7 @@ impl Heap {
     pub(crate) fn gc_policy_request_idle(&mut self) {
         self.gc_policy.idle_requested = true;
     }
-    pub(crate) fn gc_policy_idle_deadline(&self) -> Option<std::time::Instant> {
+    pub(crate) fn gc_policy_idle_deadline(&self) -> Option<crate::clock::Instant> {
         if self.gc_policy.idle_requested {
             self.gc_policy.window.map(|(deadline, _)| deadline)
         } else {
@@ -2784,7 +2827,7 @@ impl Heap {
     }
     /// Called only after the owner scheduler establishes genuine idleness.
     pub(crate) fn gc_policy_collect_if_idle(&mut self) -> bool {
-        self.gc_policy.refresh(std::time::Instant::now());
+        self.gc_policy.refresh(crate::clock::Instant::now());
         if !self.gc_policy.idle_requested || self.gc_policy.window.is_some() {
             return false;
         }
@@ -2946,7 +2989,7 @@ impl Heap {
         }
         let collect =
             self.gc_policy
-                .collect_before(std::time::Instant::now(), bytes, ordinary, forced);
+                .collect_before(crate::clock::Instant::now(), bytes, ordinary, forced);
         if self.gc_policy.debt {
             self.return_tlabs();
         }
@@ -2991,7 +3034,7 @@ impl Heap {
             return;
         }
         if self.gc_policy.window.is_some() {
-            self.gc_policy.refresh(std::time::Instant::now());
+            self.gc_policy.refresh(crate::clock::Instant::now());
         }
         if self.gc_policy.blocks_tlabs() {
             return;
@@ -5470,7 +5513,7 @@ mod object_space {
         heap.trace = std::env::var("DARTFORGE_GC_TRACE").as_deref() == Ok("1");
         let frame = heap.push_frame_with_slots(1);
         for _ in 0..6 {
-            let t = std::time::Instant::now();
+            let t = crate::clock::Instant::now();
             let mut cab = 0;
             for i in 0..1_000_000 {
                 let no = heap.allocate_object(1, 2);
@@ -5717,18 +5760,18 @@ mod review_tests {
         for (count, stress) in [(100_000, false), (2_000, true)] {
             let mut heap = Heap::new(stress);
             let frame = heap.push_frame();
-            let started = std::time::Instant::now();
+            let started = crate::clock::Instant::now();
             for index in 0..count {
                 let handle = heap.new_object(1, &[(index, false)]);
                 heap.root(frame, handle);
                 std::hint::black_box(handle);
             }
             let allocation_ns = started.elapsed().as_nanos();
-            let started = std::time::Instant::now();
+            let started = crate::clock::Instant::now();
             heap.collect();
             let collect_live_ns = started.elapsed().as_nanos();
             heap.pop_frame(frame);
-            let started = std::time::Instant::now();
+            let started = crate::clock::Instant::now();
             heap.collect();
             let collect_dead_ns = started.elapsed().as_nanos();
             let stats = heap.stats();
@@ -5808,13 +5851,13 @@ mod fixed_root_tests {
         for stress in [false, true] {
             let mut heap = Heap::new(stress);
             let frame = heap.push_frame_with_slots(1);
-            let start = std::time::Instant::now();
+            let start = crate::clock::Instant::now();
             for _ in 0..100_000 {
                 let handle = heap.allocate_str("temporary string");
                 heap.set_root(frame, 0, handle);
             }
             let allocation_ns = start.elapsed().as_nanos();
-            let start = std::time::Instant::now();
+            let start = crate::clock::Instant::now();
             heap.collect();
             let collection_ns = start.elapsed().as_nanos();
             let stats = heap.stats();
@@ -7227,7 +7270,7 @@ impl Heap {
     fn drain_arc(&mut self, full: bool) {
         check_collection_allowed();
         let trace = self.trace;
-        let start = trace.then(std::time::Instant::now);
+        let start = trace.then(crate::clock::Instant::now);
         // The time of each stage, for the trace (roots, snapshots, young objects of the
         // roots, ephemerons, decision on the young, release of the dead young,
         // candidate roots, zeros/cycles, memory).
@@ -7385,7 +7428,7 @@ impl Heap {
         // point, side tables (µs).
         let mut run_loop = [0u128; 4];
         loop {
-            let t0 = trace.then(std::time::Instant::now);
+            let t0 = trace.then(crate::clock::Instant::now);
             {
                 let HeapArc {
                     state, ephemerons, ..
@@ -7401,7 +7444,7 @@ impl Heap {
                     run_loop[0] += t0.elapsed().as_micros();
                 }
                 if cycles {
-                    let t1 = trace.then(std::time::Instant::now);
+                    let t1 = trace.then(crate::clock::Instant::now);
                     state
                         .collect_cycles(&mut graph, &protected)
                         .unwrap_or_else(|e| arc_failure(e));
@@ -7414,7 +7457,7 @@ impl Heap {
                 }
             }
             if fixpoint {
-                let t2 = trace.then(std::time::Instant::now);
+                let t2 = trace.then(crate::clock::Instant::now);
                 fixpoint = false;
                 self.arc_fixpoint(&mut arc);
                 let HeapArc {
@@ -7431,7 +7474,7 @@ impl Heap {
                     run_loop[2] += t2.elapsed().as_micros();
                 }
             }
-            let t3 = trace.then(std::time::Instant::now);
+            let t3 = trace.then(crate::clock::Instant::now);
             let amount = arc.state.transfer_dead(&mut dead_rc);
             // Young objects also require side cleanup in the first round, but
             // are reclaimed by the sweep: they do not enter the RC dead.

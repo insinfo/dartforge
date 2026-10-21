@@ -370,9 +370,9 @@ pub unsafe extern "C" fn dartforge_register_cids(ids: *const i64, n: i64) {
     let checks = v.len() == expected.len() && v.iter().zip(&expected).all(|(&m, &r)| m == r || m == -1);
     if !checks {
         use std::io::Write;
-        let _ = std::io::stdout().flush();
+        let _ = crate::console::stdout().flush();
         let _ = writeln!(
-            std::io::stderr().lock(),
+            crate::console::stderr(),
             "error: the module was compiled with another runtime class table (ABI): module {v:?}, runtime {expected:?}"
         );
         std::process::abort();
@@ -594,9 +594,9 @@ pub unsafe extern "C" fn dartforge_selector(cache: *mut i64, recv: i64, hash: i6
 pub extern "C" fn dartforge_member_rejected(text: i64) {
     let t = HEAP.with(|heap| heap.borrow().text(text).map(|t| t.to_dart_string()).unwrap_or_default());
     use std::io::Write;
-    let _ = std::io::stdout().flush();
-    let _ = writeln!(std::io::stderr().lock(), "error: SDK member not supported by the native backend: {t}");
-    std::process::exit(254);
+    let _ = crate::console::stdout().flush();
+    let _ = writeln!(crate::console::stderr(), "error: SDK member not supported by the native backend: {t}");
+    crate::console::exit(254);
 }
 
 /// `DARTFORGE_DEBUG=1`: the runtime reports on stderr every thrown exception and
@@ -670,7 +670,7 @@ pub unsafe extern "C" fn dartforge_set_migration(data: *const i64, n: i64) {
         // generation: a plan that changes them is rejected (§2.13).
         if class < crate::layout::FIRST_FREE_CID {
             use std::io::Write;
-            let _ = writeln!(std::io::stderr().lock(), "error: migration rejected for the runtime class {class}");
+            let _ = writeln!(crate::console::stderr(), "error: migration rejected for the runtime class {class}");
         } else {
             plan.insert(class, origin.to_vec());
         }

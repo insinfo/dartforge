@@ -150,6 +150,26 @@ pub fn flush_allocation_cache() {
 /// The executable's global allocator (see the start of this fragment).
 pub struct CachingAllocator;
 
+/// What a failed system allocation becomes. Natively the null goes back to Rust,
+/// which aborts (`handle_alloc_error`). In a WebAssembly module a null means the
+/// linear memory could not grow (its maximum, or the host's limit): the program
+/// ends like the native heap ceiling (`heap.rs`), with a line on standard error
+/// and status 255, instead of a bare trap.
+#[inline]
+fn system_block(p: *mut u8, bytes: usize) -> *mut u8 {
+    #[cfg(target_arch = "wasm32")]
+    if p.is_null() {
+        let mib = core::arch::wasm32::memory_size(0) * 65536 / (1024 * 1024);
+        eprintln!(
+            "Out of memory: the WebAssembly memory reached {mib} MiB and cannot grow to allocate {bytes} more bytes."
+        );
+        crate::console::exit(255);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = bytes;
+    p
+}
+
 // SAFETY: every returned block has at least the requested size and alignment (the
 // class's, ≥ size, aligned to 16 ≥ alignment), and each block goes back to
 // `System` with the same `Layout` it came out with.
@@ -163,10 +183,10 @@ unsafe impl std::alloc::GlobalAlloc for CachingAllocator {
                     return p;
                 }
                 // SAFETY: layout with a non-zero size.
-                unsafe { std::alloc::System.alloc(class_layout(c)) }
+                system_block(unsafe { std::alloc::System.alloc(class_layout(c)) }, l.size())
             }
             // SAFETY: the caller's contract, passed on.
-            None => unsafe { std::alloc::System.alloc(l) },
+            None => system_block(unsafe { std::alloc::System.alloc(l) }, l.size()),
         }
     }
 
@@ -191,14 +211,17 @@ unsafe impl std::alloc::GlobalAlloc for CachingAllocator {
                 let p = take_from_list(c);
                 if p.is_null() {
                     // SAFETY: layout with a non-zero size.
-                    return unsafe { std::alloc::System.alloc_zeroed(class_layout(c)) };
+                    return system_block(
+                        unsafe { std::alloc::System.alloc_zeroed(class_layout(c)) },
+                        l.size(),
+                    );
                 }
                 // SAFETY: the block has at least `l.size()` bytes.
                 unsafe { std::ptr::write_bytes(p, 0, l.size()) };
                 p
             }
             // SAFETY: the caller's contract, passed on.
-            None => unsafe { std::alloc::System.alloc_zeroed(l) },
+            None => system_block(unsafe { std::alloc::System.alloc_zeroed(l) }, l.size()),
         }
     }
 
@@ -211,7 +234,7 @@ unsafe impl std::alloc::GlobalAlloc for CachingAllocator {
             // The same class: the block already has the new size.
             (Some(a), Some(b)) if a == b => p,
             // SAFETY: neither goes through the lists: `System` does it.
-            (None, None) => unsafe { std::alloc::System.realloc(p, l, new) },
+            (None, None) => system_block(unsafe { std::alloc::System.realloc(p, l, new) }, new),
             _ => {
                 // SAFETY: `nl` is valid; the blocks do not overlap.
                 unsafe {

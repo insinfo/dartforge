@@ -7,6 +7,7 @@
 # emitter reads (`dartforge_runtime::effects`). A mark only goes from 1 to 0 together with the
 # run that checks it (`DARTFORGE_EFFECTS=check`).
 # name	collects	throws	runs_dart
+dartforge_abi_version	0	0	0
 dartforge_allocate	1	0	0
 dartforge_api_close_native_port	1	1	0
 dartforge_api_new_native_port	1	1	0
@@ -821,6 +822,7 @@ dartforge_list_elem_exact_cache	0	0	0
 dartforge_rti_string	1	1	0
 dartforge_rti_subtype	1	1	0
 dartforge_rti_tuple_join	1	0	0
+dartforge_run	1	1	1
 dartforge_safepoint	1	1	1
 dartforge_selector	1	1	0
 dartforge_set_main_arguments	1	1	0

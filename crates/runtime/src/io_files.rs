@@ -193,25 +193,6 @@ fn dart_int64s(value_list: &[i64]) -> i64 {
     dart_typed_from_bytes(TYPE_INT64, &bytes)
 }
 
-/// A fixed-length `_List` (cid 8, general) with the values (already in the `Ref`
-/// position), rooted during the allocation.
-fn dart_fixed_list(value_list: &[i64]) -> i64 {
-    HEAP.with(|h| {
-        let mut h = h.borrow_mut();
-        let frame = h.push_owning_frame(value_list.len().max(1));
-        for (i, &v) in value_list.iter().enumerate() {
-            h.set_root(frame, i, v);
-        }
-        let l = h.new_list(crate::layout::cid::LIST, value_list.len(), crate::lists::Element::General);
-        // Word 0 of the body is the length; the elements, the following ones.
-        if !value_list.is_empty() {
-            h.write_refs(l, 1, value_list);
-        }
-        // The list's edges replace the temporary owning copies.
-        h.pop_frame(frame);
-        l
-    })
-}
 
 /// The Dart value of a result: the `Ok` through `f`, the error as an `OSError`.
 fn dart_or_error<T>(r: IoResult<T>, f: impl FnOnce(T) -> i64) -> i64 {
@@ -231,11 +212,6 @@ fn dart_null_or_error(r: IoResult<()>) -> i64 {
     dart_or_error(r, |()| 0)
 }
 
-/// Throws `StateError(message)` (the `_InternalError` of the VM's natives).
-fn throw_internal_error(message: &str) {
-    let e = allocate_state_error(message);
-    with_roots(&[e], || dartforge_exception_throw(e, 3));
-}
 
 // ---------------------------------------------------------------------------
 // Paths.
@@ -271,17 +247,6 @@ fn path_bytes(raw: i64) -> Vec<u8> {
     b
 }
 
-/// The system path for the bytes (Unix: the bytes; Windows: the UTF-8 converted to
-/// UTF-16, like the VM's `Utf8ToWideChar`).
-#[cfg(unix)]
-fn path_from_bytes(b: &[u8]) -> std::path::PathBuf {
-    use std::os::unix::ffi::OsStrExt;
-    std::path::PathBuf::from(std::ffi::OsStr::from_bytes(b))
-}
-#[cfg(windows)]
-fn path_from_bytes(b: &[u8]) -> std::path::PathBuf {
-    std::path::PathBuf::from(String::from_utf8_lossy(b).into_owned())
-}
 
 /// The bytes of a system path (the inverse of [`path_from_bytes`]).
 #[cfg(unix)]
@@ -315,14 +280,8 @@ fn utf8_of_string(s: i64) -> Vec<u8> {
 
 // ---------------------------------------------------------------------------
 // The native field of `NativeFieldWrapperClass1` (the `dart:nativewrappers`
-// overlay declares it as the first field of the layout).
-
-fn native_field(obj: i64) -> i64 {
-    HEAP.with(|h| match h.borrow().object(obj) {
-        Some(o) => o.first().map_or(0, |f| f.0),
-        None => panic!("compiler bug: native field of something that is not an object"),
-    })
-}
+// overlay declares it as the first field of the layout; the read is
+// `native_field`, fragment `dart_values`).
 
 fn write_native_field(obj: i64, value: i64) {
     HEAP.with(|h| {
