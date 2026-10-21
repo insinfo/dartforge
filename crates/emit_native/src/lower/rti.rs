@@ -1191,6 +1191,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         r.text.push('>');
         let t = self.recipe_rti(&r);
         self.armed_tuple = Some(t);
+        // The written type arguments, as inference recorded them.
+        if let Some(written) = call.and_then(|(_, arguments)| {
+            self.ctx.bodies.units[self.unit_id.0 as usize].instantiation(arguments.span.start)
+        }) {
+            for (i, &w) in written.iter().enumerate() {
+                if let Some(slot) = found_items.get_mut(n_ext + i) {
+                    *slot = Some(w);
+                }
+            }
+        }
+        self.call_types = Some((fid, found_items));
     }
 
     /// Matches the declared type `decl` (with the parameters `params`) with the

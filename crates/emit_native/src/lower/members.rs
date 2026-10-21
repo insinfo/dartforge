@@ -841,6 +841,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 return self.unsupported("SDK method tear-off", span);
             }
             if func.static_ {
+                if let Some(error) = self.interop_tearoff(fid, span) {
+                    return error;
+                }
                 return self.function_tearoff(fid);
             }
             let Some(this) = self.this_param.clone() else {
@@ -882,6 +885,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.call_direct(fid, None, Vec::new());
         }
         if super::user_function(self.ctx, fid) && self.ctx.program.functions[fid].static_ {
+            if let Some(error) = self.interop_tearoff(fid, span) {
+                return error;
+            }
             return self.function_tearoff(fid);
         }
         self.unsupported("static member tear-off", span)
@@ -901,6 +907,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return self.call_direct(fid, None, Vec::new());
                 }
                 if super::user_function(self.ctx, fid) && func.kind != FunctionKind::Setter {
+                    if let Some(error) = self.interop_tearoff(fid, span) {
+                        return error;
+                    }
                     return self.function_tearoff(fid);
                 }
                 self.unsupported("function tear-off", span)

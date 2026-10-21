@@ -521,8 +521,12 @@ Estado (21/10/2026):
   `@JS` da biblioteca, só os argumentos escritos na chamada e literais de objeto
   pela forma dos nomeados; conversões de retorno medidas no dart2wasm 3.6.2
   (`int` exige inteiro; `double`/`num`/`bool`/`String` por `dartifyRaw` e cast;
-  tipo JS não anulável com `null` → *null check*). Faltam *tear-offs* e variáveis
-  `external`.
+  tipo JS não anulável com `null` → *null check*). Resultado de tipo `T`
+  (parâmetro de tipo do membro ou do extension type): *cast* para a instanciação
+  da chamada, então `null` falha num `T` não anulável. *Tear-off* de membro
+  `external` de interop é erro de compilação, como no dart2wasm 3.6.2
+  (`Tear-offs of external … are disallowed.`), nos quatro tipos de membro
+  (top-level, `@staticInterop`, extensão, extension type).
 - **(3) completo:** campos e variáveis `external` (acessores implícitos) e o
   construtor nomeado de extension type com argumentos de tipo explícitos
   (`E<T>._(…)`, um bug geral do compilador, também no nativo).
@@ -542,7 +546,8 @@ Estado (21/10/2026):
   setter uma propriedade acessora (`Object.defineProperty`, não enumerável). O
   mundo fechado (`native_world.rs`) mantém os membros da cadeia de `T` como
   seletores externos.
-- **(5) feito**, menos `toJSProxyOrRef`: `JSArrayImpl` (lista viva sobre o array
+- **(5) feito:** `toJSProxyOrRef` (o `_ListBackedJSArray` do dart2wasm: `Proxy`
+  sobre um objeto exportado com protótipo `Array.prototype`), `JSArrayImpl` (lista viva sobre o array
   JS) e as listas tipadas, `ByteBuffer` e `ByteData` sobre o JS do dart2wasm
   (`native_sdk/wasm/js_array.dart`, `js_typed_array.dart`), com 64 bits como
   `BigInt` (`@pragma('dartforge:js-int64')`); a cópia Dart → JS lê a memória
@@ -551,7 +556,8 @@ Estado (21/10/2026):
 - **(6) em andamento:** `corpus/wasm_interop/` (as sondas acima, contra o
   dart2wasm) e os programas de interop do corpus JS (`--filter interop`); o
   harness roda no Node o módulo que tem `.mjs` companheiro e compara com o
-  dart2wasm sob a política de referência.
+  dart2wasm sob a política de referência. Um valor JS que não é string lido
+  como `String` vira `String(v)` (o dart2wasm guarda o valor JS e o imprime).
 - Diferenças que seguem a política de referência (VM): o `runtimeType` de uma
   string vinda do JS é `String` (no dart2wasm, `JSStringImpl`) e as mensagens de
   cast têm o texto da VM (`type 'X' is not…`).

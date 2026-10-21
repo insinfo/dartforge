@@ -752,6 +752,23 @@ impl FnBuilder<'_, '_> {
             };
             values.push(value);
         }
+        // `T`, a type parameter of the member or of its extension type: the
+        // result is cast to what the call instantiates it with (dart2wasm casts
+        // to the return type).
+        let instantiated = match self.ctx.table.get(return_type) {
+            Ty::TypeParameter {
+                param,
+                nullable: false,
+            } => {
+                let param = *param;
+                let types = self.call_types.take().filter(|(f, _)| *f == fid);
+                self.type_params_of(fid)
+                    .iter()
+                    .position(|&p| p == param)
+                    .and_then(|i| types.and_then(|(_, t)| t.get(i).copied().flatten()))
+            }
+            _ => None,
+        };
         let result = self.result_kind(return_type);
         let ret = match result {
             Result_::Void => Kind::Void,
@@ -760,6 +777,12 @@ impl FnBuilder<'_, '_> {
         let params: Vec<String> = (0..values.len()).map(|i| format!("x{i}")).collect();
         let code = member.javascript(&params, &keys);
         let raw = self.emit_snippet(&code, values, ret, js);
+        if let Some(t) = instantiated {
+            let value = self.call_direct(js.boxer.0 as usize, None, vec![raw]);
+            let rti = self.type_rti(t);
+            self.cast_rti(value.clone(), rti);
+            return value;
+        }
         match result {
             Result_::Void => Operand::Constant(Constant::Null),
             Result_::Value { nullable: true } => {
@@ -815,13 +838,17 @@ pub(crate) fn function_to_js(ctx: &Context, fid: usize) -> Option<bool> {
     }
 }
 
-/// Whether `fid` is `createJSInteropWrapper` of `dart:js_interop`.
+/// Whether `fid` is `createJSInteropWrapper` of `dart:js_interop` (or its
+/// patch's `_createJSInteropWrapperOn`, which also takes the prototype).
 pub(crate) fn create_js_interop_wrapper(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
     f.class.is_none()
         && f.extension.is_none()
         && ctx.program.library(f.library).uri == "dart:js_interop"
-        && ctx.symbol_name(f.name) == "createJSInteropWrapper"
+        && matches!(
+            ctx.symbol_name(f.name),
+            "createJSInteropWrapper" | "_createJSInteropWrapperOn"
+        )
 }
 
 /// `@JSExport(…)` among `metadata`: `Some("")` without a name.
@@ -1065,6 +1092,39 @@ fn core_js_type(ctx: &Context, c: ClassId) -> Option<ClassId> {
 }
 
 impl FnBuilder<'_, '_> {
+    /// A tear-off of an `external` interop member in program code is a compile
+    /// error, as in dart2wasm (`_js_interop_checks`): `Some` with the
+    /// operand of the diagnostic.
+    pub(super) fn interop_tearoff(&mut self, fid: usize, span: Span) -> Option<Operand> {
+        if self
+            .ctx
+            .program
+            .library(self.ctx.program.unit(self.unit_id).library)
+            .is_sdk
+            || interop_member(self.ctx, fid).is_none()
+        {
+            return None;
+        }
+        let f = &self.ctx.program.functions[fid];
+        let kind = match f.class {
+            _ if f.extension.is_some() => "extension interop member",
+            Some(c) if self.ctx.program.classes[c.0 as usize].kind == ClassKind::ExtensionType => {
+                "extension type interop member"
+            }
+            Some(_) => "@staticInterop member",
+            None => "top-level member",
+        };
+        let name = match self.ctx.symbol_name(f.name) {
+            "" => "new",
+            n => n,
+        };
+        let message = format!(
+            "Tear-offs of external {kind} '{name}' are disallowed.\n\
+             Declare a closure that calls this member instead."
+        );
+        Some(self.language_error(&message, span))
+    }
+
     /// `createJSInteropWrapper<T>(object, [proto])` (dart2wasm's
     /// `_createExport`): a JavaScript object (or one with the prototype `proto`)
     /// with a property per export of `T`'s class — a method is its tear-off as

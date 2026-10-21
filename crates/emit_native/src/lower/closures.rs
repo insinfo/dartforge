@@ -1359,6 +1359,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Tear-off of an instance method: a new closure with the receiver in the
     /// environment; the entry calls the member with the dispatch through the receiver.
     pub fn method_tearoff(&mut self, recv: Operand, fid: usize, span: Span) -> Operand {
+        if let Some(error) = self.interop_tearoff(fid, span) {
+            return error;
+        }
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$tearm");
         if self.ctx.arc_memory {
@@ -1690,6 +1693,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         typ: Option<TypeId>,
         span: Span,
     ) -> Operand {
+        if let Some(error) = self.interop_tearoff(fid, span) {
+            return error;
+        }
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$teari");
         if !self.done_entries.contains(&symbol_ent) {
@@ -1853,6 +1859,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         typ: TypeId,
         span: Span,
     ) -> Operand {
+        if let Some(error) = self.interop_tearoff(fid, span) {
+            return error;
+        }
         let vars: Vec<String> = (0..params.len()).map(|i| format!("M{i}")).collect();
         let strings: Vec<String> = args
             .iter()
@@ -1942,6 +1951,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn constructor_tearoff(&mut self, fid: usize, span: Span) -> Operand {
+        if let Some(error) = self.interop_tearoff(fid, span) {
+            return error;
+        }
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$tear");
         if self.ctx.arc_memory {

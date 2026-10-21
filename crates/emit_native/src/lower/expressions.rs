@@ -281,6 +281,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             r.text.push('>');
             let tuple = self.recipe_rti(&r);
             let typ = self.ctx.get_type(self.unit_id, expr_id);
+            if let Some(error) = self.interop_tearoff(fid, ast.expr(expr_id).span) {
+                return error;
+            }
             return self.instantiated_tearoff(fid, tuple, typ);
         }
         let proceed = std::mem::replace(&mut self.continue_chain, false);
@@ -1554,6 +1557,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     variables: args.variables,
                 });
                 let typ = self.ctx.get_type(self.unit_id, expr_id);
+                if let Some(error) = self.interop_tearoff(fid, expr.span) {
+                    return error;
+                }
                 self.instantiated_tearoff(fid, tuple, typ)
             }
             // `C<T…>` as an expression: the canonical `Type` object of the instantiated

@@ -204,6 +204,10 @@ pub struct FnBuilder<'a, 'c> {
     /// The generic function `arm_tuple_with_receiver` armed last and where its
     /// argument list starts (the key of its inferred type arguments).
     pub(crate) call_site: Option<(usize, usize)>,
+    /// The static type of each type parameter (`type_params_of`) of the
+    /// generic function `arm_tuple_with_receiver` armed last (`None`: not
+    /// found); an interop member casts a result of type `T` to it.
+    pub(crate) call_types: Option<(usize, Vec<Option<dartforge_types::table::TypeId>>)>,
     /// The static type of `this` in an extension member (the `on`): the
     /// implicit receiver of another extension call.
     pub this_extension: Option<(
@@ -404,6 +408,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             armed_tuple: None,
             call_shape: None,
             call_site: None,
+            call_types: None,
             this_extension: None,
             this_ext_type: None,
             constructor_return: None,

@@ -211,6 +211,12 @@ export class Interop {
     this.free.push(handle);
   }
 
+  /** The string of a handle: `String(v)` for a value that is not a string. */
+  text(handle) {
+    const v = this.values[handle];
+    return typeof v === "string" ? v : String(v);
+  }
+
   /** The `DartRef` of a Dart object's id: one per id while JavaScript keeps it. */
   dartRef(id) {
     let ref = this.refs.get(id)?.deref();
@@ -317,15 +323,17 @@ export class Interop {
       string_from_latin1: (offset, length) => this.ref(stringFromUnits(units(offset, length, false))),
       string_from_utf16: (offset, length) => this.ref(stringFromUnits(units(offset, length, true))),
       // The length, negative (`-n - 1`) when a unit does not fit in one byte.
+      // A value that is not a string reads as `String(v)` (dart2wasm keeps the
+      // JavaScript value and prints it as such).
       string_length: (handle) => {
-        const s = this.values[handle];
+        const s = this.text(handle);
         for (let i = 0; i < s.length; i++) {
           if (s.charCodeAt(i) > 0xff) return -s.length - 1;
         }
         return s.length;
       },
       string_read: (handle, offset, two) => {
-        const s = this.values[handle];
+        const s = this.text(handle);
         const view = units(offset, s.length, two !== 0);
         for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i);
       },

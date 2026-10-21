@@ -4,6 +4,7 @@
 
 import 'dart:_internal' show patch;
 import 'dart:_js_helper' as js_helper;
+import 'dart:_js_annotations' show JSExport;
 import 'dart:_js_helper' hide JS;
 import 'dart:_js_types' as js_types;
 import 'dart:async' show Completer;
@@ -418,6 +419,129 @@ extension ListToJSArray<T extends JSAny?> on List<T> {
 
   @patch
   JSArray<T> get toJS => _underlyingArray ?? toJSArray<T>(this);
+
+  @patch
+  JSArray<T> get toJSProxyOrRef =>
+      _underlyingArray ?? _createJSProxyOfList<T>(this);
+}
+
+// -----------------------------------------------------------------------------
+// List.toJSProxyOrRef: a JavaScript Proxy over the Dart list, as in dart2wasm
+// (`_ListBackedJSArray`, `_createJSProxyOfList`).
+
+/// `createJSInteropWrapper` with the prototype `proto` (dart2wasm's
+/// `createStaticInteropMock`): lowered like it (`lower/js_members.rs`).
+external JSObject _createJSInteropWrapperOn<T extends Object>(
+    T dartObject, JSObject proto);
+
+@pragma('dartforge:js', '() => Array.prototype')
+external JSValue _arrayPrototype();
+
+// Implementation of indexing, `length`, and core handler methods.
+//
+// JavaScript's `Array` methods are similar to Dart's `ListMixin`, because they
+// only rely on the implementation of `length` and indexing methods (and
+// support for any JS operators like `in` or `delete`).
+// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array#generic_array_methods
+class _ListBackedJSArray {
+  final List<JSAny?> _list;
+  // The proxy that wraps this list.
+  late final JSArray proxy;
+
+  _ListBackedJSArray(this._list);
+
+  @JSExport()
+  int get length => _list.length;
+
+  // Resizing the list populates the list with `null`, as in dart2wasm.
+  @JSExport()
+  void set length(int val) => _list.length = val;
+
+  // []
+  @JSExport()
+  JSAny? _getIndex(int index) => _list[index];
+
+  // []=
+  @JSExport()
+  void _setIndex(int index, JSAny? value) {
+    // Need to resize the array if out of bounds.
+    if (index >= length) length = index + 1;
+    _list[index] = value;
+  }
+
+  // in
+  @JSExport()
+  bool _hasIndex(int index) => index >= 0 && index < length;
+
+  // delete
+  @JSExport()
+  bool _deleteIndex(int index) {
+    if (_hasIndex(index)) {
+      _list.removeAt(index);
+      return true;
+    }
+    return false;
+  }
+}
+
+@pragma('dartforge:js', '''(wrapper) => {
+  wrapper[Symbol.isConcatSpreadable] = true;
+  const getIndex = wrapper._getIndex;
+  const setIndex = wrapper._setIndex;
+  const hasIndex = wrapper._hasIndex;
+  const deleteIndex = wrapper._deleteIndex;
+  return new Proxy(wrapper, {
+    'get': function (target, prop, receiver) {
+      if (typeof prop == 'string') {
+        const numProp = Number(prop);
+        if (Number.isInteger(numProp)) {
+          return Reflect.apply(getIndex, wrapper, [numProp]);
+        }
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+    'set': function (target, prop, value, receiver) {
+      if (typeof prop == 'string') {
+        const numProp = Number(prop);
+        if (Number.isInteger(numProp)) {
+          Reflect.apply(setIndex, wrapper, [numProp, value]);
+          return true;
+        }
+      }
+      // Note that handler set is required to return a bool (whether it
+      // succeeded or not), so `[]=` won't return the value set.
+      return Reflect.set(target, prop, value, receiver);
+    },
+    'has': function (target, prop) {
+      if (typeof prop == 'string') {
+        const numProp = Number(prop);
+        if (Number.isInteger(numProp)) {
+          // Array-like objects are assumed to have indices as properties.
+          return Reflect.apply(hasIndex, wrapper, [numProp]);
+        }
+      }
+      return Reflect.has(target, prop);
+    },
+    'deleteProperty': function (target, prop) {
+      if (typeof prop == 'string') {
+        const numProp = Number(prop);
+        if (Number.isInteger(numProp)) {
+          return Reflect.apply(deleteIndex, wrapper, [numProp]);
+        }
+      }
+      return Reflect.deleteProperty(target, prop);
+    }
+  });
+}''')
+external JSValue _listProxy(JSValue wrapper);
+
+JSArray<T> _createJSProxyOfList<T extends JSAny?>(List<T> list) {
+  final wrapper = _ListBackedJSArray(list);
+  final jsExportWrapper = _createJSInteropWrapperOn<_ListBackedJSArray>(
+      wrapper, JSObject._(_arrayPrototype()));
+  final proxy = JSArray<T>._(_listProxy(jsExportWrapper.toJSValue));
+  wrapper.proxy = proxy;
+  return proxy;
 }
 
 // -----------------------------------------------------------------------------

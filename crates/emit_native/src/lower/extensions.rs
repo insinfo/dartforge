@@ -144,6 +144,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         receiver: Option<TypeId>,
         span: Span,
     ) -> Operand {
+        if let Some(error) = self.interop_tearoff(fid, span) {
+            return error;
+        }
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = match receiver {
             Some(t) if self.generic_extension(fid) => format!("{target}$tearx{}", t.0),
