@@ -73,6 +73,43 @@ buffers médios do runtime que crescem até o pico e por mais blocos de páginas
 
 O DartForge compila o JS de produção cerca de duas vezes mais rápido que o dart2js.
 
+## Rodada de 2026-10-21
+
+| medida | antes | agora | Dart AOT |
+|---|---:|---:|---:|
+| listas pequenas por `add` (400 mil `int` e `String`) | ~300 ms | 50 ms | 37 ms |
+| microbenchmark `async` | 326 ms | 310 ms | 242 ms |
+| servidor `/json` com keep-alive | 42,0 mil/s | 45,2 mil/s | 60,8 mil/s |
+| JS, testes do `new_sali/core` | 459–486 KB | 419–447 KB | 266–290 KB (`-O2`) |
+
+- `b84e37f7`: listas crescem e recebem referências em código gerado; o runtime reaproveita
+  os quadros de raízes e compartilha o armazenamento vazio por forma.
+- `4c902208`: o JS de produção prova parâmetros sempre nulos (`testOn`) e elimina
+  `boolean_selector`, `source_span` e `string_scanner`.
+- `7a716b5d`: continuações de `await` reaproveitadas por ativação; `clear()` não tira mais a
+  forma compacta de um `List<int>` (o parser HTTP perdia o caminho em linha a cada pedido).
+- **Contexto em registrador, medido e adiado:** com o contexto lido de uma global (o teto de
+  um registrador) o kernel de árvores não muda e o servidor ganha 2,8%. Não compensa o risco
+  de recarregar o registrador em todo caminho Rust→Dart.
+
+**Backend do `new_sali` (`bin/prod.dart`), macOS arm64:**
+
+| | DartForge | Dart AOT |
+|---|---:|---:|
+| compilação com cache quente | 51 s | 18 s |
+| primeira compilação (cache frio) | 237 s | 18 s |
+| executável | 39,7 MB | 26,5 MB |
+
+Os dois executáveis sobem com a mesma saída. Do tempo do DartForge, 20,6 s são lowering de
+200 mil funções que depois a poda reduz a 59 mil, embora o mundo fechado já saiba em 0,1 s
+que só 37,7 mil funções do programa vivem: baixar só o que o mundo marca é o próximo ganho de
+tempo de compilação.
+
+O que falta para passar o Dart no servidor é a convenção das chamadas virtuais: toda chamada
+por seletor passa os argumentos num vetor e devolve o resultado em caixa (`bytes[i]` no
+`_CopyingBytesBuilder` é uma dessas por byte). Uma entrada com argumentos diretos por aridade,
+com fallback para a uniforme, é o próximo passo estrutural.
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
