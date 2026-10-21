@@ -77,7 +77,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// A `@df.list_*` helper (no collection nor exception).
-    fn list_helper(&mut self, name_str: &str, args: Vec<(Operand, Type)>, ret: Type) -> Operand {
+    pub(super) fn list_helper(
+        &mut self,
+        name_str: &str,
+        args: Vec<(Operand, Type)>,
+        ret: Type,
+    ) -> Operand {
         let name_str = if self.ctx.arc_memory {
             match name_str {
                 "df.list_storage" => "dartforge_arc_list_storage_ref_v1",
@@ -328,11 +333,61 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         self.set_block(b_matches);
         let has = self.emit(Instruction::ICmp(ICmpOp::Ult, len.clone(), cap), Type::I1);
+        // Full under tracing memory: the growth in generated code
+        // (`@df.list_grow`, `llvm/ir_lists.rs`), which gives 0 for a storage too
+        // large for it; only then the caller's `full` (the runtime).
+        let b_grow = if self.ctx.arc_memory {
+            full
+        } else {
+            self.new_block()
+        };
         self.terminate(Terminator::CondBranch {
             cond: has,
             then_block: b_write,
-            else_block: full,
+            else_block: b_grow,
         });
+        let mut grown: Option<BlockId> = None;
+        if !self.ctx.arc_memory {
+            self.set_block(b_grow);
+            let header =
+                layout::header_word(layout::state::YOUNG, shape, 0, layout::cid::LIST) as i64;
+            let new = self.list_helper(
+                "df.list_grow",
+                vec![(list.clone(), Type::Ref), (c(header), Type::I64)],
+                Type::I64,
+            );
+            let ok = self.emit(Instruction::ICmp(ICmpOp::Ne, new.clone(), c(0)), Type::I1);
+            let b_store = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond: ok,
+                then_block: b_store,
+                else_block: full,
+            });
+            self.set_block(b_store);
+            let base = self.emit(
+                Instruction::Add(
+                    new,
+                    c(layout::offsets::ELEMENTS as i64 - layout::HANDLE_OFFSET),
+                ),
+                Type::I64,
+            );
+            self.emit(
+                Instruction::NativeWrite {
+                    address: base,
+                    index: len.clone(),
+                    ty,
+                    value: value.clone(),
+                },
+                Type::Void,
+            );
+            let next = self.emit(Instruction::Add(len.clone(), c(1)), Type::I64);
+            self.list_helper(
+                "df.list_write_len",
+                vec![(list.clone(), Type::Ref), (next, Type::I64)],
+                Type::Void,
+            );
+            grown = Some(self.current_block);
+        }
 
         self.set_block(b_write);
         if self.ctx.arc_memory {
@@ -381,7 +436,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             vec![(list, Type::Ref), (new, Type::I64)],
             Type::Void,
         );
-        let done = self.current_block;
+        let Some(grown) = grown else {
+            return (self.current_block, full);
+        };
+        let done = self.new_block();
+        self.terminate(Terminator::Branch(done));
+        self.set_block(grown);
+        self.terminate(Terminator::Branch(done));
+        self.set_block(done);
         (done, full)
     }
 }

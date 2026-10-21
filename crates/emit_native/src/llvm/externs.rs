@@ -1506,6 +1506,22 @@ pub const EXTERNS: &[Extern] = &[
         },
     },
     Extern {
+        decl: "declare i64 @dartforge_list_elem_exact(i64, i64)",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_list_elem_exact_cache(ptr, i64, i64)",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
         decl: "declare void @dartforge_rti_set_cache(ptr, i64, i64)",
         // Interns IDs and may reformat the list with boxes/GC, without throwing a
         // Dart exception nor running Dart getters/callbacks.

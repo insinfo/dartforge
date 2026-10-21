@@ -108,6 +108,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.list_add_scalar(ast, e) {
             return Some(r);
         }
+        if let Some(r) = self.list_add_ref(ast, e) {
+            return Some(r);
+        }
         if let Some(r) = self.fill_typed(ast, e) {
             return Some(r);
         }
@@ -441,6 +444,206 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ret_ty: Type::Ref,
             },
             Type::Ref,
+        );
+        self.terminate(Terminator::Branch(join));
+
+        self.set_block(slow);
+        self.call_by_name(
+            list,
+            super::sdk_source::AccessKind::Call,
+            "add",
+            &[(None, v)],
+        );
+        if !self.is_terminated() {
+            self.terminate(Terminator::Branch(join));
+        }
+        self.set_block(join);
+        Some(Operand::Constant(Constant::Null))
+    }
+
+    /// `list.add(v)` with a list of static type `List<S>` (`S` without type
+    /// variables) and a reference element, like the VM's inline `add` once its
+    /// type inference knows the list's exact type: in a `_GrowableList` whose
+    /// element type is exactly `S` (`dartforge_list_elem_exact`, a cache of the
+    /// use site over the list's metadata; then `v`, statically an `S`, needs no
+    /// covariance check) with general storage, the reference written with the
+    /// element barrier and the length plus one; when full, the growth in
+    /// generated code (`@df.list_grow`). Any other list goes through the usual
+    /// `add`. Not under ARC.
+    fn list_add_ref(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
+        use dartforge_runtime::layout::{self, cid, flags};
+        if self.ctx.arc_memory {
+            return None;
+        }
+        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else {
+            return None;
+        };
+        if arguments.args.len() != 1
+            || arguments.args[0].name.is_some()
+            || !arguments.type_args.is_empty()
+        {
+            return None;
+        }
+        let ExprKind::Property {
+            target: recv,
+            name,
+            null_aware: false,
+        } = &ast.expr(*target).kind
+        else {
+            return None;
+        };
+        if self.ctx.symbol_name(name.sym) != "add" {
+            return None;
+        }
+        let T::Interface {
+            class,
+            args: type_args,
+            nullable: false,
+        } = self.ctx.table.get(self.ctx.get_type(self.unit_id, *recv)?)
+        else {
+            return None;
+        };
+        if Some(*class) != self.ctx.core.list_class || type_args.len() != 1 {
+            return None;
+        }
+        let element = type_args[0];
+        // A scalar element has its own compact path (`list_add_scalar`).
+        if !matches!(self.ctx.to_hir_type(element), Type::Ref) {
+            return None;
+        }
+        // The argument must be statically assignable without an implicit cast.
+        let arg = arguments.args[0].value;
+        let arg_ty = self.ctx.get_type(self.unit_id, arg)?;
+        if matches!(self.ctx.table.get(arg_ty), T::Dynamic | T::Never) {
+            return None;
+        }
+        let recipe = self.type_recipe(element);
+        if recipe.variables {
+            return None;
+        }
+        let list = self.lower_expr(ast, *recv);
+        if self.is_terminated() {
+            return Some(Operand::Constant(Constant::Null));
+        }
+        let list = self.coerce(list, Type::Ref);
+        let v = self.lower_expr(ast, arg);
+        if self.is_terminated() {
+            return Some(Operand::Constant(Constant::Null));
+        }
+        let v = self.coerce(v, Type::Ref);
+        let s = self.recipe_rti(&recipe);
+        let cls = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(list.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let growable = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, cls, c(i64::from(cid::GROWABLE_LIST))),
+            Type::I1,
+        );
+        let b_exact = self.new_block();
+        let b_shape = self.new_block();
+        let b_room = self.new_block();
+        let b_write = self.new_block();
+        let b_grow = self.new_block();
+        let b_grown = self.new_block();
+        let slow = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: growable,
+            then_block: b_exact,
+            else_block: slow,
+        });
+
+        self.set_block(b_exact);
+        let exact = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_list_elem_exact".to_string(),
+                args: vec![(list.clone(), Type::Ref), (s, Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let exact = self.emit(Instruction::ICmp(ICmpOp::Ne, exact, c(0)), Type::I1);
+        self.terminate(Terminator::CondBranch {
+            cond: exact,
+            then_block: b_shape,
+            else_block: slow,
+        });
+
+        self.set_block(b_shape);
+        let len = self.list_len_inline(list.clone());
+        let a = self.list_storage_inline(list.clone());
+        let shape = self.list_shape_inline(a.clone());
+        let general = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, shape, c(i64::from(flags::REFS))),
+            Type::I1,
+        );
+        self.terminate(Terminator::CondBranch {
+            cond: general,
+            then_block: b_room,
+            else_block: slow,
+        });
+
+        self.set_block(b_room);
+        let cap = self.list_helper("df.list_len", vec![(a.clone(), Type::I64)], Type::I64);
+        let has = self.emit(Instruction::ICmp(ICmpOp::Ult, len.clone(), cap), Type::I1);
+        self.terminate(Terminator::CondBranch {
+            cond: has,
+            then_block: b_write,
+            else_block: b_grow,
+        });
+
+        self.set_block(b_write);
+        self.list_helper(
+            "df.list_write_ref",
+            vec![
+                (a, Type::I64),
+                (len.clone(), Type::I64),
+                (v.clone(), Type::Ref),
+            ],
+            Type::Void,
+        );
+        let next = self.emit(Instruction::Add(len.clone(), c(1)), Type::I64);
+        self.list_helper(
+            "df.list_write_len",
+            vec![(list.clone(), Type::Ref), (next, Type::I64)],
+            Type::Void,
+        );
+        self.terminate(Terminator::Branch(join));
+
+        self.set_block(b_grow);
+        let header = layout::header_word(layout::state::YOUNG, flags::REFS, 0, cid::LIST) as i64;
+        let new = self.list_helper(
+            "df.list_grow",
+            vec![(list.clone(), Type::Ref), (c(header), Type::I64)],
+            Type::I64,
+        );
+        let ok = self.emit(Instruction::ICmp(ICmpOp::Ne, new.clone(), c(0)), Type::I1);
+        self.terminate(Terminator::CondBranch {
+            cond: ok,
+            then_block: b_grown,
+            else_block: slow,
+        });
+
+        self.set_block(b_grown);
+        self.list_helper(
+            "df.list_write_ref",
+            vec![
+                (new, Type::I64),
+                (len.clone(), Type::I64),
+                (v.clone(), Type::Ref),
+            ],
+            Type::Void,
+        );
+        let next = self.emit(Instruction::Add(len, c(1)), Type::I64);
+        self.list_helper(
+            "df.list_write_len",
+            vec![(list.clone(), Type::Ref), (next, Type::I64)],
+            Type::Void,
         );
         self.terminate(Terminator::Branch(join));
 

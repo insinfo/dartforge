@@ -94,6 +94,48 @@ define internal void @df.list_write_len(i64 %l, i64 %n) alwaysinline {\n\
   store i64 %n, ptr %q, align 8\n\
   ret void\n\
 }\n\
+define internal i64 @df.list_grow(i64 %l, i64 %cab) noinline {\n\
+entry:\n\
+  %a = call i64 @df.list_storage(i64 %l)\n\
+  %cap = call i64 @df.list_len(i64 %a)\n\
+  %c2 = shl i64 %cap, 1\n\
+  %nc = or i64 %c2, 3\n\
+  %fits = icmp ule i64 %nc, 1024\n\
+  br i1 %fits, label %grow, label %large\n\
+large:\n\
+  ret i64 0\n\
+grow:\n\
+  %w = add i64 %nc, 1\n\
+  %ws = shl i64 %w, 16\n\
+  %ch = or i64 %cab, %ws\n\
+  %n = call i64 @df.allocate(i64 %ch, i64 %w)\n\
+  %np = inttoptr i64 %n to ptr\n\
+  %ncp = getelementptr inbounds i8, ptr %np, i64 14\n\
+  store i64 %nc, ptr %ncp, align 8\n\
+  %len = call i64 @df.list_len(i64 %l)\n\
+  %a2 = call i64 @df.list_storage(i64 %l)\n\
+  %ap = inttoptr i64 %a2 to ptr\n\
+  %src = getelementptr inbounds i8, ptr %ap, i64 22\n\
+  %dst = getelementptr inbounds i8, ptr %np, i64 22\n\
+  br label %loop\n\
+loop:\n\
+  %i = phi i64 [ 0, %grow ], [ %i1, %copy ]\n\
+  %end = icmp uge i64 %i, %len\n\
+  br i1 %end, label %done, label %copy\n\
+copy:\n\
+  %sp = getelementptr inbounds i64, ptr %src, i64 %i\n\
+  %x = load i64, ptr %sp, align 8\n\
+  %dp = getelementptr inbounds i64, ptr %dst, i64 %i\n\
+  store i64 %x, ptr %dp, align 8\n\
+  %i1 = add i64 %i, 1\n\
+  br label %loop\n\
+done:\n\
+  %lp = inttoptr i64 %l to ptr\n\
+  %q = getelementptr inbounds i8, ptr %lp, i64 22\n\
+  store i64 %n, ptr %q, align 8\n\
+  call void @df.barrier(i64 %l, i64 %n)\n\
+  ret i64 %n\n\
+}\n\
 define internal i64 @df.list_write_data(i64 %l, i64 %d) alwaysinline {\n\
 entrada:\n\
   %a = call i64 @df.list_storage(i64 %l)\n\
@@ -159,6 +201,8 @@ pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.list_write_ref", false, false),
     ("df.list_write_len", false, false),
     ("df.list_write_data", false, false),
+    // Allocates the new storage (`df.allocate`, which may collect).
+    ("df.list_grow", true, false),
 ];
 
 /// The per-module emission state of lists.

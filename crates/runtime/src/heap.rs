@@ -229,6 +229,8 @@ const MINORS_PER_FULL_UNDER_STRESS: u64 = 8;
 /// allocation). This way the cost of full collections per allocation stays at ~64 words
 /// visited; the minor one still comes before every allocation.
 const WORK_PER_MINOR_UNDER_STRESS: usize = 64;
+/// How many emptied frame slot vectors [`Heap::pop_frame`] keeps for reuse.
+const FRAME_POOL: usize = 32;
 /// The longest pause of aging (in minor collections) when the survivors keep
 /// living on ([`Heap::run_collection`]).
 const AGING_MAX_PAUSE: u32 = 16;
@@ -1709,6 +1711,8 @@ impl Schedule {
 pub struct Heap {
     /// Identifier, slots and category: `true` counts each occurrence in ARC.
     frames: Vec<(i64, Vec<i64>, bool)>,
+    /// Emptied slot vectors of closed frames, for the next ones ([`FRAME_POOL`]).
+    frame_pool: Vec<Vec<i64>>,
     next_frame: i64,
     allocations: usize,
     stress: bool,
@@ -1774,6 +1778,15 @@ pub struct Heap {
     /// Roots that live in the runtime and not in a frame (G6): the pending exception
     /// and the current stack trace. 0 = none.
     runtime_roots: [i64; 2],
+    /// Short-lived roots of a runtime fast path (`Heap::list_push`'s growth):
+    /// pushed before an allocation and truncated right after, cheaper than a
+    /// root frame. Read by [`Heap::root_list`].
+    pub(crate) scratch_roots: Vec<i64>,
+    /// The shared empty storages (capacity 0) of `_GrowableList`s by shape
+    /// (`lists::Element::code`), under tracing memory: an empty literal and its
+    /// shape change share them instead of allocating one each (the VM shares
+    /// `_emptyList`). Capacity 0 is never written. Roots ([`Heap::root_list`]).
+    pub(crate) empty_storages: [i64; 4],
     /// Shared occurrences held by messages in this isolate.
     message_owners: crate::hash::HashMap<u64, Ref>,
     next_message_owner: u64,
@@ -1852,7 +1865,7 @@ pub struct Heap {
     /// `DARTFORGE_VALIDATE_HANDLES=1`. Otherwise, an object handle is the
     /// block (the generated code's invariant): only the `FREE` state (object already
     /// collected) is checked, in the header read that happens anyway.
-    validate_handles: bool,
+    pub(crate) validate_handles: bool,
     /// `DARTFORGE_GC_TRACE=1`: one line per collection on stderr (the kind, the
     /// marked ones, the estimate and the trigger).
     trace: bool,
@@ -1889,7 +1902,7 @@ pub struct Heap {
     /// ARC (`--memory=arc`, docs/ARC-IMPLEMENTACAO.md): enabled by the
     /// program at startup (`dartforge_memory_arc_v1`); `None` is the usual
     /// tracing collector.
-    arc: Option<Box<HeapArc>>,
+    pub(crate) arc: Option<Box<HeapArc>>,
 }
 
 /// A finalizer attachment (see `Heap::attachments`).
@@ -1953,6 +1966,7 @@ impl Heap {
     pub fn new(stress: bool) -> Self {
         Self {
             frames: Vec::new(),
+            frame_pool: Vec::new(),
             next_frame: 1,
             allocations: 0,
             stress,
@@ -1982,6 +1996,8 @@ impl Heap {
             globals: crate::hash::HashMap::default(),
             area_roots: Vec::new(),
             runtime_roots: [0, 0],
+            scratch_roots: Vec::new(),
+            empty_storages: [0; 4],
             message_owners: crate::hash::HashMap::default(),
             next_message_owner: 0,
             code_owners: crate::hash::HashMap::default(),
@@ -2307,7 +2323,12 @@ impl Heap {
             .checked_add(slots)
             .expect("slots exceed usize");
         self.stats.peak_root_slots = self.stats.peak_root_slots.max(self.stats.root_slots);
-        self.frames.push((id, vec![0; slots], false));
+        // The slot vectors of closed frames are reused: a native that roots
+        // its arguments around an allocation opened a frame per call, and
+        // the `vec!` cost a `malloc` and a `free` each time.
+        let mut roots = self.frame_pool.pop().unwrap_or_default();
+        roots.resize(slots, 0);
+        self.frames.push((id, roots, false));
         id
     }
     /// Opens owning slots: copying retains and closing releases under ARC.
@@ -2653,7 +2674,7 @@ impl Heap {
     /// Closes exactly the top frame, without collecting between the return and the caller's root.
     pub fn pop_frame(&mut self, frame: i64) {
         assert_eq!(self.frames.last().map(|(id, _, _)| *id), Some(frame));
-        let (_, roots, owning) = self.frames.pop().unwrap();
+        let (_, mut roots, owning) = self.frames.pop().unwrap();
         if owning {
             for &h in &roots {
                 self.arc_swap_owning_root(0, h);
@@ -2661,6 +2682,10 @@ impl Heap {
         }
         self.stats.root_slots -= roots.len();
         self.stats.live_roots -= roots.iter().filter(|handle| **handle != 0).count();
+        if self.frame_pool.len() < FRAME_POOL {
+            roots.clear();
+            self.frame_pool.push(roots);
+        }
     }
     /// Collects if some trigger asks for it, checks the ceiling and counts the allocation of
     /// `bytes`.
@@ -3257,6 +3282,11 @@ impl Heap {
     fn check_live(&self, h: i64) {
         self.live_block(h);
     }
+    /// The generational barrier of a runtime fast path that wrote a `Ref` into
+    /// the space block `b` directly (`set_field` does the same).
+    pub(crate) fn objects_remember(&mut self, b: *mut Header) {
+        self.objects.remember(b);
+    }
     /// The generated code's write barrier (`dartforge_remember`): the old
     /// object `h` received a `Ref` in a field.
     pub fn remember_object(&mut self, h: i64) {
@@ -3828,6 +3858,8 @@ impl Heap {
         dest.extend(self.literals.values().copied());
         dest.extend(self.globals.values().copied());
         dest.extend(self.runtime_roots.iter().copied().filter(|&h| h != 0));
+        dest.extend(self.scratch_roots.iter().copied().filter(|&h| h != 0));
+        dest.extend(self.empty_storages.iter().copied().filter(|&h| h != 0));
         dest.extend(self.ready_finalizations.iter().copied());
         dest.extend(
             self.frames

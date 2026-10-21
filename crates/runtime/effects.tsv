@@ -816,6 +816,8 @@ dartforge_rti_rule	1	1	0
 dartforge_rti_runtime_class	1	1	0
 dartforge_rti_set	1	0	0
 dartforge_rti_set_cache	1	0	0
+dartforge_list_elem_exact	0	0	0
+dartforge_list_elem_exact_cache	0	0	0
 dartforge_rti_string	1	1	0
 dartforge_rti_subtype	1	1	0
 dartforge_rti_tuple_join	1	0	0

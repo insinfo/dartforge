@@ -178,7 +178,10 @@ impl Heap {
     /// A `_GrowableList` of `len` zeroed elements and a storage of `capacity`
     /// (at least `len`).
     pub fn new_growable(&mut self, len: usize, capacity: usize, e: Element) -> Ref {
-        let data = self.new_list(cid::LIST, capacity.max(len), e);
+        let data = match self.empty_storage(capacity.max(len), e) {
+            Some(shared) => shared,
+            None => self.new_list(cid::LIST, capacity.max(len), e),
+        };
         // From the TLAB the `_GrowableList` does not collect (`data` has no root
         // yet); otherwise the general allocation, with `data` rooted.
         let h = match self.allocate_from_tlab(
@@ -195,6 +198,20 @@ impl Heap {
         self.set_field(h, 0, len as i64, false);
         self.set_field(h, 1, data, true);
         h
+    }
+
+    /// The shared empty storage of shape `e` ([`Heap::empty_storages`]) when the
+    /// capacity is 0 and memory is tracing; created the first time. `None`
+    /// otherwise (the caller allocates its own).
+    fn empty_storage(&mut self, capacity: usize, e: Element) -> Option<Ref> {
+        if capacity != 0 || self.arc.is_some() {
+            return None;
+        }
+        let k = e.code() as usize;
+        if self.empty_storages[k] == 0 {
+            self.empty_storages[k] = self.new_list(cid::LIST, 0, e);
+        }
+        Some(self.empty_storages[k])
     }
 
     /// Is `h` a core list (cid 8, 9 or 10)? No panic for null, a `Smi` or a dead
@@ -275,6 +292,9 @@ impl Heap {
     /// is `(capacity * 2) | 3`, the VM's `_nextCapacity`,
     /// `growable_array.dart:385`). May collect.
     pub fn list_push(&mut self, h: Ref, v: Value) {
+        if self.list_push_growing(h, v) {
+            return;
+        }
         assert_eq!(
             self.list_cid(h),
             cid::GROWABLE_LIST,
@@ -291,6 +311,116 @@ impl Heap {
         }
         self.set_field(h, 0, (len + 1) as i64, false);
         self.list_write_to_storage(h, len, v);
+    }
+
+    /// [`Heap::list_push`] on a full `_GrowableList` under tracing memory, without
+    /// the generic accessors (each one revalidates the handle) nor a root frame:
+    /// the new storage of `(capacity * 2) | 3` is allocated with the list and the
+    /// value in [`Heap::scratch_roots`], the elements copied directly (the
+    /// collector does not move objects) and the value written by the usual
+    /// path. `false` when it does not apply (ARC, validated handles, not a
+    /// growable list with an inline body, or room left), and nothing changed.
+    #[allow(unsafe_code)]
+    fn list_push_growing(&mut self, h: Ref, v: Value) -> bool {
+        use crate::space::fields_of;
+        if self.arc.is_some() || self.validate_handles || !layout::is_object(h) {
+            return false;
+        }
+        let b = (h - layout::HANDLE_OFFSET) as *mut layout::Header;
+        // SAFETY: an object handle the generated code passed: a live block.
+        let (class, flags) = unsafe { ((*b).class_id, (*b).flags) };
+        if class != cid::GROWABLE_LIST || flags & flags::OUT_OF_LINE != 0 {
+            return false;
+        }
+        let body = fields_of(b);
+        // SAFETY: a `_GrowableList` has two inline fields: the length and the storage.
+        let (len, data) = unsafe { (*body as usize, *body.add(1)) };
+        let db = (data - layout::HANDLE_OFFSET) as *mut layout::Header;
+        // SAFETY: the storage is a live `_List`; word 0 of its body is the capacity.
+        let (cap, shape) = unsafe { (*fields_of(db) as usize, Element::from_flags((*db).flags)) };
+        if len < cap {
+            return false;
+        }
+        let r = match v {
+            Value::Ref(r) => r,
+            _ => 0,
+        };
+        let mark = self.scratch_roots.len();
+        self.scratch_roots.push(h);
+        self.scratch_roots.push(r);
+        let new = self.new_list(cid::LIST, (cap * 2) | 3, shape);
+        self.scratch_roots.truncate(mark);
+        let nb = (new - layout::HANDLE_OFFSET) as *mut layout::Header;
+        // SAFETY: both bodies hold at least `len` elements after word 0; the new
+        // storage is fresh (no barrier needed) and distinct from the old one.
+        unsafe {
+            std::ptr::copy_nonoverlapping(fields_of(db).add(1), fields_of(nb).add(1), len);
+        }
+        // The value in the new storage: fresh and young, so a `Ref` needs no
+        // barrier; a scalar that does not fit the compact shape takes the usual
+        // path (which decompacts) after the length and the storage are set.
+        let bits = match (shape, v) {
+            (Element::General, Value::Ref(r)) => Some(r),
+            (Element::General, _) => None,
+            (_, Value::Ref(r)) => shape.bits_of(self.value(r)),
+            (_, other) => shape.bits_of(other),
+        };
+        // SAFETY: the list's inline fields; field 1 is already a reference in its
+        // map (`new_growable`), field 0 is not. The list may be old: the storage
+        // swap remembers it, as `set_field` does.
+        unsafe {
+            *body.add(1) = new;
+            *body = (len + 1) as i64;
+            if let Some(bits) = bits {
+                *fields_of(nb).add(1 + len) = bits;
+            }
+        }
+        self.objects_remember(b);
+        if bits.is_none() {
+            self.list_write_to_storage(h, len, v);
+        }
+        true
+    }
+
+    /// [`Heap::list_reserve`] under tracing memory without the generic accessors
+    /// nor a root frame (see [`Heap::list_push_growing`]). `false` when it does
+    /// not apply, and nothing changed.
+    #[allow(unsafe_code)]
+    fn list_reserve_direct(&mut self, h: Ref, capacity: usize) -> bool {
+        use crate::space::fields_of;
+        if self.arc.is_some() || self.validate_handles || !layout::is_object(h) {
+            return false;
+        }
+        let b = (h - layout::HANDLE_OFFSET) as *mut layout::Header;
+        // SAFETY: an object handle the generated code passed: a live block.
+        let (class, flags) = unsafe { ((*b).class_id, (*b).flags) };
+        if class != cid::GROWABLE_LIST || flags & flags::OUT_OF_LINE != 0 {
+            return false;
+        }
+        let body = fields_of(b);
+        // SAFETY: a `_GrowableList` has two inline fields: the length and the storage.
+        let data = unsafe { *body.add(1) };
+        let db = (data - layout::HANDLE_OFFSET) as *mut layout::Header;
+        // SAFETY: the storage is a live `_List`; word 0 of its body is the capacity.
+        let (cap, shape) = unsafe { (*fields_of(db) as usize, Element::from_flags((*db).flags)) };
+        if capacity <= cap {
+            return true;
+        }
+        let mark = self.scratch_roots.len();
+        self.scratch_roots.push(h);
+        let new = self.new_list(cid::LIST, capacity, shape);
+        self.scratch_roots.truncate(mark);
+        // SAFETY: the length is read after the allocation (nothing changes it); both
+        // bodies hold it; the new storage is fresh and distinct.
+        unsafe {
+            let len = (*body as usize).min(cap);
+            let nb = (new - layout::HANDLE_OFFSET) as *mut layout::Header;
+            std::ptr::copy_nonoverlapping(fields_of(db).add(1), fields_of(nb).add(1), len);
+            // Field 1 is already a reference in the list's map.
+            *body.add(1) = new;
+        }
+        self.objects_remember(b);
+        true
     }
 
     /// Changes the length of a `_GrowableList` (without a barrier; the storage must
@@ -335,6 +465,9 @@ impl Heap {
     /// of the same shape, with the elements up to the length. Nothing if the capacity
     /// is already enough. May collect.
     pub fn list_reserve(&mut self, h: Ref, capacity: usize) {
+        if self.list_reserve_direct(h, capacity) {
+            return;
+        }
         assert_eq!(
             self.list_cid(h),
             cid::GROWABLE_LIST,
@@ -376,7 +509,10 @@ impl Heap {
         let a = self.list_data(h);
         let cap = self.words(a)[0] as usize;
         if self.list_cid(h) == cid::GROWABLE_LIST && cap == 0 {
-            let new = self.list_with_roots(&[h], |heap| heap.new_list(cid::LIST, 0, e));
+            let new = self.list_with_roots(&[h], |heap| match heap.empty_storage(0, e) {
+                Some(shared) => shared,
+                None => heap.new_list(cid::LIST, 0, e),
+            });
             self.list_set_data(h, new);
             return;
         }

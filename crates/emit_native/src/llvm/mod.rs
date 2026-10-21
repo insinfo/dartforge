@@ -1339,6 +1339,8 @@ impl<'a> LlvmEmitter<'a> {
 
                     } else if Self::rti_test_cached(i) {
                         Some((b.id.0, format!("rt{v}.fim")))
+                    } else if !self.maps && Self::list_elem_exact_cached(i) {
+                        Some((b.id.0, format!("le{v}.done")))
                     } else {
                         None
                     }
@@ -2306,6 +2308,11 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     Instruction::CallRuntime { args, .. } if self.rti_set_cached(inst) => {
                         self.emit_rti_set_cached(v, args);
+                    }
+                    Instruction::CallRuntime { args, .. }
+                        if !self.maps && Self::list_elem_exact_cached(inst) =>
+                    {
+                        self.emit_list_elem_exact(v, args);
                     }
                     Instruction::CallRuntime { args, .. }
                     | Instruction::DeclaredFieldCall { args, .. }
@@ -3688,6 +3695,7 @@ impl<'a> LlvmEmitter<'a> {
                         | Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))
                 ) || Self::rti_evaluate_cached(i)
                     || Self::rti_evaluate_site_cached(i)
+                    || Self::list_elem_exact_cached(i)
                     || Self::rti_test_cached(i)
                     || Self::rti_set_cached_shape(i)
             })
@@ -3738,6 +3746,62 @@ impl<'a> LlvmEmitter<'a> {
                 std::env::var_os("DARTFORGE_NO_RTI_CACHE")
                     .is_some_and(|v| !v.is_empty() && v != "0")
             })
+    }
+
+    /// `dartforge_list_elem_exact` (`lower/intrinsics.rs`, `list_add_ref`) goes
+    /// through a cache of the use site ([`Self::emit_list_elem_exact`]).
+    fn list_elem_exact_cached(i: &Instruction) -> bool {
+        matches!(i, Instruction::CallRuntime { name, args, .. }
+            if name == "dartforge_list_elem_exact" && args.len() == 2)
+    }
+
+    /// Is the list's element type exactly `s`: two words of the area keep the
+    /// metadata of the last list that was, and `s`; a list with the same
+    /// metadata answers yes from them. Otherwise
+    /// `dartforge_list_elem_exact_cache` answers (and stores on a yes).
+    fn emit_list_elem_exact(&mut self, v: u32, args: &[(Operand, Type)]) {
+        let list = self.coerce(&args[0].0, Type::I64);
+        let s = self.coerce(&args[1].0, Type::I64);
+        let slot = self.cache_slot();
+        let metadata = layout::offsets::METADATA as i64 - layout::HANDLE_OFFSET;
+        let o = &mut self.out;
+        writeln!(o, "  %le{v}c = getelementptr i64, ptr %area, i64 {slot}").unwrap();
+        writeln!(o, "  %le{v}p = inttoptr i64 {list} to ptr").unwrap();
+        writeln!(
+            o,
+            "  %le{v}mp = getelementptr inbounds i8, ptr %le{v}p, i64 {metadata}"
+        )
+        .unwrap();
+        writeln!(o, "  %le{v}m = load i32, ptr %le{v}mp, align 4").unwrap();
+        writeln!(o, "  %le{v}mz = zext i32 %le{v}m to i64").unwrap();
+        writeln!(o, "  %le{v}k0 = load i64, ptr %le{v}c, align 8").unwrap();
+        writeln!(
+            o,
+            "  %le{v}c1 = getelementptr inbounds i64, ptr %le{v}c, i64 1"
+        )
+        .unwrap();
+        writeln!(o, "  %le{v}k1 = load i64, ptr %le{v}c1, align 8").unwrap();
+        writeln!(o, "  %le{v}e0 = icmp eq i64 %le{v}k0, %le{v}mz").unwrap();
+        writeln!(o, "  %le{v}e1 = icmp eq i64 %le{v}k1, {s}").unwrap();
+        writeln!(o, "  %le{v}nz = icmp ne i64 %le{v}mz, 0").unwrap();
+        writeln!(o, "  %le{v}a = and i1 %le{v}e0, %le{v}e1").unwrap();
+        writeln!(o, "  %le{v}hit = and i1 %le{v}a, %le{v}nz").unwrap();
+        writeln!(o, "  br i1 %le{v}hit, label %le{v}.done, label %le{v}.miss").unwrap();
+        writeln!(o, "le{v}.miss:").unwrap();
+        writeln!(
+            o,
+            "  %le{v}r = call i64 @dartforge_list_elem_exact_cache(ptr %le{v}c, i64 {list}, i64 {s})"
+        )
+        .unwrap();
+        writeln!(o, "  br label %le{v}.done").unwrap();
+        writeln!(o, "le{v}.done:").unwrap();
+        let previous = self.current_label.clone();
+        writeln!(
+            o,
+            "  %v{v} = phi i64 [ 1, %{previous} ], [ %le{v}r, %le{v}.miss ]"
+        )
+        .unwrap();
+        self.current_label = format!("le{v}.done");
     }
 
     /// The evaluation of [`Self::rti_evaluate_site_cached`]: four words of the area
