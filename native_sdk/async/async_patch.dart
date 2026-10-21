@@ -80,6 +80,33 @@ class _AsyncAwaitCompleter<T> implements Completer<T> {
 
   Future<T> get future => _future;
   bool get isCompleted => !_future._mayComplete;
+
+  /// The continuations of this activation's `await`s, created at the first one
+  /// and reused by the next ones (the VM's `_SuspendState._thenCallback` and
+  /// `_errorCallback`): `_awaitOnObject` allocated both closures at every
+  /// `await`. They capture the body through the `vm:awaiter-link` parameter, so
+  /// the symbolic stack trace follows them as before.
+  FutureOr<dynamic> Function(dynamic)? _thenCallback;
+  Function? _errorCallback;
+
+  @pragma("dartforge:hidden-frame")
+  void _await(Object? object, @pragma('vm:awaiter-link') _WrappedAsyncBody bodyFunction) {
+    final thenCallback =
+        _thenCallback ??= (result) => bodyFunction(_SUCCESS, result);
+    final errorCallback =
+        _errorCallback ??= (Object error, StackTrace stackTrace) {
+      bodyFunction(_ERROR, _DfAsyncError(error, stackTrace));
+    };
+    if (object is _Future) {
+      // The continuation was already registered in the zone (`_wrapBody`).
+      object._thenAwait(thenCallback, errorCallback);
+    } else if (object is Future) {
+      object.then(thenCallback, onError: errorCallback);
+    } else {
+      _Future future = _Future().._setValue(object);
+      future._thenAwait(thenCallback, errorCallback);
+    }
+  }
 }
 
 /// Creates the `Completer` of an `async` function.
@@ -115,10 +142,21 @@ dynamic _asyncAwait(dynamic object, _WrappedAsyncBody bodyFunction) {
   _awaitOnObject(object, bodyFunction);
 }
 
+/// The `await` of an `async` function, with its `Completer`: the
+/// continuations are those of the activation (`_AsyncAwaitCompleter._await`).
+@pragma("vm:entry-point", "call")
+@pragma("dartforge:hidden-frame")
+dynamic _asyncAwaitIn(
+    dynamic object, _WrappedAsyncBody bodyFunction, _AsyncAwaitCompleter completer) {
+  completer._await(object, bodyFunction);
+}
+
 /// The `return` of an `async` function.
 @pragma("vm:entry-point", "call")
 @pragma("dartforge:hidden-frame")
-dynamic _asyncReturn(dynamic object, Completer completer) {
+dynamic _asyncReturn(dynamic object, _AsyncAwaitCompleter completer) {
+  // The concrete completer: a direct call, not a dispatch through the
+  // `Completer` interface and its uniform entry.
   completer.complete(object);
 }
 
@@ -126,7 +164,8 @@ dynamic _asyncReturn(dynamic object, Completer completer) {
 /// body ends with the pending exception, which arrives here as a value).
 @pragma("vm:entry-point", "call")
 @pragma("dartforge:hidden-frame")
-dynamic _asyncRethrow(Object error, StackTrace stackTrace, Completer completer) {
+dynamic _asyncRethrow(
+    Object error, StackTrace stackTrace, _AsyncAwaitCompleter completer) {
   completer.completeError(error, stackTrace);
 }
 
@@ -174,7 +213,11 @@ _WrappedAsyncBody _wrapBody(@pragma('vm:awaiter-link') _WrappedAsyncBody body) {
     }
   }
 
-  return Zone.current.registerBinaryCallback<void, int, dynamic>(guarded);
+  // The root zone registers nothing (`_RootZone.registerBinaryCallback` returns
+  // the function itself); the VM skips the call there too.
+  final zone = Zone.current;
+  if (identical(zone, _rootZone)) return guarded;
+  return zone.registerBinaryCallback<void, int, dynamic>(guarded);
 }
 
 // ─── sync* ──────────────────────────────────────────────────────────────────

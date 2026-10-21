@@ -1390,8 +1390,12 @@ void main() {
         );
         // `dart:async` comes from the cached SDK module (`sdk_module.rs`): the IR
         // of the program only calls it, it does not define its functions (`sdk_byte_count`
-        // may be 0).
-        assert!(asynchronous.text.contains("@df.dart$3aasync.._asyncAwait("));
+        // may be 0). An `async` body awaits through its completer (`_asyncAwaitIn`).
+        assert!(
+            asynchronous
+                .text
+                .contains("@df.dart$3aasync.._asyncAwaitIn(")
+        );
     }
 
     #[test]

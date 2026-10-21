@@ -1079,6 +1079,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let st = self.async_state.as_ref().expect("async body");
         let (frame, fn_body) = (st.frame.clone(), st.body.clone());
+        // An `async` body reuses the continuations kept in its completer
+        // (`_asyncAwaitIn`); `async*` keeps `_asyncAwait`.
+        let completer = (st.ty == BodyType::Async).then(|| st.completer.clone());
         let k = st.resumptions.len() as i64 + 1;
         // The position of the `await` (its `fileOffset`): that of the frame of whoever
         // waits here, in the stack trace.
@@ -1087,7 +1090,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             e.waits.push((k, position));
         }
         self.store_position(frame, Q_STATE, Operand::Constant(Constant::Int(k)));
-        self.call_support("_asyncAwait", vec![v, fn_body], span);
+        match completer {
+            Some(completer) => {
+                self.call_support("_asyncAwaitIn", vec![v, fn_body, completer], span);
+            }
+            None => {
+                self.call_support("_asyncAwait", vec![v, fn_body], span);
+            }
+        }
         let suspends = self.current_block;
         self.terminate_raw(Operand::Constant(Constant::Null));
         let resumption = self.register_resumption(k, suspends);

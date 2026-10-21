@@ -42,7 +42,10 @@ fn throw_index(ix: i64, target: i64, size: i64) {
     if let Some(f) = helper("_dartforgeIndexError") {
         // SAFETY: registered by the `dart:_internal` library with this signature
         // (`int`, `Object?`, `int`) → `Object`.
-        let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
+        let g = {
+            let dart_target: usize = f;
+            move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) }
+        };
         let error = with_roots(&[target], || g(ix, target, size));
         if dartforge_exception_pending() != 0 {
             return;
@@ -131,7 +134,7 @@ pub extern "C" fn dartforge_native_DartForge_json_push(stack: i64, v: i64) -> i6
 /// barrier) and the length into field 0, without the `Heap`. `None` if it needs to
 /// grow or the shape is not the simple one.
 fn push_raw(stack: i64, v: i64) -> Option<i64> {
-    use crate::layout::{cid, offsets, is_object};
+    use crate::layout::{cid, is_object, offsets};
     if !is_object(stack) {
         return None;
     }
@@ -140,7 +143,12 @@ fn push_raw(stack: i64, v: i64) -> Option<i64> {
         return None;
     }
     // SAFETY: `_GrowableList`: length in field 0, storage in field 1.
-    let (len, a) = unsafe { (raw_word(stack, offsets::LENGTH), raw_word(stack, offsets::GROWABLE_DATA)) };
+    let (len, a) = unsafe {
+        (
+            raw_word(stack, offsets::LENGTH),
+            raw_word(stack, offsets::GROWABLE_DATA),
+        )
+    };
     let d = Data::of(a, true)?;
     let n = usize::try_from(len).ok()?;
     if n >= d.len {
@@ -156,7 +164,9 @@ fn push_raw(stack: i64, v: i64) -> Option<i64> {
 /// position of an open container (`1 ≤ start ≤ length`) and the mark a `Smi`.
 fn stack_mark(stack: i64, start: i64) -> Option<(Data, usize, i64)> {
     let p = Data::from_growable(stack)?;
-    let start = usize::try_from(start).ok().filter(|&i| i >= 1 && i <= p.len)?;
+    let start = usize::try_from(start)
+        .ok()
+        .filter(|&i| i >= 1 && i <= p.len)?;
     let m = p.do_read(start - 1);
     crate::layout::smi::is_smi(m).then(|| (p, start, crate::layout::smi::value(m)))
 }
@@ -179,10 +189,17 @@ fn cut_stack(stack: i64, p: Data, until: usize) {
 /// and the mark at `start - 1`; returns the mark, or -1. Does not allocate.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_json_truncate(stack: i64, start: i64) -> i64 {
-    let Some((p, start, mark)) = stack_mark(stack, start) else { return -1 };
+    let Some((p, start, mark)) = stack_mark(stack, start) else {
+        return -1;
+    };
     // The stack is writable (the listener's): the same check as `push_raw`.
     // SAFETY: the `_GrowableList`'s storage (field 1).
-    if Data::of(unsafe { raw_word(stack, crate::layout::offsets::GROWABLE_DATA) }, true).is_none() {
+    if Data::of(
+        unsafe { raw_word(stack, crate::layout::offsets::GROWABLE_DATA) },
+        true,
+    )
+    .is_none()
+    {
         return -1;
     }
     cut_stack(stack, p, start - 1);
@@ -203,9 +220,15 @@ pub extern "C" fn dartforge_native_DartForge_json_mark(stack: i64, start: i64) -
 /// without those values nor the mark at `start - 1`. null, changing nothing,
 /// outside the simple shape. May collect.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_DartForge_json_close_list(stack: i64, start: i64, model: i64) -> i64 {
-    use crate::layout::{cid, offsets, is_object};
-    let Some((p, i0, _)) = stack_mark(stack, start) else { return 0 };
+pub extern "C" fn dartforge_native_DartForge_json_close_list(
+    stack: i64,
+    start: i64,
+    model: i64,
+) -> i64 {
+    use crate::layout::{cid, is_object, offsets};
+    let Some((p, i0, _)) = stack_mark(stack, start) else {
+        return 0;
+    };
     // SAFETY: the `_GrowableList`'s storage (field 1).
     if Data::of(unsafe { raw_word(stack, offsets::GROWABLE_DATA) }, true).is_none() {
         return 0;
@@ -218,7 +241,9 @@ pub extern "C" fn dartforge_native_DartForge_json_close_list(stack: i64, start: 
     let list = HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         // The stack and the model rooted: the values are reached through the stack.
-        let list = heap.list_with_roots(&[stack, model], |heap| heap.new_growable(n, n, crate::lists::Element::General));
+        let list = heap.list_with_roots(&[stack, model], |heap| {
+            heap.new_growable(n, n, crate::lists::Element::General)
+        });
         let ty = heap.metadata(model);
         heap.set_metadata(list, ty);
         if n > 0 {
@@ -229,7 +254,11 @@ pub extern "C" fn dartforge_native_DartForge_json_close_list(stack: i64, start: 
             // allocated storage has `n` elements and cannot alias the stack.
             // No allocation or collection occurs while the pointers are used.
             unsafe {
-                std::ptr::copy_nonoverlapping(p.p.add(i0), heap.words_mut(a).as_mut_ptr().add(1), n);
+                std::ptr::copy_nonoverlapping(
+                    p.p.add(i0),
+                    heap.words_mut(a).as_mut_ptr().add(1),
+                    n,
+                );
             }
         }
         list
@@ -242,8 +271,14 @@ pub extern "C" fn dartforge_native_DartForge_json_close_list(stack: i64, start: 
 /// the declaration (`external factory _List(length)`): it arrives as a `Ref`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_List_allocate(length: i64, tuple: i64) -> i64 {
-    let n = HEAP.with(|heap| heap.borrow().int_of(length)).unwrap_or(0).max(0) as usize;
-    let h = HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::LIST, n, crate::lists::Element::General));
+    let n = HEAP
+        .with(|heap| heap.borrow().int_of(length))
+        .unwrap_or(0)
+        .max(0) as usize;
+    let h = HEAP.with(|heap| {
+        heap.borrow_mut()
+            .new_list(crate::layout::cid::LIST, n, crate::lists::Element::General)
+    });
     type_tuple_list(h, tuple, crate::layout::cid::LIST);
     h
 }
@@ -267,7 +302,10 @@ fn write_index(this: i64, ix: i64, value: i64) {
     if outside_list(ix, list_len(this), "index") {
         return;
     }
-    HEAP.with(|heap| heap.borrow_mut().list_set(this, ix as usize, crate::heap::Value::Ref(value)));
+    HEAP.with(|heap| {
+        heap.borrow_mut()
+            .list_set(this, ix as usize, crate::heap::Value::Ref(value))
+    });
 }
 
 /// `list[i]` of `_List`, `_ImmutableList` and `_GrowableList` (the VM's `[]`
@@ -297,7 +335,12 @@ fn list_slice(of: i64, start: i64, how_many: i64, cid: i32) -> i64 {
 
 /// `_List._sliceInternal(start, count, needsTypeArgument)`: a new `_List`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_List_slice(this: i64, start: i64, how_many: i64, _type: u8) -> i64 {
+pub extern "C" fn dartforge_native_List_slice(
+    this: i64,
+    start: i64,
+    how_many: i64,
+    _type: u8,
+) -> i64 {
     let h = list_slice(this, start, how_many, crate::layout::cid::LIST);
     type_copied_list(h, this, crate::layout::cid::LIST);
     h
@@ -305,7 +348,12 @@ pub extern "C" fn dartforge_native_List_slice(this: i64, start: i64, how_many: i
 
 /// `_ImmutableList._from(from, offset, length)`.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_ImmutableList_from(of: i64, start: i64, how_many: i64, tuple: i64) -> i64 {
+pub extern "C" fn dartforge_native_ImmutableList_from(
+    of: i64,
+    start: i64,
+    how_many: i64,
+    tuple: i64,
+) -> i64 {
     let h = list_slice(of, start, how_many, crate::layout::cid::IMMUTABLE_LIST);
     type_tuple_list(h, tuple, crate::layout::cid::IMMUTABLE_LIST);
     h
@@ -363,7 +411,12 @@ pub extern "C" fn dartforge_native_GrowableList_setData(this: i64, data: i64) {
         let mut heap = heap.borrow_mut();
         let shape = heap.list_shape(this);
         heap.list_set_data(this, data);
-        if shape != crate::lists::Element::General && heap.list_capacity(this) > 0 {
+        // A compact list keeps its shape, also when shrunk to the shared
+        // `_emptyList` (`clear()`): an empty storage takes the shared empty one of
+        // the shape (`Heap::empty_storages`), with no allocation. Without it, a
+        // `List<int>` buffer cleared once (the HTTP parser's, per request) stayed
+        // general, and every later `add` took the boxed, dispatched path.
+        if shape != crate::lists::Element::General {
             heap.list_adjust_shape(this, shape);
         }
     });
@@ -376,7 +429,10 @@ pub extern "C" fn dartforge_native_GrowableList_setData(this: i64, data: i64) {
 /// `List.filled`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_List_fill(list: i64, value: i64) {
-    HEAP.with(|heap| heap.borrow_mut().list_fill(list, crate::heap::Value::Ref(value)));
+    HEAP.with(|heap| {
+        heap.borrow_mut()
+            .list_fill(list, crate::heap::Value::Ref(value))
+    });
 }
 
 /// The overlay's `_copyElements(dest, origin, n)` (`array.dart`): the first `n`
@@ -450,9 +506,15 @@ mod tests_runtime_type {
         let number = dartforge_box_int(7);
         let text = allocate_str("sete");
         let number_type = dartforge_native_Object_runtimeType(number);
-        assert_eq!(number_type, dartforge_native_Object_runtimeType(dartforge_box_int(9)));
+        assert_eq!(
+            number_type,
+            dartforge_native_Object_runtimeType(dartforge_box_int(9))
+        );
         assert_ne!(number_type, dartforge_native_Object_runtimeType(text));
-        assert_eq!(number_type, dartforge_rti_object_type(dartforge_rti_of_value(number)));
+        assert_eq!(
+            number_type,
+            dartforge_rti_object_type(dartforge_rti_of_value(number))
+        );
     }
 }
 
@@ -468,7 +530,11 @@ mod tests_runtime_type {
 /// of each getter the table cites (`g` + 4 index bytes: a program constant,
 /// `dfc.<hash>.get`, without arguments).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_list_from_table_g(data: *const u8, len: i64, getters: *const extern "C" fn() -> i64) -> i64 {
+pub unsafe extern "C" fn dartforge_list_from_table_g(
+    data: *const u8,
+    len: i64,
+    getters: *const extern "C" fn() -> i64,
+) -> i64 {
     // SAFETY: guaranteed by the caller (module constants).
     let b = unsafe { std::slice::from_raw_parts(data, usize::try_from(len).unwrap_or(0)) };
     // The elements, without the heap borrowed: the getter runs Dart code.
@@ -497,7 +563,11 @@ pub unsafe extern "C" fn dartforge_list_from_table_g(data: *const u8, len: i64, 
             }
             b'd' => {
                 i += 8;
-                Item::Value(crate::heap::Value::Double(f64::from_bits(word(b, i - 8, 8))))
+                Item::Value(crate::heap::Value::Double(f64::from_bits(word(
+                    b,
+                    i - 8,
+                    8,
+                ))))
             }
             b's' => {
                 let n = word(b, i, 4) as usize;
@@ -511,7 +581,13 @@ pub unsafe extern "C" fn dartforge_list_from_table_g(data: *const u8, len: i64, 
             _ => panic!("compiler bug: collection table with marker {tag}"),
         });
     }
-    let h = HEAP.with(|heap| heap.borrow_mut().new_list(crate::layout::cid::LIST, items.len(), crate::lists::Element::General));
+    let h = HEAP.with(|heap| {
+        heap.borrow_mut().new_list(
+            crate::layout::cid::LIST,
+            items.len(),
+            crate::lists::Element::General,
+        )
+    });
     // The list stays rooted while the strings and the getters allocate.
     with_roots(&[h], || {
         for (k, item) in items.into_iter().enumerate() {
@@ -521,7 +597,9 @@ pub unsafe extern "C" fn dartforge_list_from_table_g(data: *const u8, len: i64, 
                 // table is a root).
                 Item::Text(t) => {
                     let t = Text::from_wtf8(t);
-                    crate::heap::Value::Ref(HEAP.with(|heap| heap.borrow_mut().string_literal(t.view())))
+                    crate::heap::Value::Ref(
+                        HEAP.with(|heap| heap.borrow_mut().string_literal(t.view())),
+                    )
                 }
                 Item::Getter(g) => {
                     // SAFETY: the index is that of a vector entry (the compiler
@@ -587,7 +665,11 @@ pub unsafe extern "C" fn dartforge_list_from_table(data: *const u8, len: i64) ->
             };
             items.push(v);
         }
-        let h = heap.new_list(crate::layout::cid::LIST, items.len(), crate::lists::Element::General);
+        let h = heap.new_list(
+            crate::layout::cid::LIST,
+            items.len(),
+            crate::lists::Element::General,
+        );
         // The boxes of `int`s outside the `Smi` range allocate: `list_set` roots `h`.
         for (k, v) in items.into_iter().enumerate() {
             heap.list_set(h, k, v);
@@ -617,7 +699,12 @@ pub unsafe extern "C" fn dartforge_list_from_table(data: *const u8, len: i64) ->
 /// `words` points to `n` readable words; a `shape` outside `0..=3` points to `n`
 /// readable bytes.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_list_new(words: *const i64, n: i64, cid: i64, shape: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_list_new(
+    words: *const i64,
+    n: i64,
+    cid: i64,
+    shape: i64,
+) -> i64 {
     // SAFETY: this entry's contract is the same as the common implementation's.
     unsafe { list_literal(words, n, cid, shape, false) }
 }
@@ -641,7 +728,12 @@ pub unsafe extern "C" fn dartforge_list_new(words: *const i64, n: i64, cid: i64,
 /// dartforge_arc_release(list);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn dartforge_arc_list_new_owned_v1(words: *const i64, n: i64, cid: i64, shape: i64) -> i64 {
+pub unsafe extern "C" fn dartforge_arc_list_new_owned_v1(
+    words: *const i64,
+    n: i64,
+    cid: i64,
+    shape: i64,
+) -> i64 {
     assert!(n >= 0, "negative literal length");
     assert!(matches!(cid, 8..=10), "invalid literal class");
     // SAFETY: buffers and references valid by the entry's contract.
@@ -652,27 +744,49 @@ unsafe fn list_literal(words: *const i64, n: i64, cid: i64, shape: i64, owned: b
     use crate::lists::Element;
     let n = usize::try_from(n).unwrap_or(0);
     // SAFETY: guaranteed by the caller (generated code's `alloca`).
-    let p: &[i64] = if n == 0 { &[] } else { unsafe { std::slice::from_raw_parts(words, n) } };
+    let p: &[i64] = if n == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(words, n) }
+    };
     let cid = i32::try_from(cid).expect("compiler bug: invalid list cid");
     let (e, tags): (Element, Option<&[u8]>) = match Element::from_code(shape) {
         Some(e) => (e, None),
         // SAFETY: guaranteed by the caller (the literal's tag vector).
-        None => (Element::General, Some(unsafe { std::slice::from_raw_parts(shape as usize as *const u8, n) })),
+        None => (
+            Element::General,
+            Some(unsafe { std::slice::from_raw_parts(shape as usize as *const u8, n) }),
+        ),
     };
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         // Homogeneous tracing keeps the direct fill, without an extra vector.
-        let refs: Vec<i64> = if !owned && tags.is_none() { Vec::new() } else { p.iter().enumerate().map(|(k, &w)| {
-            let tag = tags.map_or(if e == Element::General { 3 } else { 0 }, |t| t[k]);
-            if owned {
-                assert!(tags.is_none() || matches!(tag, 1..=4), "invalid literal tag");
-                assert!(!(tag == 2 || e == Element::Bool) || matches!(w, 0 | 1), "invalid literal bool");
-            }
-            if tag == 3 { w } else { 0 }
-        }).collect() };
+        let refs: Vec<i64> = if !owned && tags.is_none() {
+            Vec::new()
+        } else {
+            p.iter()
+                .enumerate()
+                .map(|(k, &w)| {
+                    let tag = tags.map_or(if e == Element::General { 3 } else { 0 }, |t| t[k]);
+                    if owned {
+                        assert!(
+                            tags.is_none() || matches!(tag, 1..=4),
+                            "invalid literal tag"
+                        );
+                        assert!(
+                            !(tag == 2 || e == Element::Bool) || matches!(w, 0 | 1),
+                            "invalid literal bool"
+                        );
+                    }
+                    if tag == 3 { w } else { 0 }
+                })
+                .collect()
+        };
         let frame = owned.then(|| {
             let frame = heap.push_owning_frame(refs.len());
-            for (k, &r) in refs.iter().enumerate() { heap.set_root(frame, k, r); }
+            for (k, &r) in refs.iter().enumerate() {
+                heap.set_root(frame, k, r);
+            }
             frame
         });
         let h = if cid == crate::layout::cid::GROWABLE_LIST {
@@ -684,14 +798,20 @@ unsafe fn list_literal(words: *const i64, n: i64, cid: i64, shape: i64, owned: b
         match tags {
             None => {
                 // Freshly allocated, young: the words go in without a barrier.
-                if owned && e == Element::General { heap.write_refs(a, 1, p); }
-                else { heap.words_mut(a)[1..1 + n].copy_from_slice(p); }
+                if owned && e == Element::General {
+                    heap.write_refs(a, 1, p);
+                } else {
+                    heap.words_mut(a)[1..1 + n].copy_from_slice(p);
+                }
             }
             Some(tags) => {
                 // The `Ref`s first (without allocation), then the boxes (which may
                 // collect; `list_set` roots `h`).
-                if owned { heap.write_refs(a, 1, &refs); }
-                else { heap.words_mut(a)[1..1 + n].copy_from_slice(&refs); }
+                if owned {
+                    heap.write_refs(a, 1, &refs);
+                } else {
+                    heap.words_mut(a)[1..1 + n].copy_from_slice(&refs);
+                }
                 for (k, (&w, &t)) in p.iter().zip(tags).enumerate() {
                     let v = match t {
                         1 => crate::heap::Value::Int(w),
@@ -737,7 +857,10 @@ unsafe fn list_literal(words: *const i64, n: i64, cid: i64, shape: i64, owned: b
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_list_append(list: i64, v: i64) -> i64 {
-    HEAP.with(|heap| heap.borrow_mut().list_push(list, crate::heap::Value::Ref(v)));
+    HEAP.with(|heap| {
+        heap.borrow_mut()
+            .list_push(list, crate::heap::Value::Ref(v))
+    });
     list
 }
 
@@ -751,22 +874,39 @@ mod literal_owned_tests {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
             let previous_mode = ARC_MEMORY.with(|mode| mode.replace(false));
             // Raw native writes use the runtime's TLS mode as well as Heap ARC.
-            if arc { dartforge_memory_arc_v1(); }
+            if arc {
+                dartforge_memory_arc_v1();
+            }
             for count in [0, 1, 257] {
-                let stack = HEAP.with(|h| h.borrow_mut().new_growable(0, count + 3, crate::lists::Element::General));
+                let stack = HEAP.with(|h| {
+                    h.borrow_mut()
+                        .new_growable(0, count + 3, crate::lists::Element::General)
+                });
                 dartforge_arc_retain(stack);
-                let model = HEAP.with(|h| h.borrow_mut().new_growable(0, 0, crate::lists::Element::General));
+                let model = HEAP.with(|h| {
+                    h.borrow_mut()
+                        .new_growable(0, 0, crate::lists::Element::General)
+                });
                 dartforge_arc_retain(model);
-                let child = HEAP.with(|h| h.borrow_mut().allocate_str("JSON child shared across array entries"));
+                let child = HEAP.with(|h| {
+                    h.borrow_mut()
+                        .allocate_str("JSON child shared across array entries")
+                });
                 dartforge_arc_retain(child);
                 let prefix = crate::layout::smi::of(17).unwrap();
                 let mark = crate::layout::smi::of(37).unwrap();
                 assert_eq!(dartforge_native_DartForge_json_push(stack, prefix), 1);
                 assert_eq!(dartforge_native_DartForge_json_push(stack, mark), 2);
-                let expected: Vec<i64> = (0..count).map(|i| match i % 3 {
-                    0 => child, 1 => 0, _ => crate::layout::smi::of(i as i64).unwrap(),
-                }).collect();
-                for &value in &expected { dartforge_native_DartForge_json_push(stack, value); }
+                let expected: Vec<i64> = (0..count)
+                    .map(|i| match i % 3 {
+                        0 => child,
+                        1 => 0,
+                        _ => crate::layout::smi::of(i as i64).unwrap(),
+                    })
+                    .collect();
+                for &value in &expected {
+                    dartforge_native_DartForge_json_push(stack, value);
+                }
                 let list = dartforge_native_DartForge_json_close_list(stack, 2, model);
                 assert_ne!(list, 0);
                 dartforge_arc_retain(list);
@@ -777,20 +917,30 @@ mod literal_owned_tests {
                     assert_eq!(heap.list_len(stack), 1);
                     let storage = heap.list_data(stack);
                     assert_eq!(heap.words(storage)[1], prefix);
-                    assert!(heap.words(storage)[2..2 + count + 1].iter().all(|&v| v == 0));
+                    assert!(
+                        heap.words(storage)[2..2 + count + 1]
+                            .iter()
+                            .all(|&v| v == 0)
+                    );
                     assert_eq!(heap.list_len(list), count);
                     assert_eq!(heap.list_capacity(list), count);
                     assert_eq!(heap.metadata(list), heap.metadata(model));
                     let storage = heap.list_data(list);
                     assert_eq!(&heap.words(storage)[1..1 + count], expected.as_slice());
-                    if count != 0 { assert!(heap.is_live_object(child)); }
+                    if count != 0 {
+                        assert!(heap.is_live_object(child));
+                    }
                 });
-                for value in [list, stack, model] { dartforge_arc_release(value); }
+                for value in [list, stack, model] {
+                    dartforge_arc_release(value);
+                }
                 dartforge_arc_collect();
                 assert_eq!(dartforge_arc_observe_heap_v1(list), 0);
                 assert_eq!(dartforge_arc_observe_heap_v1(child), 0);
             }
-            HEAP.with(|h| { h.replace(previous); });
+            HEAP.with(|h| {
+                h.replace(previous);
+            });
             ARC_MEMORY.with(|mode| mode.set(previous_mode));
         }
     }
@@ -799,13 +949,18 @@ mod literal_owned_tests {
     fn mixed_literal_roots_refs_counts_edges_and_preserves_boxes() {
         for arc in [false, true] {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            if arc {
+                HEAP.with(|h| h.borrow_mut().enable_arc());
+            }
             for cid in [8, 9, 10] {
-                let child = HEAP.with(|h| h.borrow_mut().allocate_str("element without a code owner"));
+                let child =
+                    HEAP.with(|h| h.borrow_mut().allocate_str("element without a code owner"));
                 let bits = 0xfff8_1234_5678_9abc_u64;
                 let words = [child, i64::MAX, bits as i64, 1, child, 0];
                 let tags = [3u8, 1, 4, 2, 3, 3];
-                let list = unsafe { dartforge_arc_list_new_owned_v1(words.as_ptr(), 6, cid, tags.as_ptr() as i64) };
+                let list = unsafe {
+                    dartforge_arc_list_new_owned_v1(words.as_ptr(), 6, cid, tags.as_ptr() as i64)
+                };
                 dartforge_arc_collect();
                 assert_eq!(dartforge_arc_observe_heap_v1(list), 3);
                 assert_eq!(dartforge_arc_observe_heap_v1(child), 1);
@@ -818,7 +973,9 @@ mod literal_owned_tests {
                     assert_eq!(w[5], child);
                     assert_eq!(w[6], 0);
                     assert_eq!(heap.value(w[2]), crate::heap::Value::Int(i64::MAX));
-                    let crate::heap::Value::Double(d) = heap.value(w[3]) else { panic!("double box expected") };
+                    let crate::heap::Value::Double(d) = heap.value(w[3]) else {
+                        panic!("double box expected")
+                    };
                     assert_eq!(d.to_bits(), bits);
                     assert_eq!(heap.value(w[4]), crate::heap::Value::Bool(true));
                 });
@@ -827,7 +984,9 @@ mod literal_owned_tests {
                 assert_eq!(dartforge_arc_observe_heap_v1(list), 0);
                 assert_eq!(dartforge_arc_observe_heap_v1(child), 0);
             }
-            HEAP.with(|h| { h.replace(previous); });
+            HEAP.with(|h| {
+                h.replace(previous);
+            });
         }
     }
 
@@ -835,11 +994,24 @@ mod literal_owned_tests {
     fn empty_and_compact_literal_preserves_bits_until_owner_release() {
         for arc in [false, true] {
             let previous = HEAP.with(|h| h.replace(Heap::new(true)));
-            if arc { HEAP.with(|h| h.borrow_mut().enable_arc()); }
+            if arc {
+                HEAP.with(|h| h.borrow_mut().enable_arc());
+            }
             for cid in [8, 9, 10] {
-                for (shape, words) in [(0, vec![]), (1, vec![i64::MIN, i64::MAX]),
-                    (2, vec![i64::MIN, 0x7ff8_1234_5678_9abc]), (3, vec![0, 1])] {
-                    let list = unsafe { dartforge_arc_list_new_owned_v1(words.as_ptr(), words.len() as i64, cid, shape) };
+                for (shape, words) in [
+                    (0, vec![]),
+                    (1, vec![i64::MIN, i64::MAX]),
+                    (2, vec![i64::MIN, 0x7ff8_1234_5678_9abc]),
+                    (3, vec![0, 1]),
+                ] {
+                    let list = unsafe {
+                        dartforge_arc_list_new_owned_v1(
+                            words.as_ptr(),
+                            words.len() as i64,
+                            cid,
+                            shape,
+                        )
+                    };
                     dartforge_arc_collect();
                     assert_eq!(dartforge_arc_observe_heap_v1(list), 3);
                     HEAP.with(|h| {
@@ -852,7 +1024,9 @@ mod literal_owned_tests {
                     assert_eq!(dartforge_arc_observe_heap_v1(list), 0);
                 }
             }
-            HEAP.with(|h| { h.replace(previous); });
+            HEAP.with(|h| {
+                h.replace(previous);
+            });
         }
     }
 }
