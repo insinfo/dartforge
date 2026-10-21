@@ -1033,6 +1033,9 @@ impl<'a> LlvmEmitter<'a> {
         if !self.maps && !self.module.arc_memory {
             self.out.push_str(&rti_set_cached_helper());
         }
+        if !self.maps {
+            self.out.push_str(&rti_eval_site_helper());
+        }
         if self.compact_selector {
             self.out.push_str(SELECTOR_BY_DESCRIPTOR);
         }
@@ -2303,6 +2306,12 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     Instruction::CallRuntime { args, .. } if self.rti_set_cached(inst) => {
                         self.emit_rti_set_cached(v, args);
+                    }
+                    Instruction::CallRuntime { args, .. }
+                    | Instruction::DeclaredFieldCall { args, .. }
+                        if !self.maps && Self::rti_evaluate_site_cached(inst) =>
+                    {
+                        self.emit_rti_evaluate_site_cached(v, args);
                     }
                     Instruction::CallRuntime { args, .. }
                     | Instruction::DeclaredFieldCall { args, .. }
@@ -3678,6 +3687,7 @@ impl<'a> LlvmEmitter<'a> {
                         | Instruction::CallSelectorForward { .. }
                         | Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))
                 ) || Self::rti_evaluate_cached(i)
+                    || Self::rti_evaluate_site_cached(i)
                     || Self::rti_test_cached(i)
                     || Self::rti_set_cached_shape(i)
             })
@@ -3707,6 +3717,48 @@ impl<'a> LlvmEmitter<'a> {
                 std::env::var_os("DARTFORGE_NO_RTI_CACHE")
                     .is_some_and(|v| !v.is_empty() && v != "0")
             })
+    }
+
+    /// The other `dartforge_rti_eval` sites with a constant class: the type of a
+    /// generic allocation in a generic function or method (`_AsyncAwaitCompleter<T>()`
+    /// in `_makeAsyncAwaitCompleter<T>`, the `_Future<E>` of `_thenAwait<E>`, once
+    /// per `await`). The result depends only on the runtime's memo key — the type
+    /// of `this`, the model, the class and the tuple — which keys a cache of the
+    /// use site ([`Self::emit_rti_evaluate_site_cached`]). Not under
+    /// `DARTFORGE_EFFECTS=check`; `DARTFORGE_NO_RTI_CACHE=1` turns it off.
+    fn rti_evaluate_site_cached(i: &Instruction) -> bool {
+        static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        matches!(i, Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
+            if name == "dartforge_rti_eval"
+                && args.len() == 4
+                && matches!(args[2].0, Operand::Constant(Constant::Int(_))))
+            && !Self::rti_evaluate_cached(i)
+            && !externs::check_effects()
+            && !*OFF.get_or_init(|| {
+                std::env::var_os("DARTFORGE_NO_RTI_CACHE")
+                    .is_some_and(|v| !v.is_empty() && v != "0")
+            })
+    }
+
+    /// The evaluation of [`Self::rti_evaluate_site_cached`]: four words of the area
+    /// (two cache slots) keep the key of `this`, the tuple, the model and the type;
+    /// the module's helper [`rti_eval_site_helper`] answers from them or evaluates
+    /// and stores.
+    fn emit_rti_evaluate_site_cached(&mut self, v: u32, args: &[(Operand, Type)]) {
+        let model = self.coerce(&args[0].0, Type::I64);
+        let this = self.coerce(&args[1].0, Type::I64);
+        let class = self.coerce(&args[2].0, Type::I64);
+        let tuple = self.coerce(&args[3].0, Type::I64);
+        let keys = self.cache_slot();
+        let entry = self.cache_slot();
+        let o = &mut self.out;
+        writeln!(o, "  %rq{v}c = getelementptr i64, ptr %area, i64 {keys}").unwrap();
+        writeln!(o, "  %rq{v}d = getelementptr i64, ptr %area, i64 {entry}").unwrap();
+        writeln!(
+            o,
+            "  %v{v} = call i64 @df.rti_eval_site(ptr %rq{v}c, ptr %rq{v}d, i64 {model}, i64 {this}, i64 {class}, i64 {tuple})"
+        )
+        .unwrap();
     }
 
     /// `dartforge_rti_set` with a cache at the use site
@@ -6897,6 +6949,74 @@ fn body_helper(per_call: bool, production: bool, without_outside: bool) -> Strin
 /// an object of the space, not `PERMANENT`, whose `class << 32 | ty` matches
 /// the first word gets the metadata of the second; the rest calls
 /// `dartforge_rti_set_cache`, which stores the type and fills the cache.
+/// The shared body of [`LlvmEmitter::emit_rti_evaluate_site_cached`]: `c` holds the
+/// key of `this` and the tuple, `d` the model and the type. Keys are stored with
+/// their top bit flipped, so that a zeroed cache matches nothing. The key of
+/// `this` is the runtime's `value_key`: 0 without `this`, the header metadata, or
+/// `-16 - class`; a record or a non-object `this` is evaluated without the cache.
+fn rti_eval_site_helper() -> String {
+    use layout::offsets;
+    let d = |x: usize| x as i64 - layout::HANDLE_OFFSET;
+    format!(
+        "define internal i64 @df.rti_eval_site(ptr %c, ptr %d, i64 %m, i64 %h, i64 %k, i64 %t) noinline {{\n\
+entry:\n\
+  %none = icmp eq i64 %h, 0\n\
+  br i1 %none, label %keyed, label %probe\n\
+probe:\n\
+  %hm = and i64 %h, {mask}\n\
+  %obj = icmp eq i64 %hm, 2\n\
+  br i1 %obj, label %object, label %plain\n\
+object:\n\
+  %p = inttoptr i64 %h to ptr\n\
+  %mp = getelementptr inbounds i8, ptr %p, i64 {metadata}\n\
+  %md = load i32, ptr %mp, align 4\n\
+  %cp = getelementptr inbounds i8, ptr %p, i64 {class}\n\
+  %cl = load i32, ptr %cp, align 4\n\
+  %rec = icmp eq i32 %cl, {record}\n\
+  br i1 %rec, label %plain, label %header\n\
+header:\n\
+  %mz = zext i32 %md to i64\n\
+  %cs = sext i32 %cl to i64\n\
+  %cn = sub i64 -16, %cs\n\
+  %hasmd = icmp ne i32 %md, 0\n\
+  %ok = select i1 %hasmd, i64 %mz, i64 %cn\n\
+  br label %keyed\n\
+keyed:\n\
+  %tk = phi i64 [ 0, %entry ], [ %ok, %header ]\n\
+  %kh = xor i64 %tk, -9223372036854775808\n\
+  %kt = xor i64 %t, -9223372036854775808\n\
+  %c1 = getelementptr inbounds i64, ptr %c, i64 1\n\
+  %d1 = getelementptr inbounds i64, ptr %d, i64 1\n\
+  %h0 = load i64, ptr %c, align 8\n\
+  %t0 = load i64, ptr %c1, align 8\n\
+  %m0 = load i64, ptr %d, align 8\n\
+  %e1 = icmp eq i64 %h0, %kh\n\
+  %e2 = icmp eq i64 %t0, %kt\n\
+  %e3 = icmp eq i64 %m0, %m\n\
+  %e12 = and i1 %e1, %e2\n\
+  %hit = and i1 %e12, %e3\n\
+  br i1 %hit, label %found, label %miss\n\
+found:\n\
+  %r = load i64, ptr %d1, align 8\n\
+  ret i64 %r\n\
+miss:\n\
+  %e = call i64 @dartforge_rti_eval(i64 %m, i64 %h, i64 %k, i64 %t)\n\
+  store i64 %kh, ptr %c, align 8\n\
+  store i64 %kt, ptr %c1, align 8\n\
+  store i64 %m, ptr %d, align 8\n\
+  store i64 %e, ptr %d1, align 8\n\
+  ret i64 %e\n\
+plain:\n\
+  %u = call i64 @dartforge_rti_eval(i64 %m, i64 %h, i64 %k, i64 %t)\n\
+  ret i64 %u\n\
+}}\n",
+        mask = OBJECT_MASK,
+        metadata = d(offsets::METADATA),
+        class = d(offsets::CLASS),
+        record = dartforge_runtime::layout::cid::RECORD,
+    )
+}
+
 fn rti_set_cached_helper() -> String {
     use layout::{offsets, state};
     let d = |x: usize| x as i64 - layout::HANDLE_OFFSET;

@@ -2537,3 +2537,73 @@ fn roots_frame_in_a_loop_opens_at_the_entry() {
     let b1 = body.find("\nb1:").expect("block b1");
     assert!(init < b1, "{body}");
 }
+
+/// `ty(m, h, t)`: one `dartforge_rti_eval` with the model `m`, `this` `h`, the class
+/// `class` and the tuple `t`.
+fn rti_eval_fixture(class: Operand) -> Function {
+    let (m, h, t, r) = (ValueId(0), ValueId(1), ValueId(2), ValueId(3));
+    function(
+        "ty",
+        vec![
+            (m, "m".to_string(), Type::I64),
+            (h, "h".to_string(), Type::Ref),
+            (t, "t".to_string(), Type::I64),
+        ],
+        Type::I64,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                r,
+                Instruction::CallRuntime {
+                    name: "dartforge_rti_eval".to_string(),
+                    args: vec![
+                        (Operand::Val(m), Type::I64),
+                        (Operand::Val(h), Type::Ref),
+                        (class, Type::I64),
+                        (Operand::Val(t), Type::I64),
+                    ],
+                    ret_ty: Type::I64,
+                },
+                Type::I64,
+            )],
+            terminator: Terminator::Return(Some(Operand::Val(r))),
+        }],
+    )
+}
+
+#[test]
+fn rti_eval_with_a_constant_class_goes_through_the_site_cache() {
+    let mut m = Module::new();
+    m.functions
+        .push(rti_eval_fixture(Operand::Constant(Constant::Int(398))));
+    let ir = LlvmEmitter::new(&m).emit_all();
+    let body = body_of(&ir, "ty");
+    assert!(
+        body.contains("call i64 @df.rti_eval_site(ptr %rq"),
+        "{body}"
+    );
+    assert!(!body.contains("@dartforge_rti_eval("), "{body}");
+    assert_eq!(
+        ir.matches("define internal i64 @df.rti_eval_site(").count(),
+        1
+    );
+    // The helper keys by `this`, the tuple and the model, and evaluates on a miss.
+    let helper = body_of(&ir, "df.rti_eval_site");
+    assert!(helper.contains("call i64 @dartforge_rti_eval(i64 %m, i64 %h, i64 %k, i64 %t)"));
+    assert_eq!(helper.matches("store i64").count(), 4, "{helper}");
+}
+
+#[test]
+fn rti_eval_with_a_varying_class_is_called_directly() {
+    let mut m = Module::new();
+    let mut f = rti_eval_fixture(Operand::Constant(Constant::Int(0)));
+    f.params.push((ValueId(9), "k".to_string(), Type::I64));
+    if let Instruction::CallRuntime { args, .. } = &mut f.blocks[0].instructions[0].1 {
+        args[2].0 = Operand::Val(ValueId(9));
+    }
+    m.functions.push(f);
+    let ir = LlvmEmitter::new(&m).emit_all();
+    let body = body_of(&ir, "ty");
+    assert!(body.contains("@dartforge_rti_eval("), "{body}");
+    assert!(!body.contains("@df.rti_eval_site("), "{body}");
+}
