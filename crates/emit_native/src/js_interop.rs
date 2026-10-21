@@ -267,7 +267,8 @@ pub fn companion_path(module: &Path) -> PathBuf {
     module.with_extension("mjs")
 }
 
-/// After the link: renames the snippet imports of `module` to short names and
+/// After the link: writes the engine frame of each function into its prologue
+/// (`wasm_frames`), renames the snippet imports of `module` to short names and
 /// writes its companion next to it. A module without snippets has no companion;
 /// a stale one a previous compilation generated is removed.
 ///
@@ -277,6 +278,15 @@ pub fn companion_path(module: &Path) -> PathBuf {
 pub fn finish_module(module: &Path) -> Result<Option<PathBuf>, String> {
     let bytes =
         std::fs::read(module).map_err(|e| format!("cannot read {}: {e}", module.display()))?;
+    // The engine frame of each function (`wasm_frames`).
+    let bytes = match crate::wasm_frames::patch_frame_costs(&bytes)? {
+        Some(patched) => {
+            std::fs::write(module, &patched)
+                .map_err(|e| format!("cannot write {}: {e}", module.display()))?;
+            patched
+        }
+        None => bytes,
+    };
     let (bytes, snippets) = rename_snippet_imports(&bytes)?;
     let companion_file = companion_path(module);
     if snippets.is_empty() {

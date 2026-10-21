@@ -331,6 +331,16 @@ fn run_here(
             "module ABI {version}, host ABI {ABI_VERSION}"
         )));
     }
+    // The engine stack the module's frames may take: half of the thread's
+    // (Cranelift's frames are not those of V8's baseline compiler, which the
+    // module's frame costs measure).
+    if let Ok(engine_stack) =
+        instance.get_typed_func::<i32, ()>(&mut store, "dartforge_engine_stack")
+    {
+        engine_stack
+            .call(&mut store, (ENGINE_STACK / 2) as i32)
+            .map_err(|e| RunError::Abi(format!("dartforge_engine_stack: {e}")))?;
+    }
     let entry = instance
         .get_typed_func::<(), i32>(&mut store, "dartforge_run")
         .map_err(|e| RunError::Abi(format!("dartforge_run: {e}")))?;

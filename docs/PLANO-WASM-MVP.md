@@ -414,11 +414,21 @@ DartForge nativo.
 
 Abertos para o W4:
 
-1. **`StackOverflowError` capturável.** Os três programas de estouro de pilha
-   viram trap da pilha do motor (no dart2wasm também falham, sem captura). A
-   verificação linear não dispara porque uma função sem raízes não consome pilha
-   linear: cada quadro verificado precisa reservar pilha linear proporcional, e
-   o host informar o orçamento da sua pilha de motor.
+1. **`StackOverflowError` capturável — feito.** Os três programas de estouro de
+   pilha viravam trap da pilha do motor (no dart2wasm também falham, sem
+   captura): a verificação linear não dispara porque uma função sem raízes não
+   consome pilha linear. Agora o prólogo desconta o quadro da função de um
+   orçamento da pilha do motor que o host informa (`dartforge_engine_stack`,
+   docs/WASM-HOST-ABI-V1.md) e os retornos o devolvem; o tamanho do quadro
+   (64 + 8 por parâmetro e local, medido no Liftoff do Node 24: 127 bytes com 9
+   locais, 207 com 19) é escrito no módulo depois do link
+   (`emit_native/src/wasm_frames.rs`, sobre uma constante-marca de um `asm`
+   que o LLVM não dobra). No Node, uma recursão simples lança aos 5 500 quadros
+   (o motor estoura aos 7 750). O trecho de isolado do `134_estouro_de_pilha`
+   virou `146_estouro_de_pilha_em_isolado` (a wasm não tem isolados, como o
+   dart2wasm). Custo: tempo igual no `fib` (wasmtime 47 ms, Node 29→30 ms),
+   +5% de tamanho (1,78→1,87 MB) — a otimização é tirar a verificação das
+   funções fora de ciclos de chamada que só chamam alvos diretos.
 2. **Quadros do motor.** A profundidade máxima no Node é 7 mil quadros contra 14
    mil do dart2wasm: os quadros têm o dobro do tamanho.
 3. **Tamanho.** Hello com 1,9 MB contra 47 KB do dart2wasm (que usa strings e

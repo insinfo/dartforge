@@ -186,12 +186,15 @@ fn stack_bounds() -> Option<(usize, usize)> {
 }
 
 /// A function's prologue found the frame below the stack limit
-/// (`Context::stack_limit`): throws the SDK's `StackOverflowError`, and the
-/// function returns with the pending exception, as after a call that threw. The
-/// limit is disabled while the error is built (the stack trace and the allocation
-/// use the slack) and enabled again afterwards.
+/// (`Context::stack_limit`; on WebAssembly also the engine stack budget):
+/// throws the SDK's `StackOverflowError`, and the function returns with the
+/// pending exception, as after a call that threw. The limit is disabled while
+/// the error is built (the stack trace and the allocation use the slack; the
+/// engine budget gets its reserve) and enabled again afterwards.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_stack_overflow() {
+    #[cfg(target_arch = "wasm32")]
+    ENGINE_BUDGET.fetch_add(ENGINE_RESERVE, std::sync::atomic::Ordering::Relaxed);
     let limit = crate::heap::CONTEXT.with(|c| c.stack_limit.replace(1));
     // No collection while the error is built and thrown: the callers on the
     // stack may hold live references outside their roots frames across a call
@@ -204,6 +207,8 @@ pub extern "C" fn dartforge_stack_overflow() {
     }
     HEAP.with(|heap| heap.borrow_mut().defer_collection(false));
     crate::heap::CONTEXT.with(|c| c.stack_limit.set(limit));
+    #[cfg(target_arch = "wasm32")]
+    ENGINE_BUDGET.fetch_sub(ENGINE_RESERVE, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Current value of a program `Ref` global, kept as a permanent root.

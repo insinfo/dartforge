@@ -32,6 +32,7 @@ pub mod sdk_module;
 pub mod source;
 pub mod summary;
 pub mod target;
+pub mod wasm_frames;
 
 use context::Context;
 use dartforge_elements::Program;

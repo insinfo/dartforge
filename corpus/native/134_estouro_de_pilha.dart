@@ -1,8 +1,7 @@
 // Recursão sem fim lança `StackOverflowError`, capturável, em vez de
 // derrubar o processo (o `Trace.from` do `stack_trace` testa assim;
-// docs/NATIVO-PROJETOS-REAIS.md, C22).
-
-import 'dart:isolate';
+// docs/NATIVO-PROJETOS-REAIS.md, C22). Num isolado:
+// 146_estouro_de_pilha_em_isolado.
 
 int profundidade = 0;
 
@@ -29,7 +28,7 @@ void pura() => pura();
 int par(int n) => impar(n + 1);
 int impar(int n) => par(n + 1);
 
-void main() async {
+void main() {
   try {
     desce();
   } on StackOverflowError catch (e) {
@@ -62,14 +61,4 @@ void main() async {
     print('mútua: pegou');
   }
   print(fib(20));
-  // Num isolado (outra thread).
-  final r = await Isolate.run(() {
-    try {
-      desce();
-      return 'nao';
-    } on StackOverflowError {
-      return 'isolado: pegou';
-    }
-  });
-  print(r);
 }

@@ -35,6 +35,7 @@ executar; o executor recusa o que o portão recusa.
 |---|---|---|
 | `memory` | memória | a memória linear do módulo, definida por ele |
 | `dartforge_abi_version` | `() -> i32` | devolve `1`; outro valor faz o host recusar o módulo sem executar |
+| `dartforge_engine_stack` | `(bytes: i32)` | antes de `dartforge_run`: os bytes da pilha do motor que os quadros do módulo podem ocupar (sem a chamada, os 984 KiB do V8) |
 | `dartforge_run` | `() -> i32` | executa o programa e devolve o status de saída, `-1` enquanto ele espera um timer, ou `-2` enquanto só o host pode chamá-lo de volta |
 | `dartforge_delay_us` | `() -> f64` | depois de um `-1`: microssegundos até o próximo timer (`inf` se distante demais) |
 | `dartforge_resume` | `() -> i32` | continua o programa depois do atraso; status, `-1` ou `-2` |
@@ -51,6 +52,17 @@ status. Os dois exports vêm do runtime (`crates/runtime/src/wasm_entry.rs`). Um
 resultado separado do status: o host a reporta como falha do runtime, nunca como
 exceção Dart, e não encerra o próprio processo por causa dela. O executor de linha
 de comando sai com 70 numa trap e 2 quando o módulo nem chegou a executar.
+
+Pilha do motor: os quadros do módulo ficam na pilha do próprio motor, não na
+memória linear. O prólogo de cada função que chama desconta o seu quadro de um
+orçamento (`dartforge_engine_budget`) e lança `StackOverflowError` abaixo de
+zero, antes da trap do motor; os retornos devolvem o quadro. O tamanho de cada
+quadro (64 bytes mais 8 por parâmetro e local, o do Liftoff do V8, o maior dos
+motores suportados) é escrito depois do link (`emit_native/src/wasm_frames.rs`).
+O adaptador JS passa 984 KiB (Node e Chrome); o `dartforge-wasm-run` dá ao
+módulo 8 MiB de pilha do Wasmtime e passa metade (os quadros do Cranelift não
+são os do Liftoff). O runtime guarda 160 KiB do orçamento para o que não conta
+(runtime, host, funções folha e a construção do erro).
 
 ## Imports (`dartforge_host_v1`)
 

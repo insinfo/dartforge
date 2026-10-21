@@ -25,8 +25,9 @@ pub const STACK_BYTES: u64 = 8 << 20;
 pub const MAX_MEMORY_BYTES: u64 = 4 << 30;
 
 /// The exports of host ABI v1 besides the memory, kept under dead stripping.
-pub const ABI_EXPORTS: [&str; 4] = [
+pub const ABI_EXPORTS: [&str; 5] = [
     "dartforge_abi_version",
+    "dartforge_engine_stack",
     "dartforge_run",
     "dartforge_resume",
     "dartforge_delay_us",
@@ -228,7 +229,8 @@ mod tests {
             @msg = private constant [3 x i8] c\"ok\\0A\"\n\
             define i32 @dartforge_abi_version() { ret i32 1 }\n\
             define i32 @dartforge_resume() { ret i32 0 }\n\
-            define double @dartforge_delay_us() { ret double 0.0 }\n";
+            define double @dartforge_delay_us() { ret double 0.0 }\n\
+            define void @dartforge_engine_stack(i32 %bytes) { ret void }\n";
         let runtime = dir.path().join("libempty.a");
         std::fs::write(&runtime, b"!<arch>\n").unwrap();
         let lld = lld(&clang);

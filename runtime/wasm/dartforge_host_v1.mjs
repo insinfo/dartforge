@@ -14,6 +14,13 @@ export const ABI_VERSION = 1;
 export const HOST_MODULE = "dartforge_host_v1";
 export const JS_MODULE = "dartforge_js";
 
+/**
+ * The engine stack V8 gives a thread (`--stack-size`, 984 KiB): the module
+ * throws `StackOverflowError` before its frames take it all
+ * (`dartforge_engine_stack`, docs/WASM-HOST-ABI-V1.md).
+ */
+const V8_STACK_BYTES = 984 * 1024;
+
 export const WRITE_OK = 0;
 export const WRITE_OUT_OF_RANGE = -1;
 export const WRITE_BAD_CHANNEL = -2;
@@ -447,6 +454,8 @@ export async function runModule(bytes, sinks, options = {}, companion = null) {
   const version = exports.dartforge_abi_version();
   if (version !== ABI_VERSION) throw new Error(`module ABI ${version}, host ABI ${ABI_VERSION}`);
   if (typeof exports.dartforge_run !== "function") throw new Error("no dartforge_run");
+  // The engine stack the module's frames may take: V8's (Node and Chrome).
+  if (typeof exports.dartforge_engine_stack === "function") exports.dartforge_engine_stack(V8_STACK_BYTES);
   // `-1`: the program waits for a timer; it resumes after the delay it asks
   // for, from the event loop, without blocking the page.
   const program = new Program(exports, interop !== null ? (body) => interop.enter(body) : (body) => body());

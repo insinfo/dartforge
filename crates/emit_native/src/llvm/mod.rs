@@ -159,6 +159,10 @@ pub struct LlvmEmitter<'a> {
     /// The roots frame of the current function opens where `frame_placement`
     /// decides, not in the entry block: the returns restore `%gcant`.
     frame_placed: bool,
+    /// WebAssembly: the prologue of the current function debited its frame
+    /// from the engine stack budget (`%pilhae0` is the budget at the entry),
+    /// which the returns give back ([`Self::emit_stack_check`]).
+    engine_budget: bool,
     /// `@df.rti_fill` is already in the output (`rti_getters`).
     rti_fill_emitted: bool,
     /// The slots of the area that hold `Ref` globals, in the lean area of
@@ -384,6 +388,7 @@ impl<'a> LlvmEmitter<'a> {
             global_slots: std::collections::HashMap::new(),
             rti_fill_emitted: false,
             frame_placed: false,
+            engine_budget: false,
             rooted_slots: std::collections::BTreeSet::new(),
             slot_hashes: Vec::new(),
             previous_area: None,
@@ -1007,6 +1012,10 @@ impl<'a> LlvmEmitter<'a> {
         } else {
             "declare i64 @llvm.read_register.i64(metadata)\n"
         });
+        if crate::target::is_wasm() {
+            self.out
+                .push_str("@dartforge_engine_budget = external global i32, align 4\n");
+        }
         for (_, decl) in externs::GLOBALS {
             self.out.push_str(decl);
             self.out.push('\n');
@@ -1381,6 +1390,7 @@ impl<'a> LlvmEmitter<'a> {
             }
         }
         self.has_ctx = self.has_frame || Self::requires_explicit_context(func, tab);
+        self.engine_budget = false;
         // Where the roots frame opens (`frame_placement`): only a frame of plain
         // SSA roots, without parameters to store at the entry, landing pads that
         // restore it or the checking slots.
@@ -2841,6 +2851,15 @@ impl<'a> LlvmEmitter<'a> {
             }
             if self.stack_trace.is_some() && matches!(block.terminator, Terminator::Return(_)) {
                 writeln!(self.out, "  call void @dartforge_call_trace_exit()").unwrap();
+            }
+            // WebAssembly: the frame goes back to the engine stack budget (every
+            // exit is a `ret`: exceptions return pending).
+            if self.engine_budget && matches!(block.terminator, Terminator::Return(_)) {
+                writeln!(
+                    self.out,
+                    "  store i32 %pilhae0, ptr @dartforge_engine_budget, align 4"
+                )
+                .unwrap();
             }
             // G3: the roots frame closes before EVERY `ret`, including that
             // of the exception exits (which return the default value).
@@ -5389,6 +5408,27 @@ impl<'a> LlvmEmitter<'a> {
         if crate::target::is_wasm() {
             writeln!(o, "  %pilhaspp = call ptr @llvm.stacksave.p0()").unwrap();
             writeln!(o, "  %pilhasp = ptrtoint ptr %pilhaspp to i64").unwrap();
+            writeln!(o, "  %pilhabl = icmp ult i64 %pilhasp, %pilhal").unwrap();
+            // The engine's own stack (the frames of the module are not in the
+            // linear memory): the budget the host gave
+            // (`dartforge_engine_budget`, `runtime/src/gc_roots.rs`) minus
+            // this function's frame, whose size only the linked module knows —
+            // the constant is a mark that `wasm_frames` rewrites after the link
+            // (an `asm` the optimizer cannot fold). Below zero: overflow.
+            writeln!(
+                o,
+                "  %pilhae0 = load i32, ptr @dartforge_engine_budget, align 4"
+            )
+            .unwrap();
+            writeln!(
+                o,
+                "  %pilhaec = call i32 asm sideeffect \"i32.const {}\\0Alocal.set $0\", \"=r\"()",
+                crate::wasm_frames::FRAME_COST_MARK
+            )
+            .unwrap();
+            writeln!(o, "  %pilhae1 = sub i32 %pilhae0, %pilhaec").unwrap();
+            writeln!(o, "  %pilhaen = icmp slt i32 %pilhae1, 0").unwrap();
+            writeln!(o, "  %pilhab = or i1 %pilhabl, %pilhaen").unwrap();
         } else {
             writeln!(
                 o,
@@ -5396,8 +5436,8 @@ impl<'a> LlvmEmitter<'a> {
                 stack_pointer()
             )
             .unwrap();
+            writeln!(o, "  %pilhab = icmp ult i64 %pilhasp, %pilhal").unwrap();
         }
-        writeln!(o, "  %pilhab = icmp ult i64 %pilhasp, %pilhal").unwrap();
         writeln!(
             o,
             "  %pilhax = call i1 @llvm.expect.i1(i1 %pilhab, i1 false)"
@@ -5430,6 +5470,14 @@ impl<'a> LlvmEmitter<'a> {
             t => writeln!(o, "  ret {} zeroinitializer", t.llvm_ir()).unwrap(),
         }
         writeln!(o, "pilha.ok:").unwrap();
+        if crate::target::is_wasm() {
+            writeln!(
+                o,
+                "  store i32 %pilhae1, ptr @dartforge_engine_budget, align 4"
+            )
+            .unwrap();
+            self.engine_budget = true;
+        }
         self.current_label = "pilha.ok".to_string();
         self.exit_labels
             .entry(0)

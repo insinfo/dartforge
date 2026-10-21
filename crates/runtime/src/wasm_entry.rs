@@ -53,3 +53,30 @@ pub extern "C" fn dartforge_resume() -> i32 {
 pub extern "C" fn dartforge_main_arguments() -> i64 {
     dart_string_list(&[], true)
 }
+
+/// The engine stack V8 gives a thread (Node and Chrome, `--stack-size` 984
+/// KiB): the budget of a host that does not call [`dartforge_engine_stack`].
+const V8_STACK: i32 = 984 * 1024;
+
+/// What the budget keeps back for the frames it does not count: the runtime's,
+/// the host's (a JavaScript callback between Dart frames), the functions that
+/// do not call, and building the `StackOverflowError` itself.
+const ENGINE_RESERVE: i32 = 160 * 1024;
+
+/// WebAssembly: the bytes of engine stack the module's frames may still take
+/// (`emit_native/src/wasm_frames.rs`). The prologue of each function that
+/// calls subtracts its frame and throws `StackOverflowError` below zero; its
+/// returns add it back.
+#[unsafe(export_name = "dartforge_engine_budget")]
+pub static ENGINE_BUDGET: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(V8_STACK - ENGINE_RESERVE);
+
+/// WebAssembly host ABI v1 (docs/WASM-HOST-ABI-V1.md): the bytes of engine
+/// stack the host gives the module, before `dartforge_init`.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_engine_stack(bytes: i32) {
+    ENGINE_BUDGET.store(
+        bytes.saturating_sub(ENGINE_RESERVE).max(0),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
