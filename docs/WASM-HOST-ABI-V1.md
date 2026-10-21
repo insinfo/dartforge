@@ -1,8 +1,8 @@
 # ABI de host v1 do DartForge para `wasm32-linear`
 
-Data: 21/10/2026. **Estado: W0 e W2** (execução, saída, término, relógios,
-entropia e fuso). O agendamento de timers (W6) e o interop JS entram nesta mesma
-versão antes do W5; o que já está aqui não muda de significado.
+Data: 21/10/2026. **Estado: W0, W2 e W3** (execução, saída, término, relógios,
+entropia, fuso e espera de timers), mais o interop JS (`dartforge_js`, W4). O que
+já está aqui não muda de significado.
 
 A ABI é o único contrato entre um módulo `wasm32-linear` e quem o executa. O mesmo
 arquivo `.wasm`, byte a byte, roda nos dois adaptadores:
@@ -114,6 +114,43 @@ não o `Platform.environment` do Dart: copia até `out_capacity` bytes do valor 
 devolve o comprimento completo, ou `-1` quando a opção não existe. O executor
 repassa só as variáveis `DARTFORGE_*` do próprio processo; o adaptador JS, o
 objeto `options` de `runModule` (o runner do Node passa as `DARTFORGE_*`).
+
+## Interop JS (`dartforge_js`)
+
+Um módulo que usa `dart:js_interop` importa também do módulo `dartforge_js`, que
+só um host JavaScript tem: o adaptador (`Interop` em
+`runtime/wasm/dartforge_host_v1.mjs`) e o `.mjs` companheiro que o `compile-wasm`
+escreve ao lado do `.wasm` (`<app>.wasm` → `<app>.mjs`). O executor independente
+recusa o módulo antes de executar, dizendo que ele precisa de um host JS.
+
+Um valor JavaScript é um *handle* `i32` da tabela do adaptador; o handle 0 é
+`null`/`undefined`, que o Dart vê como `null`. Cada `JSValue` do Dart é dono de
+um handle e o devolve à tabela quando morre (finalizador nativo do coletor).
+
+| import | tipo | contrato |
+|---|---|---|
+| `release` | `(handle: i32)` | devolve o handle à tabela |
+| `string_from_latin1` | `(offset, length) -> i32` | uma string JS com os `length` bytes (unidades Latin-1) da faixa; handle novo |
+| `string_from_utf16` | `(offset, length) -> i32` | uma string JS com as `length` unidades UTF-16 da faixa (alinhada a 2), surrogates soltos preservados |
+| `string_length` | `(handle) -> i32` | o comprimento `n` da string, ou `-n - 1` quando alguma unidade passa de `0xFF` |
+| `string_read` | `(handle, offset, two_bytes)` | escreve as unidades da string na faixa: bytes, ou `u16` com `two_bytes = 1` |
+| `0`, `1`, … | os do trecho | os trechos do programa, definidos no companheiro |
+
+Um **trecho** é a função JavaScript de um membro de interop ou de um `external`
+do SDK com `@pragma('dartforge:js', '<código>')`. No companheiro, cada import
+converte os argumentos (handle → valor; string → valor, consumindo o handle;
+`bool` de membro → booleano JS), chama o trecho e converte o resultado (valor →
+handle novo; número e inteiro pelo `ToNumber`/`ToInt32` da fronteira). Se o
+trecho lança, o import chama o export **`dartforge_js_throw`** e devolve 0: ao
+voltar, o código Dart encontra a exceção pendente, um `_JavaScriptError` como o
+do dart2wasm. O módulo exporta `dartforge_js_throw` sempre que tem trechos.
+
+O companheiro exporta `abi = 1` e `snippets(r)`, que devolve as funções dos
+imports por nome; `r` é o `Interop` do adaptador (`get`, `take`, `ref`, `fail`).
+Não há `eval`: o arquivo é JavaScript comum, compatível com CSP. Os nomes curtos
+(`0`, `1`…) são dados depois do link; nos objetos o import é `s:<hex>` da
+assinatura e do código, de modo que trechos iguais de objetos diferentes viram
+um só import.
 
 ## Versionamento
 

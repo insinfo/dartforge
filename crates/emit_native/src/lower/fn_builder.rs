@@ -197,6 +197,10 @@ pub struct FnBuilder<'a, 'c> {
     /// The type argument tuple of the current generic call, which
     /// `call_direct` appends when the target has type parameters.
     pub armed_tuple: Option<Operand>,
+    /// The arguments the call site wrote for the function `match_args`
+    /// matched last (`lower/js_members.rs`: dart2wasm passes only those to
+    /// JavaScript); the next `call_external` of that function takes it.
+    pub(crate) call_shape: Option<(usize, super::js_members::CallShape)>,
     /// The static type of `this` in an extension member (the `on`): the
     /// implicit receiver of another extension call.
     pub this_extension: Option<(
@@ -395,6 +399,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             concrete_class: None,
             creation_type: None,
             armed_tuple: None,
+            call_shape: None,
             this_extension: None,
             this_ext_type: None,
             constructor_return: None,

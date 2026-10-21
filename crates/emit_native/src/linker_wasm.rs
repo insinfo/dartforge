@@ -2,13 +2,17 @@
 //! WebAssembly flavor, then the binary gate.
 //!
 //! The module owns its memory and exports exactly the host ABI v1 entries
-//! (docs/WASM-HOST-ABI-V1.md): `memory`, `dartforge_abi_version` and
-//! `dartforge_run`. Every other symbol is resolved at link time: an import is
-//! only what the code declares with `wasm-import-module` (the runtime's
-//! `dartforge_host_v1` functions), never an undefined symbol let through, so a
+//! (docs/WASM-HOST-ABI-V1.md): `memory`, `dartforge_abi_version`,
+//! `dartforge_run`, `dartforge_resume` and `dartforge_delay_us`, plus
+//! `dartforge_js_throw` when it uses the JavaScript interop. Every other symbol
+//! is resolved at link time: an import is only what the code declares with
+//! `wasm-import-module` (the runtime's `dartforge_host_v1` functions, the
+//! interop's `dartforge_js` ones), never an undefined symbol let through, so a
 //! runtime piece still missing fails the link instead of becoming an import. The
-//! linked file then goes through `dartforge-wasm-gate`, the same check the
-//! executor applies: a module outside the profile never leaves the compiler.
+//! snippet imports then get short names and the companion `.mjs`
+//! (`crate::js_interop`), and the file goes through `dartforge-wasm-gate`, the
+//! check the executor applies: a module outside the profile never leaves the
+//! compiler.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -103,11 +107,13 @@ pub fn link(l: &Linkage<'_>) -> Result<(), String> {
             lines.join("\n")
         ));
     }
+    // The JavaScript interop: short import names and the companion `.mjs`.
+    crate::js_interop::finish_module(l.output)?;
     check(l.output)
 }
 
 /// The gate of a linked module: the `wasm32-linear` profile, imports only from
-/// the host ABI, and the ABI exports present.
+/// the host ABI and the JavaScript interop, and the ABI exports present.
 ///
 /// # Errors
 /// Every violation the gate lists.
@@ -118,6 +124,10 @@ pub fn check(module: &Path) -> Result<(), String> {
     required.extend(ABI_EXPORTS.iter().map(|e| e.to_string()));
     let policy = dartforge_wasm_gate::Policy {
         required_exports: required,
+        import_modules: vec![
+            dartforge_wasm_gate::HOST_MODULE.to_string(),
+            dartforge_wasm_gate::JS_MODULE.to_string(),
+        ],
         ..dartforge_wasm_gate::Policy::default()
     };
     dartforge_wasm_gate::validate(&bytes, &policy)

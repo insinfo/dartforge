@@ -1452,6 +1452,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Matches evaluated arguments with the parameters of `fid`: positional ones in
     /// order, named ones by name, missing ones by the default value (N5).
     pub fn match_args(&mut self, fid: usize, evaluated: &[Evaluated]) -> Vec<Operand> {
+        self.call_shape = Some((
+            fid,
+            super::js_members::CallShape {
+                positional: evaluated.iter().filter(|(n, _)| n.is_none()).count(),
+                named: evaluated.iter().filter_map(|(n, _)| *n).collect(),
+            },
+        ));
         let Some(data) = self.ctx.outline.functions.get(fid) else {
             return evaluated.iter().map(|(_, v)| v.clone()).collect();
         };

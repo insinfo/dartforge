@@ -12,7 +12,9 @@ fn with_entry_context(
     action: impl FnOnce(&mut Context),
 ) {
     let temporary = tempfile::tempdir().unwrap();
-    let mut sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+    let mut sdk = crate::sdk_module::sdk_sources_layout(
+        crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap(),
+    );
     if let Some((file, old, new)) = edit {
         let original = sdk.root.join(file);
         let selected = sdk.replacements.get(&original).unwrap_or(&original);

@@ -27,6 +27,9 @@ pub struct Context<'a> {
     constant_strings: std::sync::OnceLock<
         std::collections::HashMap<(UnitId, dartforge_frontend::ast::ExprId), Vec<u8>>,
     >,
+    /// `JSValue` of `dart:_js_helper` and its members, found once (the
+    /// WebAssembly target's JavaScript interop, `lower/js_interop.rs`).
+    pub(crate) js_value: std::sync::OnceLock<Option<crate::lower::js_interop::JsHelpers>>,
     /// Identity of the SDK marker, never of a same-named user class.
     finalizable_class: Option<dartforge_elements::model::ClassId>,
     pub entry_lib: Option<LibraryId>,
@@ -367,6 +370,7 @@ impl<'a> Context<'a> {
             outline,
             bodies,
             constant_strings: std::sync::OnceLock::new(),
+            js_value: std::sync::OnceLock::new(),
             finalizable_class: program.classes.iter().enumerate().find_map(|(i, c)| {
                 (program.library(c.library).uri == "dart:ffi"
                     && interner.resolve(c.name) == "Finalizable")
@@ -476,12 +480,12 @@ impl<'a> Context<'a> {
         ctx
     }
 
-    /// Turns on the source SDK (P5c): the libraries of `SOURCE_LIBRARIES`
-    /// get a compiled body and classes with ids.
+    /// Turns on the source SDK (P5c): the libraries of the destination's
+    /// `source_libraries` get a compiled body and classes with ids.
     pub fn with_source_sdk(mut self) -> Self {
         for (i, l) in self.program.libraries.iter().enumerate() {
             if let Some(name) = l.uri.strip_prefix("dart:")
-                && crate::sdk_module::SOURCE_LIBRARIES.contains(&name)
+                && crate::sdk_module::source_libraries().contains(&name)
             {
                 self.compiled[i] = true;
             }

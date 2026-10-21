@@ -635,6 +635,8 @@ dependencies = [
  "serde_json",
  "tempfile",
  "url",
+ "wasmparser 0.262.0",
+ "wat",
 ]
 
 [[package]]

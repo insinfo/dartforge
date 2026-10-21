@@ -262,7 +262,7 @@ fn lower_sdk_for_audit(
         .collect();
     source.push_str("void main() {}\n");
     std::fs::write(&entry, source).map_err(|e| e.to_string())?;
-    let sdk = sdk_module::load_native_sdk(sdk_dir)?;
+    let sdk = sdk_module::sdk_sources_layout(sdk_module::load_native_sdk(sdk_dir)?);
     let mut interner = Interner::new();
     let (program, diags) =
         dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);

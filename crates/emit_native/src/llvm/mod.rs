@@ -135,6 +135,9 @@ pub struct LlvmEmitter<'a> {
     /// Signature of each called symbol, to declare what the module does not
     /// define.
     externals: std::collections::BTreeMap<String, String>,
+    /// The module calls a JavaScript snippet (`crate::js_interop`): it exports
+    /// the runtime's `dartforge_js_throw` for the adapter.
+    js_snippets: bool,
     /// The generic Owned thunks called (`df.arc.owned.<base>`): the base and the
     /// signature (`selectors::emit_owned_thunks`).
     owned_thunks: std::collections::BTreeMap<String, (String, Vec<Type>)>,
@@ -370,6 +373,7 @@ impl<'a> LlvmEmitter<'a> {
             slot_index: std::collections::HashMap::new(),
             selector_names: Vec::new(),
             externals: std::collections::BTreeMap::new(),
+            js_snippets: false,
             owned_thunks: std::collections::BTreeMap::new(),
             scope_thunks: std::collections::BTreeMap::new(),
             comdats: Vec::new(),
@@ -2359,6 +2363,11 @@ impl<'a> LlvmEmitter<'a> {
                         let b = self.coerce(&args[1].0, Type::I64);
                         writeln!(self.out, "  %v{v} = call i8 @df.subclass(i64 {a}, i64 {b})")
                             .unwrap();
+                    }
+                    Instruction::CallRuntime { name, args, ret_ty }
+                        if name.starts_with(crate::js_interop::SNIPPET_PREFIX) =>
+                    {
+                        self.emit_snippet_call(v, name, args, *ret_ty);
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
                     | Instruction::DeclaredFieldCall {

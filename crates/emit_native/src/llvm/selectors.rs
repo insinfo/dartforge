@@ -601,7 +601,90 @@ impl LlvmEmitter<'_> {
         }
     }
 
+    /// A call to a JavaScript snippet (`crate::js_interop`): the import, with
+    /// each Dart value converted to its type at the boundary and the result
+    /// back to the HIR's (`Kind`).
+    pub(super) fn emit_snippet_call(
+        &mut self,
+        v: u32,
+        name: &str,
+        args: &[(Operand, Type)],
+        ret_ty: Type,
+    ) {
+        use crate::js_interop::{Kind, Snippet};
+        let snippet = Snippet::from_symbol(name)
+            .unwrap_or_else(|| panic!("compiler bug: malformed snippet {name:.60}"));
+        assert_eq!(
+            snippet.params.len(),
+            args.len(),
+            "compiler bug: snippet {} with {} arguments",
+            snippet.signature(),
+            args.len()
+        );
+        self.js_snippets = true;
+        self.externals
+            .entry(name.to_string())
+            .or_insert_with(|| snippet.declaration());
+        let mut parts = Vec::with_capacity(args.len());
+        for (i, ((op, ty), kind)) in args.iter().zip(&snippet.params).enumerate() {
+            let value = self.coerce(op, *ty);
+            let part = match (kind, ty) {
+                (Kind::Number, Type::F64) => format!("double {value}"),
+                (Kind::Integer, Type::I64) => {
+                    writeln!(self.out, "  %js{v}.{i} = sitofp i64 {value} to double").unwrap();
+                    format!("double %js{v}.{i}")
+                }
+                (Kind::Value | Kind::Text, Type::I64) => {
+                    writeln!(self.out, "  %js{v}.{i} = trunc i64 {value} to i32").unwrap();
+                    format!("i32 %js{v}.{i}")
+                }
+                (Kind::Boolean | Kind::JsBoolean, Type::I8) => {
+                    writeln!(self.out, "  %js{v}.{i} = zext i8 {value} to i32").unwrap();
+                    format!("i32 %js{v}.{i}")
+                }
+                _ => panic!("compiler bug: snippet argument {i} of kind {kind:?} as {ty:?}"),
+            };
+            parts.push(part);
+        }
+        let call = format!(
+            "call {} @{name}({})",
+            snippet.ret.wasm_result(),
+            parts.join(", ")
+        );
+        match (snippet.ret, ret_ty) {
+            (Kind::Void, Type::Void) => writeln!(self.out, "  {call}").unwrap(),
+            (Kind::Number, Type::F64) => writeln!(self.out, "  %v{v} = {call}").unwrap(),
+            (Kind::Value | Kind::Text | Kind::Integer, Type::I64) => {
+                writeln!(self.out, "  %js{v}.r = {call}").unwrap();
+                writeln!(self.out, "  %v{v} = sext i32 %js{v}.r to i64").unwrap();
+            }
+            (Kind::Boolean, Type::I8) => {
+                writeln!(self.out, "  %js{v}.r = {call}").unwrap();
+                writeln!(self.out, "  %js{v}.b = icmp ne i32 %js{v}.r, 0").unwrap();
+                writeln!(self.out, "  %v{v} = zext i1 %js{v}.b to i8").unwrap();
+            }
+            (kind, ty) => panic!("compiler bug: snippet result of kind {kind:?} as {ty:?}"),
+        }
+    }
+
+    /// The export of `dartforge_js_throw` in a module that calls snippets: a weak
+    /// definition, so the copies of several objects become one export, kept
+    /// through LTO by `@llvm.used` (nothing in the module calls it).
+    fn emit_js_throw_export(&mut self) {
+        if !self.js_snippets {
+            return;
+        }
+        writeln!(
+            self.out,
+            "define weak void @df.js.throw.export() \"wasm-export-name\"=\"{}\" {{\n  call void @dartforge_js_throw()\n  ret void\n}}\n\
+             @llvm.used = appending global [1 x ptr] [ptr @df.js.throw.export], section \"llvm.metadata\"",
+            crate::js_interop::THROW_EXPORT
+        )
+        .unwrap();
+    }
+
     pub(super) fn emit_external_declarations(&mut self) {
+        self.emit_js_throw_export();
         self.emit_owned_thunks();
         self.emit_scope_thunks();
         self.emit_stack_trace_names();

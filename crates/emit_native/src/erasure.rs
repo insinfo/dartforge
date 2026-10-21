@@ -22,7 +22,7 @@ use dartforge_types::table::{Type, TypeId, TypeParamId, TypeTable};
 use std::collections::HashMap;
 
 /// The erasure and the auxiliary types of the program's extension types.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ExtensionTypes {
     /// The erased type of each type of the table (by index); empty when the
     /// program has no extension type.

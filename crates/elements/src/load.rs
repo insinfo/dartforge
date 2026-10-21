@@ -1343,6 +1343,14 @@ fn resolve_directive_target(
         return Ok((base_uri.to_string(), base_path.map(Path::to_path_buf)));
     }
     if let Some(sdk_name) = uri_str.strip_prefix("dart:") {
+        // Like the CFE: the platform's private libraries (`dart:_internal`,
+        // `dart:_js_helper`…) are only for the platform's own libraries.
+        if sdk.refuses_private_imports
+            && sdk_name.starts_with('_')
+            && !base_uri.starts_with("dart:")
+        {
+            return Err("Can't access platform private library.".to_string());
+        }
         if let Some(message) = sdk.user_import_errors.get(sdk_name)
             && !base_uri.starts_with("dart:")
         {

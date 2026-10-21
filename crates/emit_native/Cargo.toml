@@ -40,3 +40,7 @@ blake3 = "1"
 
 [dev-dependencies]
 url = "2"
+# The snippet import rewriting (`src/js_interop.rs`) is tested on modules written
+# as text and read back with the gate's parser.
+wat = "=1.262.0"
+wasmparser = "=0.262.0"

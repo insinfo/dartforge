@@ -28,6 +28,11 @@ use wasmparser::{ExternalKind, Parser, Payload, TypeRef, Validator, WasmFeatures
 /// The host ABI namespace of the first version (docs/PLANO-WASM-MVP.md §3.4).
 pub const HOST_MODULE: &str = "dartforge_host_v1";
 
+/// The namespace of the JavaScript interop (`dart:js_interop`,
+/// docs/WASM-HOST-ABI-V1.md): the adapter's handle table and the module's own
+/// snippets, which its companion `.mjs` defines. Only a JavaScript host has it.
+pub const JS_MODULE: &str = "dartforge_js";
+
 /// The profile's name, in reports and diagnostics.
 pub const PROFILE_NAME: &str = "wasm32-linear";
 

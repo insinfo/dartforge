@@ -38,7 +38,7 @@
       "_internal/vm/lib/mirrors_patch.dart": "mirrors/mirrors_patch.dart"
     }
   },
-  "comment:4": "dartforge_wasm: the WebAssembly target (wasm32-linear, docs/PLANO-WASM-MVP.md \u00a71). The runtime implements the VM's natives, so the base is vm with the same swaps; the library set and flags are dart2wasm's: dart:io and dart:isolate take the SDK's own pure-Dart wasm patches (importable, UnsupportedError on use), dart.library.ffi is false, and the libraries dart2wasm does not have are removed.",
+  "comment:4": "dartforge_wasm: the WebAssembly target (wasm32-linear, docs/PLANO-WASM-MVP.md \u00a71). The runtime implements the VM's natives, so the base is vm with the same swaps; the library set and flags are dart2wasm's: dart:io and dart:isolate take the SDK's own pure-Dart wasm patches (importable, UnsupportedError on use), dart.library.ffi is false, the libraries dart2wasm does not have are removed, and the JavaScript interop (dart:js_interop, js_interop_unsafe, js_util and their internal libraries) is added over the handles of native_sdk/wasm/js_helper.dart (\"new\": a library the base does not have; \"overlay:\": a file of this folder).",
   "dartforge_wasm": {
     "base": "vm",
     "libraries": {
@@ -66,6 +66,39 @@
           "_internal/vm/lib/ffi_struct_patch.dart"
         ],
         "supported": false
+      },
+      "_js_helper": {
+        "uri": "overlay:wasm/js_helper.dart",
+        "new": true
+      },
+      "_js_types": {
+        "uri": "overlay:wasm/js_types.dart",
+        "new": true
+      },
+      "_js_annotations": {
+        "uri": "js/_js_annotations.dart",
+        "new": true
+      },
+      "js_interop": {
+        "uri": "js_interop/js_interop.dart",
+        "patches": [
+          "overlay:wasm/js_interop_patch.dart"
+        ],
+        "new": true
+      },
+      "js_interop_unsafe": {
+        "uri": "js_interop_unsafe/js_interop_unsafe.dart",
+        "patches": [
+          "overlay:wasm/js_interop_unsafe_patch.dart"
+        ],
+        "new": true
+      },
+      "js_util": {
+        "uri": "js_util/js_util.dart",
+        "patches": [
+          "overlay:wasm/js_util_patch.dart"
+        ],
+        "new": true
       }
     },
     "remove": [
@@ -77,7 +110,8 @@
       "mirrors"
     ],
     "user_import_errors": {
-      "ffi": "'dart:ffi' can't be imported when compiling to Wasm."
+      "ffi": "'dart:ffi' can't be imported when compiling to Wasm.",
+      "js_util": "JS interop library 'dart:js_util' can't be imported when compiling to Wasm. Try using 'dart:js_interop' or 'dart:js_interop_unsafe' instead."
     },
     "replaces": {
       "_internal/vm/lib/async_patch.dart": "async/async_patch.dart",

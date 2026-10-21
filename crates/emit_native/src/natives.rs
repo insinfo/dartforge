@@ -273,6 +273,8 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("DartForge_hash_set_fill"),
     runtime("DartForge_hash_set_lookup"),
     runtime("DartForge_int_toString"),
+    // The JavaScript interop of WebAssembly modules (`dart:_js_helper`).
+    runtime("DartForge_js_attach"),
     runtime("DartForge_json_close_list"),
     runtime("DartForge_json_mark"),
     runtime("DartForge_json_push"),
@@ -970,6 +972,42 @@ pub fn pragmas(
     interner: &dartforge_intern::Interner,
     f: &dartforge_elements::model::FunctionElement,
 ) -> (Option<String>, bool) {
+    let mut native = None;
+    let mut recognized = false;
+    for strings in pragma_strings(program, interner, f) {
+        match strings.first().and_then(|t| t.as_deref()) {
+            Some("vm:external-name") => native = strings.get(1).cloned().flatten(),
+            Some("vm:recognized") => recognized = true,
+            _ => {}
+        }
+    }
+    (native, recognized)
+}
+
+/// The JavaScript of an `external` function of the SDK that is a snippet of the
+/// WebAssembly target (`@pragma('dartforge:js', '<code>')`, `crate::js_interop`).
+/// Only the SDK's libraries declare snippets: a user library's pragma is not one.
+pub fn js_snippet(
+    program: &dartforge_elements::Program,
+    interner: &dartforge_intern::Interner,
+    f: &dartforge_elements::model::FunctionElement,
+) -> Option<String> {
+    if !f.external || !program.library(f.library).uri.starts_with("dart:") {
+        return None;
+    }
+    pragma_strings(program, interner, f)
+        .into_iter()
+        .find(|strings| strings.first().and_then(|t| t.as_deref()) == Some("dartforge:js"))
+        .and_then(|strings| strings.get(1).cloned().flatten())
+}
+
+/// The arguments of each `@pragma` of the function: the text of each string
+/// literal, `None` for another expression.
+fn pragma_strings(
+    program: &dartforge_elements::Program,
+    interner: &dartforge_intern::Interner,
+    f: &dartforge_elements::model::FunctionElement,
+) -> Vec<Vec<Option<String>>> {
     use dartforge_elements::model::FunctionRef;
     use dartforge_frontend::ast;
     // The pragma lives on the `Member`/`Decl` that declares the function.
@@ -994,36 +1032,27 @@ pub fn pragmas(
         FunctionRef::None => &[],
     };
     let unit = match f.node {
-        FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => Some(unit),
-        FunctionRef::None => None,
+        FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => unit,
+        FunctionRef::None => return Vec::new(),
     };
-    let mut native = None;
-    let mut recognized = false;
-    for an in metadata {
-        let Some(u) = unit else { break };
-        if an.name.len() != 1 || interner.resolve(an.name[0].sym) != "pragma" {
-            continue;
-        }
-        let Some(args) = &an.arguments else { continue };
-        let strings: Vec<Option<String>> = args
-            .args
-            .iter()
-            .map(
-                |a| match &program.unit(u).ast.exprs[a.value.0 as usize].kind {
-                    ast::ExprKind::String(lit) => lit
-                        .constant_value()
-                        .map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned()),
-                    _ => None,
-                },
-            )
-            .collect();
-        match strings.first().and_then(|t| t.as_deref()) {
-            Some("vm:external-name") => native = strings.get(1).cloned().flatten(),
-            Some("vm:recognized") => recognized = true,
-            _ => {}
-        }
-    }
-    (native, recognized)
+    metadata
+        .iter()
+        .filter(|an| an.name.len() == 1 && interner.resolve(an.name[0].sym) == "pragma")
+        .filter_map(|an| an.arguments.as_ref())
+        .map(|args| {
+            args.args
+                .iter()
+                .map(
+                    |a| match &program.unit(unit).ast.exprs[a.value.0 as usize].kind {
+                        ast::ExprKind::String(lit) => lit
+                            .constant_value()
+                            .map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned()),
+                        _ => None,
+                    },
+                )
+                .collect()
+        })
+        .collect()
 }
 
 /// The unpatched `external`s of the given libraries, with the pragma that
@@ -1085,28 +1114,49 @@ mod inventory {
         assert!(native("Inexistente").is_none());
     }
 
-    /// Every source native (with the overlay) has an entry, and every entry
-    /// is still a source native or a versioned package runtime contract.
+    /// Every source native (with the overlay of each destination) has an
+    /// entry, and every entry is still a source native of some destination or a
+    /// versioned package runtime contract.
     #[test]
     fn every_source_native_has_entry() {
         crate::sdk_tests();
         let externals = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(|| {
-                let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
-                let tmp = tempfile::tempdir().unwrap();
-                let entry = tmp.path().join("main.dart");
-                let mut source = String::new();
-                for b in crate::sdk_module::SOURCE_LIBRARIES {
-                    source.push_str(&format!("import 'dart:{b}';\n"));
+                let mut all = Vec::new();
+                for (target, libraries) in [
+                    (
+                        crate::sdk_module::OVERLAY_TARGET,
+                        crate::sdk_module::SOURCE_LIBRARIES,
+                    ),
+                    (
+                        crate::sdk_module::WASM_OVERLAY_TARGET,
+                        crate::sdk_module::WASM_SOURCE_LIBRARIES,
+                    ),
+                ] {
+                    let sdk = crate::sdk_module::sdk_sources_layout(
+                        dartforge_elements::sdk::SdkLayout::load_with_overlay(
+                            crate::sdk_tests(),
+                            &crate::sdk_module::overlay_dir(),
+                            target,
+                        )
+                        .unwrap(),
+                    );
+                    let tmp = tempfile::tempdir().unwrap();
+                    let entry = tmp.path().join("main.dart");
+                    let mut source = String::new();
+                    for b in libraries {
+                        source.push_str(&format!("import 'dart:{b}';\n"));
+                    }
+                    source.push_str("void main() {}\n");
+                    std::fs::write(&entry, source).unwrap();
+                    let mut interner = dartforge_intern::Interner::new();
+                    let (program, diags) =
+                        dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+                    assert!(diags.is_empty(), "{target}: {diags:?}");
+                    all.extend(inventory(&program, &interner, libraries));
                 }
-                source.push_str("void main() {}\n");
-                std::fs::write(&entry, source).unwrap();
-                let mut interner = dartforge_intern::Interner::new();
-                let (program, diags) =
-                    dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
-                assert!(diags.is_empty(), "{diags:?}");
-                inventory(&program, &interner, crate::sdk_module::SOURCE_LIBRARIES)
+                all
             })
             .unwrap()
             .join()

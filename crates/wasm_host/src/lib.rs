@@ -7,7 +7,7 @@
 //! The module is first checked by the strict gate (`dartforge-wasm-gate`):
 //! the executor never runs what the profile does not admit.
 
-use dartforge_wasm_gate::{HOST_MODULE, Policy};
+use dartforge_wasm_gate::{HOST_MODULE, JS_MODULE, Policy};
 use wasmtime::{Caller, Config, Engine, Linker, Memory, Module, Store};
 
 /// The ABI version this host implements (`dartforge_abi_version`).
@@ -63,6 +63,8 @@ pub enum RunError {
     Engine(String),
     /// The module's ABI version is not this host's.
     Abi(String),
+    /// The module uses the JavaScript interop, which only a JavaScript host has.
+    JavaScriptHost,
 }
 
 impl std::fmt::Display for RunError {
@@ -71,6 +73,11 @@ impl std::fmt::Display for RunError {
             RunError::Gate(e) => write!(f, "rejected by the wasm32-linear gate: {}", e.join("; ")),
             RunError::Engine(e) => write!(f, "engine: {e}"),
             RunError::Abi(e) => write!(f, "host ABI: {e}"),
+            RunError::JavaScriptHost => write!(
+                f,
+                "the module uses the JavaScript interop (dart:js_interop): run it in a \
+                 JavaScript host, with its companion .mjs and runtime/wasm/dartforge_host_v1.mjs"
+            ),
         }
     }
 }
@@ -277,9 +284,14 @@ fn run_here(
             "dartforge_abi_version".to_string(),
             "dartforge_run".to_string(),
         ],
+        // The interop namespace passes the gate so the refusal can name it.
+        import_modules: vec![HOST_MODULE.to_string(), JS_MODULE.to_string()],
         ..Policy::default()
     };
     let report = dartforge_wasm_gate::validate(bytes, &policy).map_err(RunError::Gate)?;
+    if report.imports.iter().any(|(module, _)| module == JS_MODULE) {
+        return Err(RunError::JavaScriptHost);
+    }
     let engine = profile_engine()?;
     let module = Module::new(&engine, bytes).map_err(|e| RunError::Engine(e.to_string()))?;
     let mut store = Store::new(
@@ -379,15 +391,32 @@ mod tests {
         (func (export "dartforge_abi_version") (result i32) (i32.const 1))
         (func (export "dartforge_run") (result i32)
           (drop (call $write (i32.const 1) (i32.const 16) (i32.const 6)))
-          (call $write (i32.const 1) (i32.const 65530) (i32.const 100))))"#;
+          ;; The status of the second write, offset by 100: a bare -1 is the
+          ;; "waiting for a timer" answer of `dartforge_run`.
+          (i32.add (i32.const 100)
+            (call $write (i32.const 1) (i32.const 65530) (i32.const 100)))))"#;
 
     #[test]
     fn writes_and_reports_out_of_range() {
         let o = run(&module(HELLO)).expect("runs");
         assert_eq!(o.stdout, b"hello\n");
         // The second write crosses the end of the memory: an error code, not a trap.
-        assert_eq!(o.status, Some(write_status::OUT_OF_RANGE));
+        assert_eq!(o.status, Some(100 + write_status::OUT_OF_RANGE));
         assert!(o.trap.is_none());
+    }
+
+    /// A module that uses `dart:js_interop` needs a JavaScript host: refused
+    /// before it runs, naming why.
+    #[test]
+    fn refuses_the_javascript_interop() {
+        let wat = r#"(module
+            (import "dartforge_js" "release" (func (param i32)))
+            (memory (export "memory") 1)
+            (func (export "dartforge_abi_version") (result i32) (i32.const 1))
+            (func (export "dartforge_run") (result i32) (i32.const 0)))"#;
+        let error = run(&module(wat)).unwrap_err();
+        assert!(matches!(error, RunError::JavaScriptHost), "{error}");
+        assert!(error.to_string().contains("dart:js_interop"));
     }
 
     /// `exit` ends the run from inside with its status; the rest of the

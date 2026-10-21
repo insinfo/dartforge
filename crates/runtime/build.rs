@@ -143,8 +143,9 @@ const NATIVE_ONLY: &[&str] = &[
     "zlib",
 ];
 
-/// The fragments only the WebAssembly runtime has: the module's entry.
-const WASM_ONLY: &[&str] = &["wasm_entry"];
+/// The fragments only the WebAssembly runtime has: the module's entry and the
+/// JavaScript interop.
+const WASM_ONLY: &[&str] = &["wasm_entry", "js_interop"];
 
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");

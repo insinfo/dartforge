@@ -50,6 +50,11 @@ pub struct SdkLayout {
     /// with the compiler's message (the overlay's `user_import_errors`:
     /// dart2wasm refuses `dart:ffi` in user code).
     pub user_import_errors: HashMap<String, String>,
+    /// A library outside the SDK may not import the platform's private
+    /// libraries (`dart:_internal`…), as the CFE refuses them: on with an overlay
+    /// (the native and WebAssembly targets), off for the entries that load the
+    /// SDK's own libraries.
+    pub refuses_private_imports: bool,
 }
 
 /// Command-line language options: `--language-version x.y` (the current
@@ -152,6 +157,7 @@ impl SdkLayout {
             experiments: Vec::new(),
             replacements: HashMap::new(),
             user_import_errors: HashMap::new(),
+            refuses_private_imports: false,
         })
     }
 
@@ -238,6 +244,7 @@ impl SdkLayout {
             experiments: Vec::new(),
             replacements: HashMap::new(),
             user_import_errors: HashMap::new(),
+            refuses_private_imports: false,
         })
     }
 
@@ -275,18 +282,28 @@ impl SdkLayout {
             .and_then(|b| b.as_str())
             .ok_or_else(|| format!("{target}.base missing in {}", path.display()))?;
         let mut sdk = Self::load(lib_dir, base)?;
+        sdk.refuses_private_imports = true;
         // A target may change whole library entries of its base (another set
-        // of patches, `supported: false`) and drop libraries its platform does
-        // not have; the paths stay relative to the SDK's `lib/`.
+        // of patches, `supported: false`), add libraries its platform has and
+        // the base does not (`"new": true`, the WebAssembly target's JavaScript
+        // interop) and drop libraries its platform does not have. Paths are
+        // relative to the SDK's `lib/`; `overlay:<path>` names a file of the
+        // overlay directory.
         if let Some(entries) = section_.get("libraries").and_then(|l| l.as_object()) {
             for (name, entry) in entries {
-                if !sdk.libraries.contains_key(name) {
+                let adds = entry.get("new").and_then(|n| n.as_bool()).unwrap_or(false);
+                if sdk.libraries.contains_key(name) == adds {
+                    let problem = if adds {
+                        "is marked new, but the base already has it"
+                    } else {
+                        "changes a library the base does not have"
+                    };
                     return Err(format!(
-                        "{target}.libraries[{name}] changes a library the base {base} does not have ({})",
+                        "{target}.libraries[{name}] {problem} ({base}, {})",
                         path.display()
                     ));
                 }
-                let library = Self::library_entry(name, entry, lib_dir)?;
+                let library = Self::library_entry_in(name, entry, lib_dir, Some(overlay_dir))?;
                 for file in std::iter::once(&library.path).chain(&library.patches) {
                     if !file.is_file() {
                         return Err(format!(
@@ -412,17 +429,34 @@ impl SdkLayout {
         entry: &serde_json::Value,
         lib_dir: &Path,
     ) -> Result<SdkLibrary, String> {
+        Self::library_entry_in(name, entry, lib_dir, None)
+    }
+
+    /// [`Self::library_entry`] of an overlay target: a path written as
+    /// `overlay:<path>` is a file of the overlay directory (a library or patch
+    /// the SDK does not have, like the WebAssembly target's JavaScript interop),
+    /// the others stay relative to the SDK's `lib/`.
+    fn library_entry_in(
+        name: &str,
+        entry: &serde_json::Value,
+        lib_dir: &Path,
+        overlay_dir: Option<&Path>,
+    ) -> Result<SdkLibrary, String> {
+        let resolve = |p: &str| match (p.strip_prefix("overlay:"), overlay_dir) {
+            (Some(rest), Some(dir)) => dir.join(rest),
+            _ => lib_dir.join(p),
+        };
         let uri = entry
             .get("uri")
             .and_then(|u| u.as_str())
             .ok_or_else(|| format!("library {name} without uri"))?;
         let patches = match entry.get("patches") {
             None => Vec::new(),
-            Some(serde_json::Value::String(one)) => vec![lib_dir.join(one)],
+            Some(serde_json::Value::String(one)) => vec![resolve(one)],
             Some(serde_json::Value::Array(many)) => many
                 .iter()
                 .filter_map(|p| p.as_str())
-                .map(|p| lib_dir.join(p))
+                .map(resolve)
                 .collect(),
             Some(_) => return Err(format!("library {name} with invalid patches")),
         };
@@ -432,7 +466,7 @@ impl SdkLayout {
             .unwrap_or(true);
         Ok(SdkLibrary {
             name: name.to_string(),
-            path: lib_dir.join(uri),
+            path: resolve(uri),
             patches,
             supported,
         })

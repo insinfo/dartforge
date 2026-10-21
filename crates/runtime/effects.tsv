@@ -173,6 +173,9 @@ dartforge_init	1	1	1
 dartforge_is_subclass	0	0	0
 dartforge_iteravel_get_bits	1	1	1
 dartforge_iteravel_get_ref	1	1	1
+dartforge_js_string_to_dart	1	0	0
+dartforge_js_string_to_js	0	0	0
+dartforge_js_throw	1	1	1
 dartforge_late_error_new	1	1	1
 dartforge_late_field_initialized	0	0	0
 dartforge_late_field_initializing	0	0	0
@@ -267,6 +270,7 @@ dartforge_native_DartForge_hash_set_lookup	1	1	0
 dartforge_native_DartForge_int_hashCode	1	1	0
 dartforge_native_DartForge_int_toString	1	1	0
 dartforge_native_DartForge_isolate_thread_id	0	0	0
+dartforge_native_DartForge_js_attach	1	0	0
 dartforge_native_DartForge_json_close_list	1	1	0
 dartforge_native_DartForge_json_mark	1	1	0
 dartforge_native_DartForge_json_push	1	1	0

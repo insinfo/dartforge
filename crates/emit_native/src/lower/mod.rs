@@ -25,6 +25,8 @@ pub mod ffi;
 pub mod fn_builder;
 pub mod inheritance;
 pub mod intrinsics;
+pub mod js_interop;
+pub mod js_members;
 mod layouts_arc;
 /// The inline members of `_List`/`_GrowableList` (P3 of the unified space).
 pub mod lists;

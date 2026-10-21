@@ -5,10 +5,14 @@
 //
 // Only portable pieces: `WebAssembly`, `crypto.subtle` and typed arrays. No
 // WASI, no DOM, no BigInt at the boundary. A trap or a JS error inside the
-// module's run is returned as `trap`, never thrown across the boundary.
+// module's run is returned as `trap`, never thrown across the boundary. A
+// module that uses `dart:js_interop` also imports `dartforge_js`: this file's
+// handle table and the snippets of the module's companion `.mjs` (the
+// independent executor refuses such a module).
 
 export const ABI_VERSION = 1;
 export const HOST_MODULE = "dartforge_host_v1";
+export const JS_MODULE = "dartforge_js";
 
 export const WRITE_OK = 0;
 export const WRITE_OUT_OF_RANGE = -1;
@@ -31,6 +35,91 @@ function range(memory, offset, length) {
   return end <= memory.buffer.byteLength ? [start, end] : null;
 }
 
+/** Code units per `String.fromCharCode` call (its arguments go on the stack). */
+const CHUNK = 8192;
+
+/** A string from code units (Latin-1 bytes or UTF-16), lone surrogates kept. */
+function stringFromUnits(units) {
+  let s = "";
+  for (let i = 0; i < units.length; i += CHUNK) {
+    s += String.fromCharCode.apply(null, units.subarray(i, i + CHUNK));
+  }
+  return s;
+}
+
+/**
+ * The JavaScript side of the module's interop (`dart:js_interop`,
+ * docs/WASM-HOST-ABI-V1.md): the table of the values the module's handles name
+ * (0 is `null`/`undefined`, which Dart sees as `null`) and the helpers the
+ * snippets of the companion `.mjs` call as `r`.
+ */
+export class Interop {
+  constructor() {
+    this.values = [null];
+    this.free = [];
+    this.memory = null;
+    this.exports = null;
+    /** The property of a JavaScript function that wraps a Dart function. */
+    this.wrappedDartFunction = Symbol("dartforge.wrappedDartFunction");
+  }
+
+  /** The value of a handle the module keeps. */
+  get(handle) {
+    return this.values[handle];
+  }
+
+  /** The value of a handle the call consumes (a `String` argument). */
+  take(handle) {
+    const value = this.values[handle];
+    if (handle !== 0) this.release(handle);
+    return value;
+  }
+
+  /** A new handle of `value` for the module. */
+  ref(value) {
+    if (value === null || value === undefined) return 0;
+    const handle = this.free.length > 0 ? this.free.pop() : this.values.length;
+    this.values[handle] = value;
+    return handle;
+  }
+
+  release(handle) {
+    this.values[handle] = undefined;
+    this.free.push(handle);
+  }
+
+  /** A snippet threw: the exception becomes the Dart side's, pending in the module. */
+  fail(error) {
+    this.exports.dartforge_js_throw();
+    return 0;
+  }
+
+  /** The `dartforge_js` imports: the runtime's and the companion's snippets. */
+  imports(companion) {
+    const units = (offset, length, two) =>
+      two ? new Uint16Array(this.memory.buffer, offset, length) : new Uint8Array(this.memory.buffer, offset, length);
+    return {
+      release: (handle) => this.release(handle),
+      string_from_latin1: (offset, length) => this.ref(stringFromUnits(units(offset, length, false))),
+      string_from_utf16: (offset, length) => this.ref(stringFromUnits(units(offset, length, true))),
+      // The length, negative (`-n - 1`) when a unit does not fit in one byte.
+      string_length: (handle) => {
+        const s = this.values[handle];
+        for (let i = 0; i < s.length; i++) {
+          if (s.charCodeAt(i) > 0xff) return -s.length - 1;
+        }
+        return s.length;
+      },
+      string_read: (handle, offset, two) => {
+        const s = this.values[handle];
+        const view = units(offset, s.length, two !== 0);
+        for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i);
+      },
+      ...companion.snippets(this),
+    };
+  }
+}
+
 /** The SHA-256 of `bytes` in lowercase hex. */
 export async function sha256Hex(bytes) {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -45,9 +134,16 @@ export async function sha256Hex(bytes) {
  * `dartforge_run`'s result, `trap` the engine error when it did not return.
  * Rejects only when the module does not run at all (compile, link or ABI).
  * `options` are the runtime options `option` answers (`DARTFORGE_*` names).
+ * `companion` is the module's companion `.mjs` (its namespace), which a module
+ * that uses `dart:js_interop` needs.
  */
-export async function runModule(bytes, sinks, options = {}) {
+export async function runModule(bytes, sinks, options = {}, companion = null) {
   const sha256 = await sha256Hex(bytes);
+  const module = await WebAssembly.compile(bytes);
+  const interop = WebAssembly.Module.imports(module).some((i) => i.module === JS_MODULE) ? new Interop() : null;
+  if (interop !== null && (companion === null || companion.abi !== ABI_VERSION)) {
+    throw new Error("the module uses dart:js_interop: it needs its companion .mjs");
+  }
   let memory = null;
   const imports = {
     [HOST_MODULE]: {
@@ -110,10 +206,15 @@ export async function runModule(bytes, sinks, options = {}) {
       },
     },
   };
-  const { instance } = await WebAssembly.instantiate(bytes, imports);
+  if (interop !== null) imports[JS_MODULE] = interop.imports(companion);
+  const instance = await WebAssembly.instantiate(module, imports);
   const exports = instance.exports;
   if (!(exports.memory instanceof WebAssembly.Memory)) throw new Error("no exported memory");
   memory = exports.memory;
+  if (interop !== null) {
+    interop.memory = memory;
+    interop.exports = exports;
+  }
   if (typeof exports.dartforge_abi_version !== "function") throw new Error("no dartforge_abi_version");
   const version = exports.dartforge_abi_version();
   if (version !== ABI_VERSION) throw new Error(`module ABI ${version}, host ABI ${ABI_VERSION}`);

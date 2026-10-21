@@ -1171,6 +1171,30 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare void @dartforge_register_helper(ptr, i64, ptr)",
         effects: CONSERVATIVE,
     },
+    // The JavaScript interop of WebAssembly modules (crate::js_interop): a
+    // `String` argument of a snippet becomes a JavaScript string (no heap
+    // allocation), a `String` result a Dart string; the export the adapter calls
+    // when a snippet throws runs `_dartforgeJavaScriptError`.
+    Extern {
+        decl: "declare i64 @dartforge_js_string_to_js(i64)",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_js_string_to_dart(i64)",
+        effects: ALLOCATES_WITHOUT_THROWING,
+    },
+    Extern {
+        decl: "declare void @dartforge_js_throw()",
+        effects: Effects {
+            allocates: true,
+            throws: true,
+            calls_dart: true,
+        },
+    },
     Extern {
         decl: "declare void @dartforge_register_argument_name(ptr, i64)",
         effects: CONSERVATIVE,
@@ -1674,6 +1698,14 @@ pub fn effects_of(name: &str) -> Effects {
     // The scope thunk has the effects of the base (the scope does not allocate).
     if let Some(base) = name.strip_prefix(crate::optimize::arc::NATIVE_SCOPE_PREFIX) {
         return effects_of(base);
+    }
+    // A JavaScript snippet may call back into Dart (`Function.toJS`).
+    if name.starts_with(crate::js_interop::SNIPPET_PREFIX) {
+        return Effects {
+            allocates: true,
+            throws: true,
+            calls_dart: true,
+        };
     }
     // The `@df.*` helpers of each unified-space package called through
     // `CallRuntime` (docs/NATIVO-ESPACO-UNIFICADO.md §3.5).

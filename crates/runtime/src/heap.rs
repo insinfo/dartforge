@@ -2012,7 +2012,8 @@ pub struct Heap {
 /// A finalizer attachment (see `Heap::attachments`).
 #[derive(Debug, Clone, Copy)]
 pub struct FinalizerAttachment {
-    /// The `Finalizer`/`NativeFinalizer` (identity for `detach`).
+    /// The `Finalizer`/`NativeFinalizer` (identity for `detach`); 0 for a native
+    /// action without one (a `JSValue`'s handle).
     pub owner: i64,
     pub value: i64,
     /// The `detach` key (0 = none).
@@ -3853,7 +3854,11 @@ impl Heap {
 
     /// Registers the side edge without turning the owner into a global root.
     pub(crate) fn add_attachment(&mut self, attachment: FinalizerAttachment) {
-        self.check_live(attachment.owner);
+        // A native action may have no owner (0): the JavaScript handle of a
+        // `JSValue` (`js_interop.rs`) is released by the value's death alone.
+        if attachment.owner != 0 || matches!(attachment.action, FinalizerAction::Dart(_)) {
+            self.check_live(attachment.owner);
+        }
         if let FinalizerAction::Dart(action) = attachment.action {
             self.check_live(action);
             if let Some(b) = self.space_block(attachment.owner) {

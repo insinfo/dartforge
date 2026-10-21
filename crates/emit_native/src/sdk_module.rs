@@ -46,7 +46,8 @@ pub const SOURCE_LIBRARIES: &[&str] = &[
 ];
 
 /// [`SOURCE_LIBRARIES`] of the WebAssembly target: without `dart:mirrors`, which
-/// dart2wasm does not have either (the `dartforge_wasm` overlay section).
+/// dart2wasm does not have either, and with dart2wasm's JavaScript interop (the
+/// `dartforge_wasm` overlay section).
 pub const WASM_SOURCE_LIBRARIES: &[&str] = &[
     "_internal",
     "core",
@@ -62,6 +63,12 @@ pub const WASM_SOURCE_LIBRARIES: &[&str] = &[
     "ffi",
     "_http",
     "io",
+    "_js_helper",
+    "_js_types",
+    "_js_annotations",
+    "js_util",
+    "js_interop_unsafe",
+    "js_interop",
 ];
 
 /// The SDK libraries compiled from source for the selected destination.
@@ -75,9 +82,11 @@ pub fn source_libraries() -> &'static [&'static str] {
 
 /// The layout for loading the SDK's own libraries (the synthetic entry that
 /// imports all of them): the target's restrictions on what user code may import
-/// (`user_import_errors`, dart2wasm's `dart:ffi`) do not apply to the SDK.
-fn sdk_sources_layout(mut sdk: SdkLayout) -> SdkLayout {
+/// (`user_import_errors`, dart2wasm's `dart:ffi`; the platform's private
+/// libraries) do not apply to the SDK.
+pub fn sdk_sources_layout(mut sdk: SdkLayout) -> SdkLayout {
     sdk.user_import_errors.clear();
+    sdk.refuses_private_imports = false;
     sdk
 }
 
@@ -432,7 +441,12 @@ fn emit_sdk_modules(
         &mut outline,
         &libs,
     );
-    let base = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies);
+    // The extension types of the SDK (`dart:js_interop`'s JS types): erased as in
+    // the program's compilation.
+    let te = crate::erasure::compute(&program, &outline, &mut table);
+    let mut base =
+        crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies);
+    base.te = te.clone();
     let base = base.with_source_sdk();
     // The SDK comes out in the exception model of the program (`target::table_exceptions`).
     let table_exceptions = crate::target::table_exceptions()?;
@@ -449,6 +463,7 @@ fn emit_sdk_modules(
             crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
                 .with_source_sdk()
                 .only_the_library(lib);
+        ctx.te = te.clone();
         ctx.arc_memory = arc_memory;
         ctx.enable_asserts = flags.enable_asserts;
         ctx.product = flags.product;
@@ -1412,8 +1427,11 @@ pub fn measure_sdk_lowering(lib_dir: &Path) -> Result<Vec<SdkMember>, String> {
         &mut outline,
         &libs,
     );
-    let ctx = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
-        .with_source_sdk();
+    let te = crate::erasure::compute(&program, &outline, &mut table);
+    let mut ctx =
+        crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
+            .with_source_sdk();
+    ctx.te = te;
     let mut exit = Vec::new();
     for f in 0..program.functions.len() {
         if !libs.contains(&program.functions[f].library) {

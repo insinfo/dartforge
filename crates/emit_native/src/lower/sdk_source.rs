@@ -1031,7 +1031,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         this: Option<Operand>,
         args: &[Operand],
     ) -> Option<Operand> {
+        let shape = self
+            .call_shape
+            .take()
+            .filter(|(f, _)| *f == fid)
+            .map(|(_, s)| s);
         let f = &self.ctx.program.functions[fid];
+        if f.external
+            && let Some(member) = super::js_members::interop_member(self.ctx, fid)
+        {
+            let span = Span { start: 0, end: 0 };
+            let r = match member {
+                Ok(member) => self.call_interop(fid, &member, this, args, shape),
+                Err(message) => self.unsupported(&message, span),
+            };
+            let ret = self.return_repr(fid);
+            return Some(if ret == Type::Void {
+                Operand::Constant(Constant::Null)
+            } else {
+                self.coerce(r, ret)
+            });
+        }
         if !f.external || f.variable.is_some() {
             return None;
         }
@@ -1039,6 +1059,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             && p.0 as usize != fid
         {
             return Some(self.call_direct(p.0 as usize, this, args.to_vec()));
+        }
+        if let Some(code) = crate::natives::js_snippet(self.ctx.program, self.ctx.interner, f) {
+            let r = self.call_snippet(fid, &code, args);
+            let ret = self.return_repr(fid);
+            return Some(if ret == Type::Void {
+                Operand::Constant(Constant::Null)
+            } else {
+                self.coerce(r, ret)
+            });
         }
         let (native, recognized) = crate::natives::pragmas(self.ctx.program, self.ctx.interner, f);
         let span = Span { start: 0, end: 0 };

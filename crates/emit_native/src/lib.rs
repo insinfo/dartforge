@@ -13,6 +13,7 @@ mod finalizables;
 pub mod gcmap;
 pub mod generator;
 pub mod hir;
+pub mod js_interop;
 pub mod linked_images;
 pub mod linker;
 pub mod linker_macos;

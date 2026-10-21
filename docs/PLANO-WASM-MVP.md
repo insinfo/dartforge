@@ -477,6 +477,56 @@ Nenhum host fornece privilégios de filesystem/rede por padrão.
 **Aceite:** corpus `async` e de interop iguais à VM/dart2wasm, sem reentrada
 durante GC, sem busy loop quando ocioso e sem bloquear o event loop do browser.
 
+#### Desenho do interop JS (21/10/2026)
+
+O dart2wasm representa um valor JS como `JSValue` (um `externref` do WasmGC) e
+baixa cada membro `@JS` externo para um trecho de JavaScript (`JS<T>('(o, a) =>
+o.f(a)', …)`) que ele escreve no `.mjs` gerado ao lado do módulo. O DartForge faz o
+mesmo sobre a memória linear:
+
+| peça | desenho |
+|---|---|
+| valor JS | `JSValue` da biblioteca interna do alvo guarda um handle `i32` da tabela do adaptador; JS `null`/`undefined` chegam como Dart `null` (`JSAny?`), como no dart2wasm. O `Finalizer` do runtime libera o handle quando o objeto Dart morre (import `js_release`); a identidade JS é comparada no JS (`===`), nunca pelo handle |
+| trechos | o lowering reconhece `JS<T>('código', args…)` de string constante e cria um import `dartforge_js.<n>`; os parâmetros passam como `i32` (handle, `bool`), `f64` (`double`, `int` como número JS) ou texto; o retorno volta do mesmo jeito. Cada trecho embrulha o código do usuário com a conversão de handles |
+| `.mjs` companheiro | `compile-wasm` escreve `<app>.mjs` com as funções dos trechos, sem `eval` (compatível com CSP); o adaptador o carrega junto com o módulo. Um módulo que importa `dartforge_js` exige o host JS, como no dart2wasm; o executor independente o recusa com mensagem clara |
+| texto | Dart → JS copia os code units (Latin-1 do `_OneByteString`, UTF-16 do `_TwoByteString`) pela memória linear; JS → Dart copia UTF-16 e o runtime escolhe a representação |
+| membros `@JS` | a análise do backend JS (`emit_js/src/ctx.rs`: bibliotecas e classes `@JS`, `@staticInterop`, nomes de `@JS('x')`, membros de extensão e de tipos de extensão sobre `JSObject`) vira análise compartilhada; o lowering Wasm produz o trecho de cada membro (getter, setter, método, construtor, estático, função de topo, construtor só com nomeados como literal de objeto) |
+| callbacks | `Function.toJS` cria no adaptador uma função JS que chama o export `dartforge_js_call` com o handle do closure (raiz global do runtime) e os argumentos; a chamada reentra no Dart fora da coleta, como os callbacks FFI síncronos |
+| `Future`/`JSPromise` | `toDart` assina `then` com dois callbacks que completam um `Completer`; `toJS` cria a promessa com `resolve`/`reject` guardados como handles |
+| bibliotecas | patches próprios de `dart:js_interop`, `js_interop_unsafe` e `js_util` sobre `JSValue`/`JS<T>`, com a mesma API e os mesmos erros do dart2wasm; `dart.library.js_interop` passa a ser verdadeiro |
+
+Ordem dos incrementos, cada um com código definitivo: (1) `JSValue`, `JS<T>`,
+o `.mjs` e o adaptador; (2) tipos e conversões (`num`, `bool`, `String`,
+`globalContext`, `js_interop_unsafe`, `isA`, `typeofEquals`, `instanceOf`); (3)
+membros `@JS` pela análise compartilhada; (4) `Function.toJS`, `JSPromise`,
+`toJSBox`/`ExternalDartReference`; (5) `JSArray`, typed arrays e `dart:js_util`;
+(6) os programas de interop do corpus JS e `package:web` contra o dart2wasm.
+
+Estado (21/10/2026):
+
+- **(1) feito.** `JSValue` (`native_sdk/wasm/js_helper.dart`) dono de um handle,
+  liberado por finalizador nativo sem dono (`crates/runtime/src/js_interop.rs`);
+  trechos por `@pragma('dartforge:js', …)` em `external`s do SDK
+  (`crates/emit_native/src/js_interop.rs`, `lower/js_interop.rs`); imports
+  `s:<hex>` renomeados depois do link e o `.mjs` companheiro; adaptador com a
+  tabela de handles e strings por cópia de unidades; exceção JS vira
+  `_JavaScriptError` pelo export `dartforge_js_throw`. Imports de `dart:_*` por
+  código do usuário são recusados como no CFE, e `dart:js_util` como no dart2wasm.
+- **(2) feito**, menos `isA`: conversões de `num`/`bool`/`String`,
+  `globalContext`, `js_interop_unsafe`, `typeofEquals`, `instanceof`, operadores
+  de `JSAny`, `jsify`/`dartify` sem listas tipadas.
+- **(3) feito nas chamadas diretas** (`lower/js_members.rs`): membros de extension
+  types de interop, extensões sobre tipos de interop, classes `@JS`/
+  `@staticInterop` e top-level `@JS`, com os trampolins do dart2wasm, prefixo
+  `@JS` da biblioteca, só os argumentos escritos na chamada e literais de objeto
+  pela forma dos nomeados; conversões de retorno medidas no dart2wasm 3.6.2
+  (`int` exige inteiro; `double`/`num`/`bool`/`String` por `dartifyRaw` e cast;
+  tipo JS não anulável com `null` → *null check*). Faltam *tear-offs* e variáveis
+  `external`.
+- Diferenças que seguem a política de referência (VM): o `runtimeType` de uma
+  string vinda do JS é `String` (no dart2wasm, `JSStringImpl`) e as mensagens de
+  cast têm o texto da VM (`type 'X' is not…`).
+
 ### W7 — CLI, distribuição e homologação
 
 Comando fixado no W1 (o equivalente do `dart compile wasm`):

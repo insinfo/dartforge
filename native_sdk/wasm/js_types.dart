@@ -1,0 +1,67 @@
+// The `dart:_js_types` of DartForge's WebAssembly target (`dartforge_wasm`,
+// docs/PLANO-WASM-MVP.md, "Desenho do interop JS"): as in dart2wasm
+// (`_internal/wasm/lib/js_types.dart`), every JS type of `dart:js_interop` is
+// represented by `JSValue`, the handle of a JavaScript value.
+//
+// **WARNING**: You should *not* rely on these runtime types. Not only is this
+// library not guaranteed to be consistent across platforms, these types may
+// change in the future.
+
+library dart._js_types;
+
+import 'dart:_js_helper' as js;
+
+typedef JSAnyRepType = js.JSValue;
+
+typedef JSObjectRepType = js.JSValue;
+
+typedef JSFunctionRepType = js.JSValue;
+
+typedef JSExportedDartFunctionRepType = js.JSValue;
+
+typedef JSArrayRepType = js.JSValue;
+
+typedef JSBoxedDartObjectRepType = js.JSValue;
+
+typedef JSArrayBufferRepType = js.JSValue;
+
+typedef JSDataViewRepType = js.JSValue;
+
+typedef JSTypedArrayRepType = js.JSValue;
+
+typedef JSInt8ArrayRepType = js.JSValue;
+
+typedef JSUint8ArrayRepType = js.JSValue;
+
+typedef JSUint8ClampedArrayRepType = js.JSValue;
+
+typedef JSInt16ArrayRepType = js.JSValue;
+
+typedef JSUint16ArrayRepType = js.JSValue;
+
+typedef JSInt32ArrayRepType = js.JSValue;
+
+typedef JSUint32ArrayRepType = js.JSValue;
+
+typedef JSFloat32ArrayRepType = js.JSValue;
+
+typedef JSFloat64ArrayRepType = js.JSValue;
+
+typedef JSNumberRepType = js.JSValue;
+
+typedef JSBooleanRepType = js.JSValue;
+
+typedef JSStringRepType = js.JSValue;
+
+typedef JSPromiseRepType = js.JSValue;
+
+typedef JSSymbolRepType = js.JSValue;
+
+typedef JSBigIntRepType = js.JSValue;
+
+// While this type is not a JS type, it is here for convenience so we don't need
+// to create a new shared library.
+typedef ExternalDartReferenceRepType<T> = js.JSValue?;
+
+// JSVoid is just a typedef for void.
+typedef JSVoidRepType = void;
