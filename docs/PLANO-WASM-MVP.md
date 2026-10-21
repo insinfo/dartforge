@@ -422,7 +422,16 @@ Abertos para o W4:
 2. **Quadros do motor.** A profundidade máxima no Node é 7 mil quadros contra 14
    mil do dart2wasm: os quadros têm o dobro do tamanho.
 3. **Tamanho.** Hello com 1,9 MB contra 47 KB do dart2wasm (que usa strings e
-   números do JavaScript): o runtime inteiro e o SDK sem poda por mundo fechado.
+   números do JavaScript). Primeiros cortes (21/10): o estado ARC e o controle de
+   isolados viram constantes no wasm32 (o `--memory=arc` e os isolados não existem
+   ali) e o otimizador tira esses caminhos: 1,72 MB. O resto é o SDK sem poda por
+   classe instanciada: `df.prepare_isolate` registra as tabelas de todas as
+   classes de valores do runtime (listas tipadas e SIMD inclusive), e o ajudante
+   `_dartforgeNoSuchMethod`, registrado sempre, puxa `NoSuchMethodError` →
+   `Invocation` → `LinkedHashMap` → `Error.safeToString` → `jsonEncode`
+   (`DARTFORGE_WHY`, `tools/size/why.py`). É a mesma frente do alcance fechado
+   do nativo (docs/NATIVO-PODA-DE-TABELAS.md §7): classe do runtime viva só com
+   produtor vivo (alocação Dart ou native que a cria).
 4. **Interop JS** (`dart:js_interop`), com `dart.library.js_interop` verdadeiro.
 
 ### W4 — Paridade com a VM e o dart2wasm

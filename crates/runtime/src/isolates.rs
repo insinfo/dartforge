@@ -123,6 +123,11 @@ fn with_state<R>(f: impl FnOnce(&mut IsolateState) -> R) -> R {
 
 /// Whether the isolate is paused (the loop only serves the control port).
 fn paused_isolate() -> bool {
+    // A WebAssembly module has a single isolate and no ports (`dart:isolate`
+    // throws `UnsupportedError`, as in dart2wasm): nothing to serve.
+    if cfg!(target_arch = "wasm32") {
+        return false;
+    }
     ISOLATE.with(|i| i.borrow().as_ref().is_some_and(|e| !e.pauses.is_empty()))
 }
 
@@ -168,6 +173,11 @@ fn copy_to_other_isolate(value: i64) -> Option<Graph> {
 /// Serves the pending control messages. Returns `false` if the isolate must end
 /// (`kill`).
 fn serve_control() -> bool {
+    // A WebAssembly module has a single isolate and no ports (`dart:isolate`
+    // throws `UnsupportedError`, as in dart2wasm): nothing to serve.
+    if cfg!(target_arch = "wasm32") {
+        return true;
+    }
     while let Some(g) = next_control() {
         with_control_message(&g, handle_control_message);
     }

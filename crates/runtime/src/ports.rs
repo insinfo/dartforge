@@ -1475,6 +1475,11 @@ pub extern "C" fn dartforge_release_isolates(stopped_flag: usize, area: usize, r
 
 /// Serves the requests at this isolate's safepoint (the event loop).
 fn serve_safepoints() {
+    // A WebAssembly module has a single isolate and no ports (`dart:isolate`
+    // throws `UnsupportedError`, as in dart2wasm): nothing to serve.
+    if cfg!(target_arch = "wasm32") {
+        return;
+    }
     loop {
         let request = QUEUE.with(|f| f.messages.lock().unwrap_or_else(|e| e.into_inner()).safepoints.pop_front());
         let Some((f, datum)) = request else { return };
@@ -1544,6 +1549,11 @@ fn has_live_port() -> bool {
 
 /// The arrival of the oldest message in the queue, if any.
 fn next_arrival() -> Option<crate::clock::Instant> {
+    // A WebAssembly module has a single isolate and no ports (`dart:isolate`
+    // throws `UnsupportedError`, as in dart2wasm): nothing to serve.
+    if cfg!(target_arch = "wasm32") {
+        return None;
+    }
     QUEUE.with(|f| f.messages.lock().unwrap_or_else(|e| e.into_inner()).normal.front().map(|m| m.arrival))
 }
 

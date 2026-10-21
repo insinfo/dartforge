@@ -387,6 +387,55 @@ pub struct RootFrame {
 pub static dartforge_context_slot: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
+/// The heap's ARC state (`--memory=arc`). A WebAssembly module never has it
+/// (the option is native only): there every query answers "off" as a constant,
+/// so the optimizer drops the ARC paths from the module.
+#[derive(Debug)]
+pub(crate) struct ArcSlot(Option<Box<HeapArc>>);
+
+impl ArcSlot {
+    pub(crate) const NONE: ArcSlot = ArcSlot(None);
+
+    #[inline(always)]
+    fn get(&self) -> Option<&HeapArc> {
+        if cfg!(target_arch = "wasm32") { None } else { self.0.as_deref() }
+    }
+
+    #[inline(always)]
+    pub(crate) fn is_some(&self) -> bool {
+        self.get().is_some()
+    }
+
+    #[inline(always)]
+    pub(crate) fn is_none(&self) -> bool {
+        self.get().is_none()
+    }
+
+    #[inline(always)]
+    pub(crate) fn as_ref(&self) -> Option<&HeapArc> {
+        self.get()
+    }
+
+    #[inline(always)]
+    pub(crate) fn as_mut(&mut self) -> Option<&mut Box<HeapArc>> {
+        if cfg!(target_arch = "wasm32") { None } else { self.0.as_mut() }
+    }
+
+    #[inline(always)]
+    pub(crate) fn as_deref_mut(&mut self) -> Option<&mut HeapArc> {
+        self.as_mut().map(|a| &mut **a)
+    }
+
+    #[inline(always)]
+    pub(crate) fn take(&mut self) -> Option<Box<HeapArc>> {
+        if cfg!(target_arch = "wasm32") { None } else { self.0.take() }
+    }
+
+    pub(crate) fn set(&mut self, arc: Box<HeapArc>) {
+        self.0 = Some(arc);
+    }
+}
+
 /// A [`Context`] field the generated code reads at a fixed offset: an 8-byte cell
 /// on every target. On wasm32 the 4-byte pointer or `usize` sits in the low half
 /// (little-endian) and the high half stays zero, so both the `load ptr` and the
@@ -1945,7 +1994,7 @@ pub struct Heap {
     /// ARC (`--memory=arc`, docs/ARC-IMPLEMENTACAO.md): enabled by the
     /// program at startup (`dartforge_memory_arc_v1`); `None` is the usual
     /// tracing collector.
-    pub(crate) arc: Option<Box<HeapArc>>,
+    pub(crate) arc: ArcSlot,
 }
 
 /// A finalizer attachment (see `Heap::attachments`).
@@ -2065,7 +2114,7 @@ impl Heap {
                 .and_then(|v| v.parse::<usize>().ok())
                 .map_or(TLAB_BLOCKS, |n| n.clamp(1, 1 << 16)),
             young_bytes: 0,
-            arc: None,
+            arc: ArcSlot::NONE,
             minor_collection: false,
             aging: crate::console::env_var("DARTFORGE_GC_AGING").as_deref() != Ok("0"),
             aging_now: false,
@@ -2587,7 +2636,7 @@ impl Heap {
         };
         self.arc_retain_registering(&mut arc, new);
         arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
-        self.arc = Some(arc);
+        self.arc.set(arc);
     }
 
     /// Copies the root into the slot; zero removes the previous reference.
@@ -3799,7 +3848,7 @@ impl Heap {
                 self.arc_swapped(b, attachment.owner, 0, action);
             }
             self.remember_object(attachment.owner);
-            if let Some(arc) = &mut self.arc {
+            if let Some(arc) = self.arc.as_mut() {
                 arc.state.mark_side_edges(attachment.owner);
             }
             self.attachments_by_owner
@@ -4176,7 +4225,7 @@ impl Heap {
             }
             false
         });
-        if let Some(arc) = &mut self.arc {
+        if let Some(arc) = self.arc.as_mut() {
             for &action in &ready {
                 arc.state
                     .retain_ref(action)
@@ -6765,7 +6814,7 @@ impl Heap {
             // and keeps each occurrence, including repeated references.
             self.visit_strong_references(h, &mut |v| self.arc_retain_registering(&mut arc, v));
         }
-        self.arc = Some(arc);
+        self.arc.set(arc);
     }
 
     /// The raw write of a native that does not go through `Heap` (the `_data` of
@@ -6868,7 +6917,7 @@ impl Heap {
         for &x in &reached_set {
             arc.state.review(x);
         }
-        self.arc = Some(arc);
+        self.arc.set(arc);
     }
 
     /// Restores side indications after activation or metadata rebuilding.
@@ -7235,7 +7284,7 @@ impl Heap {
                 arc.state.candidates()
             );
         }
-        self.arc = Some(arc);
+        self.arc.set(arc);
         for (finalizer, pair) in finalize {
             finalizer(pair);
         }
@@ -7628,7 +7677,7 @@ impl Heap {
                 e.deferred_zeros
             );
         }
-        self.arc = Some(arc);
+        self.arc.set(arc);
         for (finalizer, pair) in finalize {
             finalizer(pair);
         }
@@ -7772,12 +7821,12 @@ mod arc_no_heap {
             assert!(heap.code_owners.is_empty());
             heap.collect();
             assert!(heap.is_live_object(value));
-            if let Some(arc) = &heap.arc {
+            if let Some(arc) = heap.arc.as_ref() {
                 assert_eq!(arc.state.meta(value).unwrap().rc, 1);
             }
             heap.retain_code_owner(value);
             heap.move_code_to_global(10, value);
-            if let Some(arc) = &heap.arc {
+            if let Some(arc) = heap.arc.as_ref() {
                 assert_eq!(arc.state.meta(value).unwrap().rc, 1);
             }
             assert!(
@@ -7826,20 +7875,20 @@ mod arc_no_heap {
             heap.move_code_to_root(frame, 1, a);
             heap.collect();
             assert!(!heap.is_live_object(old));
-            if let Some(arc) = &heap.arc {
+            if let Some(arc) = heap.arc.as_ref() {
                 assert_eq!(arc.state.meta(a).unwrap().rc, 3);
             }
             // The destination already contains a: consumes the token and the old occurrence.
             heap.move_code_to_root(frame, 1, a);
             assert!(heap.code_owners.is_empty());
-            if let Some(arc) = &heap.arc {
+            if let Some(arc) = heap.arc.as_ref() {
                 assert_eq!(arc.state.meta(a).unwrap().rc, 2);
             }
             assert_eq!(heap.copy_root_to_code(frame, 1), a);
             heap.pop_frame(frame);
             heap.collect();
             assert!(heap.is_live_object(a));
-            if let Some(arc) = &heap.arc {
+            if let Some(arc) = heap.arc.as_ref() {
                 assert_eq!(arc.state.meta(a).unwrap().rc, 1);
             }
             heap.release_code_owner(a);
@@ -7898,14 +7947,14 @@ mod arc_no_heap {
             heap.retain_code_owner(value);
             heap.collect();
             assert!(heap.is_live_object(value));
-            if let Some(arc) = &heap.arc {
+            if let Some(arc) = heap.arc.as_ref() {
                 assert_eq!(arc.state.meta(value).unwrap().rc, 2);
             }
             heap.set_root(frame, 0, 0);
             heap.release_code_owner(value);
             heap.collect();
             assert!(heap.is_live_object(value));
-            if let Some(arc) = &heap.arc {
+            if let Some(arc) = heap.arc.as_ref() {
                 assert_eq!(arc.state.meta(value).unwrap().rc, 1);
             }
             heap.release_code_owner(value);
