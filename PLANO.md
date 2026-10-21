@@ -330,6 +330,11 @@ explícitas. Os clones de referência não são membros do workspace nem depend�
 
 Contrato e limites: [ABI/FFI/Wasm](docs/ABI-FFI-WASM.md).
 
+Plano detalhado de 20/10/2026 para o backend atual, ainda sem implementação:
+[DartForge → LLVM → WebAssembly MVP](docs/PLANO-WASM-MVP.md).
+Define runtime portátil, ABI comum de browser/executor, fases W0–W7 e portas
+de validação binária/semântica. O objeto Wasm do teste ABI não conclui esse plano.
+
 ## Décimo segundo incremento — coleções e closures
 
 - [x] Arena de tipos estruturais para List<T>, Iterable<T> e assinaturas de funções.
