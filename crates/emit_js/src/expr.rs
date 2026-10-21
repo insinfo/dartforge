@@ -557,6 +557,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             _ => self.emit_expr_inner(e, expected),
         };
+        let js = match self.deferred_check(e) {
+            Some(check) => Js::new(
+                format!("({check}, {})", js.at(crate::js::P_ASSIGN)),
+                P_PRIMARY,
+            ),
+            None => js,
+        };
         let ty = self.refine_by_common(e, ty);
         if self.ctx.type_check.is_some() {
             self.check_type(e, &ty);
@@ -4778,42 +4785,63 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         _ => None,
                     }
                 }
-                IdentTarget::Element(Element::Class(c)) => {
-                    let mut cur = Some(c);
-                    while let Some(k) = cur {
-                        if let Some(mk) = self
-                            .ctx
-                            .declared_static(k, name, true)
-                            .or_else(|| self.ctx.declared_static(k, name, false))
-                        {
-                            if self.ctx.is_js_class(k) && self.ctx.is_js_member_kind(&mk) {
-                                return Some((
-                                    self.ctx.js_static_ref(
-                                        Some(k),
-                                        self.ctx.lib_of_class(k),
-                                        &mk,
-                                        name,
-                                    ),
-                                    true,
-                                ));
-                            }
-                            return Some((
-                                format!(
-                                    "{}{}",
-                                    self.class_ref(k),
-                                    js::prop_access(&static_member_name(name))
-                                ),
-                                false,
-                            ));
-                        }
-                        cur = self.ctx.superclass_of(k);
-                    }
-                    None
-                }
+                IdentTarget::Element(Element::Class(c)) => self.class_static_lvalue(c, name),
                 _ => None,
             },
+            // `p.C.x` with `p` an import prefix: the static member of `C`.
+            ExprKind::Property {
+                target: inner,
+                name: class_name,
+                ..
+            } => {
+                let ExprKind::Identifier(id) = &self.expr(*inner).kind else {
+                    return None;
+                };
+                let IdentTarget::Prefix(p) = self.ident_target(id.sym, *inner) else {
+                    return None;
+                };
+                let b = self
+                    .ctx
+                    .program
+                    .lookup_prefixed_in_unit(self.unit, p, class_name.sym)?;
+                match b.getter? {
+                    Element::Class(c) => self.class_static_lvalue(c, name),
+                    _ => None,
+                }
+            }
             _ => None,
         }
+    }
+
+    /// The static field or setter `name` of the class `c` (or of a superclass),
+    /// as an lvalue.
+    fn class_static_lvalue(&mut self, c: ClassId, name: &str) -> Option<(String, bool)> {
+        let mut cur = Some(c);
+        while let Some(k) = cur {
+            if let Some(mk) = self
+                .ctx
+                .declared_static(k, name, true)
+                .or_else(|| self.ctx.declared_static(k, name, false))
+            {
+                if self.ctx.is_js_class(k) && self.ctx.is_js_member_kind(&mk) {
+                    return Some((
+                        self.ctx
+                            .js_static_ref(Some(k), self.ctx.lib_of_class(k), &mk, name),
+                        true,
+                    ));
+                }
+                return Some((
+                    format!(
+                        "{}{}",
+                        self.class_ref(k),
+                        js::prop_access(&static_member_name(name))
+                    ),
+                    false,
+                ));
+            }
+            cur = self.ctx.superclass_of(k);
+        }
+        None
     }
 
     /// `recv[i] = v`; the expression evaluates to `v`.

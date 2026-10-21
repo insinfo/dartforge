@@ -204,6 +204,9 @@ pub struct FnBuilder<'a, 'c> {
     /// The generic function `arm_tuple_with_receiver` armed last and where its
     /// argument list starts (the key of its inferred type arguments).
     pub(crate) call_site: Option<(usize, usize)>,
+    /// The expressions inside a deferred access already checked by the outer
+    /// one (`lower/deferred.rs`).
+    pub(crate) deferred_checked: std::collections::HashSet<ExprId>,
     /// The static type of each type parameter (`type_params_of`) of the
     /// generic function `arm_tuple_with_receiver` armed last (`None`: not
     /// found); an interop member casts a result of type `T` to it.
@@ -408,6 +411,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             armed_tuple: None,
             call_shape: None,
             call_site: None,
+            deferred_checked: std::collections::HashSet::new(),
             call_types: None,
             this_extension: None,
             this_ext_type: None,

@@ -272,13 +272,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let resolved_target = self.ctx.get_resolved(self.unit_id, *target).cloned();
 
             // `p.loadLibrary()` of an `import … deferred as p`: the compiled
-            // program already has the library (the VM also loads it on the spot);
-            // the `Future` completes without a value.
+            // program already has the library; the `Future` completes without a
+            // value and marks the prefix loaded (`lower/deferred.rs`).
             if m_name == "loadLibrary"
                 && arguments.args.is_empty()
                 && self.deferred_prefix(ast, *inner_target)
             {
-                return self.call_support("_dartforgeLoadLibrary", Vec::new(), expr.span);
+                return self.lower_load_library(ast, *inner_target, expr.span);
             }
 
             // `prefix.f(…)`: the element imported with a prefix.

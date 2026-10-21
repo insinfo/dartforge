@@ -130,10 +130,36 @@ dynamic _asyncStartSync(
   return completer.future;
 }
 
-/// `p.loadLibrary()` of a `deferred` import: the library is already in the
-/// compiled program.
+/// `p.loadLibrary()` of a `deferred` import (`lower/deferred.rs`): the library
+/// is already in the compiled program. As in the VM, the load completes on a
+/// later turn of the event loop than a zero timer scheduled right after the
+/// call; the prefix counts as loaded (`markLoaded`) when the future completes.
 @pragma("vm:entry-point", "call")
-Future<Null> _dartforgeLoadLibrary() => new _Future<Null>.value(null);
+Future<Null> _dartforgeLoadLibrary(void Function() markLoaded) {
+  final result = new _Future<Null>();
+  Timer.run(() {
+    Timer.run(() {
+      markLoaded();
+      result._complete(null);
+    });
+  });
+  return result;
+}
+
+/// An access through a `deferred` prefix before its library loaded.
+@pragma("vm:entry-point", "call")
+Never _dartforgeDeferredNotLoaded(String prefix) =>
+    throw new _DeferredNotLoadedError(prefix);
+
+/// The VM's error of an access to a deferred library that has not loaded
+/// (`_internal/vm/lib/lib_prefix.dart`).
+class _DeferredNotLoadedError extends Error implements NoSuchMethodError {
+  final String _prefix;
+
+  _DeferredNotLoadedError(this._prefix);
+
+  String toString() => "Deferred library $_prefix was not loaded.";
+}
 
 /// The `await` of an `async` function: registers the continuation on the object.
 @pragma("vm:entry-point", "call")

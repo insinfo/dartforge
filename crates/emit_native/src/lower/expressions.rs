@@ -254,6 +254,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.continue_chain = false;
             return self.receiver_ready.take().expect("verificado acima").1;
         }
+        self.check_deferred_access(ast, expr_id);
         // A tear-off of a generic function in a non-generic function context
         // (`int Function(int) f = id;`): the implicit instantiation that
         // inference chose, like that of `id<int>` — the closure has the

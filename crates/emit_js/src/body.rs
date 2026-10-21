@@ -68,6 +68,9 @@ pub struct FnEmitter<'m, 'a> {
     pub temp_counter: u32,
     pub async_kind: AsyncKind,
     pub ret_ty: Ty,
+    /// The expressions inside a deferred access the outer one already checked
+    /// (`deferred.rs`).
+    pub deferred_checked: std::collections::HashSet<ExprId>,
     pub returns: Vec<Ty>,
     pub w: Writer,
     pub label_counter: u32,
@@ -181,6 +184,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             temp_counter: 0,
             async_kind: AsyncKind::None,
             ret_ty: Ty::Dynamic,
+            deferred_checked: std::collections::HashSet::new(),
             returns: Vec::new(),
             w: Writer::default(),
             label_counter: 0,

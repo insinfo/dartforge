@@ -12,6 +12,7 @@ pub mod capture;
 pub mod cascade;
 pub mod closures;
 pub mod constants;
+mod deferred;
 pub mod direct_functions;
 pub mod dispatch;
 mod double_identity;

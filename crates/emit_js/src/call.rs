@@ -975,10 +975,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::Identifier(id) => match self.ident_target(id.sym, recv) {
                 IdentTarget::Prefix(p) => {
                     if name == "loadLibrary" {
-                        self.m.use_sdk("async");
-                        let t = self.ctx.t_future(Ty::Void);
-                        let rti = self.rti(&t);
-                        return Some((Js::prim(format!("async.Future.value({rti}, null)")), t));
+                        return Some(self.load_library(p));
                     }
                     let sym = self.ctx.sym(name)?;
                     let b = self

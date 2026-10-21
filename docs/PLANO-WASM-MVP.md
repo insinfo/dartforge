@@ -481,7 +481,13 @@ Nenhum host fornece privilégios de filesystem/rede por padrão.
 2. `dart:js_interop`, `js_interop_unsafe` e `js_util` com tabela de handles JS no
    adaptador, liberação por finalizer e callbacks Dart chamados pelo JS fora do GC.
 3. Imports `deferred` (módulos carregados sob demanda ou ligados no mesmo módulo,
-   com o mesmo comportamento observável do dart2wasm).
+   com o mesmo comportamento observável do dart2wasm). **Feito (ligados no
+   mesmo módulo, 21/10):** o acesso por `p` antes de `p.loadLibrary()` lança
+   `_DeferredNotLoadedError` como na VM (`lower/deferred.rs`: uma flag por
+   prefixo, por isolado; a VM marca a biblioteca carregada quando o `Future`
+   completa, num turno depois de um timer zero; o dart2wasm já na chamada).
+   Faltava no nativo também. No alvo JS, o `loadLibrary`/`checkDeferredIsLoaded`
+   do runtime do DDC (`emit_js/src/deferred.rs`).
 4. Testar conclusões síncronas/atrasadas, cancelamento tardio e IDs obsoletos.
 
 **Aceite:** corpus `async` e de interop iguais à VM/dart2wasm, sem reentrada
