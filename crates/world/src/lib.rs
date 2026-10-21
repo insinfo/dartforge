@@ -35,8 +35,9 @@
 
 mod constants;
 mod impact;
+mod params;
 
-pub use constants::Constants;
+pub use constants::{Constants, ParamKey};
 
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program,
@@ -272,9 +273,17 @@ pub struct World {
     inst_sub: Vec<Vec<ClassId>>,
     /// Words of the live `JS()` *templates* (JavaScript names).
     pub js_names: HashSet<String>,
+    /// Parameters proved always `null` (`params.rs`), sorted.
+    null_params: Vec<ParamKey>,
 }
 
 impl World {
+    /// The parameters proved always `null`: the emitter hands them to its
+    /// [`Constants`] ([`Constants::set_null_params`]) so it folds the same
+    /// conditions the world did.
+    pub fn null_params(&self) -> &[ParamKey] {
+        &self.null_params
+    }
     pub fn class_level(&self, c: ClassId) -> ClassLevel {
         self.classes
             .get(c.0 as usize)
@@ -628,6 +637,9 @@ impl<'a> Computation<'a> {
             m.natives_by_interface = natives_by_interface(&e, &m.natives);
             m.dartx_classes = dartx_classes(&e, &m.natives);
             m.constants = Some(Constants::new(e, op.without_asserts));
+            if std::env::var("DARTFORGE_JSPROD_NULL_PARAMS").map_or(true, |v| v != "0") {
+                m.params = Some(params::ParamFlow::new(e, &m.universal_names));
+            }
         }
         Computation { engine: m }
     }
@@ -654,6 +666,17 @@ fn seed(m: &mut Engine<'_>, r: &Roots) {
     all.sort();
     for c in all {
         m.all_members.insert(c);
+        // Called from JavaScript with any arguments.
+        let names: Vec<SymbolId> =
+            m.e.program
+                .class(c)
+                .instance_members
+                .keys()
+                .copied()
+                .collect();
+        for n in names {
+            m.poison_name(n);
+        }
         m.instantiate(c);
     }
     let mut cs = r.instantiated_classes.clone();
@@ -841,6 +864,11 @@ pub(crate) struct Engine<'a> {
     js_names: HashSet<String>,
     /// Constant conditions (production profile with the SDK in the world).
     pub(crate) constants: Option<Constants<'a>>,
+    /// Parameters always `null` (`params.rs`), with [`Engine::constants`].
+    pub(crate) params: Option<params::ParamFlow>,
+    /// The callee (`Call` target without its type arguments) being walked:
+    /// a member read that is not this is a tear-off.
+    pub(crate) invoked: Option<dartforge_frontend::ast::ExprId>,
     /// Names recorded with a receiver of each cone class (the "new class"
     /// side of the matching wakes up the pending members of these names).
     names_by_cone: Vec<Vec<String>>,
@@ -1024,6 +1052,8 @@ impl<'a> Engine<'a> {
             names_by_cone: vec![Vec::new(); p.classes.len()],
             js_names: HashSet::new(),
             constants: None,
+            params: None,
+            invoked: None,
             pending: HashMap::new(),
             extension_pending: HashMap::new(),
             open_extension_targets: ["Object", "Function", "Record"]
@@ -1089,6 +1119,7 @@ impl<'a> Engine<'a> {
     // ------------------------------------------------------------ marking
 
     fn mark_fn_live(&mut self, f: FunctionElementId) {
+        self.touch(f);
         let i = f.0 as usize;
         if i >= self.fn_live.len() || self.fn_live[i] {
             return;
@@ -1103,6 +1134,7 @@ impl<'a> Engine<'a> {
         }
         self.fn_live[i] = true;
         self.cause_fn[i] = Some(self.cause);
+        self.params_live(f);
         self.queue.push_back(Item::Function(f));
         if !self.foreign_open && opens_foreign(self.e.program, f) {
             self.open_foreign(f);
@@ -1240,6 +1272,7 @@ impl<'a> Engine<'a> {
     /// runtime): it may be a read or a write, so it applies to both kinds (the
     /// write one is the `name_=` key of `instance_members`).
     pub(crate) fn new_external_selector(&mut self, name: &str) {
+        self.poison_name_str(name);
         self.new_selector(name);
         if !name.ends_with('=') {
             self.new_selector(&format!("{name}_="));
@@ -1489,6 +1522,8 @@ impl<'a> Engine<'a> {
     }
 
     fn use_function_directly(&mut self, f: FunctionElementId) {
+        // A root is called from outside, with any arguments.
+        self.poison_function(f);
         self.use_function(f);
         self.mark_fn_live(f);
     }
@@ -1978,7 +2013,12 @@ impl<'a> Engine<'a> {
     // ------------------------------------------------------------ the loop
 
     fn run(&mut self) {
-        self.run_items(usize::MAX);
+        loop {
+            self.run_items(usize::MAX);
+            if !self.poison_uncalled() {
+                break;
+            }
+        }
     }
 
     fn run_items(&mut self, _limit: usize) {
@@ -2024,6 +2064,11 @@ impl<'a> Engine<'a> {
             hier: Arc::clone(&self.hier),
             inst_sub: self.inst_sub.clone(),
             js_names: self.js_names.clone(),
+            null_params: self
+                .constants
+                .as_ref()
+                .map(Constants::null_params)
+                .unwrap_or_default(),
         }
     }
 
@@ -2083,6 +2128,11 @@ impl<'a> Engine<'a> {
         stats.selectors = self.sel.len();
         stats.restricted_selectors = self.sel_cone.len();
         stats.processed_items = self.items;
+        let null_params = self
+            .constants
+            .as_ref()
+            .map(Constants::null_params)
+            .unwrap_or_default();
         let mut sel_cone: HashMap<String, Vec<ClassId>> = HashMap::new();
         for (n, cs) in self.sel_cone {
             let mut v: Vec<ClassId> = cs.into_iter().collect();
@@ -2106,6 +2156,7 @@ impl<'a> Engine<'a> {
             hier: self.hier,
             inst_sub: self.inst_sub,
             js_names: self.js_names,
+            null_params,
         }
     }
 

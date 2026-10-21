@@ -1336,6 +1336,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.fresh_list_append = self.fresh_lists(stmts);
                     for &st in stmts.iter() {
                         self.emit_stmt(st);
+                        if self.always_exits(st) {
+                            break;
+                        }
                     }
                     self.pop_scope();
                 } else {
@@ -1465,6 +1468,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 self.push_scope();
                 for &st in stmts.iter() {
                     self.emit_stmt(st);
+                    if self.always_exits(st) {
+                        break;
+                    }
                 }
                 self.pop_scope();
                 self.w.close("}");
@@ -2246,6 +2252,36 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         }
         self.w.close("}");
         self.switch_labels.pop();
+    }
+
+    /// Whether `s` always leaves the function, so what follows it in a block
+    /// is dead and is not emitted. Only with a production filter (the
+    /// world folds the same conditions and skips the same statements:
+    /// `dartforge_world::Constants::always_exits`, which this mirrors).
+    pub fn always_exits(&self, s: StmtId) -> bool {
+        if !self.ctx.filter.is_some_and(|f| f.production()) {
+            return false;
+        }
+        match &self.ast().stmt(s).kind {
+            StmtKind::Return(_) => true,
+            StmtKind::Expression(e) => matches!(
+                self.expr(*e).kind,
+                ast::ExprKind::Throw(_) | ast::ExprKind::Rethrow
+            ),
+            StmtKind::Block(ss) => ss.iter().any(|t| self.always_exits(*t)),
+            StmtKind::If {
+                condition,
+                case_pattern: None,
+                guard: None,
+                then,
+                else_,
+            } => match self.constant(*condition) {
+                Some(true) => self.always_exits(*then),
+                Some(false) => else_.is_some_and(|e| self.always_exits(e)),
+                None => false,
+            },
+            _ => false,
+        }
     }
 
     pub fn stmt_ends_with_jump(&self, s: StmtId) -> bool {

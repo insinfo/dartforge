@@ -348,6 +348,20 @@ fn fixed_point(
         computation.seed(&roots);
         let world = computation.world();
         report.world_time += t.elapsed();
+        // The emitter folds the same `p == null` the world folded.
+        constants.set_null_params(world.null_params());
+        if trace {
+            let names: Vec<&str> = world
+                .null_params()
+                .iter()
+                .map(|k| a.interner.resolve(k.name))
+                .collect();
+            eprintln!(
+                "[jsprod] round {round}: {} parameter(s) always null: {}",
+                names.len(),
+                names.join(", ")
+            );
+        }
         // `DARTFORGE_JSPROD_NAMED=0` keeps the source names.
         let named_args = if std::env::var("DARTFORGE_JSPROD_NAMED").map_or(true, |v| v != "0") {
             crate::named_args::compute(a, &world)

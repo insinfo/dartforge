@@ -16,6 +16,12 @@
 //!
 //! The world (the dead branch is not traversed) and the emitter (the dead
 //! branch is not emitted) use the same answer, so the text verifier agrees.
+//!
+//! A formal parameter that the world proved always `null` (`params.rs`: every
+//! call that reaches it passes `null` or omits it with a `null` default, and
+//! the body never writes it) reads as the `null` literal, so `p == null` and
+//! `p != null` fold too. The set of those parameters comes from the world
+//! ([`Constants::set_null_params`] on the emitter's side).
 
 use crate::WorldInput;
 use dartforge_elements::model::{
@@ -25,7 +31,28 @@ use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, FunctionBody, St
 use dartforge_intern::SymbolId;
 use dartforge_types::resolved::Resolved;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
+
+/// A formal parameter of a declared function or constructor: its unit and the
+/// offset of its name in the declaration.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
+pub struct ParamKey {
+    pub unit: UnitId,
+    pub offset: u32,
+    pub name: SymbolId,
+}
+
+/// Per unit: the parameters of every function, constructor and closure (by
+/// name: the span of the declaring node and the parameter's offset) and the
+/// positions where each name is written (`x = …`, `x++`, `for (x in …)`, a
+/// variable pattern) or declared as a local (variable, loop variable, `catch`
+/// clause, local function).
+#[derive(Default)]
+struct UnitParams {
+    by_name: HashMap<SymbolId, Vec<(usize, usize, u32)>>,
+    writes: HashMap<SymbolId, Vec<usize>>,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Value {
@@ -39,6 +66,12 @@ pub struct Constants<'a> {
     no_asserts: bool,
     memo_fn: RefCell<HashMap<FunctionElementId, Option<Value>>>,
     memo_var: RefCell<HashMap<VariableId, Option<Value>>>,
+    /// Parameters proved always `null`.
+    null_params: RefCell<HashSet<ParamKey>>,
+    /// How many of [`Constants::null_params`] have each name (a cheap
+    /// filter before looking the declaration up).
+    null_names: RefCell<HashMap<SymbolId, u32>>,
+    units: RefCell<HashMap<UnitId, Rc<UnitParams>>>,
 }
 
 impl<'a> Constants<'a> {
@@ -48,7 +81,113 @@ impl<'a> Constants<'a> {
             no_asserts,
             memo_fn: RefCell::new(HashMap::new()),
             memo_var: RefCell::new(HashMap::new()),
+            null_params: RefCell::new(HashSet::new()),
+            null_names: RefCell::new(HashMap::new()),
+            units: RefCell::new(HashMap::new()),
         }
+    }
+
+    /// Replaces the parameters proved always `null` (the emitter's side: the
+    /// set of the finished world, [`crate::World::null_params`]).
+    pub fn set_null_params(&self, keys: &[ParamKey]) {
+        let mut set = self.null_params.borrow_mut();
+        let mut names = self.null_names.borrow_mut();
+        set.clear();
+        names.clear();
+        for k in keys {
+            if set.insert(*k) {
+                *names.entry(k.name).or_insert(0) += 1;
+            }
+        }
+    }
+
+    /// The parameters proved always `null`, sorted.
+    pub fn null_params(&self) -> Vec<ParamKey> {
+        let mut v: Vec<ParamKey> = self.null_params.borrow().iter().copied().collect();
+        v.sort();
+        v
+    }
+
+    pub(crate) fn add_null_param(&self, k: ParamKey) {
+        if self.null_params.borrow_mut().insert(k) {
+            *self.null_names.borrow_mut().entry(k.name).or_insert(0) += 1;
+        }
+    }
+
+    /// Removes `k`; whether it was there.
+    pub(crate) fn remove_null_param(&self, k: ParamKey) -> bool {
+        if !self.null_params.borrow_mut().remove(&k) {
+            return false;
+        }
+        let mut names = self.null_names.borrow_mut();
+        if let Some(n) = names.get_mut(&k.name) {
+            *n -= 1;
+            if *n == 0 {
+                names.remove(&k.name);
+            }
+        }
+        true
+    }
+
+    /// Whether `x` (in unit `u`) is proved to be `null`: the literal, a
+    /// constant whose value is `null` or a parameter proved always `null`.
+    pub fn is_null(&self, u: UnitId, x: ExprId) -> bool {
+        self.expr(u, x, &HashMap::new(), 0) == Some(Value::Null)
+    }
+
+    /// Whether some write or local declaration of the name `name` lies
+    /// inside `start..end` of unit `u`: a parameter written in its body is not
+    /// a constant, and a local of the same name would make a read of that
+    /// name ambiguous (a read resolves as a local either way). A write to a
+    /// shadowing local counts too, which is only conservative.
+    pub(crate) fn written_in(&self, u: UnitId, start: usize, end: usize, name: SymbolId) -> bool {
+        let up = self.unit_params(u);
+        up.writes
+            .get(&name)
+            .is_some_and(|ws| ws.iter().any(|w| *w >= start && *w < end))
+    }
+
+    /// The value of a read of parameter `name` at `x`: `null` when the
+    /// innermost function that contains `x` and declares `name` has it in
+    /// [`Constants::null_params`].
+    fn parameter(&self, u: UnitId, x: ExprId, name: SymbolId) -> Option<Value> {
+        if !self.null_names.borrow().contains_key(&name) {
+            return None;
+        }
+        let up = self.unit_params(u);
+        let at = self.e.program.unit(u).ast.expr(x).span;
+        let mut best: Option<(usize, u32)> = None;
+        for (start, end, offset) in up.by_name.get(&name)?.iter() {
+            if *start <= at.start && at.end <= *end {
+                let size = end - start;
+                if best.is_none_or(|(s, _)| size < s) {
+                    best = Some((size, *offset));
+                }
+            }
+        }
+        let (_, offset) = best?;
+        let key = ParamKey {
+            unit: u,
+            offset,
+            name,
+        };
+        self.null_params
+            .borrow()
+            .contains(&key)
+            .then_some(Value::Null)
+    }
+
+    fn unit_params(&self, u: UnitId) -> Rc<UnitParams> {
+        if let Some(up) = self.units.borrow().get(&u) {
+            return Rc::clone(up);
+        }
+        let up = Rc::new(unit_params(&self.e.program.unit(u).ast));
+        self.units.borrow_mut().insert(u, Rc::clone(&up));
+        up
+    }
+
+    pub(crate) fn program(&self) -> &'a dartforge_elements::model::Program {
+        self.e.program
     }
 
     /// `assert`s are disabled (the emitter does not write them).
@@ -61,6 +200,48 @@ impl<'a> Constants<'a> {
         match self.expr(u, x, &HashMap::new(), 0)? {
             Value::Bool(b) => Some(b),
             Value::Null => None,
+        }
+    }
+
+    /// The constant value of the condition `x` in the forms the world and
+    /// the emitter fold (`impact::constant_condition`,
+    /// `emit_js::expr::Emitter::constant`): not a bare literal.
+    pub fn folded_condition(&self, u: UnitId, x: ExprId) -> Option<bool> {
+        match &self.e.program.unit(u).ast.expr(x).kind {
+            ExprKind::Identifier(_)
+            | ExprKind::Property { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Binary { .. }
+            | ExprKind::Parenthesized(_) => self.bool_of(u, x),
+            _ => None,
+        }
+    }
+
+    /// Whether statement `s` always leaves the function (`return`, `throw`,
+    /// `rethrow`, a block with such a statement, an `if` whose folded
+    /// condition picks a branch that leaves): what follows it in a block is
+    /// dead. The emitter mirrors this rule (`emit_js::body`,
+    /// `Emitter::always_exits`).
+    pub fn always_exits(&self, u: UnitId, s: ast::StmtId) -> bool {
+        let ast = &self.e.program.unit(u).ast;
+        match &ast.stmt(s).kind {
+            StmtKind::Return(_) => true,
+            StmtKind::Expression(x) => {
+                matches!(ast.expr(*x).kind, ExprKind::Throw(_) | ExprKind::Rethrow)
+            }
+            StmtKind::Block(ss) => ss.iter().any(|t| self.always_exits(u, *t)),
+            StmtKind::If {
+                condition,
+                case_pattern: None,
+                guard: None,
+                then,
+                else_,
+            } => match self.folded_condition(u, *condition) {
+                Some(true) => self.always_exits(u, *then),
+                Some(false) => else_.is_some_and(|e| self.always_exits(u, e)),
+                None => false,
+            },
+            _ => false,
         }
     }
 
@@ -124,7 +305,13 @@ impl<'a> Constants<'a> {
                 Some(Value::Bool((a == b) == (*op == BinaryOp::Eq)))
             }
             ExprKind::Identifier(n) => match self.resolved(u, x)? {
-                Resolved::Local(_) => locals.get(&n.sym).copied(),
+                // A parameter read resolves as a local (or, in some
+                // scopes, as a parameter).
+                Resolved::Local(_) => match locals.get(&n.sym) {
+                    Some(v) => Some(*v),
+                    None => self.parameter(u, x, n.sym),
+                },
+                Resolved::Parameter { name, .. } => self.parameter(u, x, *name),
                 Resolved::Element(el) => self.element(*el, depth),
                 _ => None,
             },
@@ -250,4 +437,144 @@ impl<'a> Constants<'a> {
         }
         None
     }
+}
+
+/// Records the identifier that `x` (through parentheses) writes.
+fn write_target(a: &ast::Ast, x: ExprId, out: &mut Vec<(SymbolId, usize)>) {
+    let mut cur = x;
+    while let ExprKind::Parenthesized(i) = &a.expr(cur).kind {
+        cur = *i;
+    }
+    if let ExprKind::Identifier(n) = &a.expr(cur).kind {
+        out.push((n.sym, a.expr(cur).span.start));
+    }
+}
+
+/// The parameter declarations and the writes of a unit ([`UnitParams`]).
+fn unit_params(a: &ast::Ast) -> UnitParams {
+    let mut up = UnitParams::default();
+    let mut declare = |start: usize, end: usize, ps: &[ast::Parameter]| {
+        for p in ps {
+            if let Some(n) = p.name {
+                up.by_name
+                    .entry(n.sym)
+                    .or_default()
+                    .push((start, end, n.span.start as u32));
+            }
+        }
+    };
+    for f in a.functions.iter() {
+        if let Some(ps) = f.parameters.as_deref() {
+            declare(f.span.start, f.span.end, ps);
+        }
+    }
+    for m in a.members.iter() {
+        if let ast::MemberKind::Constructor(k) = &m.kind {
+            declare(m.span.start, m.span.end, &k.parameters);
+        }
+    }
+    let mut writes: Vec<(SymbolId, usize)> = Vec::new();
+    fn elements(a: &ast::Ast, els: &[ast::CollectionElement], out: &mut Vec<(SymbolId, usize)>) {
+        for el in els {
+            match el {
+                ast::CollectionElement::ForIn {
+                    target: ast::ForInTarget::Expression(x),
+                    body,
+                    ..
+                } => {
+                    write_target(a, *x, out);
+                    elements(a, std::slice::from_ref(&**body), out);
+                }
+                ast::CollectionElement::ForIn {
+                    target: ast::ForInTarget::Declared { name, .. },
+                    body,
+                    ..
+                } => {
+                    out.push((name.sym, name.span.start));
+                    elements(a, std::slice::from_ref(&**body), out);
+                }
+                ast::CollectionElement::For {
+                    init: Some(ast::ForInit::Variables(l)),
+                    body,
+                    ..
+                } => {
+                    for v in l.variables.iter() {
+                        out.push((v.name.sym, v.name.span.start));
+                    }
+                    elements(a, std::slice::from_ref(&**body), out);
+                }
+                ast::CollectionElement::ForIn { body, .. }
+                | ast::CollectionElement::For { body, .. } => {
+                    elements(a, std::slice::from_ref(&**body), out)
+                }
+                ast::CollectionElement::If { then, else_, .. } => {
+                    elements(a, std::slice::from_ref(&**then), out);
+                    if let Some(e) = else_ {
+                        elements(a, std::slice::from_ref(&**e), out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    for x in a.exprs.iter() {
+        match &x.kind {
+            ExprKind::Assign { target: t, .. } => write_target(a, *t, &mut writes),
+            ExprKind::Unary {
+                op:
+                    UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec,
+                operand,
+            } => write_target(a, *operand, &mut writes),
+            ExprKind::List { elements: els, .. } | ExprKind::SetOrMap { elements: els, .. } => {
+                elements(a, els, &mut writes)
+            }
+            _ => {}
+        }
+    }
+    let variables = |l: &ast::VariableList, out: &mut Vec<(SymbolId, usize)>| {
+        for v in l.variables.iter() {
+            out.push((v.name.sym, v.name.span.start));
+        }
+    };
+    for s in a.stmts.iter() {
+        match &s.kind {
+            StmtKind::ForIn {
+                target: ast::ForInTarget::Expression(x),
+                ..
+            } => write_target(a, *x, &mut writes),
+            StmtKind::ForIn {
+                target: ast::ForInTarget::Declared { name, .. },
+                ..
+            } => writes.push((name.sym, name.span.start)),
+            StmtKind::Variables(l)
+            | StmtKind::For {
+                init: Some(ast::ForInit::Variables(l)),
+                ..
+            } => variables(l, &mut writes),
+            StmtKind::Function(f) => {
+                if let Some(n) = a.function(*f).name {
+                    writes.push((n.sym, n.span.start));
+                }
+            }
+            StmtKind::Try { catches, .. } => {
+                for c in catches.iter() {
+                    for n in [c.exception, c.stack_trace].into_iter().flatten() {
+                        writes.push((n.sym, n.span.start));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    // A variable pattern names a variable it declares or (in a pattern
+    // assignment) writes: every one counts.
+    for p in a.patterns.iter() {
+        if let ast::PatternKind::Variable { name, .. } = &p.kind {
+            writes.push((name.sym, name.span.start));
+        }
+    }
+    for (n, at) in writes {
+        up.writes.entry(n).or_default().push(at);
+    }
+    up
 }

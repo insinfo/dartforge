@@ -26,6 +26,7 @@
 //! the rti recipes).
 
 use crate::Engine;
+use crate::params::{Callee, Value};
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, FunctionRef,
     LibraryId, UnitId, VariableId,
@@ -102,7 +103,13 @@ pub(crate) fn of_function(m: &mut Engine<'_>, f: FunctionElementId) {
                             .map(|n| m.e.interner.resolve(n.sym))
                             .unwrap_or("");
                         if let Some(sc) = m.super_constructor(k, ctor_name) {
-                            m.use_constructor_from_initializer(sc);
+                            // Super parameters forward arguments the call
+                            // does not list: the target stays unproved.
+                            if forwards_super(c) {
+                                m.use_constructor_from_initializer(sc);
+                            } else {
+                                initializer_call(m, &ctx, sc, Some(arguments));
+                            }
                         }
                         walk_arguments(m, &ctx, arguments);
                     }
@@ -116,7 +123,7 @@ pub(crate) fn of_function(m: &mut Engine<'_>, f: FunctionElementId) {
                             .map(|n| m.e.interner.resolve(n.sym))
                             .unwrap_or("");
                         if let Some(rc) = m.constructor(k, ctor_name) {
-                            m.use_constructor_from_initializer(rc);
+                            initializer_call(m, &ctx, rc, Some(arguments));
                         }
                         walk_arguments(m, &ctx, arguments);
                     }
@@ -142,7 +149,11 @@ pub(crate) fn of_function(m: &mut Engine<'_>, f: FunctionElementId) {
             } else if !c.factory && !explicit {
                 // Implicit super: the superclass's unnamed constructor.
                 if let Some(sc) = m.super_constructor(k, "") {
-                    m.use_constructor_from_initializer(sc);
+                    if forwards_super(c) {
+                        m.use_constructor_from_initializer(sc);
+                    } else {
+                        initializer_call(m, &ctx, sc, None);
+                    }
                 }
             }
             walk_body(m, &ctx, &c.body);
@@ -175,6 +186,197 @@ pub(crate) fn of_function(m: &mut Engine<'_>, f: FunctionElementId) {
                 }
             }
         }
+    }
+}
+
+/// The number of arguments of the JavaScript call that starts `rest` (the
+/// template text right after a member name): `Some(n)` for `(a, b)`, `None`
+/// when `rest` is not a call or the list does not close in this text.
+fn template_arity(rest: &str) -> Option<usize> {
+    let rest = rest.trim_start();
+    let inner = rest.strip_prefix('(')?;
+    let mut depth = 0usize;
+    let mut commas = 0;
+    let mut empty = true;
+    let mut quote: Option<char> = None;
+    for c in inner.chars() {
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        match c {
+            '\'' | '"' | '`' => {
+                quote = Some(c);
+                empty = false;
+            }
+            '(' | '[' | '{' => {
+                depth += 1;
+                empty = false;
+            }
+            ')' | ']' | '}' if depth > 0 => depth -= 1,
+            ')' => return Some(if empty { 0 } else { commas + 1 }),
+            ',' if depth == 0 => commas += 1,
+            c if !c.is_whitespace() => empty = false,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Whether the member read `id` (not a call) may be a method tear-off: its
+/// resolution is unknown, dynamic or an instance method. A read resolved to
+/// a getter or a field is not — a getter is never overridden by a method.
+fn may_tear_off(m: &Engine<'_>, ctx: &Context, id: ExprId) -> bool {
+    let resolved =
+        m.e.bodies
+            .units
+            .get(ctx.unit.0 as usize)
+            .and_then(|u| u.get_resolved(id));
+    match resolved {
+        Some(Resolved::Member {
+            member: MemberRef::Variable(_),
+            ..
+        }) => false,
+        Some(Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }) => matches!(
+            m.e.program.function(*f).kind,
+            FunctionKind::Function | FunctionKind::Operator
+        ),
+        _ => true,
+    }
+}
+
+/// Whether a constructor has super parameters (`super.x`).
+fn forwards_super(c: &ast::Constructor) -> bool {
+    c.parameters.iter().any(|p| p.super_)
+}
+
+/// `super(..)`, `this.n(..)` or the implicit `super()` (`arguments` is
+/// `None`): a call of `f` with these arguments.
+fn initializer_call(
+    m: &mut Engine<'_>,
+    ctx: &Context,
+    f: FunctionElementId,
+    arguments: Option<&ast::Arguments>,
+) {
+    let callee = Callee::Direct(f);
+    match arguments {
+        Some(a) => record_arguments(m, ctx, &callee, a),
+        None => m.record_call(&callee, &[], &[]),
+    }
+    set_permit(m, Some(f));
+    m.use_constructor_from_initializer(f);
+    set_permit(m, None);
+}
+
+fn set_permit(m: &mut Engine<'_>, f: Option<FunctionElementId>) {
+    if let Some(pf) = m.params.as_mut() {
+        pf.permit = f;
+    }
+}
+
+/// Records the arguments of a call site of `callee`.
+fn record_arguments(m: &mut Engine<'_>, ctx: &Context, callee: &Callee, a: &ast::Arguments) {
+    if m.params.is_none() || matches!(callee, Callee::Untracked) {
+        return;
+    }
+    let mut positional = Vec::new();
+    let mut named = Vec::new();
+    for arg in a.args.iter() {
+        let v = m.argument_value(ctx.unit, arg.value);
+        match arg.name {
+            Some(n) => named.push((n.sym, v)),
+            None => positional.push(v),
+        }
+    }
+    m.record_call(callee, &positional, &named);
+}
+
+/// The callee of a `Call` target without its type arguments.
+fn unwrapped_callee(ast: &ast::Ast, mut t: ExprId) -> ExprId {
+    while let ExprKind::TypeArguments { target, .. } = &ast.expr(t).kind {
+        t = *target;
+    }
+    t
+}
+
+/// Who the call or creation `id` calls, for the argument tables
+/// (`params.rs`). A direct callee found here is only *permitted*: if the
+/// engine marks another function, that one is poisoned, so a disagreement
+/// costs precision, never soundness.
+fn callee_of(m: &Engine<'_>, ctx: &Context, id: ExprId) -> Callee {
+    let p = m.e.program;
+    let ast = &p.unit(ctx.unit).ast;
+    let constructor = |c: ClassId, n: &str| {
+        m.constructor(c, n)
+            .map_or(Callee::Untracked, Callee::Direct)
+    };
+    let target = match &ast.expr(id).kind {
+        ExprKind::InstanceCreation {
+            ty, constructor: k, ..
+        } => {
+            return match class_and_constructor(m, ctx, *ty, *k) {
+                Some((c, n)) => constructor(c, n),
+                None => Callee::Untracked,
+            };
+        }
+        ExprKind::Call { target, .. } => unwrapped_callee(ast, *target),
+        _ => return Callee::Untracked,
+    };
+    let resolved =
+        m.e.bodies
+            .units
+            .get(ctx.unit.0 as usize)
+            .and_then(|u| u.get_resolved(target));
+    match resolved {
+        Some(Resolved::Element(Element::Function(f))) | Some(Resolved::Constructor(f)) => {
+            return Callee::Direct(*f);
+        }
+        Some(Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }) if p.function(*f).static_ => return Callee::Direct(*f),
+        _ => {}
+    }
+    match &ast.expr(target).kind {
+        ExprKind::Identifier(n) => {
+            if let Some(StaticTarget::Class(c)) = static_target(m, ctx, target) {
+                return constructor(c, "");
+            }
+            match resolved {
+                None | Some(Resolved::Member { .. }) | Some(Resolved::Dynamic) => {
+                    Callee::Name(n.sym)
+                }
+                Some(_) => Callee::Untracked,
+            }
+        }
+        ExprKind::Property {
+            target: receiver,
+            name,
+            ..
+        } => match static_target(m, ctx, *receiver) {
+            Some(StaticTarget::Class(c)) => match p.class(c).static_members.get(&name.sym) {
+                Some(f) => Callee::Direct(*f),
+                None => constructor(c, m.e.interner.resolve(name.sym)),
+            },
+            Some(StaticTarget::Prefix(pre)) => {
+                match p
+                    .lookup_prefixed(ctx.library, pre, name.sym)
+                    .and_then(|b| b.getter)
+                {
+                    Some(Element::Function(f)) => Callee::Direct(f),
+                    Some(Element::Class(c)) => constructor(c, ""),
+                    _ => Callee::Untracked,
+                }
+            }
+            Some(StaticTarget::Extension(_)) => Callee::Untracked,
+            None => Callee::Name(name.sym),
+        },
+        _ => Callee::Untracked,
     }
 }
 
@@ -540,8 +742,10 @@ fn for_in_target(m: &mut Engine<'_>, ctx: &Context, t: &ForInTarget) {
             expr(m, ctx, *x);
         }
     }
-    // `for-in` calls the iteration protocol (`kernel_impact.dart:906-918`).
+    // `for-in` calls the iteration protocol (`kernel_impact.dart:906-918`),
+    // with calls the AST does not have.
     for s in ["iterator", "moveNext", "current"] {
+        m.poison_name_str(s);
         m.new_selector(s);
     }
 }
@@ -797,6 +1001,15 @@ fn stmt(m: &mut Engine<'_>, ctx: &Context, id: StmtId) {
         StmtKind::Block(ss) => {
             for s in ss.iter() {
                 stmt(m, ctx, *s);
+                // What follows a statement that always leaves is dead, and
+                // the emitter does not write it (`if (p == null) return;`
+                // with `p` always null).
+                if m.constants
+                    .as_ref()
+                    .is_some_and(|c| c.always_exits(ctx.unit, *s))
+                {
+                    break;
+                }
             }
         }
         StmtKind::Variables(l) => walk_variables(m, ctx, l),
@@ -1042,9 +1255,12 @@ fn walk_pattern(m: &mut Engine<'_>, ctx: &Context, id: PatternId) {
         PatternKind::Object { ty, fields } => {
             ast_type(m, ctx, *ty);
             for f in fields.iter() {
+                // A field of an object pattern reads the getter (or tears a
+                // method off).
                 match f.name {
                     Some(n) => {
                         let s = e.interner.resolve(n.sym);
+                        m.poison_name(n.sym);
                         m.new_selector(s);
                     }
                     None => {
@@ -1052,6 +1268,7 @@ fn walk_pattern(m: &mut Engine<'_>, ctx: &Context, id: PatternId) {
                         variable_names(ast, f.pattern, &mut ns);
                         for n in ns {
                             let s = e.interner.resolve(n);
+                            m.poison_name(n);
                             m.new_selector(s);
                         }
                     }
@@ -1076,6 +1293,7 @@ fn walk_element(m: &mut Engine<'_>, ctx: &Context, el: &CollectionElement) {
         CollectionElement::Spread { value, .. } => {
             expr(m, ctx, *value);
             for s in ["iterator", "moveNext", "current"] {
+                m.poison_name_str(s);
                 m.new_selector(s);
             }
         }
@@ -1280,6 +1498,22 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
     // receiver type) and to the written name (which is independent of the
     // resolution).
     let receiver = use_receiver(m, ctx, id);
+    // A call or a creation: its arguments go to the callee's table, and the
+    // callee may be used (`Resolved`, the target) without being poisoned.
+    if m.params.is_some()
+        && let ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } =
+            &ast.expr(id).kind
+    {
+        let callee = callee_of(m, ctx, id);
+        record_arguments(m, ctx, &callee, arguments);
+        set_permit(
+            m,
+            match callee {
+                Callee::Direct(f) => Some(f),
+                _ => None,
+            },
+        );
+    }
     if let Some(u) = e.bodies.units.get(ctx.unit.0 as usize) {
         if let Some(t) = u.get_type(id) {
             m.visit_type(t);
@@ -1327,7 +1561,12 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 s.to_string()
             };
             match name_target(m, ctx, id) {
-                NameTarget::Register(r) => m.new_selector_with_receiver(&key, r),
+                NameTarget::Register(r) => {
+                    m.new_selector_with_receiver(&key, r);
+                    if !write && m.invoked != Some(id) && may_tear_off(m, ctx, id) {
+                        m.poison_name(n.sym);
+                    }
+                }
                 NameTarget::Skip => {}
             }
             m.use_name(ctx, n.sym);
@@ -1385,6 +1624,7 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             if let Some((c, ctor_name)) = class_and_constructor(m, ctx, *ty, *constructor) {
                 m.create(c, ctor_name, false);
             }
+            set_permit(m, None);
             walk_arguments(m, ctx, arguments);
         }
         ExprKind::FunctionExpression(f) => walk_function(m, ctx, *f),
@@ -1402,6 +1642,10 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             } else {
                 let s = e.interner.resolve(name.sym);
                 m.new_selector_with_receiver(s, receiver);
+                // A read that is not the callee may tear the method off.
+                if m.invoked != Some(id) && may_tear_off(m, ctx, id) {
+                    m.poison_name(name.sym);
+                }
             }
             let is_call = m.call_target == Some(id);
             m.call_target = None;
@@ -1487,7 +1731,7 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                     if let Some(a) = arguments.args.get(1)
                         && let ExprKind::String(lit) = &ast.expr(a.value).kind
                     {
-                        let mut names: Vec<String> = Vec::new();
+                        let mut names: Vec<(String, Option<usize>)> = Vec::new();
                         for part in lit.parts.iter() {
                             if let StringPart::Text(t) = part {
                                 let t = t.to_string_lossy();
@@ -1506,12 +1750,24 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                                         f += 1;
                                     }
                                     if f > start && !b[start].is_ascii_digit() {
-                                        names.push(t[start..f].to_string());
+                                        names.push((
+                                            t[start..f].to_string(),
+                                            template_arity(&t[f..]),
+                                        ));
                                     }
                                 }
                             }
                         }
-                        for n in names {
+                        for (n, arity) in names {
+                            // `#.name(a, b)` calls the member with that many
+                            // positional arguments of unknown value; any other
+                            // use may tear it off.
+                            match (arity, m.e.interner.lookup(&n)) {
+                                (Some(k), Some(sym)) => {
+                                    m.record_call(&Callee::Name(sym), &vec![Value::Top; k], &[]);
+                                }
+                                _ => m.poison_name_str(&n),
+                            }
                             m.new_template_selector(&n);
                         }
                     }
@@ -1570,9 +1826,12 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             let folded = folded_enum_argument(m, ctx, *target, arguments);
             if folded.is_none() {
                 m.call_target = Some(*target);
+                let saved = m.invoked.replace(unwrapped_callee(ast, *target));
                 expr(m, ctx, *target);
+                m.invoked = saved;
                 m.call_target = None;
             }
+            set_permit(m, None);
             for t in arguments.type_args.iter() {
                 ast_type(m, ctx, *t);
             }
@@ -1685,5 +1944,20 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 expr(m, ctx, c.body);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::template_arity;
+
+    #[test]
+    fn template_call_arity() {
+        assert_eq!(template_arity("(#)"), Some(1));
+        assert_eq!(template_arity(" ()"), Some(0));
+        assert_eq!(template_arity("(#, f(#, #), [#, #])"), Some(3));
+        assert_eq!(template_arity("(#, ')', #)"), Some(3));
+        assert_eq!(template_arity(" = #"), None);
+        assert_eq!(template_arity("(#, "), None);
     }
 }

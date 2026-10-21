@@ -240,3 +240,92 @@ fn closed_world_cases() {
     .expect("compilation");
     assert!(r.is_empty(), "failures:\n{}", r.join("\n"));
 }
+
+#[test]
+#[ignore = "compiles against the SDK (bodies inferred); run with --ignored"]
+fn always_null_parameters() {
+    let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programs/null_params.dart");
+    let (r, _) = dartforge_emit_js::compile_with_options(
+        &file,
+        None,
+        None,
+        &Default::default(),
+        None,
+        true,
+        |a| {
+            let e = WorldInput {
+                program: a.program,
+                interner: a.interner,
+                table: a.table,
+                outline: a.outline,
+                bodies: a.bodies,
+            };
+            let mut roots = Roots::default();
+            let lib = a.program.entry.expect("entry library");
+            let main = a.interner.lookup("main").unwrap();
+            let Some(Element::Function(f)) = a
+                .program
+                .library(lib)
+                .declared
+                .get(&main)
+                .and_then(|b| b.getter)
+            else {
+                panic!("main")
+            };
+            roots.functions.push(f);
+            let options = dartforge_world::Options {
+                include_sdk: true,
+                without_asserts: true,
+            };
+            let mut computation = dartforge_world::Computation::new(e, options);
+            computation.seed(&roots);
+            let m = computation.world();
+            let c = Case {
+                p: a.program,
+                i: a.interner,
+                m: &m,
+            };
+            let mut errors: Vec<String> = Vec::new();
+            for dead in [
+                "deadStatic",
+                "deadCtor",
+                "deadVirtual",
+                "deadAfterReturn",
+                "deadChained",
+                "Config._build",
+            ] {
+                if c.live(dead) {
+                    errors.push(format!("{dead} should be dead"));
+                }
+            }
+            for live in [
+                "liveTitle",
+                "liveTearOff",
+                "liveDynamic",
+                "liveWritten",
+                "liveDefault",
+                "liveVirtual",
+            ] {
+                if !c.live(live) {
+                    errors.push(format!("{live} should be live"));
+                }
+            }
+            let mut proved: Vec<&str> = m
+                .null_params()
+                .iter()
+                .filter(|k| !a.program.unit(k.unit).uri.starts_with("dart:"))
+                .map(|k| a.interner.resolve(k.name))
+                .collect();
+            proved.sort_unstable();
+            let expected = [
+                "extra", "extra", "extra", "mode", "suffix", "suffix", "suffix", "tag",
+            ];
+            if proved != expected {
+                errors.push(format!("proved {proved:?}, expected {expected:?}"));
+            }
+            Ok(errors)
+        },
+    )
+    .expect("compilation");
+    assert!(r.is_empty(), "failures:\n{}", r.join("\n"));
+}
