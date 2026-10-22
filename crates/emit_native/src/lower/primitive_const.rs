@@ -47,6 +47,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         })
     }
 
+    /// The `bool` value of the constant `vid`, whatever its declared type
+    /// (`const dynamic yes = true`): the condition of an `if` in a constant
+    /// collection.
+    pub(super) fn primitive_const_bool(&self, vid: VariableId) -> Option<bool> {
+        let var = &self.ctx.program.variables[vid.0 as usize];
+        if !var.const_ || var.late || var.external {
+            return None;
+        }
+        let unit = match var.node {
+            VariableRef::Field { unit, .. } | VariableRef::TopLevel { unit, .. } => unit,
+            _ => return None,
+        };
+        match self.evaluate_primitive(unit, self.variable_initializer_in(vid)?, 0)? {
+            Primitive::Bool(b) => Some(b),
+            _ => None,
+        }
+    }
+
     fn primitive_const_value(&self, vid: VariableId, prof: u32) -> Option<Primitive> {
         let var = &self.ctx.program.variables[vid.0 as usize];
         if !var.const_ || var.late || var.external || prof > 16 {

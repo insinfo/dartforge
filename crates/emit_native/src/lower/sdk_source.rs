@@ -507,7 +507,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 distinct.push(*i);
             }
         }
-        if distinct.len() < 2 || distinct.len() > FEW_TARGETS {
+        // A class that only implements the interface answers through its
+        // `noSuchMethod`: the selector reaches its forwarder.
+        if distinct.len() < 2
+            || distinct.len() > FEW_TARGETS
+            || distinct.contains(&Implementation::NoSuchMethod)
+        {
             return None;
         }
         // Calling a field (a stored closure) stays with the selector.
@@ -564,6 +569,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 (Implementation::Field(vid), _) => {
                     self.read_field_with_late_direct(recv.clone(), vid, span)
                 }
+                (Implementation::NoSuchMethod, _) => unreachable!("dispatch by selector"),
                 (Implementation::Function(target), _) => {
                     let args = self.match_args(target, evaluated);
                     let r = self.call_direct(target, Some(recv.clone()), args);
@@ -1670,6 +1676,10 @@ pub enum Implementation {
     Function(usize),
     /// Field (the implicit getter/setter).
     Field(VariableId),
+    /// A concrete class without the member (it implements the interface
+    /// only): the call goes to its `noSuchMethod` — a forwarder or the
+    /// `NoSuchMethodError`. No single function stands for every receiver.
+    NoSuchMethod,
 }
 
 /// The distinct implementations of `key` (the name; `x_=` for the setter)
@@ -1709,22 +1719,19 @@ fn implementations_without_memo(
         {
             continue;
         }
-        for c in linearization(ctx, kid) {
-            let Some(&f) = ctx.program.classes[c.0 as usize].instance_members.get(&sym) else {
-                continue;
-            };
+        let found = linearization(ctx, kid).into_iter().find_map(|c| {
+            let &f = ctx.program.classes[c.0 as usize]
+                .instance_members
+                .get(&sym)?;
             let f = f.0 as usize;
-            if !implemented(ctx, f) {
-                continue;
-            }
-            let i = match ctx.program.functions[f].variable {
+            implemented(ctx, f).then(|| match ctx.program.functions[f].variable {
                 Some(v) => Implementation::Field(v),
                 None => Implementation::Function(f),
-            };
-            if !exit.contains(&i) {
-                exit.push(i);
-            }
-            break;
+            })
+        });
+        let i = found.unwrap_or(Implementation::NoSuchMethod);
+        if !exit.contains(&i) {
+            exit.push(i);
         }
     }
     exit
@@ -1769,21 +1776,18 @@ fn implementations_by_class_without_memo(
         {
             continue;
         }
-        for c in linearization(ctx, kid) {
-            let Some(&f) = ctx.program.classes[c.0 as usize].instance_members.get(&sym) else {
-                continue;
-            };
+        let found = linearization(ctx, kid).into_iter().find_map(|c| {
+            let &f = ctx.program.classes[c.0 as usize]
+                .instance_members
+                .get(&sym)?;
             let f = f.0 as usize;
-            if !implemented(ctx, f) {
-                continue;
-            }
-            let i = match ctx.program.functions[f].variable {
+            implemented(ctx, f).then(|| match ctx.program.functions[f].variable {
                 Some(v) => Implementation::Field(v),
                 None => Implementation::Function(f),
-            };
-            exit.push((i64::from(ctx.class_id_of(kid)?), i));
-            break;
-        }
+            })
+        });
+        let i = found.unwrap_or(Implementation::NoSuchMethod);
+        exit.push((i64::from(ctx.class_id_of(kid)?), i));
     }
     Some(exit)
 }
@@ -1988,7 +1992,8 @@ fn members_to_forward(
                 FunctionKind::Getter => &[AccessKind::Read],
                 FunctionKind::ImplicitAccessor if key.ends_with("_=") => &[AccessKind::Write],
                 FunctionKind::ImplicitAccessor => &[AccessKind::Read],
-                _ => &[AccessKind::Call],
+                // A method: its call and its tear-off (`(o as dynamic).m`).
+                _ => &[AccessKind::Call, AccessKind::Read],
             };
             for &use_site in uses {
                 let s = selector_string(ctx, use_site, name_str, f.library);
@@ -2020,6 +2025,18 @@ fn generate_nsm_forwarder(
     let args = Operand::Val(b.add_param_vector(DartEntryVector::Arguments));
     let desc = Operand::Val(b.add_param_vector(DartEntryVector::Descriptor));
     b.declare_arc_uniform_return();
+    // The tear-off of a forwarded method: a closure that calls the receiver's
+    // forwarder through the selector, as the VM tears off the forwarder.
+    if ty == AccessKind::Read && f.variable.is_none() && f.kind == FunctionKind::Function {
+        if b.unpack(&[], args, desc).is_some() {
+            let span = Span { start: 0, end: 0 };
+            let c = b.method_tearoff(this, fid, span);
+            b.terminate(Terminator::Return(Some(c)));
+        }
+        b.finish(module);
+        return;
+    }
+    let generic = b.generic_function(fid);
     let (code, values, names, tuple) = match ty {
         AccessKind::Call => {
             let infos = b.function_params(fid);
@@ -2027,6 +2044,12 @@ fn generate_nsm_forwarder(
                 b.finish(module);
                 return;
             };
+            // The member's signature checks the arguments, as the VM's
+            // forwarder does (a dynamic call, or a covariant parameter).
+            b.this_param = Some(this.clone());
+            b.enclosing_class = f.class;
+            b.check_entry_arguments(fid, &vals);
+            b.this_param = None;
             let names: Vec<String> = infos
                 .iter()
                 .filter(|p| p.kind == ParameterKind::Named)
@@ -2049,13 +2072,16 @@ fn generate_nsm_forwarder(
                     Type::I64,
                 );
                 let i = b.emit(Instruction::Add(npos, n_named), Type::I64);
-                b.emit(
+                let own = b.emit(
                     Instruction::LoadIndexed {
                         base: args.clone(),
                         index: i,
                     },
                     Type::I64,
-                )
+                );
+                let tuple = b.tuple_or_bounds(fid, own);
+                b.check_method_type_arguments(fid, &vals, Some(this.clone()), tuple.clone());
+                tuple
             } else {
                 Operand::Constant(Constant::Int(0))
             };
@@ -2075,6 +2101,21 @@ fn generate_nsm_forwarder(
                 },
                 Type::Ref,
             );
+            // The value of the setter: the type of the field or parameter.
+            let value_type = match f.variable {
+                Some(var) => Some(super::members::variable_type(ctx, var)),
+                None => ctx.outline.functions[fid].parameters.first().map(|p| p.ty),
+            };
+            if let Some(t) = value_type.filter(|t| !super::typed_entry::is_top(ctx, *t)) {
+                b.with_member_type_context(fid, Some(this.clone()), None, |b| {
+                    let rti = b.type_rti(t);
+                    b.cast_rti_in(
+                        v.clone(),
+                        rti,
+                        super::rti::CastContext::Parameter(name_str.clone()),
+                    );
+                });
+            }
             (2, vec![v], Vec::new(), Operand::Constant(Constant::Int(0)))
         }
     };
@@ -2087,6 +2128,7 @@ fn generate_nsm_forwarder(
         fields.push(b.emit(Instruction::Const(Constant::String(n)), Type::Ref));
     }
     let env = b.emit(Instruction::AllocEnv { values: fields }, Type::Ref);
+    let (this_value, tuple_value) = (this.clone(), tuple.clone());
     let text = b.emit(Instruction::Const(Constant::String(name_str)), Type::Ref);
     let r = b.emit_call_with_check(
         Instruction::CallRuntime {
@@ -2104,7 +2146,26 @@ fn generate_nsm_forwarder(
         },
         Type::Ref,
     );
-    b.terminate(Terminator::Return(Some(r)));
+    // What `noSuchMethod` returns must be of the member's type: the VM's
+    // forwarder casts it (a `bool` where a `String` is declared is a
+    // `TypeError`, never a `String`).
+    let returned = match (ty, f.variable) {
+        (AccessKind::Write, _) => None,
+        (AccessKind::Read, Some(var)) => Some(super::members::variable_type(ctx, var)),
+        _ => Some(ctx.outline.functions[fid].return_type),
+    };
+    if let Some(t) = returned.filter(|t| !super::typed_entry::is_top(ctx, *t) && !ctx.is_void(*t))
+        && !b.is_terminated()
+    {
+        let tuple = (generic && ty == AccessKind::Call).then(|| tuple_value.clone());
+        b.with_member_type_context(fid, Some(this_value.clone()), tuple, |b| {
+            let rti = b.type_rti(t);
+            b.cast_rti(r.clone(), rti);
+        });
+    }
+    if !b.is_terminated() {
+        b.terminate(Terminator::Return(Some(r)));
+    }
     b.finish(module);
 }
 
@@ -2207,18 +2268,11 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                 // class covariant ones and those of a nominal type, with the message
                 // " of 'name'" — before converting each one to the representation.
                 b.finalizable_this = ctx.classify_this(fid);
-                b.check_entry_arguments_with(fid, &vals, typed);
-                let reprs: Vec<Type> = ctx.outline.functions[fid]
-                    .parameters
-                    .iter()
-                    .map(|p| b.repr(p.ty))
-                    .collect();
-                let vals: Vec<Operand> = vals
-                    .into_iter()
-                    .zip(reprs)
-                    .map(|(v, r)| b.coerce(v, r))
-                    .collect();
-                if b.generic_function(fid) {
+                // A generic method: the tuple of the call (the slot after the
+                // arguments) — it reaches the body and types the checks of the
+                // parameters that mention the method's type variables.
+                let mut passed = None;
+                let tuple = b.generic_function(fid).then(|| {
                     let npos = b.emit(
                         Instruction::LoadIndexed {
                             base: desc.clone(),
@@ -2234,13 +2288,40 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                         Type::I64,
                     );
                     let index = b.emit(Instruction::Add(npos, n_named), Type::I64);
-                    b.armed_tuple = Some(b.emit(
+                    let own = b.emit(
                         Instruction::LoadIndexed {
                             base: args.clone(),
                             index,
                         },
                         Type::I64,
-                    ));
+                    );
+                    passed = Some(own.clone());
+                    b.tuple_or_bounds(fid, own)
+                });
+                b.check_entry_arguments_with(fid, &vals, typed);
+                if let Some(t) = &tuple
+                    && !typed
+                {
+                    let own = ctx.outline.functions[fid].type_params.to_vec();
+                    if let Some(passed) = passed.clone() {
+                        b.with_member_type_context(fid, Some(recv.clone()), Some(t.clone()), |b| {
+                            b.check_passed_type_argument_bounds(passed, &own);
+                        });
+                    }
+                    b.check_method_type_arguments(fid, &vals, Some(recv.clone()), t.clone());
+                }
+                let reprs: Vec<Type> = ctx.outline.functions[fid]
+                    .parameters
+                    .iter()
+                    .map(|p| b.repr(p.ty))
+                    .collect();
+                let vals: Vec<Operand> = vals
+                    .into_iter()
+                    .zip(reprs)
+                    .map(|(v, r)| b.coerce(v, r))
+                    .collect();
+                if let Some(t) = tuple {
+                    b.armed_tuple = Some(t);
                 }
                 b.call_direct(fid, Some(recv), vals)
             }
@@ -2317,6 +2398,21 @@ pub fn lower_field_adapters(ctx: &Context, module: &mut Module, vid: VariableId)
                     b.finish(module);
                     continue;
                 };
+                // The implicit setter checks the value against the field's
+                // type, as the VM's (`… of 'value'`): a dynamic write or a
+                // covariant one through a supertype.
+                let field_type = super::members::variable_type(ctx, vid);
+                if !super::typed_entry::is_top(ctx, field_type) {
+                    let saved = (b.this_param.replace(recv.clone()), b.enclosing_class);
+                    b.enclosing_class = Some(cid);
+                    let rti = b.type_rti(field_type);
+                    b.cast_rti_in(
+                        vals[0].clone(),
+                        rti,
+                        super::rti::CastContext::Parameter("value".to_string()),
+                    );
+                    (b.this_param, b.enclosing_class) = saved;
+                }
                 b.store_field(recv, vid, vals[0].clone(), span);
                 Operand::Constant(Constant::Null)
             }

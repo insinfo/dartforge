@@ -99,6 +99,7 @@ dartforge_arc_write_field_scalar_v1	0	0	0
 dartforge_arc_write_ref	0	0	0
 dartforge_arg_index	0	0	0
 dartforge_args_match	0	0	0
+dartforge_args_set_tuple	0	0	0
 dartforge_argument_error_new	1	1	1
 dartforge_argument_error_not_null	1	1	0
 dartforge_argument_error_value	1	1	0
@@ -107,6 +108,7 @@ dartforge_box_int	1	1	0
 dartforge_call_trace_entry	1	1	0
 dartforge_call_trace_exit	1	1	0
 dartforge_canonical_constant	1	0	0
+dartforge_canonical_tearoff	0	0	0
 dartforge_cell_get_ref	1	1	0
 dartforge_closure_code	1	1	0
 dartforge_closure_entry	1	1	1
@@ -802,6 +804,7 @@ dartforge_register_cids	1	1	0
 dartforge_register_class_name	1	1	0
 dartforge_register_helper	1	1	0
 dartforge_register_image	0	0	0
+dartforge_register_instantiation	0	0	0
 dartforge_register_isolates	1	1	0
 dartforge_register_map	1	1	0
 dartforge_register_map_llvm	1	1	0
@@ -822,6 +825,7 @@ dartforge_request_at_safepoint	1	1	0
 dartforge_resume	1	1	1
 dartforge_rti_as	1	1	1
 dartforge_rti_as_with_context	1	1	1
+dartforge_rti_bound	1	1	0
 dartforge_rti_e	0	0	0
 dartforge_rti_e_cache	0	0	0
 dartforge_rti_eval	0	0	0

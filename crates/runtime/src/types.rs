@@ -1815,6 +1815,24 @@ pub extern "C" fn dartforge_rti_subtype(s: i64, t: i64) -> u8 {
     RTI.with(|u| u8::from(u.borrow_mut().sub(s, t)))
 }
 
+/// A type argument `s` of a dynamic call against the bound `t` of the type
+/// parameter `name` (a `String`): pending `TypeError` when `s` is not a subtype
+/// of `t` (the VM message: "type 'S' is not a subtype of type 'T' of 'U'").
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_rti_bound(s: i64, t: i64, name: i64) {
+    let failure = RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        (!u.sub(s, t)).then(|| (u.text(s), u.text(t)))
+    });
+    if let Some((s, t)) = failure {
+        let name = HEAP.with(|h| h.borrow().text(name).map(|t| t.to_dart_string()).unwrap_or_default());
+        let msg = format!("type '{s}' is not a subtype of type '{t}' of '{name}'");
+        let m = HEAP.with(|h| h.borrow_mut().allocate_str(&msg));
+        let e = with_roots(&[m], || dartforge_type_error_with_message(m));
+        with_roots(&[e], || dartforge_exception_throw(e, 3));
+    }
+}
+
 /// `v as T`: pending `TypeError` if `v` is not a `T` (the VM message:
 /// "type 'S' is not a subtype of type 'T' in type cast").
 #[unsafe(no_mangle)]

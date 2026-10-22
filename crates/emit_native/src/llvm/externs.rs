@@ -84,6 +84,30 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
+        decl: "declare i64 @dartforge_canonical_tearoff(i64)",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
+        decl: "declare void @dartforge_register_instantiation(ptr)",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
+        decl: "declare void @dartforge_args_set_tuple(ptr, ptr, i64)",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
         decl: "declare void @dartforge_register_tearoff(ptr, ptr, i64, i8)",
         effects: Effects {
             allocates: false,
@@ -1589,6 +1613,10 @@ pub const EXTERNS: &[Extern] = &[
     },
     Extern {
         decl: "declare void @dartforge_rti_as_with_context(i64, i64, i64, i64)",
+        effects: CONSERVATIVE,
+    },
+    Extern {
+        decl: "declare void @dartforge_rti_bound(i64, i64, i64)",
         effects: CONSERVATIVE,
     },
     Extern {

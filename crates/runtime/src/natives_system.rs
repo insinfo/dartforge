@@ -128,7 +128,20 @@ pub extern "C" fn dartforge_native_Object_toString(this: i64) -> i64 {
     // A closure: the VM's `Closure::ToCString` — its signature and, for a
     // tear-off, the function (`from Function 'name':[ static].`).
     if cid == i64::from(crate::layout::cid::CLOSURE) {
-        let code = HEAP.with(|h| h.borrow().closure(this).map(|c| c.code));
+        // An instantiation (`f<int>`) is described by the function it
+        // instantiates.
+        let code = HEAP.with(|h| {
+            let h = h.borrow();
+            let c = h.closure(this)?;
+            let mut code = c.code;
+            let mut inner = instantiation_parts(&h, &c).map(|(i, _)| i);
+            while let Some(i) = inner {
+                let ci = h.closure(i)?;
+                code = ci.code;
+                inner = instantiation_parts(&h, &ci).map(|(i, _)| i);
+            }
+            Some(code)
+        });
         let signature = type_text_of_value(this);
         let from = code
             .and_then(|code| TEAROFF_NAMES.with(|m| m.borrow().get(&code).cloned()))

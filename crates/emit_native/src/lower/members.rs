@@ -39,15 +39,46 @@ pub fn linearization(ctx: &Context, cid: ClassId) -> Vec<ClassId> {
             break;
         }
         exit.push(c);
-        for m in class_ref.mixin_classes.iter().rev() {
-            if ctx.compiled_library(ctx.program.classes[m.0 as usize].library) && !exit.contains(m)
-            {
-                exit.push(*m);
-            }
+        for &m in class_ref.mixin_classes.iter().rev() {
+            push_mixin(ctx, m, &mut exit);
         }
         current = class_ref.supertype_class;
     }
     exit
+}
+
+/// The mixins `cid` applies, in application order, each one after the mixins
+/// it applies itself (a legacy mixin that is a mixin application): their fields
+/// are initialized from the last to the first.
+pub fn applied_mixins(ctx: &Context, cid: ClassId) -> Vec<ClassId> {
+    fn walk(ctx: &Context, m: ClassId, out: &mut Vec<ClassId>) {
+        if out.contains(&m) {
+            return;
+        }
+        for &inner in &ctx.program.classes[m.0 as usize].mixin_classes {
+            walk(ctx, inner, out);
+        }
+        out.push(m);
+    }
+    let mut out = Vec::new();
+    for &m in &ctx.program.classes[cid.0 as usize].mixin_classes {
+        walk(ctx, m, &mut out);
+    }
+    out
+}
+
+/// The mixin `m` in a linearization, then the mixins `m` itself applies (a
+/// legacy mixin that is a mixin application, `class A = Object with M;`
+/// mixed into `B`, brings `M`'s members too), closest first.
+fn push_mixin(ctx: &Context, m: ClassId, exit: &mut Vec<ClassId>) {
+    let class_ref = &ctx.program.classes[m.0 as usize];
+    if !ctx.compiled_library(class_ref.library) || exit.contains(&m) {
+        return;
+    }
+    exit.push(m);
+    for &inner in class_ref.mixin_classes.iter().rev() {
+        push_mixin(ctx, inner, exit);
+    }
 }
 
 /// **Instance** fields of the whole user linearization (superclasses and mixins),
@@ -942,6 +973,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::Ref,
                 )
             }
+            // A type alias as a value (`Type t = F;`): the aliased type, its
+            // type parameters instantiated to their bounds (`dynamic` without
+            // one), as the canonical `Type` object.
+            Element::Typedef(tid) => {
+                let Some(data) = self.ctx.outline.typedefs.get(tid.0 as usize) else {
+                    return self.unsupported("type alias without its type", span);
+                };
+                let subst: std::collections::HashMap<_, _> = data
+                    .type_params
+                    .iter()
+                    .map(|&p| {
+                        let d = self.ctx.table.param(p);
+                        let bound = if d.explicit {
+                            d.bound
+                        } else {
+                            self.ctx.core.dynamic_
+                        };
+                        (p, bound)
+                    })
+                    .collect();
+                let r = self.substituted_type_recipe(data.target_type, Some(&subst));
+                if r.variables {
+                    return self
+                        .unsupported("type alias whose bounds mention its parameters", span);
+                }
+                let t = self.recipe_rti(&r);
+                self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_rti_object_type".to_string(),
+                        args: vec![(t, Type::I64)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )
+            }
             _ => self.unsupported("top-level element", span),
         }
     }
@@ -1593,11 +1659,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Concrete implementations of an instance member, per user class
     /// that is a subtype of the declaring class.
-    fn implementations(&self, decl_fid: usize) -> Vec<(u32, usize)> {
+    /// The implementation of `decl_fid` in each compiled concrete subtype,
+    /// and whether some concrete subtype has none (it answers through its
+    /// `noSuchMethod`).
+    fn implementations(&self, decl_fid: usize) -> (Vec<(u32, usize)>, bool) {
         let ctx = self.ctx;
         let decl = &ctx.program.functions[decl_fid];
         let Some(cdecl) = decl.class else {
-            return Vec::new();
+            return (Vec::new(), false);
         };
         // Getters and setters share `FunctionElement.name`, but the
         // outline keeps the setter under the distinct key `x_=`. Dispatching by
@@ -1605,13 +1674,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let name_str = if decl.kind == FunctionKind::Setter {
             let key = format!("{}_=", ctx.symbol_name(decl.name));
             let Some(sym) = ctx.interner.lookup(&key) else {
-                return Vec::new();
+                return (Vec::new(), false);
             };
             sym
         } else {
             decl.name
         };
         let mut exit = Vec::new();
+        let mut open = false;
         for &kid in ctx.subtypes(cdecl).iter() {
             let class_ref = &ctx.program.classes[kid.0 as usize];
             if !ctx.compiled_library(class_ref.library) {
@@ -1620,6 +1690,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if (class_ref.modifiers.abstract_ && kid != cdecl) || is_mixin(ctx, kid) {
                 continue;
             }
+            let mut found = false;
             for c in crate::lower::members::linearization(self.ctx, kid) {
                 let cl = &ctx.program.classes[c.0 as usize];
                 if let Some(&f) = cl.instance_members.get(&name_str) {
@@ -1628,12 +1699,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         if let Some(id) = ctx.class_id_of(kid) {
                             exit.push((id, f));
                         }
+                        found = true;
                         break;
                     }
                 }
             }
+            // A concrete class that only implements the interface (a mock with
+            // `noSuchMethod`): its forwarder is in the method table.
+            open |= !found && !class_ref.modifiers.abstract_;
         }
-        exit
+        (exit, open)
     }
 
     /// `recv.<member>(evaluated)` through the selector of the declared member
@@ -1721,7 +1796,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.call_source_member(recv.clone(), decl_fid, evaluated) {
             return r;
         }
-        let impls = self.implementations(decl_fid);
+        let (impls, open) = self.implementations(decl_fid);
+        // Some concrete class answers through its `noSuchMethod` (with no
+        // implementation at all, the paths below decide, the program enums'
+        // implicit `index`/`name` included).
+        if open && !impls.is_empty() {
+            return self.call_member_by_selector(
+                recv,
+                decl_fid,
+                evaluated,
+                self.return_repr(decl_fid),
+            );
+        }
         let mut distinct: Vec<usize> = impls.iter().map(|(_, f)| *f).collect();
         distinct.sort_unstable();
         distinct.dedup();
@@ -2071,9 +2157,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.finalizable_this = self.ctx.classify_finalizable_class(of);
         let mut c = of;
         while c != until {
-            let class_ref = &self.ctx.program.classes[c.0 as usize];
-            let mixins = class_ref.mixin_classes.clone();
-            let sup = class_ref.supertype_class;
+            let mixins = applied_mixins(self.ctx, c);
+            let sup = self.ctx.program.classes[c.0 as usize].supertype_class;
             for m in mixins.into_iter().rev() {
                 if self
                     .ctx
@@ -2212,9 +2297,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // the superclass constructor, from the last to the first (each
         // application `S with M` is a class whose constructor initializes `M`
         // and calls that of `S`).
-        let mixins: Vec<ClassId> = self.ctx.program.classes[cid.0 as usize]
-            .mixin_classes
-            .clone();
+        let mixins: Vec<ClassId> = applied_mixins(self.ctx, cid);
         for m in mixins.into_iter().rev() {
             if self
                 .ctx

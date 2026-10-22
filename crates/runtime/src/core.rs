@@ -203,6 +203,10 @@ thread_local! {
     /// The function of each tear-off entry, by code (`dartforge_register_tearoff`):
     /// its Dart name and whether it is static.
     pub(crate) static TEAROFF_NAMES: RefCell<HashMap<i64, (String, bool)>> = RefCell::new(HashMap::default());
+    /// The codes of the instantiation closures (`f<int>` of a generic function
+    /// value, `dartforge_register_instantiation`): their context is the
+    /// instantiated closure and the type argument tuple.
+    pub(crate) static INSTANTIATIONS: RefCell<std::collections::HashSet<i64>> = RefCell::new(std::collections::HashSet::default());
     static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::default());
     /// The already computed answers of [`is_subclass`]: every type check goes
     /// through here (the covariance of each `Map.[]=`, for example), and the graph
@@ -386,6 +390,85 @@ pub unsafe extern "C" fn dartforge_register_tearoff(code: *const u8, ptr: *const
     let bytes = if len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(ptr, len) } };
     let name = String::from_utf8_lossy(bytes).into_owned();
     TEAROFF_NAMES.with(|map| map.borrow_mut().insert(code as usize as i64, (name, is_static != 0)));
+}
+
+/// Registers the code of an instantiation closure (`f<int>` of a value of
+/// generic function type): `==`, `hashCode` and `toString` see through it.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_register_instantiation(code: *const u8) {
+    INSTANTIATIONS.with(|s| s.borrow_mut().insert(code as usize as i64));
+}
+
+/// The entry of an instantiation closure: the type argument tuple goes into
+/// the slot after the arguments of the call's vector (the slot every call
+/// reserves), before the call is forwarded to the generic closure.
+///
+/// # Safety
+/// `args` and `desc` are the vector and descriptor of a uniform call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_args_set_tuple(args: *mut i64, desc: *const i64, tuple: i64) {
+    // SAFETY: the descriptor starts `[n_positional, n_named, …]` and the vector
+    // has one slot after the arguments.
+    unsafe {
+        let n = (*desc + *desc.add(1)) as usize;
+        args.add(n).write(tuple);
+    }
+}
+
+thread_local! {
+    /// The canonical instantiated tear-offs of static functions, by code and
+    /// type argument tuple (`dartforge_canonical_tearoff`).
+    static CANONICAL_TEAROFFS: RefCell<HashMap<(i64, i64), i64>> = RefCell::new(HashMap::default());
+}
+
+/// The canonical tear-off for `c`, an instantiated tear-off of a top-level or
+/// static function (its context is the type argument tuple): the first one
+/// created for that function and those type arguments, a permanent root, so
+/// `identical(f, g)` holds as in the VM (`int Function(int) f = id;` twice,
+/// a `const` instantiation).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_canonical_tearoff(c: i64) -> i64 {
+    let key = HEAP.with(|heap| {
+        let heap = heap.borrow();
+        let closure = heap.closure(c)?;
+        let (ctx, is_ref_kind) = closure.context;
+        if !is_ref_kind || !crate::heap::is_object(ctx) {
+            return None;
+        }
+        let o = heap.object(ctx)?;
+        match (o.len(), o.get(0)) {
+            (1, Some((tuple, false))) => Some((closure.code, tuple)),
+            _ => None,
+        }
+    });
+    let Some(key) = key else { return c };
+    if let Some(h) = CANONICAL_TEAROFFS.with(|m| m.borrow().get(&key).copied()) {
+        return h;
+    }
+    let n = CANONICAL_TEAROFFS.with(|m| {
+        let mut m = m.borrow_mut();
+        m.insert(key, c);
+        m.len() as i64
+    });
+    // Permanent root, in ids no global or `Type` object uses.
+    HEAP.with(|heap| heap.borrow_mut().set_global_root(-(2_i64 << 40) - n, c));
+    c
+}
+
+/// The instantiated closure and the tuple of an instantiation closure.
+pub(crate) fn instantiation_parts(heap: &Heap, c: &crate::boxes::ClosureRef) -> Option<(i64, i64)> {
+    if !INSTANTIATIONS.with(|s| s.borrow().contains(&c.code)) {
+        return None;
+    }
+    let (ctx, is_ref_kind) = c.context;
+    if !is_ref_kind || !crate::heap::is_object(ctx) {
+        return None;
+    }
+    let o = heap.object(ctx)?;
+    match (o.get(0), o.get(1)) {
+        (Some((inner, true)), Some((tuple, _))) => Some((inner, tuple)),
+        _ => None,
+    }
 }
 
 /// Registers a direct subtyping relation: sub_id <: super_id.
@@ -1040,17 +1123,28 @@ pub extern "C" fn dartforge_native_Closure_equals(this: i64, other_one: i64) -> 
     if this == other_one {
         return 1;
     }
-    HEAP.with(|heap| {
+    // Two instantiations: the same type arguments of equal closures.
+    let parts = HEAP.with(|heap| {
         let heap = heap.borrow();
-        let (Some(a), Some(b)) = (heap.closure(this), heap.closure(other_one)) else { return 0 };
+        let (Some(a), Some(b)) = (heap.closure(this), heap.closure(other_one)) else { return None };
         if a.code != b.code {
-            return 0;
+            return Some(Err(0));
         }
-        match (tearoff_receiver(&heap, &a), tearoff_receiver(&heap, &b)) {
+        if let (Some(x), Some(y)) = (instantiation_parts(&heap, &a), instantiation_parts(&heap, &b)) {
+            return Some(Ok((x, y)));
+        }
+        Some(Err(match (tearoff_receiver(&heap, &a), tearoff_receiver(&heap, &b)) {
             (Some(x), Some(y)) => u8::from(x == y),
             _ => 0,
+        }))
+    });
+    match parts {
+        None => 0,
+        Some(Err(r)) => r,
+        Some(Ok(((inner_a, tuple_a), (inner_b, tuple_b)))) => {
+            u8::from(tuple_a == tuple_b && dartforge_native_Closure_equals(inner_a, inner_b) != 0)
         }
-    })
+    }
 }
 
 /// `_Closure._computeHash` (`Closure_computeHash`): consistent with
@@ -1060,6 +1154,11 @@ pub extern "C" fn dartforge_native_Closure_computeHash(this: i64) -> i64 {
     HEAP.with(|heap| {
         let heap = heap.borrow();
         let Some(c) = heap.closure(this) else { return 0 };
+        if let Some((inner, tuple)) = instantiation_parts(&heap, &c) {
+            drop(heap);
+            let h = (dartforge_native_Closure_computeHash(inner) as u64) ^ (tuple as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            return ((h >> 4) & 0x3FFF_FFFF) as i64;
+        }
         let mut h = (c.code as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         if let Some(r) = tearoff_receiver(&heap, &c) {
             h ^= (r as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);

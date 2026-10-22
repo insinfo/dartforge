@@ -227,7 +227,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// back (the coercions of the user belong to the user).
     fn lower_expr_with(&mut self, ast: &ast::Ast, expr_id: ExprId, discarded: bool) -> Operand {
         if self.ctx.debug_info.is_none() {
-            return self.lower_expr_with_in_place(ast, expr_id, discarded);
+            let r = self.lower_expr_with_in_place(ast, expr_id, discarded);
+            return self.implicit_call_tearoff(ast, expr_id, r);
         }
         let previous = self.position;
         if let Some(offset) =
@@ -236,8 +237,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.mark_position(ast, offset);
         }
         let r = self.lower_expr_with_in_place(ast, expr_id, discarded);
+        let r = self.implicit_call_tearoff(ast, expr_id, r);
         self.position = previous;
         r
+    }
+
+    /// An object of a class with `call` where a function is expected
+    /// (`Function f = callable;`): the value is the tear-off of its `call`
+    /// (the analyzer's `ImplicitCallReference`, which inference records), so
+    /// identity, `==` and `runtimeType` are the closure's, as in the VM.
+    fn implicit_call_tearoff(
+        &mut self,
+        ast: &ast::Ast,
+        expr_id: ExprId,
+        value: Operand,
+    ) -> Operand {
+        if self.is_terminated()
+            || !self.ctx.bodies.units[self.unit_id.0 as usize]
+                .implicit_calls
+                .contains(&expr_id)
+        {
+            return value;
+        }
+        let Some(dartforge_types::table::Type::Interface { class, .. }) = self
+            .ctx
+            .get_type(self.unit_id, expr_id)
+            .map(|t| self.ctx.table.get(t))
+        else {
+            return value;
+        };
+        let Some(call) = self.interface_member(*class, "call") else {
+            return value;
+        };
+        let span = ast.expr(expr_id).span;
+        self.method_tearoff(value, call, span)
     }
 
     fn lower_expr_with_in_place(
@@ -255,6 +288,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.receiver_ready.take().expect("verificado acima").1;
         }
         self.check_deferred_access(ast, expr_id);
+        // In a constant context a `String` constant is the canonical literal
+        // (`const a = identical("ab", "a" + "b")` is true, as in the VM;
+        // outside one the concatenation is a new string).
+        if let Some(text) = self.constant_string(ast, expr_id) {
+            return self.emit(Instruction::Const(Constant::String(text)), Type::Ref);
+        }
         // A tear-off of a generic function in a non-generic function context
         // (`int Function(int) f = id;`): the implicit instantiation that
         // inference chose, like that of `id<int>` — the closure has the
@@ -286,6 +325,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 return error;
             }
             return self.instantiated_tearoff(fid, tuple, typ);
+        }
+        // Any other value the inference instantiates implicitly (a method
+        // tear-off `int Function() f = o.m;`, a local generic function): the
+        // value, then its instantiation as a closure value.
+        if self.instantiating != Some(expr_id)
+            && !matches!(
+                self.ctx.get_resolved(self.unit_id, expr_id),
+                Some(Resolved::Constructor(_))
+            )
+            && let Some(args) = self.ctx.bodies.units[self.unit_id.0 as usize]
+                .tearoff_instantiation(expr_id)
+                .map(<[_]>::to_vec)
+        {
+            let saved = self.instantiating.replace(expr_id);
+            let value = self.lower_expr_with_in_place(ast, expr_id, false);
+            self.instantiating = saved;
+            if self.is_terminated() {
+                return value;
+            }
+            let mut r = super::rti::Recipe {
+                text: "L<".to_string(),
+                variables: false,
+            };
+            for (i, t) in args.iter().enumerate() {
+                if i > 0 {
+                    r.text.push(',');
+                }
+                let x = self.type_recipe(*t);
+                r.text.push_str(&x.text);
+                r.variables |= x.variables;
+            }
+            r.text.push('>');
+            let tuple = self.recipe_rti(&r);
+            let typ = self.ctx.get_type(self.unit_id, expr_id);
+            return self.instantiate_closure_value(value, tuple, typ);
         }
         let proceed = std::mem::replace(&mut self.continue_chain, false);
         let saved = if proceed {
@@ -1582,6 +1656,63 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     },
                     Type::Ref,
                 )
+            }
+            // `A<int>` with `A` a type alias: the `Type` of the aliased type
+            // with those arguments.
+            ExprKind::TypeArguments { target, type_args }
+                if let Some(Resolved::Element(dartforge_elements::model::Element::Typedef(tid))) =
+                    self.resolution_or_name(ast, *target) =>
+            {
+                let Some(data) = self.ctx.outline.typedefs.get(tid.0 as usize) else {
+                    return self.unsupported("type alias without its type", expr.span);
+                };
+                let given: Vec<dartforge_types::table::TypeId> = type_args
+                    .iter()
+                    .filter_map(|a| {
+                        self.ctx.bodies.units[self.unit_id.0 as usize]
+                            .annotation_types
+                            .get(a)
+                            .or_else(|| self.ctx.outline.written_types.get(&(self.unit_id, *a)))
+                            .copied()
+                    })
+                    .collect();
+                if given.len() != data.type_params.len() {
+                    return self.unsupported("type alias with unresolved type arguments", expr.span);
+                }
+                let subst: std::collections::HashMap<_, _> =
+                    data.type_params.iter().copied().zip(given).collect();
+                let r = self.substituted_type_recipe(data.target_type, Some(&subst));
+                let t = self.recipe_rti(&r);
+                self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_rti_object_type".to_string(),
+                        args: vec![(t, Type::I64)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )
+            }
+            // `e<T…>` on any other value of generic function type: the
+            // instantiation of the closure value.
+            ExprKind::TypeArguments { target, type_args }
+                if self
+                    .ctx
+                    .get_type(self.unit_id, *target)
+                    .is_some_and(|t| {
+                        matches!(
+                            self.ctx.table.get(self.ctx.erase(t)),
+                            dartforge_types::table::Type::Function { type_params, .. } if !type_params.is_empty()
+                        )
+                    }) =>
+            {
+                let value = self.lower_expr(ast, *target);
+                let args = self.type_argument_recipes(type_args);
+                let tuple = self.recipe_rti(&super::rti::Recipe {
+                    text: format!("L<{}>", args.text),
+                    variables: args.variables,
+                });
+                let typ = self.ctx.get_type(self.unit_id, expr_id);
+                self.instantiate_closure_value(value, tuple, typ)
             }
             other => {
                 let what = match other {

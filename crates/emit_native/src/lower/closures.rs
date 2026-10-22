@@ -526,17 +526,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         });
         if let Some(vals) = e.unpack(&infos, args.clone(), desc.clone()) {
-            let mut all = vec![env_e.clone()];
-            // The typed body receives each argument in its representation (the
-            // unboxing checks the type, like the VM's dynamic entry).
-            for (i, v) in vals.into_iter().enumerate() {
-                let ty = reprs.as_ref().map_or(Type::Ref, |r| r[i]);
-                let v = e.coerce(v, ty);
-                all.push(v);
-            }
-            if let Some(pattern) = &pattern {
-                // The tuple of the call is in the slot after the arguments.
+            // The tuple of a generic closure: the outer one joined with the
+            // call's (the slot after the arguments).
+            let mut passed = None;
+            let joined = pattern.as_ref().map(|pattern| {
                 let own = e.slot_tuple(&args, &desc);
+                passed = Some(own.clone());
                 let from_outside = if self.type_tuple.is_some() {
                     e.emit(
                         Instruction::EnvGet {
@@ -549,7 +544,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Operand::Constant(Constant::Int(0))
                 };
                 let pattern = e.recipe_rti(pattern);
-                let joined = e.emit(
+                e.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_rti_tuple_join".to_string(),
                         args: vec![
@@ -564,9 +559,110 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         ret_ty: Type::I64,
                     },
                     Type::I64,
-                );
-                all.push(joined);
+                )
+            });
+            // A dynamic call checks each argument against its parameter's type,
+            // like the VM's dynamic entry of a closure (the typed calls go
+            // through the typed body); the types see the closure's type
+            // variables, as in the body.
+            let checks: Vec<(usize, TypeId, String)> = typ
+                .and_then(|t| match self.ctx.table.get(t) {
+                    dartforge_types::table::Type::Function {
+                        positional,
+                        optional,
+                        named,
+                        ..
+                    } => Some((positional.clone(), optional.clone(), named.clone())),
+                    _ => None,
+                })
+                .map(|(positional, optional, named)| {
+                    let mut ordered = positional.iter().chain(optional.iter());
+                    f.parameters
+                        .as_deref()
+                        .unwrap_or(&[])
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, p)| {
+                            let ty = if p.kind == ParameterKind::Named {
+                                let n = p.name?.sym;
+                                named.iter().find(|(s, _, _)| *s == n).map(|(_, t, _)| *t)
+                            } else {
+                                ordered.next().copied()
+                            }?;
+                            let name = p
+                                .name
+                                .map(|n| self.ctx.symbol_name(n.sym).to_string())
+                                .unwrap_or_default();
+                            Some((i, ty, name))
+                        })
+                        .filter(|(_, ty, _)| !super::typed_entry::is_top(self.ctx, *ty))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !checks.is_empty() || joined.is_some() {
+                if with_this {
+                    e.this_param = Some(if direct {
+                        env_e.clone()
+                    } else {
+                        e.emit(
+                            Instruction::EnvGet {
+                                env: env_e.clone(),
+                                index: 0,
+                            },
+                            Type::Ref,
+                        )
+                    });
+                    e.enclosing_class = self.enclosing_class;
+                }
+                e.function_type_params = self.function_type_params.clone();
+                e.local_params = self.local_params.clone();
+                e.local_params.extend(own_set.iter().copied());
+                e.this_extension = self.this_extension;
+                e.this_ext_type = self.this_ext_type;
+                e.member_class = self.member_class;
+                e.class_by_tuple = self.class_by_tuple;
+                if self.class_by_tuple {
+                    e.enclosing_class = self.enclosing_class;
+                }
+                e.type_tuple = match &joined {
+                    Some(t) => Some(t.clone()),
+                    None if self.type_tuple.is_some() => Some(e.emit(
+                        Instruction::EnvGet {
+                            env: env_e.clone(),
+                            index: base + captures.len(),
+                        },
+                        Type::I64,
+                    )),
+                    None => None,
+                };
+                // The type arguments of the call against the closure's bounds.
+                if let Some(passed) = passed.clone() {
+                    let own: Vec<dartforge_types::table::TypeParamId> = own_set
+                        .iter()
+                        .map(|(_, id, _)| *id)
+                        .filter(|id| id.0 != u32::MAX)
+                        .collect();
+                    e.check_passed_type_argument_bounds(passed, &own);
+                }
+                for (i, ty, name) in &checks {
+                    if let Some(v) = vals.get(*i) {
+                        let rti = e.type_rti(*ty);
+                        e.cast_rti_in(
+                            v.clone(),
+                            rti,
+                            super::rti::CastContext::Parameter(name.clone()),
+                        );
+                    }
+                }
             }
+            let mut all = vec![env_e.clone()];
+            // The typed body receives each argument in its representation.
+            for (i, v) in vals.into_iter().enumerate() {
+                let ty = reprs.as_ref().map_or(Type::Ref, |r| r[i]);
+                let v = e.coerce(v, ty);
+                all.push(v);
+            }
+            all.extend(joined);
             if !e.is_terminated() {
                 let r = e.emit_call_with_check(
                     Instruction::CallStatic {
@@ -705,6 +801,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         b.close_stack_trace();
         self.inline_policies.extend(b.inline_policies);
         self.tearoff_names.extend(b.tearoff_names);
+        self.instantiation_entries.extend(b.instantiation_entries);
         self.errors.extend(b.errors);
         self.extra_globals.extend(b.extra_globals);
         self.dart_scalar_parameters.extend(b.dart_scalar_parameters);
@@ -1268,9 +1365,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // The arguments of a dynamic call, checked as in the
                 // VM (" of 'name'") before being converted.
                 e.check_entry_arguments(fid, &vals);
-                // Generic function: the type arguments come in the hidden slot.
+                // Generic function: the type arguments come in the hidden slot
+                // (the instantiation to bounds without them), checked against
+                // the bounds and typing the parameters that mention them.
                 if e.generic_function(fid) {
-                    e.armed_tuple = Some(e.slot_tuple(&args, &desc));
+                    let own = e.slot_tuple(&args, &desc);
+                    let t = e.tuple_or_bounds(fid, own.clone());
+                    let params = self.ctx.outline.functions[fid].type_params.to_vec();
+                    e.with_member_type_context(fid, None, Some(t.clone()), |e| {
+                        e.check_passed_type_argument_bounds(own, &params);
+                    });
+                    e.check_method_type_arguments(fid, &vals, None, t.clone());
+                    e.armed_tuple = Some(t);
                 }
                 let reprs: Vec<Type> = self.ctx.outline.functions[fid]
                     .parameters
@@ -1360,6 +1466,92 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Tear-off of an instance method: a new closure with the receiver in the
     /// environment; the entry calls the member with the dispatch through the receiver.
+    /// `e<T…>` on a value of generic function type (a closure, a method or
+    /// extension tear-off, a branch of `?:`): a closure whose context is the
+    /// value and the type argument tuple, and whose entry puts the tuple in the
+    /// slot after the call's arguments and forwards the call (one entry per
+    /// library). Its runtime type is the instantiated function type `typ`.
+    pub fn instantiate_closure_value(
+        &mut self,
+        value: Operand,
+        tuple: Operand,
+        typ: Option<TypeId>,
+    ) -> Operand {
+        let lib = self.ctx.program.unit(self.unit_id).library;
+        let symbol = format!(
+            "df.instantiation.{}",
+            crate::context::escape_str(&self.ctx.library_name(lib))
+        );
+        if self.done_entries.insert(symbol.clone()) {
+            let mut e = FnBuilder::new(
+                self.ctx,
+                self.unit_id,
+                symbol.clone(),
+                "instantiation".to_string(),
+                Type::Ref,
+            );
+            let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
+            let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
+            let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
+            e.declare_arc_uniform_return();
+            let env = e.closure_context(clo);
+            let inner = e.emit(
+                Instruction::EnvGet {
+                    env: env.clone(),
+                    index: 0,
+                },
+                Type::Ref,
+            );
+            let types = e.emit(Instruction::EnvGet { env, index: 1 }, Type::I64);
+            e.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_args_set_tuple".to_string(),
+                    args: vec![
+                        (args.clone(), Type::Ptr),
+                        (desc.clone(), Type::Ptr),
+                        (types, Type::I64),
+                    ],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+            let r = e.emit_call_with_check(
+                Instruction::CallClosureForward {
+                    arc_owned: false,
+                    closure: inner,
+                    args,
+                    desc,
+                },
+                Type::Ref,
+            );
+            if !e.is_terminated() {
+                e.terminate(Terminator::Return(Some(r)));
+            }
+            e.instantiation_entries.insert(symbol.clone());
+            self.absorb(e);
+        }
+        let value = self.coerce(value, Type::Ref);
+        let tuple = self.coerce(tuple, Type::I64);
+        let env = self.emit(
+            Instruction::AllocEnv {
+                values: vec![value, tuple],
+            },
+            Type::Ref,
+        );
+        let c = self.emit(
+            Instruction::AllocClosure {
+                code_symbol: symbol,
+                env,
+            },
+            Type::Ref,
+        );
+        if let Some(t) = typ {
+            let rti = self.type_rti(t);
+            self.define_rti(c.clone(), rti);
+        }
+        c
+    }
+
     /// Records the tear-off entry `symbol` of `fid` (`Module::tearoff_names`):
     /// the VM's name of the function (`C.` and `C.named` for a constructor)
     /// and whether it is static.
@@ -1442,7 +1634,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::Ref,
                 );
                 e.terminate(Terminator::Return(Some(r)));
-            } else if let Some(vals) = e.unpack(&infos, args, desc) {
+            } else if let Some((vals, args_for_tuple, desc_for_tuple)) = e
+                .unpack(&infos, args.clone(), desc.clone())
+                .map(|v| (v, args, desc))
+            {
                 // Single implementation: the arguments checked as in the
                 // uniform entry (" of 'name'"), with the receiver kept
                 // in place of `this`, before the direct call. An SDK member
@@ -1468,6 +1663,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         )
                     })
                     .collect();
+                // A generic method: the call's type arguments (the slot after
+                // the arguments; the bounds without them).
+                if e.generic_function(fid) {
+                    let own = e.slot_tuple(&args_for_tuple, &desc_for_tuple);
+                    let t = e.tuple_or_bounds(fid, own);
+                    e.armed_tuple = Some(t);
+                }
                 let r = e.call_member(receiver, fid, &evaluated, span);
                 let r = if matches!(e.operand_type(&r), Type::Void) {
                     Operand::Constant(Constant::Null)
@@ -1711,7 +1913,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Ref,
         );
         self.define_instantiation_rti(c.clone(), fid, typ);
-        c
+        // Canonical per function and type arguments, as in the VM.
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_canonical_tearoff".to_string(),
+                args: vec![(c, Type::Ref)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 
     /// `C<T…>.new`: like `constructor_tearoff`, with the type of the object

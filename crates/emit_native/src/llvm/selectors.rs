@@ -311,6 +311,15 @@ impl LlvmEmitter<'_> {
             )
             .unwrap();
         }
+        for symbol in &module.instantiation_entries {
+            if defined.contains(symbol.as_str()) {
+                writeln!(
+                    body,
+                    "  call void @dartforge_register_instantiation(ptr @{symbol})"
+                )
+                .unwrap();
+            }
+        }
         for (sub, sup) in &module.subtyping_edges {
             writeln!(
                 body,

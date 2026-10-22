@@ -1107,6 +1107,227 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
+    /// In the uniform entry of the generic method `fid`, with the call's type
+    /// argument tuple: checks each parameter whose type mentions the method's
+    /// own type variables (`S x` of `m<S>`), which the class-level checks
+    /// ([`Self::check_entry_arguments`]) leave out — a dynamic call is checked
+    /// against the instantiation it passes, like the VM's dynamic entry.
+    pub fn check_method_type_arguments(
+        &mut self,
+        fid: usize,
+        vals: &[Operand],
+        recv: Option<Operand>,
+        tuple: Operand,
+    ) {
+        let own: Vec<TypeParamId> = self.ctx.outline.functions[fid].type_params.to_vec();
+        // The class's type variables are the class-level checks' (seen through
+        // the receiver's type in that declaring class); a type that mixes both
+        // (`T Function(T, E)` of `fold`) stays with them.
+        let class_params: Vec<TypeParamId> = self.ctx.program.functions[fid]
+            .class
+            .and_then(|c| self.ctx.outline.classes.get(c.0 as usize))
+            .map(|d| d.type_params.to_vec())
+            .unwrap_or_default();
+        let checks: Vec<(usize, TypeId, String)> = self.ctx.outline.functions[fid]
+            .parameters
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                !super::typed_entry::is_top(self.ctx, p.ty)
+                    && self.mentions_params(p.ty, &own)
+                    && !self.mentions_params(p.ty, &class_params)
+            })
+            .map(|(i, p)| {
+                let name = p
+                    .name
+                    .map(|n| self.ctx.symbol_name(n).to_string())
+                    .unwrap_or_default();
+                (i, p.ty, name)
+            })
+            .collect();
+        if checks.is_empty() {
+            return;
+        }
+        self.with_member_type_context(fid, recv, Some(tuple), |b| {
+            for (i, ty, name) in checks {
+                if let Some(v) = vals.get(i) {
+                    let rti = b.type_rti(ty);
+                    b.cast_rti_in(v.clone(), rti, CastContext::Parameter(name));
+                }
+            }
+        });
+    }
+
+    /// The type argument tuple a call of the generic function `fid` passed
+    /// (`own`), or, when it passed none, the instantiation to bounds of `fid`'s
+    /// own type parameters (`dynamic` without a bound), as the VM's dynamic
+    /// call does.
+    pub fn tuple_or_bounds(&mut self, fid: usize, own: Operand) -> Operand {
+        let mut text = String::from("L<");
+        for (k, p) in self.ctx.outline.functions[fid]
+            .type_params
+            .iter()
+            .enumerate()
+        {
+            if k > 0 {
+                text.push(',');
+            }
+            let d = self.ctx.table.param(*p);
+            let bound = d
+                .explicit
+                .then(|| self.type_recipe(d.bound))
+                .filter(|r| !r.variables);
+            text.push_str(bound.as_ref().map_or("D", |r| r.text.as_str()));
+        }
+        text.push('>');
+        let pattern = self.recipe_rti(&Recipe {
+            text,
+            variables: false,
+        });
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_rti_tuple_join".to_string(),
+                args: vec![
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                    (own, Type::I64),
+                    (pattern, Type::I64),
+                ],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        )
+    }
+
+    /// The type arguments a dynamic call passed for the type parameters
+    /// `params` (in scope, through the current tuple) against their bounds:
+    /// a `TypeError` "type 'S' is not a subtype of type 'B' of 'U'", as the
+    /// VM's dynamic entry.
+    /// [`Self::check_type_argument_bounds`] only when the call passed a tuple
+    /// (`own` nonzero): without type arguments the instantiation to bounds
+    /// needs no check.
+    pub fn check_passed_type_argument_bounds(&mut self, own: Operand, params: &[TypeParamId]) {
+        if params.iter().all(|&p| {
+            let d = self.ctx.table.param(p);
+            !d.explicit || super::typed_entry::is_top(self.ctx, d.bound)
+        }) {
+            return;
+        }
+        let passed = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, own, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
+        let b_check = self.new_block();
+        let b_end = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: passed,
+            then_block: b_check,
+            else_block: b_end,
+        });
+        self.set_block(b_check);
+        self.check_type_argument_bounds(params);
+        if !self.is_terminated() {
+            self.terminate(Terminator::Branch(b_end));
+        }
+        self.set_block(b_end);
+    }
+
+    pub fn check_type_argument_bounds(&mut self, params: &[TypeParamId]) {
+        for &p in params {
+            let d = self.ctx.table.param(p);
+            if !d.explicit || super::typed_entry::is_top(self.ctx, d.bound) {
+                continue;
+            }
+            let (name, bound) = (d.name, d.bound);
+            let Some(arg) = self.type_variable_recipe(name) else {
+                continue;
+            };
+            let arg = self.recipe_rti(&arg);
+            let bound = self.type_rti(bound);
+            let text = self.emit(
+                Instruction::Const(Constant::String(self.ctx.symbol_name(name).to_string())),
+                Type::Ref,
+            );
+            self.emit_call_with_check(
+                Instruction::CallRuntime {
+                    name: "dartforge_rti_bound".to_string(),
+                    args: vec![(arg, Type::I64), (bound, Type::I64), (text, Type::Ref)],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
+        }
+    }
+
+    /// Runs `body` with the type context of the member `fid` of the receiver
+    /// `recv` (its class's type variables and, with `tuple`, the method's own):
+    /// what a uniform entry needs to type a check as the member's body would.
+    pub fn with_member_type_context(
+        &mut self,
+        fid: usize,
+        recv: Option<Operand>,
+        tuple: Option<Operand>,
+        body: impl FnOnce(&mut Self),
+    ) {
+        let saved = (
+            self.type_tuple.take(),
+            std::mem::take(&mut self.function_type_params),
+            self.this_param.take(),
+            self.enclosing_class,
+        );
+        if let Some(t) = tuple {
+            self.type_tuple = Some(t);
+            self.function_type_params = self
+                .type_params_of(fid)
+                .iter()
+                .map(|&p| self.ctx.table.param(p).name)
+                .collect();
+        }
+        self.this_param = recv;
+        if super::extension_types::instance_owner(self.ctx, fid).is_none() {
+            self.enclosing_class = self.ctx.program.functions[fid].class;
+        }
+        body(self);
+        (
+            self.type_tuple,
+            self.function_type_params,
+            self.this_param,
+            self.enclosing_class,
+        ) = saved;
+    }
+
+    /// `t` mentions one of the type parameters `params`.
+    fn mentions_params(&self, t: TypeId, params: &[TypeParamId]) -> bool {
+        match self.ctx.table.get(t) {
+            T::TypeParameter { param, .. } => params.contains(param),
+            T::Interface { args, .. } => args.iter().any(|a| self.mentions_params(*a, params)),
+            T::FutureOr { arg, .. } => self.mentions_params(*arg, params),
+            T::Function {
+                ret,
+                positional,
+                optional,
+                named,
+                ..
+            } => {
+                self.mentions_params(*ret, params)
+                    || positional
+                        .iter()
+                        .chain(optional.iter())
+                        .any(|a| self.mentions_params(*a, params))
+                    || named
+                        .iter()
+                        .any(|(_, a, _)| self.mentions_params(*a, params))
+            }
+            T::Record {
+                positional, named, ..
+            } => {
+                positional.iter().any(|a| self.mentions_params(*a, params))
+                    || named.iter().any(|(_, a)| self.mentions_params(*a, params))
+            }
+            _ => false,
+        }
+    }
+
     /// Builds the type argument tuple of the call `expr` to the function `fid`
     /// (if it is generic): the written ones (`f<int>(…)`), or the inferred ones,
     /// matching the declared return with the static type of the call and each

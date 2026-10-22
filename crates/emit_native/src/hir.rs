@@ -1321,6 +1321,10 @@ pub struct Module {
     /// closure says `from Function 'name':[ static].` (the VM's
     /// `Closure::ToCString`), registered at startup.
     pub tearoff_names: std::collections::BTreeMap<String, (String, bool)>,
+    /// The entries of the instantiation closures (`f<int>` of a value of
+    /// generic function type) the module defines, registered at startup so the
+    /// runtime's `==`, `hashCode` and `toString` see through them.
+    pub instantiation_entries: std::collections::BTreeSet<String>,
     /// The ids of the program classes, `(id, library, class)`: written
     /// in the IR (`; df.class …`) so that the next generation of a JIT
     /// reload gives the same id to the same class (J03, `Context::with_previous_ids`).

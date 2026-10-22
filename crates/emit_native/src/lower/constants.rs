@@ -107,6 +107,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
             ExprKind::Identifier(_) | ExprKind::Property { .. } => {
+                // The tear-off of a top-level or static function is a constant
+                // (`const F(main)`): the same key for the same function.
+                let tearoff = match self.ctx.get_resolved(self.unit_id, e) {
+                    Some(Resolved::Element(Element::Function(f))) => Some(f.0 as usize),
+                    Some(Resolved::Member {
+                        member: MemberRef::Function(f),
+                        ..
+                    }) if self.ctx.program.functions[f.0 as usize].static_ => Some(f.0 as usize),
+                    _ => None,
+                };
+                if let Some(fid) = tearoff {
+                    let f = &self.ctx.program.functions[fid];
+                    if f.variable.is_none()
+                        && f.kind == dartforge_elements::model::FunctionKind::Function
+                        && self.ctx.bodies.units[self.unit_id.0 as usize]
+                            .tearoff_instantiation(e)
+                            .is_none()
+                    {
+                        return Some(format!("t:{}", super::symbol_of(self.ctx, fid)));
+                    }
+                }
                 let vid = match self.ctx.get_resolved(self.unit_id, e) {
                     Some(Resolved::Element(Element::Variable(v))) => *v,
                     Some(Resolved::Element(Element::Function(f))) => {
@@ -290,15 +311,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 guard: None,
                 then,
                 else_,
-            } => match self.constant_key(ast, *condition, true)?.as_str() {
-                "b:true" => self.element_parts(ast, then, map, parts)?,
-                "b:false" => {
-                    if let Some(e) = else_ {
-                        self.element_parts(ast, e, map, parts)?;
-                    }
+            } => {
+                // A constant of another declared type (`const dynamic yes =
+                // true`) is a reference in the key: its value decides.
+                let key = self.constant_key(ast, *condition, true)?;
+                let truth = match key.as_str() {
+                    "b:true" => true,
+                    "b:false" => false,
+                    _ => match self.ctx.get_resolved(self.unit_id, *condition) {
+                        Some(Resolved::Element(Element::Variable(v))) => {
+                            self.primitive_const_bool(*v)?
+                        }
+                        Some(Resolved::Element(Element::Function(f))) => self
+                            .primitive_const_bool(
+                                self.ctx.program.functions[f.0 as usize].variable?,
+                            )?,
+                        _ => return None,
+                    },
+                };
+                if truth {
+                    self.element_parts(ast, then, map, parts)?;
+                } else if let Some(e) = else_ {
+                    self.element_parts(ast, e, map, parts)?;
                 }
-                _ => return None,
-            },
+            }
             _ => return None,
         }
         Some(())
@@ -820,6 +856,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Lowers `e` in a constant context (a `const` initializer, a default
     /// parameter value).
+    /// The text of the constant `String` that `e` denotes in a constant
+    /// context, when its value is the canonical literal (see `lower_expr`): a
+    /// concatenation, an interpolation or a `const` variable.
+    pub(super) fn constant_string(&self, ast: &ast::Ast, e: ExprId) -> Option<String> {
+        // Outside a constant context a `const` variable is read through its
+        // getter, which marks the constant (its identity across isolates).
+        let folds = matches!(
+            &ast.expr(e).kind,
+            ExprKind::Identifier(_)
+                | ExprKind::Property { .. }
+                | ExprKind::Binary { .. }
+                | ExprKind::String(_)
+        ) && self.in_const_context;
+        if !folds || self.ctx.get_type(self.unit_id, e) != Some(self.ctx.core.string) {
+            return None;
+        }
+        // A plain literal already is the canonical one.
+        if let ExprKind::String(s) = &ast.expr(e).kind
+            && s.constant_value().is_some()
+        {
+            return None;
+        }
+        serde_string(&self.constant_key(ast, e, true)?)
+    }
+
     pub fn lower_in_const_context(&mut self, ast: &ast::Ast, e: ExprId) -> Operand {
         let saved = std::mem::replace(&mut self.in_const_context, true);
         let v = self.lower_expr(ast, e);
@@ -829,7 +890,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 }
 
 /// The text of a key `s:"…"` (the `{:?}` of a `String`).
-fn serde_string(key: &str) -> Option<String> {
+pub(super) fn serde_string(key: &str) -> Option<String> {
     let quotes = key.strip_prefix("s:")?;
     let inside = quotes.strip_prefix('"')?.strip_suffix('"')?;
     // Only the case without escapes: the rest is not canonicalized by text.

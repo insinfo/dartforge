@@ -80,6 +80,9 @@ pub struct FnBuilder<'a, 'c> {
     pub inline_policies: std::collections::HashMap<String, crate::hir::InlinePolicy>,
     /// The tear-off entries this function creates (`Module::tearoff_names`).
     pub tearoff_names: std::collections::BTreeMap<String, (String, bool)>,
+    /// The instantiation closure entries this function defines
+    /// (`Module::instantiation_entries`).
+    pub instantiation_entries: std::collections::BTreeSet<String>,
     pub labeled_break_targets: HashMap<SymbolId, BlockId>,
     pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
     pub pending_labels: Vec<SymbolId>,
@@ -206,6 +209,9 @@ pub struct FnBuilder<'a, 'c> {
     /// The generic function `arm_tuple_with_receiver` armed last and where its
     /// argument list starts (the key of its inferred type arguments).
     pub(crate) call_site: Option<(usize, usize)>,
+    /// The expression whose implicit instantiation is being lowered: its
+    /// value comes first, uninstantiated (`lower_expr`).
+    pub(crate) instantiating: Option<ExprId>,
     /// The expressions inside a deferred access already checked by the outer
     /// one (`lower/deferred.rs`).
     pub(crate) deferred_checked: std::collections::HashSet<ExprId>,
@@ -370,6 +376,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             async_frame_layouts: Vec::new(),
             inline_policies: std::collections::HashMap::new(),
             tearoff_names: std::collections::BTreeMap::new(),
+            instantiation_entries: std::collections::BTreeSet::new(),
             labeled_break_targets: HashMap::new(),
             labeled_continue_targets: HashMap::new(),
             pending_labels: Vec::new(),
@@ -414,6 +421,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             armed_tuple: None,
             call_shape: None,
             call_site: None,
+            instantiating: None,
             deferred_checked: std::collections::HashSet::new(),
             call_types: None,
             this_extension: None,
@@ -641,6 +649,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .extend(self.arc_direct_local_functions);
         module.inline_policies.extend(self.inline_policies);
         module.tearoff_names.extend(self.tearoff_names);
+        module
+            .instantiation_entries
+            .extend(self.instantiation_entries);
         module.async_frame_layouts.extend(self.async_frame_layouts);
         module.functions.push(self.func);
         module.functions.extend(self.extra_functions);
@@ -1426,6 +1437,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::I1,
             ),
             "Null" => equal(self, -12),
+            // No value is a `Never` (`Never?` accepts `null`, below).
+            "Never" if name.len() == 1 => Operand::Constant(Constant::Bool(false)),
             "num" => {
                 let i = equal(self, -9);
                 let d = equal(self, -10);

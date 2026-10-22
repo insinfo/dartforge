@@ -127,6 +127,11 @@ fn closed_until(
 
 /// The top (`dynamic`, `void`, `Object?`): nothing to check.
 fn top(ctx: &Context, t: TypeId) -> bool {
+    is_top(ctx, t)
+}
+
+/// `t` is a top type (`dynamic`, `Object?`, `void`): no check accepts less.
+pub(crate) fn is_top(ctx: &Context, t: TypeId) -> bool {
     t == ctx.core.dynamic_ || t == ctx.core.object_nullable || matches!(ctx.table.get(t), T::Void)
 }
 
@@ -572,7 +577,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Member `name` in the interface of class `c` (declared in it or in a
     /// supertype).
-    fn interface_member(&self, c: ClassId, name: &str) -> Option<usize> {
+    pub(super) fn interface_member(&self, c: ClassId, name: &str) -> Option<usize> {
         let sym = self.ctx.interner.lookup(name)?;
         if let Some(f) = self.ctx.program.classes[c.0 as usize]
             .instance_members
