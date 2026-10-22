@@ -1548,16 +1548,16 @@ impl<'a> Engine<'a> {
 
     /// `C.name(..)` / `C(..)` through the class: the declared constructor, or
     /// — a class with no constructor at all (`class C = S with M`, abstract) —
-    /// the direct instantiation, forwarding to the superclass constructor.
+    /// the direct instantiation, forwarding to the superclass constructor of
+    /// that name (a mixin application has every generative constructor of its
+    /// superclass, named ones included).
     pub(crate) fn create(&mut self, c: ClassId, name: &str, tearoff: bool) {
         if let Some(f) = self.constructor(c, name) {
             self.use_constructor(f, tearoff);
-        } else if (name.is_empty() || name == "new")
-            && self.e.program.class(c).constructors.is_empty()
-            && self.is_user_class(c)
-        {
+        } else if self.e.program.class(c).constructors.is_empty() && self.is_user_class(c) {
             self.instantiate(c);
-            if let Some(sc) = self.super_constructor(c, "") {
+            let n = if name == "new" { "" } else { name };
+            if let Some(sc) = self.super_constructor(c, n) {
                 self.use_constructor_from_initializer(sc);
             }
         }
@@ -1750,8 +1750,7 @@ impl<'a> Engine<'a> {
             cur = p.class(k).supertype_class;
         }
         for k in chain.clone() {
-            let class = p.class(k);
-            let mixins = class.mixin_classes.clone();
+            let mixins = self.applied_mixins(k);
             self.raise_to_instantiated(k);
             for mx in mixins {
                 if self.is_user_class(mx) {
@@ -1901,6 +1900,23 @@ impl<'a> Engine<'a> {
         }
     }
 
+    /// The classes `k` mixes in, transitively: a mixin that is itself a mixin
+    /// application (`class A = Object with M;` mixed into `B`, legacy mixins)
+    /// brings the members of the classes it mixes in.
+    fn applied_mixins(&self, k: ClassId) -> Vec<ClassId> {
+        let p = self.e.program;
+        let mut out: Vec<ClassId> = Vec::new();
+        let mut work: Vec<ClassId> = p.class(k).mixin_classes.clone();
+        while let Some(m) = work.pop() {
+            if m == k || out.contains(&m) {
+                continue;
+            }
+            out.push(m);
+            work.extend(p.class(m).mixin_classes.iter().copied());
+        }
+        out
+    }
+
     fn process_chain_members(&mut self, k: ClassId, only_pending: bool) {
         self.process_members(k, only_pending);
     }
@@ -1940,10 +1956,8 @@ impl<'a> Engine<'a> {
             }
             targets.push(k);
             targets.extend(
-                p.class(k)
-                    .mixin_classes
-                    .iter()
-                    .copied()
+                self.applied_mixins(k)
+                    .into_iter()
                     .filter(|m| self.is_user_class(*m)),
             );
             cur = p.class(k).supertype_class;
