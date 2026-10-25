@@ -452,6 +452,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Int(span) => {
                 let raw = &self.source()[span.start..span.end];
                 let text = raw.replace('_', "");
+                // An integer literal in a `double` context is that exact value
+                // as a double (`double d = 9223372036854775808;` is 2^63, not
+                // the `int` it would wrap to).
+                if self.ctx.get_type(self.unit_id, expr_id) == Some(self.ctx.core.double) {
+                    let v = match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+                        Some(hex) => hex_to_f64(hex),
+                        None => text.parse::<f64>().unwrap_or(0.0),
+                    };
+                    return self.emit(Instruction::Const(Constant::Double(v)), Type::F64);
+                }
                 let val: i64 = if let Some(hex) =
                     text.strip_prefix("0x").or_else(|| text.strip_prefix("0X"))
                 {
@@ -1806,6 +1816,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         Some(self.property_by_selector(this, &name_str, expr_id, span))
     }
+}
+
+/// The hexadecimal digits `hex` (any length) as the nearest `f64`: the
+/// first 128 bits, with the lowest one set when a dropped digit is not zero
+/// (the sticky bit of round-to-nearest-even), scaled by the dropped digits.
+fn hex_to_f64(hex: &str) -> f64 {
+    let digits = hex.trim_start_matches('0');
+    let (head, tail) = digits.split_at(digits.len().min(32));
+    let mut value = u128::from_str_radix(head, 16).unwrap_or(0);
+    if tail.bytes().any(|b| b != b'0') {
+        value |= 1;
+    }
+    let mut x = value as f64;
+    let mut shift = 4 * tail.len() as i32;
+    while shift > 0 && x.is_finite() {
+        let step = shift.min(1000);
+        x *= 2f64.powi(step);
+        shift -= step;
+    }
+    x
 }
 
 /// The offset the VM gives the expression in the stack trace (the `fileOffset` of

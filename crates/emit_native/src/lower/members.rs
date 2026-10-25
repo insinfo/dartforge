@@ -1263,75 +1263,48 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let current = self.read_field(obj.clone(), vid, span);
         self.terminate(Terminator::Return(Some(current)));
 
+        // Not initialized: the initializer runs, also when this is a read
+        // during its own evaluation (as in the VM); an assignment meanwhile
+        // counts. If it throws, the field keeps its state.
         self.set_block(b_verify);
-        let starting = self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_late_field_initializing".to_string(),
-                args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64)],
-                ret_ty: Type::I8,
-            },
-            Type::I8,
-        );
-        let starting = self.emit(
-            Instruction::ICmp(ICmpOp::Ne, starting, Operand::Constant(Constant::Int(0))),
-            Type::I1,
-        );
-        let b_stack = self.new_block();
-        let b_evaluate = self.new_block();
-        self.terminate(Terminator::CondBranch {
-            cond: starting,
-            then_block: b_stack,
-            else_block: b_evaluate,
-        });
-        self.set_block(b_stack);
-        let error = self.new_runtime_error("dartforge_stack_overflow_error_new", Vec::new());
-        self.emit_throw_op(error);
-
-        self.set_block(b_evaluate);
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_late_field_set_initializing".to_string(),
-                args: vec![
-                    (obj.clone(), Type::Ref),
-                    (idx.clone(), Type::I64),
-                    (Operand::Constant(Constant::Int(1)), Type::I8),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
         let b_fail = self.new_block();
         self.exception_targets.push(b_fail);
         let val_ref = self.lower_expr_of(unit, init);
         self.exception_targets.pop();
         let val_ref = self.coerce(val_ref, self.field_repr(vid));
+        // A `late final` initialized while its initializer ran:
+        // "Field 'x' has been assigned during initialization."
+        if self.ctx.program.variables[vid.0 as usize].final_ && !self.is_terminated() {
+            let initialized = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_late_field_initialized".to_string(),
+                    args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64)],
+                    ret_ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let assigned = self.emit(
+                Instruction::ICmp(ICmpOp::Ne, initialized, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let b_error = self.new_block();
+            let b_store = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond: assigned,
+                then_block: b_error,
+                else_block: b_store,
+            });
+            self.set_block(b_error);
+            let name_str = self
+                .ctx
+                .symbol_name(self.ctx.program.variables[vid.0 as usize].name)
+                .to_string();
+            self.throw_late_error(&name_str, 4);
+            self.set_block(b_store);
+        }
         self.store_field(obj.clone(), vid, val_ref.clone(), span);
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_late_field_set_initializing".to_string(),
-                args: vec![
-                    (obj.clone(), Type::Ref),
-                    (idx.clone(), Type::I64),
-                    (Operand::Constant(Constant::Int(0)), Type::I8),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
         self.terminate(Terminator::Return(Some(val_ref)));
         self.set_block(b_fail);
-        self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_late_field_set_initializing".to_string(),
-                args: vec![
-                    (obj, Type::Ref),
-                    (idx, Type::I64),
-                    (Operand::Constant(Constant::Int(0)), Type::I8),
-                ],
-                ret_ty: Type::Void,
-            },
-            Type::Void,
-        );
         self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
     }
 
@@ -2589,38 +2562,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         self.terminate(Terminator::Return(Some(v)));
         self.set_block(b_init);
-        let reentrant = self.emit(
-            Instruction::ICmp(ICmpOp::Eq, ok, Operand::Constant(Constant::Int(2))),
-            Type::I1,
-        );
-        let b_stack = self.new_block();
-        let b_evaluate = self.new_block();
-        self.terminate(Terminator::CondBranch {
-            cond: reentrant,
-            then_block: b_stack,
-            else_block: b_evaluate,
-        });
-        self.set_block(b_stack);
-        let error = self.new_runtime_error("dartforge_stack_overflow_error_new", Vec::new());
-        self.emit_throw_op(error);
-        self.set_block(b_evaluate);
-        // 0 = not started; 2 = evaluating; 1 = ready. The reentrant read
-        // produces the SDK's `StackOverflowError` without growing the native stack.
-        self.emit(
-            Instruction::StoreGlobal {
-                symbol: flag,
-                val: Operand::Constant(Constant::Int(2)),
-                ty: Type::I8,
-                root: None,
-            },
-            Type::Void,
-        );
+        // As a `late` variable with an initializer (the VM's lazy statics):
+        // 0 = not initialized, 1 = initialized. A read during the evaluation
+        // evaluates the initializer again; an assignment during it counts.
         let unit = self.unit_id;
         let is_const = self.ctx.program.variables[vid.0 as usize].const_;
         let saved = std::mem::replace(&mut self.in_const_context, is_const);
-        // If the initializer throws, the variable stays uninitialized
-        // (§10 "Variables": the next read runs the initializer again):
-        // the flag goes back to 0 and the exception stays pending.
+        // If the initializer throws, the variable keeps its state (§10
+        // "Variables": uninitialized, the next read runs the initializer
+        // again — unless it was assigned meanwhile) and the exception stays
+        // pending.
         let b_fail = self.new_block();
         self.exception_targets.push(b_fail);
         let v = self.lower_expr_of(unit, init);
@@ -2628,18 +2579,36 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.in_const_context = saved;
         let continues = self.current_block;
         self.set_block(b_fail);
-        self.emit(
-            Instruction::StoreGlobal {
-                symbol: format!("{}$ok", super::global_value_symbol(self.ctx, vid)),
-                val: Operand::Constant(Constant::Int(0)),
-                ty: Type::I8,
-                root: None,
-            },
-            Type::Void,
-        );
         self.terminate(Terminator::Return(Some(Self::zero_value(repr))));
         self.set_block(continues);
         let v = self.coerce(v, repr);
+        // A `final` initialized while its initializer ran (by a reentrant
+        // read): `LateInitializationError`, as for a `late final` field.
+        let var = &self.ctx.program.variables[vid.0 as usize];
+        if var.final_ && !is_const && !self.is_terminated() {
+            let name_str = self.ctx.symbol_name(var.name).to_string();
+            let ok = self.emit(
+                Instruction::LoadGlobal {
+                    symbol: format!("{}$ok", super::global_value_symbol(self.ctx, vid)),
+                    ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let assigned = self.emit(
+                Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
+            let b_error = self.new_block();
+            let b_store = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond: assigned,
+                then_block: b_error,
+                else_block: b_store,
+            });
+            self.set_block(b_error);
+            self.throw_late_error(&name_str, 4);
+            self.set_block(b_store);
+        }
         // The assembled string `const` (`'a${'b'}'`) is the canonical literal with the
         // same content (`constants.rs`).
         let v = if is_const && repr == Type::Ref {
