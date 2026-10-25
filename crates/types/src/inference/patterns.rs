@@ -848,7 +848,10 @@ fn irrefutable(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) -
         PatternKind::Wildcard { ty: Some(a) } | PatternKind::Variable { ty: Some(a), .. } => {
             let a = *a;
             let tt = inf.type_from_annotation(cx, a);
-            inf.sub(t, tt)
+            // Coverage compares the extension type erasures, as flow analysis's
+            // `promoteForPattern` does: `int _` matches every `E(int i)`.
+            let (et, ett) = (inf.erase_extension(t), inf.erase_extension(tt));
+            inf.sub(et, ett)
         }
         PatternKind::Cast { .. } => true,
         PatternKind::Parenthesized(q) => {

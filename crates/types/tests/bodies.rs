@@ -2989,3 +2989,27 @@ fn switch_on_nullable_sealed_is_exhaustive() {
         "{diags:?}"
     );
 }
+
+#[test]
+fn wildcard_of_representation_type_covers_extension_type() {
+    // `promoteForPattern` compares extension type erasures: `int _` matches
+    // every `E`, so `j` is assigned after the `switch`
+    // (tests/language/extension_type/fully_covers_test.dart).
+    let source = "library test; import 'dart:core';
+        extension type E(int i) {}
+        void use(Object? o) {}
+        void f(E e) {
+          int j;
+          switch (e) {
+            case int _: j = 0;
+          }
+          use(j);
+        }";
+    let diags = diagnostics_of(source);
+    assert!(
+        !diags
+            .iter()
+            .any(|d| d.message.contains("is read before it is assigned")),
+        "{diags:?}"
+    );
+}

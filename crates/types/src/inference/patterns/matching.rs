@@ -207,7 +207,10 @@ fn promote_for_pattern(
     } else {
         k
     };
-    let covers = inf.sub(t, k);
+    // Coverage compares the extension type erasures (`:5209-5211`): `int _`
+    // fully covers a matched `E` whose representation type is `int`.
+    let (erased_t, erased_k) = (inf.erase_extension(t), inf.erase_extension(k));
+    let covers = inf.sub(erased_t, erased_k);
     let mut yes = cx.flow.clone();
     let mut not_ = cx.flow.clone();
     promote_yes(inf, &mut yes, r.key, r.ty, k);
