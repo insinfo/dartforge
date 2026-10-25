@@ -3206,3 +3206,61 @@ fn constant_pattern_after_const_is_a_constant_context() {
     };
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+#[test]
+fn pattern_schemas_write_types_flatten_and_call_tear_offs_like_analyzer() {
+    // Checked against the oracle (analyzer 3.6.2): the schema of an assignment
+    // pattern, `&&`, `!`, a list rest element and the values of a map pattern;
+    // the write type of a static or extension setter written by its bare name;
+    // `flatten` through the future type of a bound; `??=` with the type of the
+    // implicit `call` tear-off, which is not inserted at the branches of a
+    // cascade target; no override inference in an extension type.
+    let Some(t) = types_with_sdk(
+        "import 'dart:async';
+T ctx<T>(Object? o) => o as T;
+class A { A get x => this; A m(A v) => v; }
+class C extends A { void call() {} }
+class CallableClass<T> { T call() => throw ''; }
+extension type SE(A _) implements A { get x => 1; m(v) => v; }
+extension on String {
+  String get p => '';
+  set p(Object? v) {}
+  void t() { p = ctx('p'); }
+}
+class S {
+  static int get s => 0;
+  static set s(num v) {}
+  void t() { s = ctx(2); }
+}
+void k(void Function() f) {}
+Future<void> g<X2 extends FutureOr<Object>, X3 extends Future<int>?>(X2 x2, X3 x3) async {
+  print([await x2, await x3]);
+}
+void f(SE se, Function? fn, CallableClass<int> cc, bool b, C c, A a) {
+  int i;
+  (i) = ctx(1);
+  var (void Function(int) x && void Function(double) y) = ctx(null);
+  var ((int j)!) = ctx(3);
+  var [...List<int> l] = ctx(<int>[]);
+  var {1: void Function(int) m1, 2: void Function(double) m2} = {(1 as num): (n) {}, (2 as num): (n) {}};
+  var r = (fn ??= cc);
+  k((b ? c : a)..hashCode);
+  print([i, x, y, j, l, m1, m2, r, se.x, se.m]);
+}",
+    ) else {
+        return;
+    };
+    assert_eq!(type_of(&t, "ctx('p')", 0), "Object?");
+    assert_eq!(type_of(&t, "ctx(2)", 0), "num");
+    assert_eq!(type_of(&t, "await x2", 0), "Object");
+    assert_eq!(type_of(&t, "await x3", 0), "int?");
+    assert_eq!(type_of(&t, "ctx(1)", 0), "int");
+    assert_eq!(type_of(&t, "ctx(null)", 0), "void Function(num)");
+    assert_eq!(type_of(&t, "ctx(3)", 0), "int?");
+    assert_eq!(type_of(&t, "ctx(<int>[])", 0), "List<int>");
+    assert_eq!(type_of(&t, "(n) {}", 0), "void Function(num)");
+    assert_eq!(type_of(&t, "fn ??= cc", 0), "Function");
+    assert_eq!(type_of(&t, "b ? c : a", 0), "A");
+    assert_eq!(type_of(&t, "se.x", 0), "dynamic");
+    assert_eq!(type_of(&t, "se.m", 0), "dynamic Function(dynamic)");
+}

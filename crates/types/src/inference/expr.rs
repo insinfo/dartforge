@@ -23,6 +23,32 @@ use dartforge_intern::SymbolId;
 
 /// Infers `e` in context `ctx` (the unknown `_` = no context).
 pub(crate) fn infer(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx: TypeId) -> TypeId {
+    let (t, ctx) = infer_keeping_context(inf, cx, e, ctx);
+    // The implicit `call` reference has the (instantiated) type of the method.
+    record_implicit_call(inf, cx, e, t, ctx).unwrap_or(t)
+}
+
+/// [`infer`] where the form of the parent forbids the implicit `call`
+/// tear-off of `e` (`_shouldSkipImplicitCallReferenceDueToForm`, 3.6.2
+/// `resolver.dart:4195-4221`): the target of a cascade, a branch of a
+/// conditional and an operand of `??` (the conversion applies to the whole).
+pub(crate) fn infer_without_implicit_call(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    e: ExprId,
+    ctx: TypeId,
+) -> TypeId {
+    infer_keeping_context(inf, cx, e, ctx).0
+}
+
+/// The inference of [`infer`] before the implicit `call` tear-off; also
+/// returns the normalized context.
+fn infer_keeping_context(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    e: ExprId,
+    ctx: TypeId,
+) -> (TypeId, TypeId) {
     // `TypeAnalyzer.analyzeExpression` (`type_analyzer.dart:557-561`): the
     // `dynamic` schema becomes `_` (`InvalidType` does not).
     let ctx = if matches!(inf.table.get(ctx), Type::Dynamic) && !inf.table.is_invalid(ctx) {
@@ -40,14 +66,21 @@ pub(crate) fn infer(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx: T
     } else {
         t
     };
-    record_implicit_call(inf, cx, e, t, ctx);
-    t
+    (t, ctx)
 }
 
 /// `_insertImplicitCallReference` (`resolver.dart:4085-4142`) in the
 /// expression kinds whose `visit…` calls it: with `getImplicitCallMethod`
 /// (`error_detection_helpers.dart:312-334`), the expression becomes `.call`.
-fn record_implicit_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId, ctx: TypeId) {
+/// Returns the type of that reference: the method's, instantiated by the
+/// context.
+fn record_implicit_call(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    e: ExprId,
+    t: TypeId,
+    ctx: TypeId,
+) -> Option<TypeId> {
     let inserting_kind = matches!(
         &ast(inf, cx).expr(e).kind,
         ExprKind::As { .. }
@@ -55,6 +88,7 @@ fn record_implicit_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: Typ
             | ExprKind::Await(_)
             | ExprKind::Binary { .. }
             | ExprKind::Cascade { .. }
+            | ExprKind::Conditional { .. }
             | ExprKind::Call { .. }
             | ExprKind::InstanceCreation { .. }
             | ExprKind::Index { .. }
@@ -64,7 +98,7 @@ fn record_implicit_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: Typ
             | ExprKind::This
     );
     if !inserting_kind || inf.the_is_unknown(ctx) {
-        return;
+        return None;
     }
     // `acceptsFunctionType(context)`: a function type, `Function`, or a
     // `FutureOr` of one of them.
@@ -85,7 +119,7 @@ fn record_implicit_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: Typ
         || context == inf.core.function
         || core_function;
     if !accepts {
-        return;
+        return None;
     }
     // Non-nullable type parameter: the bound.
     let mut typ = t;
@@ -94,7 +128,7 @@ fn record_implicit_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: Typ
         match inf.table.get(typ).clone() {
             Type::TypeParameter { param, nullable } => {
                 if nullable || !seen.insert(param) {
-                    return;
+                    return None;
                 }
                 typ = inf.table.param(param).bound;
             }
@@ -110,17 +144,20 @@ fn record_implicit_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: Typ
         }
     ) || typ == inf.core.function
     {
-        return;
+        return None;
     }
-    let Some(call) = inf.sym.call else { return };
+    let call = inf.sym.call?;
     if let Some(m) = inf.interface_member(typ, call, false).filter(|m| m.method) {
         inf.body_types.units[cx.unit.0 as usize]
             .implicit_calls
             .insert(e);
         // A generic `call` in a function context: the instantiation from the
         // context, with the `COULD_NOT_INFER`s at the expression.
-        let _ = instantiate_in_context_with(inf, cx, e, m.ty, context, false);
+        return Some(instantiate_in_context_with(
+            inf, cx, e, m.ty, context, false,
+        ));
     }
+    None
 }
 
 /// End of a chain with `?.`: the receiver's promotion only held inside it;
@@ -2325,9 +2362,13 @@ pub(crate) fn infer_at(
             let (vf, ff) = checked_condition(inf, cx, *condition);
             let before = cx.flow.clone();
             cx.flow = vf;
-            let t1 = flow_operand(inf, cx, then, None, |inf, cx| infer(inf, cx, then, ctx));
+            let t1 = flow_operand(inf, cx, then, None, |inf, cx| {
+                infer_without_implicit_call(inf, cx, then, ctx)
+            });
             let after1 = std::mem::replace(&mut cx.flow, ff);
-            let t2 = flow_operand(inf, cx, else_, None, |inf, cx| infer(inf, cx, else_, ctx));
+            let t2 = flow_operand(inf, cx, else_, None, |inf, cx| {
+                infer_without_implicit_call(inf, cx, else_, ctx)
+            });
             let after2 = std::mem::replace(&mut cx.flow, before);
             cx.flow = inf.join(&after1, &after2);
             upper_bound_in_context(inf, t1, t2, ctx)
@@ -2386,7 +2427,7 @@ pub(crate) fn infer_at(
             instantiate_in_context(inf, cx, e, t, ctx)
         }
         ExprKind::Assign { op, target, value } => {
-            let t = assignment(inf, cx, e, *op, *target, *value, &mut short_circuit);
+            let t = assignment(inf, cx, e, *op, (*target, *value, ctx), &mut short_circuit);
             instantiate_in_context(inf, cx, e, t, ctx)
         }
         ExprKind::PatternAssign { pattern, value } => {
@@ -2397,7 +2438,7 @@ pub(crate) fn infer_at(
             sections,
             null_aware,
         } => {
-            let t = infer(inf, cx, *target, ctx);
+            let t = infer_without_implicit_call(inf, cx, *target, ctx);
             void_use(inf, cx, *target, t);
             // `EXTENSION_OVERRIDE_WITH_CASCADE`
             // (`method_invocation_resolver.dart:431-437`,
@@ -4856,7 +4897,7 @@ fn binary(
             } else {
                 inf.nullable(ctx)
             };
-            let t1 = infer(inf, cx, left, k_q);
+            let t1 = infer_without_implicit_call(inf, cx, left, k_q);
             void_use(inf, cx, left, t1);
             dead_in_right_operand(inf, cx, left, right);
             warn_dead_null(inf, cx, t1, right);
@@ -4873,7 +4914,7 @@ fn binary(
                 let decl = cx.local(id).ty;
                 inf.promote_non_null(&mut before, id, decl);
             }
-            let t2 = infer(inf, cx, right, j);
+            let t2 = infer_without_implicit_call(inf, cx, right, j);
             let after = cx.flow.clone();
             cx.flow = inf.join(&before, &after);
             let nn = inf.non_null(t1);
@@ -5704,6 +5745,27 @@ fn name_write_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: ExprId, n: as
             // extension setter `x` gives
             // `ASSIGNMENT_TO_FINAL` (`static_extension_internal_basename_shadowing_error_test.dart:402`).
             let follows_through_this = !static_ && fe.extension.is_none();
+            // A static or extension setter (declared or the implicit one of a
+            // mutable variable) is the write element itself: its parameter type is
+            // the write type.
+            if !follows_through_this {
+                match (fe.kind, fe.variable) {
+                    (FunctionKind::Setter, _) => {
+                        return inf.outline.functions[f.0 as usize]
+                            .parameters
+                            .first()
+                            .map(|p| p.ty)
+                            .unwrap_or(inf.core.dynamic_);
+                    }
+                    (FunctionKind::ImplicitAccessor, Some(v)) => {
+                        let ve = inf.program.variable(v);
+                        if !ve.const_ && (!ve.final_ || (ve.late && inf.initializer(v).is_none())) {
+                            return inf.variable_type(v);
+                        }
+                    }
+                    _ => {}
+                }
+            }
             if let (FunctionKind::ImplicitAccessor, Some(v)) = (fe.kind, fe.variable) {
                 let ve = inf.program.variable(v);
                 if (ve.final_ || ve.const_) && ve.setter.is_none() && follows_through_this {
@@ -5832,8 +5894,7 @@ fn assignment(
     cx: &mut Body,
     e: ExprId,
     op: AssignOp,
-    tgt: ExprId,
-    the_value: ExprId,
+    (tgt, the_value, ctx): (ExprId, ExprId, TypeId),
     short_circuit: &mut bool,
 ) -> TypeId {
     let span = inf.span_expr(cx.unit, e);
@@ -6060,8 +6121,9 @@ fn assignment(
                     let sp = inf.span_expr(cx.unit, the_value);
                     inf.verify_assignable(tv, write, sp, INVALID_ASSIGNMENT.template);
                 }
+                // `UP(NonNull(T1), T2)` against the context (inference-update-3).
                 let nn = inf.non_null(read);
-                let t = inf.up(nn, tv);
+                let t = upper_bound_in_context(inf, nn, tv, ctx);
                 // The write only happens on the null branch (`ifNullExpression_
                 // rightBegin` … `write` … `ifNullExpression_end`): after the join the
                 // local is only potentially assigned if it was not before.
