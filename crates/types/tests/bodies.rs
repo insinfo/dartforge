@@ -3163,3 +3163,23 @@ fn local_annotation_arguments_are_implicit_constant_creations() {
     };
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+#[test]
+fn constant_creation_context_drops_type_variables() {
+    // `const C(g)` with the context `C<T>`: the least closure `C<Never>`
+    // (`isConst` in `setupGenericTypeInference`), so `g` is not instantiated
+    // with `T` (tests/language/const/inference_test.dart).
+    let source = "R g<T, R>(T _) => throw 0;
+        class C<T> {
+          final Object fn;
+          const C(T Function(T) this.fn);
+        }
+        C<T> h<T>() => const C(g);
+        void main() {
+          print(h<int>());
+        }";
+    let Some(diags) = constant_diagnostics_of(source) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}

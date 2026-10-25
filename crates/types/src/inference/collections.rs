@@ -129,22 +129,8 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
     // literal came out as `List<dynamic>` in the native backend and the
     // default argument failed the parameter check,
     // docs/NATIVO-PROJETOS-REAIS.md C12).
-    let ctx = if const_ && type_args.is_empty() && !inf.the_is_unknown(ctx) {
-        let mut ps = Vec::new();
-        params_in_type(inf.table, ctx, &mut ps);
-        // Only the type variables in scope (class, method, enclosing
-        // functions): those of the generic invocation being inferred (the `T`
-        // of `Stream.fromIterable(const [1])`) are not free variables of the
-        // literal: the CFE has them as `_` in the context
-        // (type_schema_environment.dart `setupGenericTypeInference`).
-        let visible = cx.visible_type_parameters();
-        ps.retain(|p| visible.values().any(|q| q == p));
-        if ps.is_empty() {
-            ctx
-        } else {
-            let mut env = inf.env();
-            crate::bounds::least_closure(ctx, &ps, &mut env)
-        }
+    let ctx = if const_ && type_args.is_empty() {
+        const_context_closure(inf, cx, ctx)
     } else {
         ctx
     };
@@ -1415,4 +1401,29 @@ fn enter_branch(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElemen
 
 fn exit_branch(cx: &mut Body, _open: bool) {
     super::statements::exit_flow(cx);
+}
+
+/// The context of a constant literal or creation (`isConst` in
+/// `setupGenericTypeInference`, 3.6.2 `type_system.dart:1730-1732`): its least
+/// closure with respect to the type variables in scope, since a constant
+/// cannot depend on them (`C<T> f<T>() => const C(g)` infers `C<Never>`).
+///
+/// Only the type variables in scope (class, method, enclosing functions)
+/// count: those of the generic invocation being inferred (the `T` of
+/// `Stream.fromIterable(const [1])`) are not free variables of the constant:
+/// the CFE has them as `_` in the context.
+pub(crate) fn const_context_closure(inf: &mut BodyInferrer<'_>, cx: &Body, ctx: TypeId) -> TypeId {
+    if inf.the_is_unknown(ctx) {
+        return ctx;
+    }
+    let mut ps = Vec::new();
+    params_in_type(inf.table, ctx, &mut ps);
+    let visible = cx.visible_type_parameters();
+    ps.retain(|p| visible.values().any(|q| q == p));
+    if ps.is_empty() {
+        ctx
+    } else {
+        let mut env = inf.env();
+        crate::bounds::least_closure(ctx, &ps, &mut env)
+    }
 }

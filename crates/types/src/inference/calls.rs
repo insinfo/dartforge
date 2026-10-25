@@ -3078,6 +3078,21 @@ fn build_with(
         };
         prepare_entity(inf, sp, f);
     }
+    // `const C(g)`: the context through its least closure (`isConst`).
+    let written_const = e.is_some_and(|e| {
+        matches!(
+            inf.program.unit(cx.unit).ast.expr(e).kind,
+            ExprKind::InstanceCreation {
+                keyword: Some(ast::CreationKeyword::Const),
+                ..
+            }
+        )
+    });
+    let ctx = if written_const {
+        super::collections::const_context_closure(inf, cx, ctx)
+    } else {
+        ctx
+    };
     let (r, _) = invoke(inf, cx, generic, args, ctx, None);
     inf.inference_entity = None;
     // The instantiation recorded by `invoke` is that of the alias's
