@@ -78,19 +78,31 @@ Object? _dartforgeNoSuchMethod(
     List<String> names,
     List<Object?> values,
     List<Type> types) {
+  // The VM's `_InvocationMirror` of a dynamic call (level 0), so that
+  // `NoSuchMethodError.toString` gives its detailed text ("Class 'C' has no
+  // instance getter 'x'. Receiver: ... Tried calling: x").
   final Invocation invocation;
   if (type == 1) {
-    invocation = new Invocation.getter(new Symbol(name));
+    invocation = new _InvocationMirror._withType(
+        new Symbol(name), _InvocationMirror._GETTER, null, null, null);
   } else if (type == 2) {
-    invocation = new Invocation.setter(
-        new Symbol("$name="), positional.isEmpty ? null : positional[0]);
+    invocation = new _InvocationMirror._withType(
+        new Symbol("$name="),
+        _InvocationMirror._SETTER,
+        null,
+        [positional.isEmpty ? null : positional[0]],
+        null);
   } else {
     final named = <Symbol, Object?>{};
     for (var i = 0; i < names.length; i++) {
       named[new Symbol(names[i])] = values[i];
     }
-    invocation = new Invocation.genericMethod(
-        new Symbol(name), types.isEmpty ? null : types, positional, named);
+    invocation = new _InvocationMirror._withType(
+        new Symbol(name),
+        _InvocationMirror._METHOD,
+        types.isEmpty ? const <Type>[] : new List<Type>.unmodifiable(types),
+        positional,
+        named);
   }
   return receiver.noSuchMethod(invocation);
 }

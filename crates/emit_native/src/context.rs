@@ -84,6 +84,10 @@ pub struct Context<'a> {
     /// (`source.rs`); their `is_sdk` is already off in the copy of the
     /// `Program`. Empty for those who do not use `dart:async`.
     pub from_source: std::collections::HashSet<LibraryId>,
+    /// The classes some class of the program applies as a mixin (`with M`),
+    /// directly or through a mixin application: a `mixin`, a `mixin class`
+    /// or a pre-3.0 class. Their fields have no fixed position.
+    pub mixed_in: std::collections::HashSet<dartforge_elements::model::ClassId>,
     /// RTI: the position of each SDK class (without a heap class id) in the
     /// order of the stable path — the RTI id is `0x2000_0000 +` it
     /// (`lower::rti`, `Context::id_rti`).
@@ -381,6 +385,7 @@ impl<'a> Context<'a> {
                     .then_some(dartforge_elements::model::ClassId(i as u32))
             }),
             entry_lib: program.entry,
+            mixed_in: mixed_in_classes(program),
             entry_main: entry_main(program, interner),
             class_ids: Vec::new(),
             fixed_sdk_ids: None,
@@ -1129,4 +1134,22 @@ pub fn entry_main(program: &Program, interner: &Interner) -> Option<usize> {
         }
         _ => None,
     }
+}
+
+/// See [`Context::mixed_in`].
+fn mixed_in_classes(
+    program: &Program,
+) -> std::collections::HashSet<dartforge_elements::model::ClassId> {
+    let mut set = std::collections::HashSet::new();
+    let mut pending: Vec<_> = program
+        .classes
+        .iter()
+        .flat_map(|c| c.mixin_classes.iter().copied())
+        .collect();
+    while let Some(m) = pending.pop() {
+        if set.insert(m) {
+            pending.extend(program.classes[m.0 as usize].mixin_classes.iter().copied());
+        }
+    }
+    set
 }

@@ -595,7 +595,7 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("InternetAddress_Parse"),
     runtime("InternetAddress_ParseScopedLinkLocalAddress"),
     runtime("InternetAddress_RawAddrToString"),
-    pending("InvocationMirror_unpackTypeArguments"),
+    runtime("InvocationMirror_unpackTypeArguments"),
     runtime("Isolate_exit_"),
     runtime("Isolate_getCurrentRootUriStr"),
     runtime("Isolate_getDebugName"),

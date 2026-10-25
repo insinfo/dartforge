@@ -1710,6 +1710,7 @@ fn implementations_without_memo(
     cid: ClassId,
     sym: dartforge_intern::SymbolId,
 ) -> Vec<Implementation> {
+    let origin = private_origin(ctx, cid, sym);
     let mut exit = Vec::new();
     for &kid in ctx.subtypes(cid).iter() {
         let class = &ctx.program.classes[kid.0 as usize];
@@ -1724,6 +1725,9 @@ fn implementations_without_memo(
                 .instance_members
                 .get(&sym)?;
             let f = f.0 as usize;
+            if origin.is_some_and(|o| ctx.program.functions[f].library != o) {
+                return None;
+            }
             implemented(ctx, f).then(|| match ctx.program.functions[f].variable {
                 Some(v) => Implementation::Field(v),
                 None => Implementation::Function(f),
@@ -1735,6 +1739,27 @@ fn implementations_without_memo(
         }
     }
     exit
+}
+
+/// For a library-private name, the library whose members it names: that of
+/// the member `cid` sees (in its linearization), else that of `cid`. A
+/// subclass in another library declaring the same `_name` does not override
+/// it. `None` for a public name.
+fn private_origin(
+    ctx: &Context,
+    cid: ClassId,
+    sym: dartforge_intern::SymbolId,
+) -> Option<LibraryId> {
+    if !ctx.symbol_name(sym).starts_with('_') {
+        return None;
+    }
+    let declared = linearization(ctx, cid).into_iter().find_map(|c| {
+        let f = ctx.program.classes[c.0 as usize]
+            .instance_members
+            .get(&sym)?;
+        Some(ctx.program.functions[f.0 as usize].library)
+    });
+    Some(declared.unwrap_or(ctx.program.classes[cid.0 as usize].library))
 }
 
 /// Each compiled concrete class, a subtype of `cid`, with the implementation
@@ -1767,6 +1792,7 @@ fn implementations_by_class_without_memo(
     cid: ClassId,
     sym: dartforge_intern::SymbolId,
 ) -> Option<Vec<(i64, Implementation)>> {
+    let origin = private_origin(ctx, cid, sym);
     let mut exit = Vec::new();
     for &kid in ctx.subtypes(cid).iter() {
         let class = &ctx.program.classes[kid.0 as usize];
@@ -1781,6 +1807,9 @@ fn implementations_by_class_without_memo(
                 .instance_members
                 .get(&sym)?;
             let f = f.0 as usize;
+            if origin.is_some_and(|o| ctx.program.functions[f].library != o) {
+                return None;
+            }
             implemented(ctx, f).then(|| match ctx.program.functions[f].variable {
                 Some(v) => Implementation::Field(v),
                 None => Implementation::Function(f),

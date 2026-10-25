@@ -151,6 +151,14 @@ pub extern "C" fn dartforge_native_Object_toString(this: i64) -> i64 {
             .unwrap_or_default();
         return HEAP.with(|h| h.borrow_mut().allocate_str(&format!("Closure: {signature}{from}")));
     }
+    // A `Type` object: the text of its type, like the VM's `Type::ToCString`
+    // (`Error.safeToString(int)` is `int`).
+    if cid == TYPE_CLASS {
+        let t = HEAP.with(|h| h.borrow().object(this).and_then(|o| o.first()).map(|f| f.0));
+        if let Some(t) = t {
+            return dartforge_rti_string(t);
+        }
+    }
     // A generic with reified arguments: the name includes the arguments
     // (`Instance of 'Caixa<int>'`), like the VM; without arguments, the class's
     // registered name.

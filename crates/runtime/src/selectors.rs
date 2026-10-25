@@ -490,6 +490,27 @@ pub unsafe extern "C" fn dartforge_nsm_mismatch(recv: i64, name: i64, code: i64,
     0
 }
 
+/// `InvocationMirror_unpackTypeArguments`: the `Type` objects of the RTI
+/// tuple `tuple` (the runtime's `TypeArguments`), as a fixed list. The mirrors
+/// the runtime builds already carry the list (`_InvocationMirror._withType`).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_native_InvocationMirror_unpackTypeArguments(tuple: i64, _count: i64) -> i64 {
+    let types = tuple_arguments(tuple);
+    let frame = HEAP.with(|h| h.borrow_mut().push_frame_with_slots(types.len() + 1));
+    let objects: Vec<i64> = types
+        .iter()
+        .enumerate()
+        .map(|(i, &t)| {
+            let o = dartforge_rti_object_type(t);
+            HEAP.with(|h| h.borrow_mut().set_root(frame, i, o));
+            o
+        })
+        .collect();
+    let list = dart_fixed_list(&objects);
+    HEAP.with(|h| h.borrow_mut().pop_frame(frame));
+    list
+}
+
 /// The type arguments of an RTI tuple (`L<…>`), or none.
 fn tuple_arguments(tuple: i64) -> Vec<i64> {
     if tuple <= 0 {

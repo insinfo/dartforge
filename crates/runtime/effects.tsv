@@ -619,6 +619,7 @@ dartforge_native_Internal_writeIntoTwoByteString	1	1	0
 dartforge_native_InternetAddress_Parse	1	1	0
 dartforge_native_InternetAddress_ParseScopedLinkLocalAddress	1	1	1
 dartforge_native_InternetAddress_RawAddrToString	1	1	1
+dartforge_native_InvocationMirror_unpackTypeArguments	1	1	0
 dartforge_native_Isolate_exit_	1	1	1
 dartforge_native_Isolate_getCurrentRootUriStr	1	1	0
 dartforge_native_Isolate_getDebugName	1	1	0

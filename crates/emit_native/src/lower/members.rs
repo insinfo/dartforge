@@ -26,6 +26,14 @@ pub fn is_mixin(ctx: &Context, cid: ClassId) -> bool {
     ctx.program.classes[cid.0 as usize].kind == dartforge_elements::model::ClassKind::Mixin
 }
 
+/// The fields declared in `cid` have no fixed position: it is a mixin, or a
+/// class some class applies as a mixin (`class D extends B with M` with a
+/// `mixin class M`), so the index is that of the class of the object
+/// (`mixin_field_indices`).
+pub fn fields_positioned_by_application(ctx: &Context, cid: ClassId) -> bool {
+    is_mixin(ctx, cid) || ctx.mixed_in.contains(&cid)
+}
+
 /// The linearization of a program class (P4, specification §12.3 "Mixin
 /// Application"): `class C extends B with M1, M2` is `C`, `M2`, `M1` and then
 /// the linearization of `B` — the order in which a member is looked up. Stops at the
@@ -221,7 +229,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         }
         let owner = self.ctx.program.variable(vid).class?;
-        if is_mixin(self.ctx, owner) {
+        if fields_positioned_by_application(self.ctx, owner) {
             return None;
         }
         declared_field_metadata(self.ctx, vid, self.field_index(vid)?)
@@ -232,7 +240,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// any receiver whose static class is a subtype of the declaring one.
     pub fn field_index(&self, vid: VariableId) -> Option<usize> {
         let owner = self.ctx.program.variables[vid.0 as usize].class?;
-        if is_mixin(self.ctx, owner) {
+        if fields_positioned_by_application(self.ctx, owner) {
             // The index of a mixin field depends on the class that applies it
             // (`mixin_field_indices`).
             return None;
@@ -327,7 +335,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// of the mixin is compiled once; the position of the field is that of the application).
     fn dynamic_index(&mut self, obj: Operand, vid: VariableId, span: Span) -> Option<Operand> {
         let owner = self.ctx.program.variables[vid.0 as usize].class?;
-        if !is_mixin(self.ctx, owner) {
+        if !fields_positioned_by_application(self.ctx, owner) {
             return None;
         }
         let cases = self.mixin_field_indices(vid);
@@ -386,7 +394,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         val_ref: Option<Operand>,
     ) -> Option<Operand> {
         let owner = self.ctx.program.variables[vid.0 as usize].class?;
-        if !is_mixin(self.ctx, owner) {
+        if !fields_positioned_by_application(self.ctx, owner) {
             return None;
         }
         let cases = self.mixin_field_indices(vid);
@@ -524,7 +532,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.ctx.arc_memory
             && !var.late
             && self.field_index(vid).is_none()
-            && var.class.is_some_and(|owner| is_mixin(self.ctx, owner))
+            && var
+                .class
+                .is_some_and(|owner| fields_positioned_by_application(self.ctx, owner))
         {
             let repr = self.field_repr(vid);
             let value = self.coerce(val.clone(), repr);
@@ -1680,6 +1690,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         } else {
             decl.name
         };
+        // A library-private name: a homonym declared in another library does
+        // not override it.
+        let private = ctx.symbol_name(decl.name).starts_with('_');
         let mut exit = Vec::new();
         let mut open = false;
         for &kid in ctx.subtypes(cdecl).iter() {
@@ -1695,6 +1708,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let cl = &ctx.program.classes[c.0 as usize];
                 if let Some(&f) = cl.instance_members.get(&name_str) {
                     let f = f.0 as usize;
+                    if private && ctx.program.functions[f].library != decl.library {
+                        continue;
+                    }
                     if super::user_function(ctx, f) && has_body(ctx, f) {
                         if let Some(id) = ctx.class_id_of(kid) {
                             exit.push((id, f));
