@@ -69,6 +69,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     ty,
                 )
             }
+            (ast::AssignOp::Compound(_), Some(cur))
+                if let Some(fid) = self
+                    .active_compound
+                    .and_then(|e| self.extension_operator(e)) =>
+            {
+                // An extension operator (`a.field += b` with `+` of an
+                // extension on the read type).
+                let rhs = self.lower_rhs(ast, value, Type::Ref);
+                let cur = self.coerce(cur, Type::Ref);
+                self.call_extension(
+                    cur,
+                    fid,
+                    &[(None, rhs)],
+                    None,
+                    None,
+                    Span { start: 0, end: 0 },
+                )
+            }
             (ast::AssignOp::Compound(b), Some(cur)) => {
                 let ty = self.operand_type(&cur);
                 // One side excluding int is enough for the Smi join to be impossible.
@@ -335,6 +353,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Assignment. Dart evaluation order: receiver, index, current read
     /// (if compound), value, write.
     pub fn lower_assignment(
+        &mut self,
+        ast: &ast::Ast,
+        op: ast::AssignOp,
+        target: ExprId,
+        value: Rhs,
+        span: Span,
+    ) -> Operand {
+        let compound = self.pending_compound.take();
+        let saved = std::mem::replace(&mut self.active_compound, compound);
+        let v = self.lower_assignment_inner(ast, op, target, value, span);
+        self.active_compound = saved;
+        v
+    }
+
+    fn lower_assignment_inner(
         &mut self,
         ast: &ast::Ast,
         op: ast::AssignOp,

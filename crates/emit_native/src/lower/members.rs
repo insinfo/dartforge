@@ -681,6 +681,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         name_str: SymbolId,
         setter: bool,
     ) -> Option<(ClassId, MemberRef)> {
+        // Resolved to an extension member (`E(c).g`, or a member the class
+        // does not have): not the class's, whatever its name.
+        if let Some(dartforge_types::resolved::Resolved::ExtensionMember { .. }) =
+            self.ctx.get_resolved(self.unit_id, access)
+        {
+            return None;
+        }
         if let Some(dartforge_types::resolved::Resolved::Member { class, member, .. }) =
             self.ctx.get_resolved(self.unit_id, access)
         {

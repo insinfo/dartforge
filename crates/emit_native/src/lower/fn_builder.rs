@@ -253,6 +253,11 @@ pub struct FnBuilder<'a, 'c> {
     /// The type the value of a `return` must have: the declared return type,
     /// or the future value type of an `async` body (`None`: unknown).
     pub(crate) return_context: Option<dartforge_types::table::TypeId>,
+    /// The expression that carries the resolution of the operator of the
+    /// compound assignment about to be lowered (`x += e`, `x++`), and that of
+    /// the one being lowered (`lower_assignment`).
+    pub(crate) pending_compound: Option<ExprId>,
+    pub(crate) active_compound: Option<ExprId>,
     /// The expressions inside a deferred access already checked by the outer
     /// one (`lower/deferred.rs`).
     pub(crate) deferred_checked: std::collections::HashSet<ExprId>,
@@ -465,6 +470,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             instantiating: None,
             nsm_on_mismatch: None,
             return_context: None,
+            pending_compound: None,
+            active_compound: None,
             deferred_checked: std::collections::HashSet::new(),
             call_types: None,
             this_extension: None,

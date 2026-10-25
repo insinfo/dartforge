@@ -866,6 +866,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         } else {
                             BinaryOp::Sub
                         };
+                        self.pending_compound = Some(expr_id);
                         let new = self.lower_assignment(
                             ast,
                             ast::AssignOp::Compound(bin),
@@ -1594,13 +1595,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.check_type_or_throw(ast_ty, val_op.clone(), super::rti::CastContext::How);
                 val_op
             }
-            ExprKind::Assign { op, target, value } => self.lower_assignment(
-                ast,
-                *op,
-                *target,
-                super::assignment::Rhs::Expr(*value),
-                expr.span,
-            ),
+            ExprKind::Assign { op, target, value } => {
+                self.pending_compound = Some(expr_id);
+                self.lower_assignment(
+                    ast,
+                    *op,
+                    *target,
+                    super::assignment::Rhs::Expr(*value),
+                    expr.span,
+                )
+            }
             ExprKind::FunctionExpression(fid) => {
                 let typ = self.literal_function_type(ast, *fid, Some(expr_id));
                 let c = self.lower_closure(ast, *fid, expr.span, typ);
