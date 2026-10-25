@@ -799,7 +799,12 @@ impl<'a> Visitor<'a> {
                         }
                     }
                     self.shared_region = before;
+                    // The body is a scope inside the pattern variables' one:
+                    // `case var x: var x = 'local';` declares a second `x`
+                    // that shadows the first (not a collision).
+                    self.enter();
                     self.stmts(&cases[j].body, cases[j].span.start);
+                    self.exit();
                     self.exit();
                     i = j + 1;
                 }
@@ -1164,6 +1169,26 @@ mod tests {
         let names: Vec<&str> = r.iter().map(|x| x.1.as_str()).collect();
         assert_eq!(names, vec!["l", "b", "c", "e", "j", "k", "x"], "{r:?}");
         assert_eq!(r[0].0, "unused_element");
+    }
+
+    #[test]
+    fn case_body_shadows_the_pattern_variable() {
+        // `case var x: var x = 'local';` is not a collision: the body is a
+        // scope inside the pattern's, so the read is the local's and the
+        // pattern variable is the unused one.
+        let f = "void f() {\n  switch ('p') {\n    case var x:\n      var x = 'local';\n      print(x);\n  }\n}\n";
+        let mut interner = Interner::new();
+        let p = dartforge_frontend::parser::parse(f, &mut interner);
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source: f,
+        };
+        let starts: Vec<usize> = unused(u, &interner, false)
+            .into_iter()
+            .map(|d| d.span.start)
+            .collect();
+        assert_eq!(starts, vec![f.find("var x:").unwrap() + 4]);
     }
 
     #[test]
