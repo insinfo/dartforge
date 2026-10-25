@@ -3013,3 +3013,105 @@ fn wildcard_of_representation_type_covers_extension_type() {
         "{diags:?}"
     );
 }
+
+/// Body and constant (`const_eval::verify`) diagnostics of a source over the
+/// SDK 3.6.2, or `None` (the test skips) when it is not available.
+fn constant_diagnostics_of(source: &str) -> Option<Vec<dartforge_diagnostics::Diagnostic>> {
+    let Some((_lib_dir, sdk)) = get_real_sdk() else {
+        eprintln!("SDK 3.6.2 not available, skipping test.");
+        return None;
+    };
+    let tmp = tempdir().unwrap();
+    let mut interner = Interner::new();
+    let main_dart = tmp.path().join("main.dart");
+    fs::write(&main_dart, source).unwrap();
+    let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
+    let mut table = TypeTable::new();
+    let core = CoreTypes::init(&mut table, &prog, &interner);
+    let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
+    let entry = prog.entry.expect("the entry library");
+    // As the native compiler: the entry library's bodies, with its locals.
+    let (bodies, mut diags) = dartforge_types::infer_library_bodies_with_locals(
+        &prog,
+        &interner,
+        &mut table,
+        &core,
+        &mut outline,
+        &[entry],
+    );
+    let constants = dartforge_types::const_eval::verify(
+        &prog,
+        &interner,
+        &mut table,
+        &core,
+        &outline,
+        &bodies,
+        &[entry].into_iter().collect(),
+        &[entry],
+    );
+    diags.extend(constants.into_iter().map(|(_, d)| d));
+    Some(diags)
+}
+
+/// The names of the diagnostic codes in `diags`.
+fn code_names(diags: &[dartforge_diagnostics::Diagnostic]) -> Vec<&'static str> {
+    diags
+        .iter()
+        .filter_map(|d| d.code.map(|c| c.info().name))
+        .collect()
+}
+
+#[test]
+fn constant_is_test_selects_the_conditional_branch() {
+    // `l is String ? l.length : d` with a list: the `is` is false and the
+    // `length` read is not evaluated (tests/language/constants_2018).
+    let source = "class T {
+          final Object value;
+          const T.length(dynamic l, int d) : value = l is String ? l.length : d;
+          const T.length2(dynamic l, int d) : value = l is! String ? d : l.length;
+        }
+        void main() {
+          const l = [1];
+          print(const T.length(l, 42));
+          print(const T.length2(l, 42));
+          print(const T.length('s', 42));
+        }";
+    let Some(diags) = constant_diagnostics_of(source) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+    // The taken branch is still evaluated: `length` on a list is an error.
+    let source = "class T {
+          final Object value;
+          const T.length(dynamic l, int d) : value = l is! String ? l.length : d;
+        }
+        void main() {
+          const l = [1];
+          print(const T.length(l, 42));
+        }";
+    let diags = constant_diagnostics_of(source).unwrap();
+    assert!(
+        code_names(&diags).contains(&"const_eval_property_access"),
+        "{diags:?}"
+    );
+}
+
+#[test]
+fn constant_is_test_uses_the_constructor_type_arguments() {
+    // `x is T ? x : null` in `C<num>`: `T` is `num`, and the field `T? t`
+    // receives the `int` (tests/language/nnbd/const/potentially_constant_types).
+    let source = "class C<T> {
+          final T? t;
+          final bool isListT;
+          const C(dynamic x) : t = (x is T) ? x : null, isListT = x is List<T>;
+        }
+        void main() {
+          print(const C<num>(0));
+          print(const C<num>('hello'));
+          print(const C<int>(<num>[0]));
+        }";
+    let Some(diags) = constant_diagnostics_of(source) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}

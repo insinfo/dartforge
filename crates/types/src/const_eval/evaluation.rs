@@ -886,15 +886,34 @@ impl<'a> Engine<'a> {
                     }
                 }
             }
-            ExprKind::Is { value, negated, .. } => {
+            ExprKind::Is { value, ty, negated } => {
+                let (ty, negated) = (*ty, *negated);
                 let v = match self.evaluate(cx, *value, in_const) {
                     Constant::Value(v) => v,
                     i => return i,
                 };
-                // The tested type is not reconstructed here: the result is
-                // unknown (never proves an error).
-                let _ = (v, negated);
-                Constant::Value(Value::bool_(self.core, None))
+                // `visitIsExpression` (3.6.2 `evaluation.dart`): `runtimeTypeMatch`
+                // of the value against the written type with the constructor's
+                // lexical environment applied (`x is List<T>` in `C<int>`). The
+                // condition of `l is String ? l.length : d` then picks a branch
+                // and the other is not evaluated.
+                let tgt = self.written_type(u, ty, e);
+                let tgt = match &cx.types {
+                    Some(m) => crate::ops::substitute(tgt, m, self.table),
+                    None => tgt,
+                };
+                // An unknown value (whose runtime type may be a subtype of its
+                // static type) or a type that still mentions a type parameter:
+                // the result is unknown (never proves an error).
+                if v.actually_unknown()
+                    || v.ty == self.core.dynamic_
+                    || matches!(v.state, InstanceState::Null { invalid: true })
+                    || self.mentions_parameter(tgt)
+                {
+                    return Constant::Value(Value::bool_(self.core, None));
+                }
+                let matches = self.matches_type(&v, tgt);
+                Constant::Value(Value::bool_(self.core, Some(matches != negated)))
             }
             ExprKind::As { value, ty } => {
                 let ty = *ty;
@@ -904,13 +923,7 @@ impl<'a> Engine<'a> {
                 };
                 // `node.type.type` (`visitAsExpression`): the written type, not the
                 // static type of the `as` (which the implicit instantiation changes).
-                let tgt = self
-                    .body
-                    .units
-                    .get(u.0 as usize)
-                    .and_then(|b| b.annotation_types.get(&ty).copied())
-                    .or_else(|| self.outline.written_types.get(&(u, ty)).copied())
-                    .unwrap_or_else(|| self.the_static(u, e));
+                let tgt = self.written_type(u, ty, e);
                 // The type of the `as` with the constructor's lexical environment
                 // applied (`_substitution`, `x as List<T>` in `C<int>`): only what
                 // still mentions a type parameter is left unchecked.
@@ -948,6 +961,17 @@ impl<'a> Engine<'a> {
             }
             _ => self.generic(u, e, false),
         }
+    }
+
+    /// The resolved type of the annotation `ty` written in `u` (the static type
+    /// of `e` when it was not recorded).
+    fn written_type(&mut self, u: UnitId, ty: ast::TypeId, e: ExprId) -> TypeId {
+        self.body
+            .units
+            .get(u.0 as usize)
+            .and_then(|b| b.annotation_types.get(&ty).copied())
+            .or_else(|| self.outline.written_types.get(&(u, ty)).copied())
+            .unwrap_or_else(|| self.the_static(u, e))
     }
 
     pub(crate) fn mentions_parameter(&self, t: TypeId) -> bool {
