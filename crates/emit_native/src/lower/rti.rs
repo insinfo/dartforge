@@ -2024,6 +2024,60 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.define_rti(clo, ty);
     }
 
+    /// The instantiation to bounds of `params`, as recipes (the type literal
+    /// of a generic class written without arguments, `C` for `C<num>`): a
+    /// parameter without a bound is `dynamic`; one with a bound, the bound
+    /// with the parameters already instantiated substituted, in dependency
+    /// order; those left in a bound cycle (`T extends Comparable<T>`) have the
+    /// cycle's parameters replaced by `dynamic`.
+    pub(super) fn bounds_instantiation(&self, params: &[TypeParamId]) -> Vec<Recipe> {
+        let dynamic = self.ctx.core.dynamic_;
+        let mut map: HashMap<TypeParamId, TypeId> = HashMap::new();
+        for &p in params {
+            let d = self.ctx.table.param(p);
+            if !d.explicit || matches!(self.ctx.table.get(d.bound), T::Dynamic) {
+                map.insert(p, dynamic);
+            }
+        }
+        loop {
+            let pending: Vec<TypeParamId> = params
+                .iter()
+                .copied()
+                .filter(|p| !map.contains_key(p))
+                .collect();
+            let ready: Vec<TypeParamId> = pending
+                .iter()
+                .copied()
+                .filter(|&p| !self.mentions_params(self.ctx.table.param(p).bound, &pending))
+                .collect();
+            if ready.is_empty() {
+                break;
+            }
+            for p in ready {
+                map.insert(p, self.ctx.table.param(p).bound);
+            }
+        }
+        let cycle: Vec<TypeParamId> = params
+            .iter()
+            .copied()
+            .filter(|p| !map.contains_key(p))
+            .collect();
+        for &p in &cycle {
+            map.insert(p, dynamic);
+        }
+        params
+            .iter()
+            .map(|p| {
+                let t = if cycle.contains(p) {
+                    self.ctx.table.param(*p).bound
+                } else {
+                    map[p]
+                };
+                self.substituted_type_recipe(t, Some(&map))
+            })
+            .collect()
+    }
+
     /// The bounds of the type parameters of a generic function type, after
     /// its count (`F<2:B0,D;…`), when one is not a top type (`D` stands for
     /// those): the runtime compares them in subtyping.

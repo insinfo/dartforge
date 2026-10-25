@@ -965,19 +965,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // Type literal (`Fish`, `List`): the canonical `Type` object of the
             // raw type of the class (RTI).
             Element::Class(cid) => {
-                let n = self
+                // A generic class without arguments is instantiated to its
+                // bounds (`C` is `C<num>` for `class C<T extends num>`).
+                let params = self
                     .ctx
                     .outline
                     .classes
                     .get(cid.0 as usize)
-                    .map_or(0, |d| d.type_params.len());
+                    .map(|d| d.type_params.to_vec())
+                    .unwrap_or_default();
                 let mut r = super::rti::Recipe {
                     text: format!("C{}", self.ctx.id_rti(cid)),
                     variables: false,
                 };
-                if n > 0 {
+                if !params.is_empty() {
+                    let args = self.bounds_instantiation(&params);
                     r.text.push('<');
-                    r.text.push_str(&vec!["D"; n].join(","));
+                    for (i, a) in args.iter().enumerate() {
+                        if i > 0 {
+                            r.text.push(',');
+                        }
+                        r.text.push_str(&a.text);
+                        r.variables |= a.variables;
+                    }
                     r.text.push('>');
                 }
                 let t = self.recipe_rti(&r);
