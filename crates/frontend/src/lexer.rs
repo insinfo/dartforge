@@ -92,8 +92,13 @@ impl<'s> Lexer<'s> {
     }
 
     fn run(&mut self) -> Result<(), Diagnostic> {
+        // A leading byte order mark is not a character of the unit
+        // (`Utf8BytesScanner` skips it); offsets stay those of the source.
+        if self.starts_with("\u{FEFF}") {
+            self.pos = '\u{FEFF}'.len_utf8();
+        }
         if self.starts_with("#!") {
-            let start = 0;
+            let start = self.pos;
             while self.pos < self.bytes.len() && self.bytes[self.pos] != b'\n' {
                 self.pos += 1;
             }
@@ -739,6 +744,14 @@ mod tests {
             v.extend([Kind::Int, Kind::Op(Op::Dot), Kind::Ident, Kind::Eof]);
             v
         });
+    }
+
+    #[test]
+    fn leading_byte_order_mark_is_skipped() {
+        let tokens = lex("\u{FEFF}main() {}").unwrap();
+        assert_eq!(tokens[0].kind, Kind::Ident);
+        assert_eq!(tokens[0].span.start, 3);
+        assert_eq!(kinds("\u{FEFF}#!/bin/dart\n")[0], Kind::ScriptTag);
     }
 
     #[test]

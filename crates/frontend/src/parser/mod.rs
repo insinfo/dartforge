@@ -227,7 +227,12 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
     // scanner skipped (ASCII control, non-ASCII whitespace) and the
     // unterminated block comment (`UNTERMINATED_MULTI_LINE_COMMENT` at the last
     // character, `errors.dart:39-44`).
-    let mut previous_end = 0usize;
+    // A leading byte order mark is not scanned (`Utf8BytesScanner`).
+    let mut previous_end = if source.starts_with('\u{FEFF}') {
+        '\u{FEFF}'.len_utf8()
+    } else {
+        0
+    };
     for t in tokens {
         gap(source, previous_end, t.span.start, &mut output);
         previous_end = previous_end.max(t.span.end);
