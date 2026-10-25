@@ -414,7 +414,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             return None;
         }
+        // A record with named fields is a shape of the program, not a class:
+        // `Record`'s members are not closed in the SDK when shapes exist.
+        let open_record = !self.ctx.record_shapes.is_empty()
+            && [
+                self.ctx.sdk_class("core", "Record"),
+                self.ctx.sdk_class("core", "_Record"),
+            ]
+            .contains(&Some(cid));
         if is_sdk
+            && !open_record
             && closed_member(self.ctx, cid, &name_str)
             && let [Implementation::Function(target)] = implementations(self.ctx, cid, &key)[..]
         {
@@ -439,7 +448,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             FunctionKind::ImplicitAccessor => AccessKind::Read,
             _ => AccessKind::Call,
         };
-        if is_sdk && closed_member(self.ctx, cid, &name_str) {
+        if is_sdk && !open_record && closed_member(self.ctx, cid, &name_str) {
             let ret = match self.return_repr(decl_fid) {
                 Type::Void => Type::Ref,
                 t => t,
@@ -3825,6 +3834,10 @@ pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
         let mut table: Vec<(String, String)> = vec![
             ("c:toString".to_string(), format!("{base}.toString$c")),
             ("c:==".to_string(), format!("{base}.$3d$3d$c")),
+            // The typed entries (a receiver of static type `Record` or a
+            // record type) have the same convention and check nothing here.
+            ("tc:toString".to_string(), format!("{base}.toString$c")),
+            ("tc:==".to_string(), format!("{base}.$3d$3d$c")),
             ("g:hashCode".to_string(), format!("{base}.hashCode$g")),
             ("c:hashCode".to_string(), format!("{base}.hashCode$g")),
         ];
