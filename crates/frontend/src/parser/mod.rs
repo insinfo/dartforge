@@ -518,6 +518,12 @@ pub struct Parser<'s, 'i> {
     /// where `name(…) {` and `name(…) =>` are not a named function literal (the
     /// `{` is the constructor body and the `=>` is the case's).
     pub(crate) without_named_function: bool,
+    /// Lookahead of type arguments that fasta drops when `recovered`
+    /// (`computeMethodTypeArguments`): a record type with exactly one
+    /// positional field and no trailing comma does not make a type there
+    /// (`f(x < (x), C > (x))` is two arguments). Set only around
+    /// [`Parser::skip_type_arguments_unrecovered`].
+    pub(crate) strict_records: std::cell::Cell<bool>,
 }
 
 /// `DirectiveState` (`directive_context.dart`), in the order of fasta's
@@ -583,6 +589,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             only_3_6: Vec::new(),
             only_3_13: Vec::new(),
             without_named_function: false,
+            strict_records: std::cell::Cell::new(false),
         }
     }
 

@@ -1272,6 +1272,9 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// each field is `metadata type name?` (or `{metadata type name, ...}`).
     fn skip_record_type(&self, pos: usize, depth: u32) -> Option<usize> {
         let mut p = pos + 1;
+        // A positional field was followed by `,` (`(int)` without it is the
+        // record fasta recovers from; see [`Parser::strict_records`]).
+        let mut comma = false;
         loop {
             match self.kind_of(p) {
                 Kind::Op(Op::RParen) => return Some(p + 1),
@@ -1308,7 +1311,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 p += 1;
             }
             match self.kind_of(p) {
-                Kind::Op(Op::Comma) => p += 1,
+                Kind::Op(Op::Comma) => {
+                    p += 1;
+                    comma = true;
+                }
+                Kind::Op(Op::RParen) if !comma && self.strict_records.get() => return None,
                 Kind::Op(Op::RParen) => return Some(p + 1),
                 _ => return None,
             }
@@ -1354,6 +1361,17 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// in the right place) returns `None`.
     pub(crate) fn skip_type_arguments(&self, pos: usize) -> Option<usize> {
         self.skip_type_arguments_at(pos, 0)
+    }
+
+    /// [`Parser::skip_type_arguments`] without the lists fasta marks
+    /// `recovered` (`_checkIfRecordTypeParenthesisAreRecovered`): a record type
+    /// `(T)` with one positional field and no trailing comma, at any depth,
+    /// makes the list not type arguments.
+    pub(crate) fn skip_type_arguments_unrecovered(&self, pos: usize) -> Option<usize> {
+        let saved = self.strict_records.replace(true);
+        let r = self.skip_type_arguments_at(pos, 0);
+        self.strict_records.set(saved);
+        r
     }
 
     fn skip_type_arguments_at(&self, pos: usize, depth: u32) -> Option<usize> {

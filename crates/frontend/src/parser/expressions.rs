@@ -1359,9 +1359,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// The current `<` opens a selector's type arguments: the list is well
     /// formed and the next token is one of those that may follow type arguments
     /// (the SDK's `_mayFollowTypeArgs` rule; the interpolation closer counts
-    /// because the lexer merges it into the next string piece).
+    /// because the lexer merges it into the next string piece), and fasta did
+    /// not recover inside it (`computeMethodTypeArguments`).
     fn method_type_arguments_ahead(&self) -> bool {
-        let Some(end) = self.skip_type_arguments(self.pos) else {
+        let Some(end) = self.skip_type_arguments_unrecovered(self.pos) else {
             return false;
         };
         matches!(
@@ -2605,6 +2606,32 @@ mod tests {
             ExprKind::Binary { op, left, right } => (*op, *left, *right),
             other => panic!("expected a binary, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn recovered_record_type_is_not_a_type_argument() {
+        // `computeMethodTypeArguments` drops the `recovered` list: `(x)` is a
+        // record with one positional field and no trailing comma, so `<` and
+        // `>` are comparisons and the call has two arguments.
+        for src in ["f(x < (x), C > (x))", "f(x < (x), C >= (x))"] {
+            let (p, id) = parse(src);
+            let ExprKind::Call { arguments, .. } = kind(&p, id) else {
+                panic!("{src}: expected a call, got {:?}", kind(&p, id));
+            };
+            assert_eq!(arguments.args.len(), 2, "{src}");
+            for a in arguments.args.iter() {
+                assert!(
+                    matches!(kind(&p, a.value), ExprKind::Binary { .. }),
+                    "{src}"
+                );
+            }
+        }
+        // With the trailing comma the record is a type: a generic call.
+        let (p, id) = parse("f(x<(int,), C>(x))");
+        let ExprKind::Call { arguments, .. } = kind(&p, id) else {
+            panic!("expected a call");
+        };
+        assert_eq!(arguments.args.len(), 1);
     }
 
     #[test]
