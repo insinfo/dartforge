@@ -280,9 +280,9 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `mayParseFunctionExpressions = true` around `f`: fasta turns function
     /// literals back on inside arguments, parentheses, indices, collections and
-    /// `assert` (`parseArgumentsRest`,
+    /// `assert`, and string interpolations (`parseArgumentsRest`,
     /// `parseParenthesizedExpressionOrRecordLiteral`, `parseLiteralListSuffix`,
-    /// `parseLiteralSetOrMapSuffix`, `parseAssert`).
+    /// `parseLiteralSetOrMapSuffix`, `parseAssert`, `parseLiteralString`).
     pub(crate) fn with_functions<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         let saved = std::mem::replace(&mut self.without_named_function, false);
         let r = f(self);
@@ -2428,7 +2428,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                     let name = self.identifier();
                     Some(self.push(start, ExprKind::Identifier(name)))
                 }
-                Interp::Brace => Some(self.parse_expression()?),
+                // `parseLiteralString` (`parser_impl.dart:7500-7514`) turns function
+                // literals back on: `x = "${() => y}"` in a constructor initializer.
+                Interp::Brace => Some(self.with_functions(|p| p.parse_expression())?),
             };
             if let Some(expr) = expr {
                 self.scratch_parts.push(StringPart::Interpolation(expr));
@@ -2603,6 +2605,31 @@ mod tests {
             ExprKind::Binary { op, left, right } => (*op, *left, *right),
             other => panic!("expected a binary, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn interpolation_allows_function_literals_in_initializers() {
+        // `parseLiteralString` turns `mayParseFunctionExpressions` back on:
+        // `x = "${() => y}"` in a constructor initializer.
+        let src = r#""**${() => y}--${() { return 2; }()}""#;
+        let names: &'static mut dartforge_intern::Interner =
+            Box::leak(Box::new(dartforge_intern::Interner::new()));
+        let tokens = crate::lexer::lex(src).unwrap();
+        let mut p = Parser::new(src, tokens, names);
+        p.without_named_function = true;
+        let id = p.parse_expression().unwrap();
+        assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
+        assert!(p.at_eof());
+        let ExprKind::String(lit) = kind(&p, id) else {
+            panic!("expected a string");
+        };
+        let interpolations = lit
+            .parts
+            .iter()
+            .filter(|x| matches!(x, StringPart::Interpolation(_)))
+            .count();
+        assert_eq!(interpolations, 2);
+        assert!(p.without_named_function);
     }
 
     #[test]
