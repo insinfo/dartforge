@@ -3875,12 +3875,29 @@ fn annotation_arguments(
     types: &[(dartforge_intern::SymbolId, TypeParamId)],
     access: Option<dartforge_diagnostics::Code>,
 ) {
-    let Some(args) = &m.arguments else { return };
+    if m.arguments.is_none() {
+        return;
+    }
     let mut cx = Body::new(inf, unit, cls, extension, true);
     cx.annotation_access = access;
     for &(the_name, p) in types {
         cx.declare_type_param(the_name, p);
     }
+    annotation_arguments_in(inf, &mut cx, m);
+}
+
+/// The arguments of the annotation `m` inferred in the scope `cx`: against the
+/// annotated constructor's parameters when the name is a class (or a class
+/// alias) with that constructor; otherwise without context. A local
+/// declaration's annotation is inferred in its local scope
+/// (`AnnotationResolver` with the visible locals).
+pub(crate) fn annotation_arguments_in(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    m: &ast::Annotation,
+) {
+    let Some(args) = &m.arguments else { return };
+    let unit = cx.unit;
     let names: Vec<dartforge_intern::SymbolId> = m.name.iter().map(|n| n.sym).collect();
     // Class and constructor.
     let (c, ctor) = match names.as_slice() {
@@ -3931,7 +3948,7 @@ fn annotation_arguments(
                 Some(
                     m.type_args
                         .iter()
-                        .map(|&t| inf.type_argument_type(&cx, t))
+                        .map(|&t| inf.type_argument_type(cx, t))
                         .collect(),
                 )
             };
@@ -3992,7 +4009,7 @@ fn annotation_arguments(
             }
             if alias_params.is_some() {
                 for x in args.args.iter() {
-                    infer_free(inf, &mut cx, x.value);
+                    infer_free(inf, cx, x.value);
                 }
                 return;
             }
@@ -4020,13 +4037,13 @@ fn annotation_arguments(
                 _ => m.span,
             };
             super::calls::define_target(inf, Some(cited_name), entity);
-            super::calls::build(inf, &mut cx, None, c, Some(f), explicit, args, u);
+            super::calls::build(inf, cx, None, c, Some(f), explicit, args, u);
             inf.arity_target = None;
             return;
         }
     }
     for x in args.args.iter() {
-        infer_free(inf, &mut cx, x.value);
+        infer_free(inf, cx, x.value);
     }
 }
 

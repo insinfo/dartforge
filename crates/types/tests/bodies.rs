@@ -3144,3 +3144,22 @@ fn typedef_type_literals_are_their_aliased_types() {
         "{diags:?}"
     );
 }
+
+#[test]
+fn local_annotation_arguments_are_implicit_constant_creations() {
+    // `@C(C(42))` on a local: the argument is resolved as a creation in the
+    // annotation's constant context, not a method invocation.
+    let source = "class C {
+          final Object x;
+          const C(this.x);
+        }
+        void main() {
+          @C(C(42))
+          var foo = null;
+          print(foo);
+        }";
+    let Some(diags) = constant_diagnostics_of(source) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}

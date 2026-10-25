@@ -1598,6 +1598,16 @@ fn validate_local_annotations(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
     };
     for m in ms.iter() {
         validate_local_annotation(inf, cx, m);
+        // The arguments of `@C(C(42)) var x;` are resolved in the local scope
+        // (`C(42)` is an implicit constant creation, not a method call); a
+        // local named by the annotation has no constructor to infer against.
+        let names_local = m
+            .name
+            .first()
+            .is_some_and(|n| matches!(cx.lookup(n.sym), Some(MemberName::Local(_))));
+        if !names_local {
+            super::functions::annotation_arguments_in(inf, cx, m);
+        }
     }
 }
 
