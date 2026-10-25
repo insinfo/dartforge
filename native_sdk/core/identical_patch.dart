@@ -24,6 +24,14 @@ Object _dartforgeTypeError(String message) =>
 @pragma("vm:entry-point")
 Object _dartforgeAssertionError(Object? message) => new AssertionError(message);
 
+// A failed `assert` of the program: the VM's `_AssertionError`, with the
+// condition's source, the script's URI and its line and column
+// (`AssertionError_throwNew`).
+@pragma("vm:entry-point")
+Object _dartforgeAssertionFailure(Object? message, String failedAssertion,
+        String url, int line, int column) =>
+    new _AssertionError._create(failedAssertion, url, line, column, message);
+
 @pragma("vm:entry-point")
 Object _dartforgeRangeError(int value, int minimum, int maximum, String? name) =>
     new RangeError.range(value, minimum, maximum, name);
@@ -42,8 +50,13 @@ Object _dartforgeUnsupportedError(String? message) =>
     new UnsupportedError(message ?? "");
 
 @pragma("vm:entry-point")
-Object _dartforgeArgumentError(String? message, String? name) =>
+Object _dartforgeArgumentError(Object? message, String? name) =>
     new ArgumentError(message, name);
+
+@pragma("vm:entry-point")
+Object _dartforgeArgumentErrorValue(
+        Object? value, String? name, String? message) =>
+    new ArgumentError.value(value, name, message);
 
 // Calling a closure with an incompatible arity must throw the SDK's real
 // class; the runtime's synthetic id 1012 takes part neither in method

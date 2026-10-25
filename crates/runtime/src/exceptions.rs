@@ -387,6 +387,13 @@ pub extern "C" fn dartforge_argument_error_new(msg_handle: i64, name_handle: i64
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_argument_error_value(val_bits: i64, val_is_ref: u8, name_handle: i64, msg_handle: i64) -> i64 {
+    if let Some(f) = helper("_dartforgeArgumentErrorValue") {
+        // SAFETY: registered by `dart:core` with the signature
+        // `(Object?, String?, String?) -> Object`.
+        let g = { let dart_target: usize = f; move |a0: i64, a1: i64, a2: i64| -> i64 { dart_r3(dart_target, a0, a1, a2) } };
+        let value = if val_is_ref != 0 { val_bits } else { HEAP.with(|h| h.borrow_mut().box_int(val_bits)) };
+        return with_roots(&[value, name_handle, msg_handle], || g(value, name_handle, msg_handle));
+    }
     allocate_error_with_trace(1003, vec![(msg_handle, true), (name_handle, true), (val_bits, val_is_ref != 0), (1, false), (0, false)])
 }
 

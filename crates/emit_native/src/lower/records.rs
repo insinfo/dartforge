@@ -142,10 +142,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut exit = Vec::new();
         for (k, (npos, names)) in self.ctx.record_shapes.iter().enumerate() {
             let id = i64::from(SHAPE_BASE_ID) + k as i64;
+            // `$k` beyond the positional fields may be a named one
+            // (`(10, $2: 20)`).
             match positional {
                 Some(p) if p <= *npos => exit.push((id, p - 1)),
-                Some(_) => {}
-                None => {
+                _ => {
                     if let Some(j) = names.iter().position(|n| n == name) {
                         exit.push((id, npos + j));
                     }

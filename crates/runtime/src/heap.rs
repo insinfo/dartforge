@@ -1861,6 +1861,10 @@ pub struct Heap {
     /// and the destination receives its own canonical instance (`identical` across
     /// isolates, like the VM group's shared objects).
     constants: crate::hash::HashMap<i64, usize>,
+    /// The canonical instances, lists and records of `const` creations, by
+    /// class, type arguments and contents (`canonical_instance`). Roots, like
+    /// the literals.
+    canonical_instances: crate::hash::HashMap<Vec<i64>, i64>,
     /// Canonical tear-off → its code (the inverse of `tearoffs`).
     tearoff_code: crate::hash::HashMap<i64, i64>,
     /// `DARTFORGE_GC_OFF=1`: never collects. Diagnostic instrument
@@ -2095,6 +2099,7 @@ impl Heap {
             literals: crate::hash::HashMap::default(),
             permanents: crate::hash::HashSet::default(),
             constants: crate::hash::HashMap::default(),
+            canonical_instances: crate::hash::HashMap::default(),
             tearoff_code: crate::hash::HashMap::default(),
             gc_disabled: crate::console::env_var("DARTFORGE_GC_OFF").as_deref() == Ok("1"),
             collection_deferred: 0,
@@ -2303,6 +2308,92 @@ impl Heap {
         }
     }
 
+    /// The canonical form of the instance, list or record `h` that a `const`
+    /// creation built: the first one with the same class, type arguments and
+    /// contents, as the VM canonicalizes constants (`const C(1)` and
+    /// `const C.named(1, 2)` that store the same field values are identical,
+    /// and so are two `const` lists with the same elements). The string fields
+    /// of an instance become the canonical literals first. Anything else comes
+    /// back as it is.
+    pub fn canonical_instance(&mut self, h: i64) -> i64 {
+        use crate::layout::cid;
+        if !is_object(h) {
+            return h;
+        }
+        let class = self.class(h);
+        let mut key = vec![i64::from(class), self.metadata(h)];
+        if class == cid::IMMUTABLE_LIST {
+            let n = self.list_len(h);
+            key.push(n as i64);
+            for i in 0..n {
+                let v = self.list_get(h, i);
+                self.push_value_key(&mut key, v);
+            }
+        } else if class == cid::RECORD {
+            let words = self.words(h).to_vec();
+            let n = usize::try_from(words[0]).expect("record shape");
+            key.push(words[0]);
+            for &w in &words[1..=n] {
+                self.push_value_key(&mut key, Value::Ref(w));
+            }
+            key.extend_from_slice(&words[n + 1..]);
+        } else {
+            let Some(o) = self.object(h) else {
+                return h;
+            };
+            if matches!(class, cid::MINT | cid::DOUBLE | cid::BOOL) {
+                return h;
+            }
+            let fields = o.to_vec();
+            key.push(fields.len() as i64);
+            for (i, (bits, is_ref)) in fields.into_iter().enumerate() {
+                if !is_ref {
+                    key.extend([0, bits]);
+                    continue;
+                }
+                let mut bits = bits;
+                if self.is_string(bits) && !is_static(bits) {
+                    let t = self.text(bits).expect("checked").to_string_fn();
+                    bits = self.string_literal(t.view());
+                    self.set_field(h, i, bits, true);
+                }
+                self.push_value_key(&mut key, Value::Ref(bits));
+            }
+        }
+        *self.canonical_instances.entry(key).or_insert(h)
+    }
+
+    /// Appends to a canonical key the identity of the value `v`: numbers and
+    /// booleans by value (boxed or not), strings by their canonical literal,
+    /// any other reference by its handle (the elements of a constant are
+    /// constants already).
+    fn push_value_key(&mut self, key: &mut Vec<i64>, v: Value) {
+        use crate::layout::cid;
+        let r = match v {
+            Value::Int(i) => return key.extend([3, i]),
+            Value::Double(d) => return key.extend([4, d.to_bits() as i64]),
+            Value::Bool(b) => return key.extend([5, i64::from(b)]),
+            Value::Ref(r) => r,
+        };
+        if smi::is_smi(r) {
+            return key.extend([3, smi::value(r)]);
+        }
+        if !is_object(r) {
+            return key.extend([1, r]);
+        }
+        match self.class(r) {
+            cid::MINT => key.extend([3, self.words(r)[0]]),
+            cid::DOUBLE => key.extend([4, self.words(r)[0]]),
+            cid::BOOL => key.extend([5, i64::from(self.bool_of(r) == Some(true))]),
+            _ if self.is_string(r) && !is_static(r) => {
+                let t = self.text(r).expect("checked").to_string_fn();
+                let literal = self.string_literal(t.view());
+                key.extend([1, literal]);
+            }
+            _ => key.extend([1, r]),
+        }
+    }
+
     /// The getter of the canonical constant `handle`, if it is one.
     pub fn constant_getter(&self, handle: i64) -> Option<usize> {
         self.constants.get(&handle).copied()
@@ -2476,6 +2567,7 @@ impl Heap {
             .flat_map(|(_, slots, _)| slots.iter().copied())
             .chain(self.globals.values().copied())
             .chain(self.literals.values().copied())
+            .chain(self.canonical_instances.values().copied())
             .chain(self.tearoffs.values().copied())
             .chain(self.enum_values.values().copied())
             .chain(self.message_owners.values().copied())
@@ -3968,6 +4060,7 @@ impl Heap {
         dest.extend(self.enum_values.values().copied());
         dest.extend(self.tearoffs.values().copied());
         dest.extend(self.literals.values().copied());
+        dest.extend(self.canonical_instances.values().copied());
         dest.extend(self.globals.values().copied());
         dest.extend(self.runtime_roots.iter().copied().filter(|&h| h != 0));
         dest.extend(self.scratch_roots.iter().copied().filter(|&h| h != 0));

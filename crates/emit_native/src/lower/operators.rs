@@ -436,9 +436,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.emit(Instruction::Add(r, adjustment), Type::I64)
             }
             BinaryOp::Rem => self.emit_module(lop, rop),
-            BinaryOp::Shl => self.emit(Instruction::Shl(lop, rop), Type::I64),
-            BinaryOp::Shr => self.emit(Instruction::AShr(lop, rop), Type::I64),
-            BinaryOp::UShr => self.emit(Instruction::LShr(lop, rop), Type::I64),
+            BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr => self.emit_shift(op, lop, rop),
             BinaryOp::BitAnd => self.emit(Instruction::And(lop, rop), Type::I64),
             BinaryOp::BitOr => self.emit(Instruction::Or(lop, rop), Type::I64),
             BinaryOp::BitXor => self.emit(Instruction::Xor(lop, rop), Type::I64),
@@ -453,5 +451,67 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // `a ~ b` is a compile error (`not_binary_operator`).
             BinaryOp::NotBinary => unreachable!("non-binary operator"),
         }
+    }
+}
+
+impl FnBuilder<'_, '_> {
+    /// `x << n`, `x >> n` and `x >>> n` of `int` with the VM's semantics: a
+    /// count of 64 or more gives 0 (the sign for `>>`), where the machine
+    /// instruction would use the count modulo 64; a negative count throws
+    /// `ArgumentError(n)`.
+    fn emit_shift(&mut self, op: BinaryOp, x: Operand, n: Operand) -> Operand {
+        let int = |c| Operand::Constant(Constant::Int(c));
+        let shift = |s: &mut Self, x: Operand, n: Operand| match op {
+            BinaryOp::Shl => s.emit(Instruction::Shl(x, n), Type::I64),
+            BinaryOp::Shr => s.emit(Instruction::AShr(x, n), Type::I64),
+            _ => s.emit(Instruction::LShr(x, n), Type::I64),
+        };
+        match n {
+            Operand::Constant(Constant::Int(c)) if (0..64).contains(&c) => {
+                return shift(self, x, n);
+            }
+            Operand::Constant(Constant::Int(c)) if c >= 64 => {
+                return match op {
+                    BinaryOp::Shr => shift(self, x, int(63)),
+                    _ => int(0),
+                };
+            }
+            _ => {}
+        }
+        let negative = self.emit(Instruction::ICmp(ICmpOp::Slt, n.clone(), int(0)), Type::I1);
+        let b_error = self.new_block();
+        let b_ok = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: negative,
+            then_block: b_error,
+            else_block: b_ok,
+        });
+        self.set_block(b_error);
+        let value = self.coerce(n.clone(), Type::Ref);
+        let err = self.new_runtime_error(
+            "dartforge_argument_error_new",
+            vec![
+                (value, Type::Ref),
+                (Operand::Constant(Constant::Null), Type::Ref),
+            ],
+        );
+        self.emit_throw_op(err);
+        self.set_block(b_ok);
+        if op == BinaryOp::Shr {
+            // min(n, 63), the sign filling every bit from 63 on: `d >> 63` is
+            // -1 below 63 and 0 from 63 on (`n` is not negative here).
+            let d = self.emit(Instruction::Sub(n.clone(), int(63)), Type::I64);
+            let below = self.emit(Instruction::AShr(d.clone(), int(63)), Type::I64);
+            let excess = self.emit(Instruction::And(d, below), Type::I64);
+            let count = self.emit(Instruction::Add(excess, int(63)), Type::I64);
+            return shift(self, x, count);
+        }
+        // From 64 on the result is 0: `(63 - n) >> 63` is -1 exactly then.
+        let count = self.emit(Instruction::And(n.clone(), int(63)), Type::I64);
+        let shifted = shift(self, x, count);
+        let e = self.emit(Instruction::Sub(int(63), n), Type::I64);
+        let beyond = self.emit(Instruction::AShr(e, int(63)), Type::I64);
+        let keep = self.emit(Instruction::Xor(beyond, int(-1)), Type::I64);
+        self.emit(Instruction::And(shifted, keep), Type::I64)
     }
 }

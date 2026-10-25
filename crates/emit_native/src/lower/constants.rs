@@ -67,10 +67,38 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(format!("sym:{name:?}"))
             }
             ExprKind::String(s) => {
-                let v = s.constant_value()?;
-                Some(format!("s:{:?}", String::from_utf8_lossy(v.as_bytes())))
+                if let Some(v) = s.constant_value() {
+                    return Some(format!("s:{:?}", String::from_utf8_lossy(v.as_bytes())));
+                }
+                // An interpolation of constants is the constant string of its
+                // text (`'MIN = $MIN'` with `const MIN = 1`), as the CFE folds
+                // it. Only the values whose `toString` is known here.
+                let mut text = String::new();
+                for part in s.parts.iter() {
+                    match part {
+                        ast::StringPart::Text(t) => {
+                            text.push_str(&String::from_utf8_lossy(t.as_bytes()))
+                        }
+                        ast::StringPart::Interpolation(x) => {
+                            let k = self.constant_key(ast, *x, true)?;
+                            match k.as_str() {
+                                "n" => text.push_str("null"),
+                                "b:true" => text.push_str("true"),
+                                "b:false" => text.push_str("false"),
+                                _ => match k.strip_prefix("i:") {
+                                    Some(i) => text.push_str(i),
+                                    None => text.push_str(&serde_string(&k)?),
+                                },
+                            }
+                        }
+                    }
+                }
+                Some(format!("s:{text:?}"))
             }
             ExprKind::Parenthesized(x) => self.constant_key(ast, *x, in_const),
+            // A cast in a constant expression is the value itself (a failing
+            // one is a compile-time error).
+            ExprKind::As { value, .. } if in_const => self.constant_key(ast, *value, in_const),
             ExprKind::Unary {
                 op: UnaryOp::Neg,
                 operand,
@@ -95,6 +123,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     (ast::BinaryOp::Mul, Some(x), Some(y)) => {
                         Some(format!("i:{}", x.wrapping_mul(y)))
                     }
+                    (op, Some(x), Some(y)) => int_operation(*op, x, y).map(|v| format!("i:{v}")),
                     (ast::BinaryOp::Add, None, None)
                         if a.starts_with("s:") && b.starts_with("s:") =>
                     {
@@ -238,8 +267,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ))
             }
             ExprKind::Record {
-                positional, named, ..
-            } if in_const => {
+                const_,
+                positional,
+                named,
+            } if in_const || *const_ => {
                 let mut parts = Vec::new();
                 for x in positional.iter() {
                     parts.push(self.constant_key(ast, *x, true)?);
@@ -346,6 +377,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn spread_parts(&self, ast: &ast::Ast, e: ExprId, map: bool) -> Option<Vec<String>> {
         match &ast.expr(e).kind {
             ExprKind::Parenthesized(x) => self.spread_parts(ast, *x, map),
+            // A constant cast is the value itself; `null` spreads nothing
+            // (`...?(null as List<int>?)`).
+            ExprKind::As { value, .. } => self.spread_parts(ast, *value, map),
+            ExprKind::Null => Some(Vec::new()),
             ExprKind::List { elements, .. } if !map => self.elements_parts(ast, elements, false),
             ExprKind::SetOrMap { elements, .. } => {
                 let set = self.literal_is_set(e, elements);
@@ -589,17 +624,53 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } => {
                 ctx_const || *const_
             }
-            ExprKind::Call { .. } | ExprKind::Record { .. } => ctx_const,
+            ExprKind::Record { const_, .. } => ctx_const || *const_,
+            ExprKind::Call { .. } => ctx_const,
             _ => false,
         };
         if !explicit {
             return None;
         }
-        let getter = self.constant_getter(ast, e)?;
+        let Some(getter) = self.constant_getter(ast, e) else {
+            return self.canonical_without_key(ast, e);
+        };
         Some(self.emit_call_with_check(
             Instruction::CallStatic {
                 symbol: getter,
                 args: Vec::new(),
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        ))
+    }
+
+    /// A `const` creation or record whose key is not known here (an argument
+    /// the key does not cover): built at each evaluation and replaced by the
+    /// canonical object with the same contents (`dartforge_canonical_constant`),
+    /// so its identity is still the VM's.
+    fn canonical_without_key(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
+        match &ast.expr(e).kind {
+            ExprKind::InstanceCreation { .. } | ExprKind::Record { .. } => {}
+            ExprKind::Call { .. }
+                if matches!(
+                    self.ctx.get_resolved(self.unit_id, e),
+                    Some(Resolved::Constructor(_))
+                ) => {}
+            _ => return None,
+        }
+        let saved = self.constant_in_progress.replace(e);
+        let saved_context = std::mem::replace(&mut self.in_const_context, true);
+        let v = self.lower_expr(ast, e);
+        self.constant_in_progress = saved;
+        self.in_const_context = saved_context;
+        if self.is_terminated() {
+            return Some(v);
+        }
+        let v = self.coerce(v, Type::Ref);
+        Some(self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_canonical_constant".to_string(),
+                args: vec![(v, Type::Ref)],
                 ret_ty: Type::Ref,
             },
             Type::Ref,
@@ -799,10 +870,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // after publication, docs/NATIVO-ESPACO-UNIFICADO.md §2.16): the value
         // kept and returned is the one the runtime returns.
         let v = if collection {
-            self.emit(
+            let list = self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_collection_mark_unmodifiable".to_string(),
                     args: vec![(v, Type::Ref)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
+            // Another constant list with the same elements is the same object.
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_canonical_constant".to_string(),
+                    args: vec![(list, Type::Ref)],
                     ret_ty: Type::Ref,
                 },
                 Type::Ref,
@@ -862,13 +942,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub(super) fn constant_string(&self, ast: &ast::Ast, e: ExprId) -> Option<String> {
         // Outside a constant context a `const` variable is read through its
         // getter, which marks the constant (its identity across isolates).
-        let folds = matches!(
-            &ast.expr(e).kind,
-            ExprKind::Identifier(_)
-                | ExprKind::Property { .. }
-                | ExprKind::Binary { .. }
-                | ExprKind::String(_)
-        ) && self.in_const_context;
+        // An interpolation of constants folds anywhere, as in the CFE.
+        let interpolation =
+            matches!(&ast.expr(e).kind, ExprKind::String(s) if s.constant_value().is_none());
+        let folds = interpolation
+            || matches!(
+                &ast.expr(e).kind,
+                ExprKind::Identifier(_)
+                    | ExprKind::Property { .. }
+                    | ExprKind::Binary { .. }
+                    | ExprKind::String(_)
+            ) && self.in_const_context;
         if !folds || self.ctx.get_type(self.unit_id, e) != Some(self.ctx.core.string) {
             return None;
         }
@@ -887,6 +971,39 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.in_const_context = saved;
         v
     }
+}
+
+/// The value of the constant `int` operation `x op y`, with the VM's
+/// semantics; `None` for another operator or a compile-time error (a zero
+/// divisor, a negative shift).
+fn int_operation(op: ast::BinaryOp, x: i64, y: i64) -> Option<i64> {
+    use ast::BinaryOp::*;
+    Some(match op {
+        BitAnd => x & y,
+        BitOr => x | y,
+        BitXor => x ^ y,
+        Shl if y >= 0 => {
+            if y >= 64 {
+                0
+            } else {
+                x.wrapping_shl(y as u32)
+            }
+        }
+        Shr if y >= 0 => x >> y.min(63),
+        UShr if y >= 0 => {
+            if y >= 64 {
+                0
+            } else {
+                ((x as u64) >> y) as i64
+            }
+        }
+        TruncDiv if y != 0 => x.wrapping_div(y),
+        Rem if y != 0 => {
+            let r = x.wrapping_rem(y);
+            if r < 0 { r + y.wrapping_abs() } else { r }
+        }
+        _ => return None,
+    })
 }
 
 /// The text of a key `s:"…"` (the `{:?}` of a `String`).

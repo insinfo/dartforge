@@ -84,6 +84,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Assignment to an explicit top-level getter/setter pair. `f` is the resolved
     /// element (getter or setter); the setter comes from the scope of the library
     /// that declares it, and the current (compound) read from the getter.
+    #[allow(clippy::too_many_arguments)]
     fn assign_top_level_accessor(
         &mut self,
         f: dartforge_elements::model::FunctionElementId,

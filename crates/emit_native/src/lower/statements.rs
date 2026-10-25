@@ -32,6 +32,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Some(m) => self.lower_expr(ast, m),
             None => Operand::Constant(Constant::Null),
         };
+        if let Some(f) = self.top_level_function("dart:core", "_dartforgeAssertionFailure")
+            && let Some((text, url, line, column)) = self.assertion_location(ast, condition)
+        {
+            let msg = self.coerce(msg, Type::Ref);
+            let text = self.emit(Instruction::Const(Constant::String(text)), Type::Ref);
+            let url = self.emit(Instruction::Const(Constant::String(url)), Type::Ref);
+            let evaluated = [
+                (None, msg),
+                (None, text),
+                (None, url),
+                (None, Operand::Constant(Constant::Int(line))),
+                (None, Operand::Constant(Constant::Int(column))),
+            ];
+            let args = self.match_args(f, &evaluated);
+            let err = self.call_direct(f, None, args);
+            if !self.is_terminated() {
+                self.emit_throw_op(err);
+            }
+            self.set_block(cont_b);
+            return;
+        }
         // Under ARC the message goes as a `Ref` (`new_runtime_error`).
         let (bits, is_ref) = if self.ctx.arc_memory {
             (self.coerce(msg, Type::Ref), true)
@@ -50,6 +71,42 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         self.emit_throw_op(err);
         self.set_block(cont_b);
+    }
+
+    /// What the VM's `AssertionError_throwNew` reads from the script: the
+    /// source of the condition, the script's URI, and the line and column
+    /// (1-based, in UTF-16 units) where the condition starts.
+    fn assertion_location(
+        &self,
+        ast: &ast::Ast,
+        condition: ExprId,
+    ) -> Option<(String, String, i64, i64)> {
+        let program = self.ctx.program;
+        let unit = if std::ptr::eq(ast, &program.unit(self.unit_id).ast) {
+            self.unit_id
+        } else {
+            let i = program
+                .units
+                .iter()
+                .position(|u| std::ptr::eq(ast, &u.ast))?;
+            dartforge_elements::model::UnitId(i as u32)
+        };
+        let source = &program.unit(unit).source;
+        let span = ast.expr(condition).span;
+        let text = source.get(span.start..span.end)?.to_string();
+        let before = source.get(..span.start)?;
+        let mut line = 1;
+        let mut line_start = 0;
+        let bytes = before.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            // `\r\n`, `\n` and `\r` each end a line.
+            if b == b'\n' || (b == b'\r' && bytes.get(i + 1) != Some(&b'\n')) {
+                line += 1;
+                line_start = i + 1;
+            }
+        }
+        let column = before[line_start..].encode_utf16().count() as i64 + 1;
+        Some((text, self.ctx.stack_trace_url(unit), line, column))
     }
 
     pub fn lower_stmt(&mut self, ast: &ast::Ast, stmt_id: StmtId) {

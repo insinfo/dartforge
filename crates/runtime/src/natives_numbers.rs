@@ -88,7 +88,9 @@ pub extern "C" fn dartforge_native_Integer_bitXorFromInteger(this: i64, other_on
 /// the sign (`>>`).
 fn shift(value: i64, amount: i64, ty: u8) -> i64 {
     if amount < 0 {
-        let err = dartforge_argument_error_value(amount, 0, 0, 0);
+        // The VM's `ArgumentError(count)`: "Invalid argument(s): -1".
+        let value = HEAP.with(|h| h.borrow_mut().box_int(amount));
+        let err = dartforge_argument_error_new(value, 0);
         dartforge_exception_throw(err, 3);
         return 0;
     }

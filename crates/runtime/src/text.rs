@@ -1162,7 +1162,10 @@ impl Heap {
     /// string becomes the canonical literal with the same content (the image's static
     /// one or the interned one); the rest comes back as it is.
     pub fn canonical_constant(&mut self, h: Ref) -> Ref {
-        if !self.is_string(h) || crate::heap::is_static(h) {
+        if !self.is_string(h) {
+            return self.canonical_instance(h);
+        }
+        if crate::heap::is_static(h) {
             return h;
         }
         let t = self.text(h).expect("conferido").to_string_fn();

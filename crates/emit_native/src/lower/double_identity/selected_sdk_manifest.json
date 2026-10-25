@@ -1,6 +1,6 @@
 {
   "baseline": "Reviewed SDK3.6.2 selected sources with DartForge native overlays; no version/path check substitutes these content hashes.",
-  "core_fingerprint": "92bfcfb55b3dab4d34ec01b0219dfd150c6daa970001720b84ab47527ca22f45",
+  "core_fingerprint": "489eac933c6653e4a6cc1875edcea5bb466f5163611c12a992079c1a879e7f33",
   "schema": 1,
   "units": [
     {
@@ -611,6 +611,11 @@
     {
       "library": "dart:core",
       "role": 3,
+      "source_blake3": "3794b74481f97f5542a8032d2c6b0a99a92b9b4b0319347f7aa4ff2aefc0d0fb"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
       "source_blake3": "535c8921be2f6b90db983fb28c83c42669b06de8aa547c4ab76e42e2a81d8d71"
     },
     {
@@ -657,11 +662,6 @@
       "library": "dart:core",
       "role": 3,
       "source_blake3": "986d77a76e20a262ab1050a4e6ca44824e83e8e2ba7623e3318034dbffd07e86"
-    },
-    {
-      "library": "dart:core",
-      "role": 3,
-      "source_blake3": "9d63e0f2b21d2a7bee264fdbb2c8c6430b66b7e2ea3a28f3c519a381a9e2131c"
     },
     {
       "library": "dart:core",
