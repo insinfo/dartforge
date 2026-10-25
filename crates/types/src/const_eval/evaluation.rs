@@ -2541,8 +2541,31 @@ impl<'a> Engine<'a> {
                 let t = self.erase(t);
                 return Constant::Value(Value::new(self.core.type_, InstanceState::Type(Some(t))));
             }
-            Some(Resolved::Element(Element::Typedef(_))) => {
-                return Constant::Value(Value::new(self.core.type_, InstanceState::Type(None)));
+            // The aliased type, with each type parameter replaced by its written
+            // bound or `dynamic` (3.6.2 `evaluation.dart:1826-1837`): `Cint` of
+            // `typedef Cint = C<int>` is `C<int>`, a key distinct from `F` of
+            // `typedef F = T Function<T>()`.
+            Some(Resolved::Element(Element::Typedef(td))) => {
+                let data = &self.outline.typedefs[td.0 as usize];
+                let target = data.target_type;
+                let map: HashMap<TypeParamId, TypeId> = data
+                    .type_params
+                    .iter()
+                    .map(|&p| {
+                        let d = self.table.param(p);
+                        (
+                            p,
+                            if d.explicit {
+                                d.bound
+                            } else {
+                                self.core.dynamic_
+                            },
+                        )
+                    })
+                    .collect();
+                let t = crate::ops::substitute(target, &map, self.table);
+                let t = self.erase(t);
+                return Constant::Value(Value::new(self.core.type_, InstanceState::Type(Some(t))));
             }
             Some(Resolved::TypeParameter(tp)) => {
                 if let Some(t) = cx.types.as_ref().and_then(|m| m.get(&tp)) {

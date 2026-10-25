@@ -3115,3 +3115,32 @@ fn constant_is_test_uses_the_constructor_type_arguments() {
     };
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+#[test]
+fn typedef_type_literals_are_their_aliased_types() {
+    // `Cint` is `C<int>` and `F` a generic function type: different keys
+    // (tests/language/const/map5_test.dart); the same alias twice is still
+    // a repeated key.
+    let source = "class A {}
+        class C<T> {}
+        typedef F = T Function<T>();
+        typedef Cint = C<int>;
+        void main() {
+          print(const {A: 42, F: 2, 'asdf': 'fdsa', Cint: 'foo'});
+          print(const {A, 1, 'asdf', F, Cint});
+        }";
+    let Some(diags) = constant_diagnostics_of(source) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+    let source = "class C<T> {}
+        typedef Cint = C<int>;
+        void main() {
+          print(const {Cint: 1, Cint: 2});
+        }";
+    let diags = constant_diagnostics_of(source).unwrap();
+    assert!(
+        code_names(&diags).contains(&"equal_keys_in_const_map"),
+        "{diags:?}"
+    );
+}
