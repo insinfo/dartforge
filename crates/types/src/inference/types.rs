@@ -202,44 +202,119 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// `flatten(T)` (specification, "Function Expressions"; the CFE's
-    /// `flatten`).
+    /// `flatten(T)` (specification, "Function Expressions"; the analyzer's
+    /// `TypeSystemImpl.flatten`, through the future type that `T` derives).
     pub(crate) fn flatten(&mut self, t: TypeId) -> TypeId {
-        match self.table.get(t).clone() {
+        let ty = self.table.get(t).clone();
+        match ty {
             Type::Dynamic | Type::Void => t,
-            Type::Intersection { bound, .. } => {
-                match self.as_instance_of(bound, self.core.future_class) {
-                    Some(a) => a[0],
-                    None => t,
-                }
-            }
-            Type::FutureOr { arg, nullable: n } => {
-                if n {
-                    self.nullable(arg)
-                } else {
-                    arg
-                }
-            }
-            ty if ty.is_declared_nullable() => {
+            // `flatten(S?) = flatten(S)?`.
+            _ if ty.is_declared_nullable() => {
                 let s = self.non_null(t);
                 let f = self.flatten(s);
                 self.nullable(f)
             }
-            Type::TypeParameter { param, .. } if param != self.core.unknown_param => {
-                let b = self.table.param(param).bound;
-                if b == t || self.table.param(param).bound == self.core.object_nullable {
-                    return t;
+            // `X & S`: through the future type of `S`, else `flatten(X)`.
+            Type::Intersection { param, bound } => match self.future_type(bound) {
+                Some(f) => self.flatten(f),
+                None => {
+                    let x = self.table.intern(Type::TypeParameter {
+                        param,
+                        nullable: false,
+                    });
+                    self.flatten(x)
                 }
-                // `X extends Future<S>`: flatten is S.
-                match self.as_instance_of(b, self.core.future_class) {
-                    Some(a) => a[0],
-                    None => t,
+            },
+            _ => {
+                let Some(f) = self.future_type(t) else {
+                    return t;
+                };
+                match self.table.get(f).clone() {
+                    Type::FutureOr { arg, nullable } => {
+                        if nullable {
+                            self.nullable(arg)
+                        } else {
+                            arg
+                        }
+                    }
+                    Type::Interface {
+                        class,
+                        args,
+                        nullable,
+                    } if Some(class) == self.core.future_class && args.len() == 1 => {
+                        if nullable {
+                            self.nullable(args[0])
+                        } else {
+                            args[0]
+                        }
+                    }
+                    _ => t,
                 }
             }
-            _ => match self.as_instance_of(t, self.core.future_class) {
-                Some(a) => a[0],
-                None => t,
-            },
+        }
+    }
+
+    /// The future type that `t` derives (the analyzer's
+    /// `TypeSystemImpl.futureType`): `Future<U>` among the superinterfaces of
+    /// a non-nullable type, else `FutureOr<U>`, `Future<U>?` or `FutureOr<U>?`
+    /// through the bounds.
+    fn future_type(&mut self, t: TypeId) -> Option<TypeId> {
+        if !self.table.get(t).is_declared_nullable()
+            && let Some(f) = self.instance_of_future(t, 0)
+        {
+            return Some(f);
+        }
+        self.future_type_of_bounded(t, 0)
+    }
+
+    /// `T.asInstanceOf(Future)` in the analyzer: `Future<U>` itself (with its
+    /// nullability), a superinterface `Future<U>`, or that of the bound of a
+    /// type variable.
+    fn instance_of_future(&mut self, t: TypeId, depth: u32) -> Option<TypeId> {
+        if depth > 64 {
+            return None;
+        }
+        let future = self.core.future_class?;
+        match self.table.get(t).clone() {
+            Type::Interface { class, args, .. } if class == future && args.len() == 1 => Some(t),
+            Type::Interface { .. } | Type::ExtensionType { .. } => {
+                let args = self.as_instance_of(t, Some(future))?;
+                let arg = *args.first()?;
+                Some(self.future(arg))
+            }
+            Type::TypeParameter { param, .. } if param != self.core.unknown_param => {
+                let b = self.table.param(param).bound;
+                self.instance_of_future(b, depth + 1)
+            }
+            Type::Intersection { bound, .. } => self.instance_of_future(bound, depth + 1),
+            _ => None,
+        }
+    }
+
+    /// `_futureTypeOfBounded` (analyzer `type_system.dart`): `FutureOr<U>`,
+    /// `Future<U>?` or `FutureOr<U>?`, also through the bound and then the
+    /// promoted bound of a type variable.
+    fn future_type_of_bounded(&mut self, t: TypeId, depth: u32) -> Option<TypeId> {
+        if depth > 64 {
+            return None;
+        }
+        match self.table.get(t).clone() {
+            Type::FutureOr { .. } => Some(t),
+            Type::Interface {
+                class,
+                nullable: true,
+                ..
+            } if Some(class) == self.core.future_class => Some(t),
+            Type::TypeParameter { param, .. } if param != self.core.unknown_param => {
+                let b = self.table.param(param).bound;
+                self.future_type_of_bounded(b, depth + 1)
+            }
+            Type::Intersection { param, bound } => {
+                let b = self.table.param(param).bound;
+                self.future_type_of_bounded(b, depth + 1)
+                    .or_else(|| self.future_type_of_bounded(bound, depth + 1))
+            }
+            _ => None,
         }
     }
 
