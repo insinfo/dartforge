@@ -23,9 +23,25 @@ pub(crate) fn pattern_flow_enabled(inf: &BodyInferrer<'_>) -> bool {
 
 /// Type schema of a pattern (`_` where nothing constrains).
 pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> TypeId {
+    schema_in(inf, cx, p, false)
+}
+
+/// The schema of `p`; in an assignment pattern (`assignment`), an untyped
+/// variable is an existing local and contributes its declared type
+/// (`analyzeAssignedVariablePatternSchema`).
+fn schema_in(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, assignment: bool) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
     let u = inf.core.unknown;
     match &a.pattern(p).kind {
+        PatternKind::Variable {
+            name,
+            ty: None,
+            var_: false,
+            final_: false,
+        } if assignment => match cx.lookup(name.sym) {
+            Some(MemberName::Local(id)) => cx.local(id).ty,
+            _ => u,
+        },
         PatternKind::Wildcard { ty } | PatternKind::Variable { ty, .. } => match ty {
             Some(t) => inf.type_from_annotation(cx, *t),
             None => u,
@@ -34,47 +50,71 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
         | PatternKind::Relational { .. }
         | PatternKind::Cast { .. }
         | PatternKind::Or(..) => u,
+        // `analyzeLogicalAndPatternSchema`: the GLB of both sides.
         PatternKind::And(x, y) => {
             let (x, y) = (*x, *y);
-            let a1 = schema(inf, cx, x);
-            let a2 = schema(inf, cx, y);
-            if inf.the_is_unknown(a1) { a2 } else { a1 }
+            let a1 = schema_in(inf, cx, x, assignment);
+            let a2 = schema_in(inf, cx, y, assignment);
+            inf.down(a1, a2)
         }
-        PatternKind::NullCheck(x) => {
-            let s = schema(inf, cx, *x);
+        // `analyzeNullCheckOrAssertPatternSchema`: `E?` for `p!`; `p?` only
+        // occurs in refutable contexts, which propagate no schema.
+        PatternKind::NullAssert(x) => {
+            let s = schema_in(inf, cx, *x, assignment);
             if inf.the_is_unknown(s) {
                 s
             } else {
                 inf.nullable(s)
             }
         }
-        PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => schema(inf, cx, *x),
+        PatternKind::NullCheck(_) => u,
+        PatternKind::Parenthesized(x) => schema_in(inf, cx, *x, assignment),
         PatternKind::List {
             type_args,
             elements,
         } => {
+            // `analyzeListPatternSchema`: the GLB of the element schemas; a
+            // rest pattern contributes `T` of a schema `Iterable<T>`.
             let el = if let Some(t) = type_args.first() {
                 inf.type_argument_type(cx, *t)
             } else {
                 let mut acc = u;
                 for e in elements.iter() {
-                    if let ListPatternElement::Pattern(x) = e {
-                        let s = schema(inf, cx, *x);
-                        acc = inf.down(acc, s);
-                    }
+                    let s = match e {
+                        ListPatternElement::Pattern(x) => schema_in(inf, cx, *x, assignment),
+                        ListPatternElement::Rest(Some(x)) => {
+                            let s = schema_in(inf, cx, *x, assignment);
+                            let iterable = inf.core.iterable_class;
+                            match inf.as_instance_of(s, iterable) {
+                                Some(args) if args.len() == 1 => args[0],
+                                _ => continue,
+                            }
+                        }
+                        ListPatternElement::Rest(None) => continue,
+                    };
+                    acc = inf.down(acc, s);
                 }
                 acc
             };
             inf.list(el)
         }
-        PatternKind::Map { type_args, .. } => {
+        // `analyzeMapPatternSchema`: `Map<_, V>` with `V` the GLB of the
+        // value schemas.
+        PatternKind::Map {
+            type_args, entries, ..
+        } => {
             let (k, v) = if type_args.len() == 2 {
                 (
                     inf.type_argument_type(cx, type_args[0]),
                     inf.type_argument_type(cx, type_args[1]),
                 )
             } else {
-                (u, u)
+                let mut acc = u;
+                for entry in entries.iter() {
+                    let s = schema_in(inf, cx, entry.value, assignment);
+                    acc = inf.down(acc, s);
+                }
+                (u, acc)
             };
             inf.map_type(k, v)
         }
@@ -84,7 +124,7 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
             let fields: Vec<(Option<ast::Name>, PatternId)> =
                 fields.iter().map(|f| (f.name, f.pattern)).collect();
             for (n, x) in fields {
-                let s = schema(inf, cx, x);
+                let s = schema_in(inf, cx, x, assignment);
                 match n {
                     Some(n) => nm.push((n.sym, s)),
                     None => match implicit_name(inf, cx, x) {
@@ -958,32 +998,7 @@ pub(crate) fn pattern_assignment(
 
 /// Schema of an assignment pattern: variables contribute their declared type.
 fn assignment_schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> TypeId {
-    let a = &inf.program.unit(cx.unit).ast;
-    match &a.pattern(p).kind {
-        PatternKind::Variable { name, ty: None, .. } => match cx.lookup(name.sym) {
-            Some(MemberName::Local(id)) => cx.local(id).ty,
-            _ => inf.core.unknown,
-        },
-        PatternKind::Record { fields } => {
-            let fields: Vec<(Option<ast::Name>, PatternId)> =
-                fields.iter().map(|f| (f.name, f.pattern)).collect();
-            let mut pos = Vec::new();
-            let mut nm = Vec::new();
-            for (n, x) in fields {
-                let s = assignment_schema(inf, cx, x);
-                match n {
-                    Some(n) => nm.push((n.sym, s)),
-                    None => pos.push(s),
-                }
-            }
-            inf.table.intern(Type::Record {
-                positional: pos.into_boxed_slice(),
-                named: nm.into_boxed_slice(),
-                nullable: false,
-            })
-        }
-        _ => schema(inf, cx, p),
-    }
+    schema_in(inf, cx, p, true)
 }
 
 /// `switch (v) { p => e, ... }` as an expression.
