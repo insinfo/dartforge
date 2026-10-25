@@ -3183,3 +3183,26 @@ fn constant_creation_context_drops_type_variables() {
     };
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+#[test]
+fn constant_pattern_after_const_is_a_constant_context() {
+    // `case const (C(42))`: the creation inside the parentheses is constant
+    // without its own `const` (tests/language/implicit_creation).
+    let source = "class C {
+          final Object x;
+          const C(this.x);
+        }
+        void main() {
+          Object o = const C(42);
+          switch (o) {
+            case const (C(42)):
+              print(1);
+            case const (<int>[42]):
+              print(2);
+          }
+        }";
+    let Some(diags) = constant_diagnostics_of(source) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}

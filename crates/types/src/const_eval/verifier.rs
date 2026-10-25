@@ -1586,6 +1586,14 @@ impl Verifier<'_, '_> {
                     self.report(c::CONST_TYPE_PARAMETER, a.expr(x).span, Vec::new());
                     return;
                 }
+                // `const (<int>[42])`: the expression after a written `const` is in
+                // a constant context (`ConstantPattern.constKeyword`), so its
+                // literals and creations are constant without their own `const`.
+                let written_const = dartforge_frontend::source::word_at(
+                    &self.m.program.unit(self.unit).source,
+                    a.pattern(p).span.start,
+                    "const",
+                );
                 let e = unparenthesize(a, *e);
                 // `expression.typeOrThrow is InvalidType` (3.6.2
                 // `constant_verifier.dart:133-135`).
@@ -1594,7 +1602,7 @@ impl Verifier<'_, '_> {
                 }
                 let r = self.evaluate_and_report(
                     e,
-                    false,
+                    written_const,
                     c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION,
                 );
                 if let Constant::Value(v) = r {
@@ -1628,7 +1636,7 @@ impl Verifier<'_, '_> {
                         }
                     }
                     self.the_default_values.insert(p, v);
-                    self.expr(a, e, false);
+                    self.expr(a, e, written_const);
                 }
             }
             // `case the_name:` (the parser stores it as a variable): the top-level
