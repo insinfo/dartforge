@@ -47,8 +47,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         // The superclass of `C` in the linearization is what comes after it (the
         // applied mixins and then the superclass); in a `mixin` the `super`
-        // depends on the class that applies it (`SuperMember::OfMixin`).
-        if super::members::is_mixin(self.ctx, cid) {
+        // depends on the class that applies it (`SuperMember::OfMixin`), as
+        // in a `mixin class` some class applies.
+        if super::members::fields_positioned_by_application(self.ctx, cid) {
             return SuperMember::OfMixin;
         }
         self.search_after(cid, cid, name, key)
@@ -94,7 +95,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// compiled once, so the target is chosen by the class (the same
     /// mechanism as mixin fields): one target per concrete class that
     /// applies M.
-    fn mixin_super_targets(&self, name: SymbolId, setter: bool) -> Vec<(i64, SuperMember)> {
+    pub(super) fn mixin_super_targets(
+        &self,
+        name: SymbolId,
+        setter: bool,
+    ) -> Vec<(i64, SuperMember)> {
         let Some(mixin) = self.enclosing_class else {
             return Vec::new();
         };

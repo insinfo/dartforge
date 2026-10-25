@@ -245,7 +245,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         .ctx
                         .compiled_library(self.ctx.program.classes[class.0 as usize].library) =>
                 {
-                    // A field or getter of function type: reads and calls the value.
+                    // A field or getter of function type: reads and calls the
+                    // value. An instance member (`this` implicit) is read after
+                    // the arguments, as in the VM; a static one before them.
+                    let instance = match member {
+                        MemberRef::Variable(v) => !self.ctx.program.variables[v.0 as usize].static_,
+                        MemberRef::Function(f) => !self.ctx.program.functions[f.0 as usize].static_,
+                    };
+                    if instance {
+                        let evaluated = self.evaluate_args(ast, &arguments.args);
+                        let v = self.read_implicit_member(member, expr.span);
+                        return self.call_function_value(v, &evaluated);
+                    }
                     let v = self.read_implicit_member(member, expr.span);
                     let evaluated = self.evaluate_args(ast, &arguments.args);
                     return self.call_function_value(v, &evaluated);
@@ -544,6 +555,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
             // `super.m(…)`: a direct call to the superclass member (P4).
             if matches!(ast.expr(*inner_target).kind, ExprKind::Super) {
+                // A getter or field of the superclass is read before the
+                // arguments are evaluated, as in the VM.
+                use super::inheritance::SuperMember;
+                let is_value = |s: &Self, m: SuperMember| match m {
+                    SuperMember::Function(f) => {
+                        s.ctx.program.functions[f].kind
+                            == dartforge_elements::model::FunctionKind::Getter
+                    }
+                    SuperMember::Field(_) => true,
+                    _ => false,
+                };
+                let value_member = match self.super_member(method_name.sym, false) {
+                    SuperMember::OfMixin => self
+                        .mixin_super_targets(method_name.sym, false)
+                        .into_iter()
+                        .any(|(_, m)| is_value(self, m)),
+                    m => is_value(self, m),
+                };
+                if value_member {
+                    let v = self.read_super(method_name.sym, expr.span);
+                    let evaluated = self.evaluate_args(ast, &arguments.args);
+                    return self.call_function_value(v, &evaluated);
+                }
                 let evaluated = self.evaluate_args(ast, &arguments.args);
                 return self.call_super_method(method_name.sym, &evaluated, expr.span);
             }
@@ -557,8 +591,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if let Some(Resolved::ExtensionMember { member, .. }) = resolved_target
                 && crate::lower::user_function(self.ctx, member.0 as usize)
             {
-                let evaluated = self.evaluate_args(ast, &arguments.args);
                 let receiver = self.ctx.get_type_raw(self.unit_id, *inner_target);
+                // An extension getter is read before the arguments are
+                // evaluated (an instance getter of a class is read after them).
+                let f = &self.ctx.program.functions[member.0 as usize];
+                if f.kind == dartforge_elements::model::FunctionKind::Getter && !f.static_ {
+                    let v = self.read_extension(recv_op, member.0 as usize, receiver, expr.span);
+                    let evaluated = self.evaluate_args(ast, &arguments.args);
+                    return self.call_function_value(v, &evaluated);
+                }
+                let evaluated = self.evaluate_args(ast, &arguments.args);
                 return self.call_extension(
                     recv_op,
                     member.0 as usize,
@@ -591,22 +633,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             == dartforge_elements::model::FunctionKind::Getter);
                     if let Some(vid) = field {
                         // A field of function type: reads and calls the value (P1).
-                        let v = if crate::lower::is_global(self.ctx, vid) {
-                            self.read_global(vid, expr.span)
-                        } else {
-                            self.read_field_with_late(recv_op, vid, expr.span)
-                        };
-                        self.check_contravariant_value(ast, *target, &v);
+                        if crate::lower::is_global(self.ctx, vid) {
+                            let v = self.read_global(vid, expr.span);
+                            let evaluated = self.evaluate_args(ast, &arguments.args);
+                            return self.call_function_value(v, &evaluated);
+                        }
+                        // On an explicit receiver the VM evaluates the
+                        // arguments first, then reads the member to call it.
                         let evaluated = self.evaluate_args(ast, &arguments.args);
+                        let v = self.read_field_with_late(recv_op, vid, expr.span);
+                        self.check_contravariant_value(ast, *target, &v);
                         return self.call_function_value(v, &evaluated);
                     }
                     let MemberRef::Function(f) = member else {
                         unreachable!("field handled above")
                     };
                     if getter {
+                        // An extension getter is read first, as a static one.
+                        if self.ctx.program.functions[f.0 as usize].extension.is_some() {
+                            let v = self.call_member(recv_op, f.0 as usize, &[], expr.span);
+                            let evaluated = self.evaluate_args(ast, &arguments.args);
+                            return self.call_function_value(v, &evaluated);
+                        }
+                        let evaluated = self.evaluate_args(ast, &arguments.args);
                         let v = self.call_member(recv_op, f.0 as usize, &[], expr.span);
                         self.check_contravariant_value(ast, *target, &v);
-                        let evaluated = self.evaluate_args(ast, &arguments.args);
                         return self.call_function_value(v, &evaluated);
                     }
                     let evaluated = self.evaluate_args(ast, &arguments.args);

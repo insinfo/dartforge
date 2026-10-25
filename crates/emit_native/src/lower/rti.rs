@@ -1391,7 +1391,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let data = &self.ctx.outline.functions[fid];
         let mut written_set: Vec<Recipe> = Vec::new();
-        if let Some((expr, arguments)) = call {
+        // The member's own type arguments as inference instantiated the call
+        // (written or inferred, `set_instantiation`): those are the CFE's,
+        // matching the declared types with the arguments' would not see the
+        // context (`f<T>(T x)` called as `Object y = f(1)` is `f<Object>`).
+        let inferred = call.and_then(|(_, arguments)| {
+            self.ctx.bodies.units[self.unit_id.0 as usize]
+                .instantiation(arguments.span.start)
+                .filter(|t| t.len() == params.len() - n_ext)
+                .map(<[TypeId]>::to_vec)
+        });
+        if let Some(inferred) = &inferred {
+            for (i, &t) in inferred.iter().enumerate() {
+                found_items[n_ext + i] = Some(t);
+            }
+        } else if let Some((expr, arguments)) = call {
             let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
             if !arguments.type_args.is_empty() {
                 for a in &arguments.type_args {
@@ -1421,6 +1435,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         self.unify(p.ty, real, &params, &mut found_items);
                     }
                 }
+            }
+        }
+        // A top type matched for a parameter with a bound that is not
+        // (`T extends Object` against `dynamic` or `void`): inference resolves
+        // it to the bound, which the top does not satisfy.
+        for (i, found) in found_items.iter_mut().enumerate() {
+            let Some(&p) = params.get(i) else { continue };
+            let bound = self.ctx.table.param(p).bound;
+            if found.is_some_and(|t| super::typed_entry::is_top(self.ctx, t))
+                && !super::typed_entry::is_top(self.ctx, bound)
+                && !self.mentions_params(bound, &params)
+            {
+                *found = Some(bound);
             }
         }
         let mut r = Recipe {

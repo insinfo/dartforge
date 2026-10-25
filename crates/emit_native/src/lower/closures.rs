@@ -1129,6 +1129,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if type_params.is_empty() {
             return zero;
         }
+        // The type arguments inference instantiated the call with (the
+        // bounds of a local generic function called without any, the context).
+        if let Some(inferred) = self.ctx.bodies.units[self.unit_id.0 as usize]
+            .instantiation(arguments.span.start)
+            .filter(|t| t.len() == type_params.len())
+        {
+            let mut r = super::rti::Recipe {
+                text: "L<".to_string(),
+                variables: false,
+            };
+            for (i, &t) in inferred.to_vec().iter().enumerate() {
+                if i > 0 {
+                    r.text.push(',');
+                }
+                let x = self.type_recipe(t);
+                r.text.push_str(&x.text);
+                r.variables |= x.variables;
+            }
+            r.text.push('>');
+            return self.recipe_rti(&r);
+        }
         let mut found_items: Vec<Option<TypeId>> = vec![None; type_params.len()];
         if let Some(real) = self.ctx.get_type_raw(self.unit_id, expr) {
             self.unify(ret, real, &type_params, &mut found_items);

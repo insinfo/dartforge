@@ -2095,6 +2095,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .to_string();
             return self.unsupported(&format!("SDK class constructor ({name_str})"), span);
         }
+        // A call to a redirecting factory is a call to its effective target,
+        // as the CFE rewrites it: an argument left out takes the target's
+        // default (`factory A({int z}) = A;` with `A({z})` passes null, which
+        // the factory's own `int` parameter could not hold). With type
+        // arguments the factory's body maps them to the target's.
+        if f.factory
+            && explicit_rti.is_none()
+            && explicit_tuple.is_none()
+            && !self.generic_class(cid_ctor)
+            && let Some(target) = self.redirected_target(fid)
+            && let Some(target_class) = self.ctx.program.functions[target].class
+            && !self.generic_class(target_class)
+            && !self.ctx.is_extension_type(target_class)
+            && super::user_function(self.ctx, target)
+        {
+            return self.instantiate_evaluated_with_rti(
+                FunctionElementId(target as u32),
+                evaluated,
+                span,
+                None,
+                None,
+            );
+        }
         // The extension type constructor (`extension_types.rs`) is a
         // function that returns the representation, called like a factory.
         let factory = f.factory || self.ctx.is_extension_type(cid_ctor);
