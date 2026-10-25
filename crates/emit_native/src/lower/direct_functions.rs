@@ -208,6 +208,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // --- corpo ---------------------------------------------------------
         let readable = self.ctx.symbol_name(name.sym).to_string();
         let mut b = FnBuilder::new(self.ctx, self.unit_id, symbol, readable, ret);
+        b.local_const_keys = self.local_const_keys.clone();
         b.open_scope();
         if with_this {
             let t = b.add_param("this".to_string(), Type::Ref);

@@ -11,11 +11,13 @@ use dartforge_elements::model::{Element, FunctionKind};
 use dartforge_frontend::ast::{self, ExprId};
 use dartforge_types::resolved::{MemberRef, Resolved};
 
-/// The right-hand side of an assignment: an expression, or the `1` of `++`/`--`.
+/// The right-hand side of an assignment: an expression, the `1` of
+/// `++`/`--`, or a value already computed (the element of `for (x in e)`).
 #[derive(Clone, Copy)]
 pub enum Rhs {
     Expr(ExprId),
     One,
+    Value(ValueId),
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -24,6 +26,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Rhs::Expr(e) => self.lower_expr(ast, e),
             Rhs::One if as_type == Type::F64 => Operand::Constant(Constant::Double(1.0)),
             Rhs::One => Operand::Constant(Constant::Int(1)),
+            Rhs::Value(v) => Operand::Val(v),
         }
     }
 
@@ -72,7 +75,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // The destination may be a getter/index without a type known here.
                 let admits_smi = match value {
                     Rhs::Expr(e) => self.type_admits_smi(self.ctx.get_type(self.unit_id, e)),
-                    Rhs::One => true,
+                    Rhs::One | Rhs::Value(_) => true,
                 };
                 let rhs = self.lower_rhs(ast, value, ty);
                 self.lower_binary_op_helper(b, cur, rhs, admits_smi)

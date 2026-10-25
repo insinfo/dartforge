@@ -33,6 +33,10 @@ pub struct Context<'a> {
     /// Identity of the SDK marker, never of a same-named user class.
     finalizable_class: Option<dartforge_elements::model::ClassId>,
     pub entry_lib: Option<LibraryId>,
+    /// The program's `main`: the top-level function the entry library
+    /// exports under that name, declared there or re-exported from another
+    /// library (`export 'other.dart';`), as the VM finds it.
+    pub entry_main: Option<usize>,
     /// Runtime class id of each program class (P2): the order of the
     /// stable path (`library_name`, class name), starting from 1,
     /// skipping the 1000–1012 range of the runtime error classes. `None` for
@@ -377,6 +381,7 @@ impl<'a> Context<'a> {
                     .then_some(dartforge_elements::model::ClassId(i as u32))
             }),
             entry_lib: program.entry,
+            entry_main: entry_main(program, interner),
             class_ids: Vec::new(),
             fixed_sdk_ids: None,
             record_shapes: Vec::new(),
@@ -1107,4 +1112,21 @@ pub fn unescape(part: &str) -> Option<String> {
         }
     }
     String::from_utf8(v).ok()
+}
+
+/// The `main` that the entry library exports (see [`Context::entry_main`]).
+pub fn entry_main(program: &Program, interner: &Interner) -> Option<usize> {
+    let name = interner.lookup("main")?;
+    let binding = program.library(program.entry?).exported.get(&name)?;
+    match binding.getter? {
+        dartforge_elements::model::Element::Function(f)
+            if program.functions[f.0 as usize].class.is_none()
+                && program.functions[f.0 as usize].extension.is_none()
+                && program.functions[f.0 as usize].kind
+                    == dartforge_elements::model::FunctionKind::Function =>
+        {
+            Some(f.0 as usize)
+        }
+        _ => None,
+    }
 }

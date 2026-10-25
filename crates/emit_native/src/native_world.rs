@@ -30,7 +30,7 @@
 //! `UnsupportedError` "código podado como inalcançável foi chamado: <símbolo>".
 //! `DARTFORGE_NO_PROGRAM_PRUNING=1` turns it off (measurement).
 
-use dartforge_elements::model::{Element, FunctionElementId, Program};
+use dartforge_elements::model::{FunctionElementId, Program};
 use dartforge_frontend::ast;
 use dartforge_intern::Interner;
 use dartforge_types::resolve::OutlineTypes;
@@ -73,17 +73,8 @@ pub fn compute(
         return None;
     }
     let mut r = dartforge_world::Roots::default();
-    let lib = program.entry?;
-    let main = interner.lookup("main")?;
-    match program
-        .library(lib)
-        .declared
-        .get(&main)
-        .and_then(|b| b.getter)
-    {
-        Some(Element::Function(f)) => r.functions.push(f),
-        _ => return None,
-    }
+    let main = crate::context::entry_main(program, interner)?;
+    r.functions.push(FunctionElementId(main as u32));
     marked_entries(program, interner, &mut r);
     let mut names = std::collections::BTreeSet::new();
     for n in LOWERING_NAMES {

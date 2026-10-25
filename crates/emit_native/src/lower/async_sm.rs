@@ -945,7 +945,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             b.open_scope();
             let x = b.call_by_selector(it_c.clone(), "g:current".to_string(), &[]);
             b.bind_for_in_target(ast, target, x, iterable, span);
-            b.lower_stmt(ast, body);
+            b.lower_body(ast, body);
             b.close_scope();
             b.terminate(Terminator::Branch(head));
             b.break_targets.pop();

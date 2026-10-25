@@ -3290,24 +3290,38 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.declare_variable(name.sym, name.span.start, ty, x);
             }
             ForInTarget::Expression(e) => {
-                if let ExprKind::Identifier(id) = &ast.expr(*e).kind {
-                    if dynamic_element
-                        && let Some(t) = self.ctx.get_type(self.unit_id, *e)
-                        && t != self.ctx.core.dynamic_
-                        && t != self.ctx.core.object_nullable
-                    {
-                        let rti = self.type_rti(t);
-                        self.cast_rti_in(x.clone(), rti, super::rti::CastContext::Implicit);
-                        if self.is_terminated() {
-                            return;
-                        }
+                if dynamic_element
+                    && let Some(t) = self.ctx.get_type(self.unit_id, *e)
+                    && t != self.ctx.core.dynamic_
+                    && t != self.ctx.core.object_nullable
+                {
+                    let rti = self.type_rti(t);
+                    self.cast_rti_in(x.clone(), rti, super::rti::CastContext::Implicit);
+                    if self.is_terminated() {
+                        return;
                     }
-                    let ty = self.lookup_local(id.sym).map_or(Type::Ref, |l| l.ty);
-                    let x = self.coerce(x, ty);
-                    self.store_local(id.sym, x);
-                } else {
-                    self.unsupported("for-in target", span);
                 }
+                if let ExprKind::Identifier(id) = &ast.expr(*e).kind
+                    && let Some(local) = self.lookup_local(id.sym)
+                {
+                    let x = self.coerce(x, local.ty);
+                    self.store_local(id.sym, x);
+                    return;
+                }
+                // A field, a static or top-level variable, a setter or an
+                // index (`for (field in e)`, `for (o.p in e)`): the assignment.
+                let x = self.coerce(x, Type::Ref);
+                let Operand::Val(v) = x else {
+                    self.unsupported("for-in target", span);
+                    return;
+                };
+                self.lower_assignment(
+                    ast,
+                    dartforge_frontend::ast::AssignOp::Assign,
+                    *e,
+                    super::assignment::Rhs::Value(v),
+                    span,
+                );
             }
             ForInTarget::Pattern { pattern, .. } => {
                 self.match_irrefutable(
@@ -3381,7 +3395,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.open_scope();
         let x = self.call_by_selector(it, "g:current".to_string(), &[]);
         self.bind_for_in_target(ast, target, x, iterable, span);
-        self.lower_stmt(ast, body);
+        self.lower_body(ast, body);
         self.close_scope();
         self.terminate(Terminator::Branch(head));
         self.break_targets.pop();
@@ -3529,7 +3543,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.continue_targets.push(head);
         self.open_scope();
         self.bind_for_in_target(ast, target, x, iterable, span);
-        self.lower_stmt(ast, body);
+        self.lower_body(ast, body);
         self.close_scope();
         if !self.is_terminated() {
             self.terminate(Terminator::Branch(head));

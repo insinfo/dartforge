@@ -18,13 +18,47 @@ pub struct FinallyScope {
     /// `try` started: a jump to one of them crosses this `finally`.
     pub prof_break: usize,
     pub prof_continue: usize,
-    /// Labels that already existed when the `try` started (the outer ones).
-    pub break_labels: std::collections::HashSet<SymbolId>,
-    pub continue_labels: std::collections::HashSet<SymbolId>,
+    /// The targets of the labels that already existed when the `try` started
+    /// (the outer ones).
+    pub break_labels: std::collections::HashSet<BlockId>,
+    pub continue_labels: std::collections::HashSet<BlockId>,
     /// Jumps (`break`/`continue`, with the label) that cross this
     /// `finally`: the one with index `k` enters with reason `5 + k` and, at the end of the
     /// `finally`, continues the jump.
     pub jumps: Vec<(bool, Option<SymbolId>)>,
+}
+
+/// The targets of the labels in scope, the innermost last for each name: a
+/// label may shadow an outer one with the same name (`L: while (…) { L: while
+/// (…) { break L; } }` leaves the inner loop).
+#[derive(Default)]
+pub struct LabelTargets(HashMap<SymbolId, Vec<BlockId>>);
+
+impl LabelTargets {
+    /// Enters the label `sym` with the target `block`.
+    pub fn insert(&mut self, sym: SymbolId, block: BlockId) {
+        self.0.entry(sym).or_default().push(block);
+    }
+    /// Leaves the innermost label `sym`.
+    pub fn remove(&mut self, sym: &SymbolId) -> Option<BlockId> {
+        let targets = self.0.get_mut(sym)?;
+        let block = targets.pop();
+        if targets.is_empty() {
+            self.0.remove(sym);
+        }
+        block
+    }
+    /// The target of the innermost label `sym`.
+    pub fn get(&self, sym: &SymbolId) -> Option<&BlockId> {
+        self.0.get(sym)?.last()
+    }
+    pub fn contains_key(&self, sym: &SymbolId) -> bool {
+        self.0.contains_key(sym)
+    }
+    /// Every target in scope.
+    pub fn blocks(&self) -> impl Iterator<Item = BlockId> + '_ {
+        self.0.values().flatten().copied()
+    }
 }
 
 pub struct FnBuilder<'a, 'c> {
@@ -83,8 +117,8 @@ pub struct FnBuilder<'a, 'c> {
     /// The instantiation closure entries this function defines
     /// (`Module::instantiation_entries`).
     pub instantiation_entries: std::collections::BTreeSet<String>,
-    pub labeled_break_targets: HashMap<SymbolId, BlockId>,
-    pub labeled_continue_targets: HashMap<SymbolId, BlockId>,
+    pub labeled_break_targets: LabelTargets,
+    pub labeled_continue_targets: LabelTargets,
     pub pending_labels: Vec<SymbolId>,
     /// The static type of the function value that the current call will call
     /// (`lower_call`, read by `call_function_value`).
@@ -381,8 +415,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             inline_policies: std::collections::HashMap::new(),
             tearoff_names: std::collections::BTreeMap::new(),
             instantiation_entries: std::collections::BTreeSet::new(),
-            labeled_break_targets: HashMap::new(),
-            labeled_continue_targets: HashMap::new(),
+            labeled_break_targets: LabelTargets::default(),
+            labeled_continue_targets: LabelTargets::default(),
             pending_labels: Vec::new(),
             callee_type: None,
             current_call: None,
@@ -1161,11 +1195,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let index = stack.len().checked_sub(1);
         if let Some(target) = target_opt {
             let crosses = self.finally_scopes.last().is_some_and(|fin| match label {
-                Some(sym) => {
+                Some(_) => {
                     if is_continue {
-                        fin.continue_labels.contains(&sym)
+                        fin.continue_labels.contains(&target)
                     } else {
-                        fin.break_labels.contains(&sym)
+                        fin.break_labels.contains(&target)
                     }
                 }
                 None => {

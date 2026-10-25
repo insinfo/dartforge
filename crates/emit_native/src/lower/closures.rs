@@ -325,6 +325,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             readable.clone(),
             ret_repr,
         );
+        // The local `const`s in scope (a default value may name one): their
+        // initializers, which are constant, evaluated again.
+        b.local_const_keys = self.local_const_keys.clone();
         // The symbolic stack trace (§13.14): the token of the closure, the entry through
         // which the runtime finds it, the link to the awaiter and the inherited hidden one.
         if self.ctx.stack_trace {
@@ -497,6 +500,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             readable,
             Type::Ref,
         );
+        e.local_const_keys = self.local_const_keys.clone();
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
         let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));

@@ -635,18 +635,11 @@ fn emit_ir_internal(
         .world
         .as_ref()
         .map_or((0, 0), |m| (m.stats.live_functions, m.stats.user_functions));
-    // A program without `main` in the entry library does not run: the VM
-    // rejects it ("Invoked Dart programs must have a 'main' function defined").
-    // On reload, it is the file read in the middle of a write (empty), which cannot
-    // become a generation.
-    let has_main = program.functions.iter().any(|f| {
-        f.class.is_none()
-            && f.extension.is_none()
-            && f.kind == dartforge_elements::model::FunctionKind::Function
-            && Some(f.library) == ctx.entry_lib
-            && interner.resolve(f.name) == "main"
-    });
-    if !has_main {
+    // A program whose entry library neither declares nor exports `main` does
+    // not run: the VM rejects it ("Invoked Dart programs must have a 'main'
+    // function defined"). On reload, it is the file read in the middle of a
+    // write (empty), which cannot become a generation.
+    if ctx.entry_main.is_none() {
         return Err(
             "compile error: the program does not define a `main` function \
                     (Invoked Dart programs must have a 'main' function defined)"

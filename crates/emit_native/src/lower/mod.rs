@@ -144,11 +144,7 @@ fn owner_in_symbol(
 pub fn symbol_of(ctx: &Context, fid: usize) -> String {
     let f = &ctx.program.functions[fid];
     let name_str = ctx.symbol_name(f.name);
-    if f.class.is_none()
-        && f.extension.is_none()
-        && name_str == "main"
-        && Some(f.library) == ctx.entry_lib
-    {
+    if ctx.entry_main == Some(fid) {
         return "dart_main".to_string();
     }
     let member = match f.kind {

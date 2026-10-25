@@ -296,7 +296,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     _ => e,
                 };
-                let c = self.lower_expr(ast, *e);
+                // The expression of a constant pattern is a constant (`const
+                // (<int>[42])` and `const C(42)` are canonical).
+                let c = self.lower_in_const_context(ast, *e);
                 let ok = self
                     .enum_constant_pattern_identity(*e, c.clone(), val_ref.clone())
                     .unwrap_or_else(|| self.operate(BinaryOp::Eq, c, val_ref, false, span));
@@ -740,9 +742,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             self.set_block(bodies[i]);
             self.scopes.push(case_scopes[i].clone());
+            // The statements have their own scope inside that of the pattern
+            // variables (`case var x: var x = 1;` is not a collision).
+            self.open_scope();
             for &s in c.body.iter() {
                 self.lower_stmt(ast, s);
             }
+            self.close_scope();
             self.close_scope();
             // Dart 3: a non-empty case does not fall into the next one.
             self.terminate(Terminator::Branch(exit));
@@ -927,12 +933,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let ok = self.lower_expr(ast, g);
             self.require(ok, b_else);
         }
-        self.lower_stmt(ast, then);
+        self.lower_body(ast, then);
         self.close_scope();
         self.terminate(Terminator::Branch(end));
         self.set_block(b_else);
         if let Some(e) = else_ {
-            self.lower_stmt(ast, e);
+            self.lower_body(ast, e);
         }
         self.terminate(Terminator::Branch(end));
         self.set_block(end);

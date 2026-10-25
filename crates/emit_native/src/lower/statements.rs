@@ -109,6 +109,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some((text, self.ctx.stack_trace_url(unit), line, column))
     }
 
+    /// The body of an `if`, a loop or an `else`: a statement that is not a
+    /// block still has its own scope (`if (c) var a = 1;` does not declare
+    /// `a` in the enclosing block).
+    pub(super) fn lower_body(&mut self, ast: &ast::Ast, stmt_id: StmtId) {
+        if matches!(ast.stmt(stmt_id).kind, StmtKind::Block(_)) {
+            self.lower_stmt(ast, stmt_id);
+            return;
+        }
+        self.open_scope();
+        self.lower_stmt(ast, stmt_id);
+        self.close_scope();
+    }
+
     pub fn lower_stmt(&mut self, ast: &ast::Ast, stmt_id: StmtId) {
         // J05: the instructions of the statement carry its position; on leaving, the
         // position of the outer statement comes back (the update and the condition of a loop
@@ -242,12 +255,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 });
 
                 self.set_block(then_b);
-                self.lower_stmt(ast, *then);
+                self.lower_body(ast, *then);
                 self.terminate(Terminator::Branch(merge_b));
 
                 if let Some(e) = else_ {
                     self.set_block(else_b);
-                    self.lower_stmt(ast, *e);
+                    self.lower_body(ast, *e);
                     self.terminate(Terminator::Branch(merge_b));
                 }
 
@@ -280,7 +293,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 self.set_block(loop_body);
                 self.emit_safepoint();
-                self.lower_stmt(ast, *body);
+                self.lower_body(ast, *body);
                 self.terminate(Terminator::Branch(loop_header));
 
                 self.break_targets.pop();
@@ -311,7 +324,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.break_targets.push(exit_block);
                 self.continue_targets.push(loop_cond);
 
-                self.lower_stmt(ast, *body);
+                self.lower_body(ast, *body);
                 self.terminate(Terminator::Branch(loop_cond));
 
                 self.break_targets.pop();
@@ -667,8 +680,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 incoming: Vec::new(),
                 prof_break: self.break_targets.len(),
                 prof_continue: self.continue_targets.len(),
-                break_labels: self.labeled_break_targets.keys().copied().collect(),
-                continue_labels: self.labeled_continue_targets.keys().copied().collect(),
+                break_labels: self.labeled_break_targets.blocks().collect(),
+                continue_labels: self.labeled_continue_targets.blocks().collect(),
                 jumps: Vec::new(),
             });
         }
@@ -1179,7 +1192,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !counted {
             self.emit_safepoint();
         }
-        self.lower_stmt(ast, body);
+        self.lower_body(ast, body);
         self.terminate(Terminator::Branch(loop_update));
 
         self.set_block(loop_update);
