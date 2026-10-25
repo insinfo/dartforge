@@ -596,6 +596,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         } else {
                             self.read_field_with_late(recv_op, vid, expr.span)
                         };
+                        self.check_contravariant_value(ast, *target, &v);
                         let evaluated = self.evaluate_args(ast, &arguments.args);
                         return self.call_function_value(v, &evaluated);
                     }
@@ -604,11 +605,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     };
                     if getter {
                         let v = self.call_member(recv_op, f.0 as usize, &[], expr.span);
+                        self.check_contravariant_value(ast, *target, &v);
                         let evaluated = self.evaluate_args(ast, &arguments.args);
                         return self.call_function_value(v, &evaluated);
                     }
                     let evaluated = self.evaluate_args(ast, &arguments.args);
                     self.arm_tuple(f.0 as usize, expr_id, arguments);
+                    if !matches!(ast.expr(*inner_target).kind, ExprKind::This) {
+                        self.check_covariant_bounds(f.0 as usize, &recv_op);
+                    }
                     return self.call_member(recv_op, f.0 as usize, &evaluated, expr.span);
                 }
             }

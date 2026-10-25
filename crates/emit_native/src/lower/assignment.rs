@@ -132,6 +132,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => None,
         };
         let v = self.combine(ast, op, cur, value);
+        if let Some(e) = self.dynamic_rhs(op, value)
+            && let Some(t) = self.setter_parameter_type(setter.0 as usize)
+        {
+            self.implicit_downcast(e, &v, t);
+            if self.is_terminated() {
+                return v;
+            }
+        }
         let args = self.match_args(setter.0 as usize, &[(None, v.clone())]);
         self.call_direct(setter.0 as usize, None, args);
         v
@@ -376,6 +384,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             None
                         };
                         let v = self.combine(ast, op, cur, value);
+                        self.downcast_global(op, value, vid, &v);
                         self.store_global(vid, v, span)
                     }
                     Some(Resolved::Element(Element::Function(f)))
@@ -390,6 +399,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             None
                         };
                         let v = self.combine(ast, op, cur, value);
+                        self.downcast_global(op, value, vid, &v);
                         self.store_global(vid, v, span)
                     }
                     // Explicit top-level getter/setter (`set exitCode(int)`):
@@ -414,6 +424,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 .unsupported("compound assignment to an unknown local", span);
                         }
                         let v = self.combine(ast, op, cur, value);
+                        if let Some(e) = self.dynamic_rhs(op, value)
+                            && let Some(t) = self.lookup_local(sym).and_then(|l| l.static_type)
+                        {
+                            self.implicit_downcast(e, &v, t);
+                            if self.is_terminated() {
+                                return v;
+                            }
+                        }
                         match self.store_local(sym, v) {
                             Some(v) => v,
                             None => self.unsupported("assignment to an unknown local", span),
@@ -606,6 +624,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     return self.unsupported(&format!("assignment to `{n}`"), span);
                 };
+                // `this.x = v` writes like `x = v` (the receiver is `this`:
+                // no covariance check).
+                if matches!(ast.expr(*recv).kind, ast::ExprKind::This) && self.this_param.is_some()
+                {
+                    return self.assign_member(None, member, ast, op, value, span);
+                }
                 let recv_op = self.lower_expr(ast, *recv);
                 self.assign_member(Some(recv_op), member, ast, op, value, span)
             }
@@ -807,8 +831,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     None
                 };
                 let v = self.combine(ast, op, cur, value);
+                self.downcast_global(op, value, vid, &v);
                 return self.store_global(vid, v, span);
             }
+            let explicit_receiver = recv.is_some();
             let Some(obj) = recv.or_else(|| self.this_param.clone()) else {
                 return self.unsupported("instance field outside an instance member", span);
             };
@@ -818,6 +844,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 None
             };
             let v = self.combine(ast, op, cur, value);
+            // Through another receiver than `this`, the implicit setter of a
+            // covariant field checks the value against the receiver's type
+            // arguments (`Fields<Object> c = Fields<int>(); c.x = 's'`).
+            // A `dynamic` value: the implicit downcast to the type of the
+            // field (with the receiver's type arguments).
+            let dynamic = self.dynamic_rhs(op, value);
+            match self.implicit_setter(vid) {
+                Some(setter) if dynamic.is_some() => self.check_setter_value(setter, &obj, &v),
+                Some(setter) if explicit_receiver => {
+                    self.check_target_covariants(setter, &obj, &[(None, v.clone())])
+                }
+                _ => {}
+            }
+            if self.is_terminated() {
+                return v;
+            }
             if !self.store_source_field(obj.clone(), vid, v.clone()) {
                 self.store_field(obj, vid, v.clone(), span);
             }
@@ -880,6 +922,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             None
         };
         let v = self.combine(ast, op, cur, value);
+        if let Some(e) = self.dynamic_rhs(op, value) {
+            match &obj {
+                Some(o) if !static_ty => self.check_setter_value(fid, o, &v),
+                _ => {
+                    if let Some(t) = self.setter_parameter_type(fid) {
+                        self.implicit_downcast(e, &v, t);
+                    }
+                }
+            }
+            if self.is_terminated() {
+                return v;
+            }
+        }
         if static_ty {
             let args = self.match_args(fid, &[(None, v.clone())]);
             self.call_direct(fid, None, args);
@@ -890,6 +945,54 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         self.call_member(obj, fid, &[(None, v.clone())], span);
         v
+    }
+}
+
+impl FnBuilder<'_, '_> {
+    /// The expression whose `dynamic` value an assignment writes as it is
+    /// (`x = e`, `x ??= e`): the write needs the implicit downcast to the type
+    /// of the target.
+    fn dynamic_rhs(&self, op: ast::AssignOp, value: Rhs) -> Option<ExprId> {
+        match (op, value) {
+            (
+                ast::AssignOp::Assign | ast::AssignOp::Compound(ast::BinaryOp::IfNull),
+                Rhs::Expr(e),
+            ) if self.dynamic_expression(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    /// The type of the parameter of the setter `fid`.
+    fn setter_parameter_type(&self, fid: usize) -> Option<dartforge_types::TypeId> {
+        Some(self.ctx.outline.functions.get(fid)?.parameters.first()?.ty)
+    }
+
+    /// The implicit downcast of a `dynamic` value written into the static or
+    /// top-level variable `vid`.
+    fn downcast_global(
+        &mut self,
+        op: ast::AssignOp,
+        value: Rhs,
+        vid: dartforge_elements::model::VariableId,
+        v: &Operand,
+    ) {
+        if let Some(e) = self.dynamic_rhs(op, value) {
+            let t = super::members::variable_type(self.ctx, vid);
+            self.implicit_downcast(e, v, t);
+        }
+    }
+
+    /// The implicit setter of the instance field `vid` (`x=`), if the field
+    /// has one.
+    fn implicit_setter(&self, vid: dartforge_elements::model::VariableId) -> Option<usize> {
+        let var = &self.ctx.program.variables[vid.0 as usize];
+        let class = var.class?;
+        let name = self.ctx.symbol_name(var.name);
+        let key = self.ctx.interner.lookup(&format!("{name}_="))?;
+        let f = self.ctx.program.classes[class.0 as usize]
+            .instance_members
+            .get(&key)?;
+        (self.ctx.program.functions[f.0 as usize].variable == Some(vid)).then_some(f.0 as usize)
     }
 }
 

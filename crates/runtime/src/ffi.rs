@@ -94,7 +94,7 @@ fn key_part(t: i64, s: &mut String) -> Result<(), String> {
 /// The key (`lower/ffi.rs::chave_da_assinatura`) of the native signature `ns`.
 fn signature_key(ns: i64) -> Result<String, String> {
     let (ret, pos) = RTI.with(|u| match u.borrow().ty(ns) {
-        Type::Function { generics: 0, ret, pos, n_required, named } if named.is_empty() && *n_required == pos.len() => Ok((*ret, pos.clone())),
+        Type::Function { generics: 0, ret, pos, n_required, named, .. } if named.is_empty() && *n_required == pos.len() => Ok((*ret, pos.clone())),
         _ => Err(format!("`{}` is not a native function signature", u.borrow().text(ns))),
     })?;
     let mut s = String::with_capacity(pos.len() + 2);

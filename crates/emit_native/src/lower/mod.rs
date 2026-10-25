@@ -898,6 +898,10 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                     builder.finish(module);
                     return;
                 }
+                if ast_func.modifier == dartforge_frontend::ast::AsyncModifier::None {
+                    builder.return_context =
+                        ctx.outline.functions.get(f_idx).map(|d| d.return_type);
+                }
                 match ast_func.modifier {
                     // P6: the `async` body becomes a state machine
                     // (`async_sm.rs`); the `sync*`/`async*` generators too.
@@ -907,6 +911,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                         }
                         FunctionBody::Expression(expr_id) => {
                             let ret_op = builder.lower_expr(ast, *expr_id);
+                            builder.return_downcast(*expr_id, &ret_op);
                             builder.terminate(Terminator::Return(Some(ret_op)));
                         }
                         _ => {}

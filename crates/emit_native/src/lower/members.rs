@@ -2280,6 +2280,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 continue;
             };
             let v = self.lower_expr_of(unit, init);
+            // `T field = e` with a `dynamic` `e`: the implicit downcast.
+            let saved = std::mem::replace(&mut self.unit_id, unit);
+            self.implicit_downcast(init, &v, variable_type(self.ctx, vid));
+            self.unit_id = saved;
             let span = self.ctx.program.unit(unit).ast.expr(init).span;
             self.store_field(this.clone(), vid, v, span);
         }
@@ -2410,6 +2414,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         continue;
                     };
                     let v = self.lower_expr(ast, *value);
+                    self.implicit_downcast(*value, &v, variable_type(self.ctx, vid));
                     self.store_field(this.clone(), vid, v, *span);
                 }
                 ast::Initializer::Assert {

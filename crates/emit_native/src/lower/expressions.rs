@@ -374,6 +374,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.null_chain = Some((exit, Vec::new()));
         }
         let mut v = self.lower_expr_internal(ast, expr_id);
+        // A member whose type uses a type parameter of its class in a
+        // contravariant position, read through another receiver than `this`:
+        // the CFE's covariance check of the result (`F<T> f` read as
+        // `C<Object>.f` from a `C<String>`).
+        self.check_contravariant_value(ast, expr_id, &v);
         if root {
             let (exit, mut entries) = self.null_chain.take().expect("cadeia aberta");
             // The `?.` chain is null or the value: always a `Ref` at the join.

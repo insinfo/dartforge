@@ -308,6 +308,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             readable.clone(),
             Type::Ref,
         );
+        // `return e` in an `async` body: `e` against the future value type
+        // (`Future<T>` and `FutureOr<T>` give `T`).
+        if ty == BodyType::Async
+            && let Some(AsyncReturn::Typed(t)) = &ret
+        {
+            b.return_context = match self.ctx.table.get(*t) {
+                dartforge_types::table::Type::Interface { class, args, .. }
+                    if Some(*class) == self.ctx.core.future_class =>
+                {
+                    args.first().copied()
+                }
+                dartforge_types::table::Type::FutureOr { arg, .. } => Some(*arg),
+                _ => None,
+            };
+        }
         let env = Operand::Val(b.add_param("env".to_string(), Type::Ref));
         let iterator = if ty == BodyType::SyncStar {
             Operand::Val(b.add_param("iterador".to_string(), Type::Ref))
@@ -418,7 +433,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             FunctionBody::Block(s) => b.lower_stmt(ast, *s),
             FunctionBody::Expression(e) => {
                 let r = b.lower_expr(ast, *e);
-                b.route_return(Some(r));
+                b.return_downcast(*e, &r);
+                if !b.is_terminated() {
+                    b.route_return(Some(r));
+                }
             }
             _ => {}
         }

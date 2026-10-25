@@ -250,6 +250,9 @@ pub struct FnBuilder<'a, 'c> {
     /// the access code (0 method) — arguments that do not match go to the
     /// receiver's `noSuchMethod` (`unpack`), as in the VM.
     pub(crate) nsm_on_mismatch: Option<(Operand, String, i64)>,
+    /// The type the value of a `return` must have: the declared return type,
+    /// or the future value type of an `async` body (`None`: unknown).
+    pub(crate) return_context: Option<dartforge_types::table::TypeId>,
     /// The expressions inside a deferred access already checked by the outer
     /// one (`lower/deferred.rs`).
     pub(crate) deferred_checked: std::collections::HashSet<ExprId>,
@@ -461,6 +464,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             call_site: None,
             instantiating: None,
             nsm_on_mismatch: None,
+            return_context: None,
             deferred_checked: std::collections::HashSet::new(),
             call_types: None,
             this_extension: None,

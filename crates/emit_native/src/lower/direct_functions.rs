@@ -209,6 +209,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let readable = self.ctx.symbol_name(name.sym).to_string();
         let mut b = FnBuilder::new(self.ctx, self.unit_id, symbol, readable, ret);
         b.local_const_keys = self.local_const_keys.clone();
+        b.return_context = ty.and_then(|t| match self.ctx.table.get(t) {
+            dartforge_types::table::Type::Function { ret, .. } => Some(*ret),
+            _ => None,
+        });
         b.open_scope();
         if with_this {
             let t = b.add_param("this".to_string(), Type::Ref);
@@ -324,6 +328,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             FunctionBody::Block(s) => b.lower_stmt(ast, *s),
             FunctionBody::Expression(e) => {
                 let r = b.lower_expr(ast, *e);
+                b.return_downcast(*e, &r);
                 if !b.is_terminated() {
                     let r = b.coerce(r, ret);
                     b.terminate(Terminator::Return(Some(r)));

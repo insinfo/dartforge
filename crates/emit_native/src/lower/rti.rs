@@ -251,7 +251,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             } => {
                 let n = linked_set.len();
                 linked_set.extend(type_params.iter().copied());
-                r.text.push_str(&format!("F<{};", type_params.len()));
+                r.text.push_str(&format!("F<{}", type_params.len()));
+                self.write_bounds(type_params, linked_set, subst, r);
+                r.text.push(';');
                 self.write_type(*ret, linked_set, subst, r);
                 r.text.push_str(&format!(";{};", positional.len()));
                 for (i, p) in positional.iter().chain(optional.iter()).enumerate() {
@@ -563,7 +565,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             } => {
                 let n = linked_set.len();
                 linked_set.extend(type_params.iter().map(|p| p.name.sym));
-                r.text.push_str(&format!("F<{};", type_params.len()));
+                r.text.push_str(&format!("F<{}", type_params.len()));
+                if type_params.iter().any(|p| p.bound.is_some()) {
+                    r.text.push(':');
+                    for (i, p) in type_params.iter().enumerate() {
+                        if i > 0 {
+                            r.text.push(',');
+                        }
+                        match p.bound {
+                            Some(b) => self.write_annotation(unit_ast.ty(b), linked_set, r)?,
+                            None => r.text.push('D'),
+                        }
+                    }
+                }
+                r.text.push(';');
                 match return_type {
                     Some(x) => self.write_annotation(unit_ast.ty(*x), linked_set, r)?,
                     None => r.text.push('D'),
@@ -707,7 +722,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             } => {
                 let n = linked_set.len();
                 linked_set.extend(type_params.iter().copied());
-                r.text.push_str(&format!("F<{};", type_params.len()));
+                r.text.push_str(&format!("F<{}", type_params.len()));
+                let bounds: Vec<TypeId> = type_params
+                    .iter()
+                    .map(|&p| self.ctx.table.param(p).bound)
+                    .collect();
+                if !bounds
+                    .iter()
+                    .all(|&b| super::typed_entry::is_top(self.ctx, b))
+                {
+                    r.text.push(':');
+                    for (i, &b) in bounds.iter().enumerate() {
+                        if i > 0 {
+                            r.text.push(',');
+                        }
+                        self.write_typedef_type(b, params, args, linked_set, r);
+                    }
+                }
+                r.text.push(';');
                 self.write_typedef_type(*ret, params, args, linked_set, r);
                 r.text.push_str(&format!(";{};", positional.len()));
                 for (i, p) in positional.iter().chain(optional.iter()).enumerate() {
@@ -1843,7 +1875,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let f = ast.function(fid);
         let params = f.parameters.as_deref().unwrap_or(&[]);
         let mut r = Recipe {
-            text: format!("F<{};", f.type_params.len()),
+            text: format!("F<{}", f.type_params.len()),
             variables: false,
         };
         let mut linked_set: Vec<SymbolId> = f.type_params.iter().map(|p| p.name.sym).collect();
@@ -1867,6 +1899,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             None => r.text.push('D'),
         };
+        if f.type_params.iter().any(|p| p.bound.is_some()) {
+            r.text.push(':');
+            for (i, p) in f.type_params.iter().enumerate() {
+                if i > 0 {
+                    r.text.push(',');
+                }
+                type_of(self, p.bound, &mut r, &mut linked_set);
+            }
+        }
+        r.text.push(';');
         type_of(self, f.return_type, &mut r, &mut linked_set);
         let oblig = params
             .iter()
@@ -1943,7 +1985,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.class_by_tuple = false;
         }
         self.type_tuple = tuple;
-        let r = self.type_recipe(sig);
+        let r = self.tearoff_recipe(sig, fid);
         let ty = self.recipe_rti(&r);
         (
             self.this_param,
@@ -1953,6 +1995,120 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.type_tuple,
         ) = saved;
         self.define_rti(clo, ty);
+    }
+
+    /// The bounds of the type parameters of a generic function type, after
+    /// its count (`F<2:B0,D;…`), when one is not a top type (`D` stands for
+    /// those): the runtime compares them in subtyping.
+    fn write_bounds(
+        &self,
+        type_params: &[TypeParamId],
+        linked_set: &mut Vec<TypeParamId>,
+        subst: &HashMap<TypeParamId, TypeId>,
+        r: &mut Recipe,
+    ) {
+        let bounds: Vec<TypeId> = type_params
+            .iter()
+            .map(|&p| self.ctx.table.param(p).bound)
+            .collect();
+        if bounds
+            .iter()
+            .all(|&b| super::typed_entry::is_top(self.ctx, b))
+        {
+            return;
+        }
+        r.text.push(':');
+        for (i, &b) in bounds.iter().enumerate() {
+            if i > 0 {
+                r.text.push(',');
+            }
+            if super::typed_entry::is_top(self.ctx, b) {
+                r.text.push('D');
+            } else {
+                self.write_type(b, linked_set, subst, r);
+            }
+        }
+    }
+
+    /// The runtime type of the tear-off of `fid`, whose signature is `sig`:
+    /// as in the VM, a covariant parameter (written `covariant`, or generic
+    /// covariant in the class) is reified as `Object?` — the method checks it.
+    fn tearoff_recipe(&self, sig: TypeId, fid: usize) -> Recipe {
+        let covariant: Vec<usize> = match self.ctx.outline.functions.get(fid) {
+            Some(o) => (0..o.parameters.len())
+                .filter(|&i| super::typed_entry::covariant_parameter(self.ctx, fid, i))
+                .collect(),
+            None => Vec::new(),
+        };
+        let T::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } = self.ctx.table.get(sig).clone()
+        else {
+            return self.type_recipe(sig);
+        };
+        if covariant.is_empty() {
+            return self.type_recipe(sig);
+        }
+        let params = &self.ctx.outline.functions[fid].parameters;
+        // The index in the declaration of each parameter of the signature.
+        let positional_index: Vec<usize> = params
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.kind != ast::ParameterKind::Named)
+            .map(|(i, _)| i)
+            .collect();
+        let named_index = |name: SymbolId| {
+            params
+                .iter()
+                .position(|p| p.kind == ast::ParameterKind::Named && p.external_name == Some(name))
+        };
+        let top = self.type_recipe(self.ctx.core.object_nullable).text;
+        let mut linked_set: Vec<TypeParamId> = type_params.to_vec();
+        let subst = HashMap::new();
+        let mut r = Recipe {
+            text: format!("F<{}", type_params.len()),
+            variables: false,
+        };
+        self.write_bounds(&type_params, &mut linked_set, &subst, &mut r);
+        r.text.push(';');
+        self.write_type(ret, &mut linked_set, &subst, &mut r);
+        r.text.push_str(&format!(";{};", positional.len()));
+        for (i, p) in positional.iter().chain(optional.iter()).enumerate() {
+            if i > 0 {
+                r.text.push(',');
+            }
+            if positional_index
+                .get(i)
+                .is_some_and(|k| covariant.contains(k))
+            {
+                r.text.push_str(&top);
+            } else {
+                self.write_type(*p, &mut linked_set, &subst, &mut r);
+            }
+        }
+        r.text.push(';');
+        for (i, (name, p, required)) in named.iter().enumerate() {
+            if i > 0 {
+                r.text.push(',');
+            }
+            r.text.push_str(self.ctx.symbol_name(*name));
+            r.text.push(':');
+            if named_index(*name).is_some_and(|k| covariant.contains(&k)) {
+                r.text.push_str(&top);
+            } else {
+                self.write_type(*p, &mut linked_set, &subst, &mut r);
+            }
+            if *required {
+                r.text.push('!');
+            }
+        }
+        r.text.push('>');
+        r
     }
 
     /// Does the type test of the annotation need the RTI? (type arguments that

@@ -328,6 +328,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // The local `const`s in scope (a default value may name one): their
         // initializers, which are constant, evaluated again.
         b.local_const_keys = self.local_const_keys.clone();
+        if f.modifier == AsyncModifier::None {
+            b.return_context = typ.and_then(|t| match self.ctx.table.get(t) {
+                dartforge_types::table::Type::Function { ret, .. } => Some(*ret),
+                _ => None,
+            });
+        }
         // The symbolic stack trace (§13.14): the token of the closure, the entry through
         // which the runtime finds it, the link to the awaiter and the inherited hidden one.
         if self.ctx.stack_trace {
@@ -474,6 +480,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 FunctionBody::Block(s) => b.lower_stmt(ast, *s),
                 FunctionBody::Expression(e) => {
                     let r = b.lower_expr(ast, *e);
+                    b.return_downcast(*e, &r);
                     if !b.is_terminated() {
                         let r = b.coerce(r, ret_repr);
                         b.terminate(Terminator::Return(Some(r)));
@@ -1609,11 +1616,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     pub fn method_tearoff(&mut self, recv: Operand, fid: usize, span: Span) -> Operand {
+        self.method_tearoff_with(recv, fid, span, false)
+    }
+
+    /// The tear-off of `super.m`: bound to the superclass method `fid` itself,
+    /// not to the implementation that dispatching on the receiver would choose.
+    pub fn super_method_tearoff(&mut self, recv: Operand, fid: usize, span: Span) -> Operand {
+        self.method_tearoff_with(recv, fid, span, true)
+    }
+
+    fn method_tearoff_with(
+        &mut self,
+        recv: Operand,
+        fid: usize,
+        span: Span,
+        exact: bool,
+    ) -> Operand {
         if let Some(error) = self.interop_tearoff(fid, span) {
             return error;
         }
         let target = super::symbol_of(self.ctx, fid);
-        let symbol_ent = format!("{target}$tearm");
+        let symbol_ent = if exact {
+            format!("{target}$tears")
+        } else {
+            format!("{target}$tearm")
+        };
         self.note_tearoff(&symbol_ent, fid);
         if self.ctx.arc_memory {
             self.arc_shared_functions.insert(symbol_ent.clone());
@@ -1632,7 +1659,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             e.declare_arc_uniform_return();
             let env = e.closure_context(clo);
             let receiver = e.emit(Instruction::EnvGet { env, index: 0 }, Type::Ref);
-            if self.tearoff_by_selector(fid) {
+            if !exact && self.tearoff_by_selector(fid) {
                 // The tear-off is that of the implementation that the dispatch chooses
                 // (as in the VM): the arguments are checked by its
                 // parameters, and the omitted optional ones get its
@@ -1671,7 +1698,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // in place of `this`, before the direct call. An SDK member
                 // with a single implementation: the check is that of its
                 // entry (the parameter names are its own).
-                let checked = self.single_implementation(fid).unwrap_or(fid);
+                let checked = if exact {
+                    fid
+                } else {
+                    self.single_implementation(fid).unwrap_or(fid)
+                };
                 let saved = (e.this_param.replace(receiver.clone()), e.enclosing_class);
                 e.enclosing_class = self.ctx.program.functions[checked].class;
                 e.check_entry_arguments(checked, &vals);
@@ -1698,7 +1729,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let t = e.tuple_or_bounds(fid, own);
                     e.armed_tuple = Some(t);
                 }
-                let r = e.call_member(receiver, fid, &evaluated, span);
+                let r = if exact {
+                    let args = e.match_args(fid, &evaluated);
+                    e.call_direct(fid, Some(receiver), args)
+                } else {
+                    e.call_member(receiver, fid, &evaluated, span)
+                };
                 let r = if matches!(e.operand_type(&r), Type::Void) {
                     Operand::Constant(Constant::Null)
                 } else {

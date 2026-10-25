@@ -181,13 +181,19 @@ fn mentions_covariant(ctx: &Context, t: TypeId, c: ClassId, positive: bool) -> b
             .any(|a| mentions_covariant(ctx, *a, c, positive)),
         T::FutureOr { arg, .. } => mentions_covariant(ctx, *arg, c, positive),
         T::Function {
+            type_params,
             ret,
             positional,
             optional,
             named,
             ..
         } => {
-            mentions_covariant(ctx, *ret, c, positive)
+            // A bound of the function's own type parameters is an invariant
+            // position (`void Function<S extends T>(S)`).
+            type_params.iter().any(|&p| {
+                let bound = ctx.table.param(p).bound;
+                mentions_covariant(ctx, bound, c, true) || mentions_covariant(ctx, bound, c, false)
+            }) || mentions_covariant(ctx, *ret, c, positive)
                 || positional
                     .iter()
                     .chain(optional.iter())
@@ -514,6 +520,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         recv: &Operand,
         evaluated: &[Evaluated],
     ) {
+        self.check_target_parameters(target, recv, evaluated, true);
+    }
+
+    /// The value of a `dynamic` expression written through the setter (or the
+    /// implicit setter of a field) `target` of `recv`: checked against the
+    /// declared type of the parameter, as the CFE's implicit downcast.
+    pub(super) fn check_setter_value(&mut self, target: usize, recv: &Operand, value: &Operand) {
+        self.check_target_parameters(target, recv, &[(None, value.clone())], false);
+    }
+
+    /// See [`Self::check_target_covariants`]; with `only_covariant` false,
+    /// every parameter whose type is not a top type.
+    fn check_target_parameters(
+        &mut self,
+        target: usize,
+        recv: &Operand,
+        evaluated: &[Evaluated],
+        only_covariant: bool,
+    ) {
         if !super::user_function(self.ctx, target) {
             return;
         }
@@ -539,7 +564,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
             let Some(v) = v else { continue };
             if top(self.ctx, p.ty)
-                || !covariant_parameter(self.ctx, target, i)
+                || (only_covariant && !covariant_parameter(self.ctx, target, i))
                 || self.is_terminated()
             {
                 continue;
@@ -572,6 +597,152 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .unwrap_or_default();
             let v = self.coerce(v, Type::Ref);
             self.cast_rti_in(v, typ, super::rti::CastContext::Parameter(name));
+        }
+    }
+
+    /// The implicit downcast that the CFE inserts where a `dynamic` value (the
+    /// static type of `e`) meets a context of type `target`: an assignment to a
+    /// variable, a `return`, an initializer.
+    pub(super) fn implicit_downcast(&mut self, e: ast::ExprId, value: &Operand, target: TypeId) {
+        if self.is_terminated() || top(self.ctx, target) || !self.dynamic_expression(e) {
+            return;
+        }
+        let rti = self.type_rti(target);
+        let v = self.coerce(value.clone(), Type::Ref);
+        self.cast_rti_in(v, rti, super::rti::CastContext::Implicit);
+    }
+
+    /// The static type to check the value of `e` against when `e` reads a
+    /// member (a field, a getter, a method's result or tear-off) whose
+    /// declared type uses a type parameter of its class in a contravariant
+    /// position, through a receiver other than `this`: the value may not have
+    /// the static type (`C<Object> c = C<String>(); c.f` with `void
+    /// Function(T) f`), and the CFE checks it.
+    pub(super) fn contravariant_member_access(
+        &self,
+        ast: &ast::Ast,
+        e: ast::ExprId,
+    ) -> Option<TypeId> {
+        let (receiver, access) = match &ast.expr(e).kind {
+            ast::ExprKind::Property { target, .. } => (*target, e),
+            ast::ExprKind::Call { target, .. } => match &ast.expr(*target).kind {
+                ast::ExprKind::Property { target: r, .. } => (*r, *target),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        if matches!(
+            ast.expr(receiver).kind,
+            ast::ExprKind::This | ast::ExprKind::Super
+        ) {
+            return None;
+        }
+        let member = [access, e].into_iter().find_map(|x| {
+            match self.ctx.get_resolved(self.unit_id, x)? {
+                Resolved::Member {
+                    member,
+                    via_super: false,
+                    ..
+                } => Some(*member),
+                _ => None,
+            }
+        })?;
+        let (class, ty) = match member {
+            MemberRef::Variable(v) => {
+                if access != e {
+                    return None;
+                }
+                let var = &self.ctx.program.variables[v.0 as usize];
+                (var.class?, super::members::variable_type(self.ctx, v))
+            }
+            MemberRef::Function(f) => {
+                let func = &self.ctx.program.functions[f.0 as usize];
+                if func.static_ {
+                    return None;
+                }
+                let o = self.ctx.outline.functions.get(f.0 as usize)?;
+                // A getter's value, a method's result, or the return type
+                // in a method's tear-off. The call of a getter's value checks
+                // the value (`check_contravariant_value`), not the result.
+                if access != e && func.kind != dartforge_elements::model::FunctionKind::Function {
+                    return None;
+                }
+                let ty = match func.kind {
+                    dartforge_elements::model::FunctionKind::Getter
+                    | dartforge_elements::model::FunctionKind::ImplicitAccessor
+                    | dartforge_elements::model::FunctionKind::Function => o.return_type,
+                    _ => return None,
+                };
+                (func.class?, ty)
+            }
+        };
+        if !mentions_covariant(self.ctx, ty, class, false) {
+            return None;
+        }
+        let t = self.ctx.get_type(self.unit_id, e)?;
+        (!top(self.ctx, t)).then_some(t)
+    }
+
+    /// The type arguments of a call to the generic method `fid` through the
+    /// receiver `recv` (the tuple `arm_tuple` prepared), when a bound of its
+    /// type parameters uses a type parameter of the class (`foo<E extends
+    /// T>()`): checked against the bounds with the receiver's type arguments,
+    /// as the VM's method entry does — the static type of the receiver may be
+    /// a supertype (`C<Object?>` holding a `C<num>`).
+    pub(super) fn check_covariant_bounds(&mut self, fid: usize, recv: &Operand) {
+        let Some(class) = self.ctx.program.functions[fid].class else {
+            return;
+        };
+        let Some(o) = self.ctx.outline.functions.get(fid) else {
+            return;
+        };
+        let params: Vec<TypeParamId> = o.type_params.to_vec();
+        let covariant = params.iter().any(|&p| {
+            let bound = self.ctx.table.param(p).bound;
+            mentions_covariant(self.ctx, bound, class, true)
+                || mentions_covariant(self.ctx, bound, class, false)
+        });
+        let Some(tuple) = self.armed_tuple.clone() else {
+            return;
+        };
+        if !covariant || self.is_terminated() {
+            return;
+        }
+        let recv = self.coerce(recv.clone(), Type::Ref);
+        let saved = std::mem::replace(&mut self.class_by_tuple, false);
+        self.with_member_type_context(fid, Some(recv), Some(tuple), |b| {
+            b.check_type_argument_bounds(&params)
+        });
+        self.class_by_tuple = saved;
+    }
+
+    /// The covariance check of [`Self::contravariant_member_access`] on the
+    /// value `v` that `e` read.
+    pub(super) fn check_contravariant_value(
+        &mut self,
+        ast: &ast::Ast,
+        e: ast::ExprId,
+        v: &Operand,
+    ) {
+        if let Some(t) = self.contravariant_member_access(ast, e)
+            && !self.is_terminated()
+        {
+            let rti = self.type_rti(t);
+            let r = self.coerce(v.clone(), Type::Ref);
+            self.cast_rti_in(r, rti, super::rti::CastContext::Implicit);
+        }
+    }
+
+    /// The static type of `e` is `dynamic`.
+    pub(super) fn dynamic_expression(&self, e: ast::ExprId) -> bool {
+        self.ctx.get_type(self.unit_id, e) == Some(self.ctx.core.dynamic_)
+    }
+
+    /// The value of `return e`, against the declared return type (the future
+    /// value type of an `async` body).
+    pub(super) fn return_downcast(&mut self, e: ast::ExprId, value: &Operand) {
+        if let Some(t) = self.return_context {
+            self.implicit_downcast(e, value, t);
         }
     }
 

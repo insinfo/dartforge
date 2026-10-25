@@ -525,7 +525,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.close_scope();
             }
             StmtKind::Return(expr_opt) => {
-                let op = expr_opt.map(|e| self.lower_expr(ast, e));
+                let op = expr_opt.map(|e| {
+                    let v = self.lower_expr(ast, e);
+                    self.return_downcast(e, &v);
+                    v
+                });
+                if self.is_terminated() {
+                    return;
+                }
                 self.route_return(op);
             }
             StmtKind::Break(lbl) => {

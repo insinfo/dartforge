@@ -271,7 +271,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         s.call_direct(f, Some(this), Vec::new())
                     } else {
                         // Tear-off of `super.m`: binds to the superclass method.
-                        s.method_tearoff(this, f, span)
+                        s.super_method_tearoff(this, f, span)
                     }
                 }
                 SuperMember::Field(v) => s.read_field_with_late_direct(this, v, span),

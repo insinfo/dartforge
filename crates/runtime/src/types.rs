@@ -38,6 +38,9 @@ enum Type {
     /// positionals are required; the named ones come sorted by name.
     Function {
         generics: usize,
+        /// The bounds of the type parameters (which may name them, `B<i>`);
+        /// empty when every one is a top type.
+        bounds: Vec<i64>,
         ret: i64,
         pos: Vec<i64>,
         n_required: usize,
@@ -263,12 +266,14 @@ impl Type {
             Type::FutureOr(x) => Type::FutureOr(f(*x)),
             Type::Function {
                 generics,
+                bounds,
                 ret,
                 pos,
                 n_required,
                 named,
             } => Type::Function {
                 generics: *generics,
+                bounds: bounds.iter().map(|&x| f(x)).collect(),
                 ret: f(*ret),
                 pos: pos.iter().map(|&x| f(x)).collect(),
                 n_required: *n_required,
@@ -548,11 +553,16 @@ impl Universe {
             }
             Type::Function {
                 generics,
+                bounds,
                 ret,
                 pos,
                 n_required,
                 named,
             } => {
+                let bounds = bounds
+                    .iter()
+                    .map(|&x| self.substitute(x, class, function))
+                    .collect();
                 let ret = self.substitute(ret, class, function);
                 let pos = pos
                     .iter()
@@ -564,6 +574,7 @@ impl Universe {
                     .collect();
                 self.intern(Type::Function {
                     generics,
+                    bounds,
                     ret,
                     pos,
                     n_required,
@@ -678,6 +689,7 @@ impl Universe {
             (
                 Type::Function {
                     generics: g1,
+                    bounds: b1,
                     ret: r1,
                     pos: p1,
                     n_required: o1,
@@ -685,6 +697,7 @@ impl Universe {
                 },
                 Type::Function {
                     generics: g2,
+                    bounds: b2,
                     ret: r2,
                     pos: p2,
                     n_required: o2,
@@ -693,6 +706,15 @@ impl Universe {
             ) => {
                 if g1 != g2 || o1 > o2 || p1.len() < p2.len() {
                     return false;
+                }
+                // The type parameters must have the same bounds (each a
+                // subtype of the other); an absent one is a top type.
+                for i in 0..g1 {
+                    let x = b1.get(i).copied().unwrap_or(T_DYNAMIC);
+                    let y = b2.get(i).copied().unwrap_or(T_DYNAMIC);
+                    if x != y && !(self.sub(x, y) && self.sub(y, x)) {
+                        return false;
+                    }
                 }
                 if !self.sub(r1, r2) {
                     return false;
@@ -759,6 +781,7 @@ impl Universe {
                 n_required,
                 named,
                 generics,
+                bounds,
             } => {
                 let mut part_list: Vec<String> =
                     pos[..*n_required].iter().map(|&x| self.text(x)).collect();
@@ -776,8 +799,13 @@ impl Universe {
                     part_list.push(format!("{{{}}}", n.join(", ")));
                 }
                 let g = if *generics > 0 {
-                    // Like the VM: `<Y0, Y1>(Y0) => Y1`.
-                    let v: Vec<String> = (0..*generics).map(|i| format!("Y{i}")).collect();
+                    // Like the VM: `<Y0, Y1 extends num>(Y0) => Y1`.
+                    let v: Vec<String> = (0..*generics)
+                        .map(|i| match bounds.get(i) {
+                            Some(&b) if !self.is_top(b) => format!("Y{i} extends {}", self.text(b)),
+                            _ => format!("Y{i}"),
+                        })
+                        .collect();
                     format!("<{}>", v.join(", "))
                 } else {
                     String::new()
@@ -813,9 +841,11 @@ impl Universe {
 ///    | 'C' n [ '<' T (',' T)* '>' ]       class (RTI id) with arguments
 ///    | 'O' '<' T '>'                      FutureOr
 ///    | 'P' n | 'M' n | 'B' n              class parameter, function parameter, bound variable
-///    | 'F' '<' g ';' T ';' n ';' T* ';' (name ':' T ['!'])* '>'
-///                                         function: generics, ret, required count,
-///                                         positional, named ('!' = required)
+///    | 'F' '<' g [':' T*] ';' T ';' n ';' T* ';' (name ':' T ['!'])* '>'
+///                                         function: generics (and their bounds,
+///                                         when one is not a top type), ret,
+///                                         required count, positional, named
+///                                         ('!' = required)
 ///    | 'R' '<' T* ';' (name ':' T)* '>'   record
 ///    | 'L' '<' T* '>'                     tuple of type arguments
 ///    | T '?'                              nullable
@@ -916,6 +946,13 @@ impl Reader<'_> {
             'F' => {
                 self.wait_for('<');
                 let generics = self.number() as usize;
+                // `F<2:B0,num;…`: the bounds, when one is not a top type.
+                let bounds = if self.peek() == Some(':') {
+                    self.i += 1;
+                    self.list(u, ';')
+                } else {
+                    Vec::new()
+                };
                 self.wait_for(';');
                 let ret = self.ty(u);
                 self.wait_for(';');
@@ -941,6 +978,7 @@ impl Reader<'_> {
                 named.sort_by(|a, b| a.0.cmp(&b.0));
                 u.intern(Type::Function {
                     generics,
+                    bounds,
                     ret,
                     pos,
                     n_required,
