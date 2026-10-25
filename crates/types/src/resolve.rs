@@ -1763,7 +1763,9 @@ impl<'a> OutlineResolver<'a> {
         hierarchy: &ClassHierarchy,
     ) -> Option<(ClassId, FunctionElementId)> {
         let class_id = func.class?;
-        if func.static_ {
+        // Extension type members do not take part in override inference: an
+        // omitted type is `dynamic` (`no_inheritance_inference_test.dart`).
+        if func.static_ || self.program.class(class_id).kind == ClassKind::ExtensionType {
             return None;
         }
         let the_key = if func.kind == FunctionKind::Setter {
