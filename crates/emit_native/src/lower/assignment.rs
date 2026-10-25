@@ -92,9 +92,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         op: ast::AssignOp,
         value: Rhs,
         span: Span,
+        scope: Option<dartforge_elements::model::Binding>,
     ) -> Operand {
         let func = &self.ctx.program.functions[f.0 as usize];
-        let binding = self.ctx.program.lookup(func.library, sym);
+        // The other side of the name in the scope of the assignment (`scope`:
+        // the unit's, or the import prefix's): the getter and the setter may
+        // come from different imports.
+        let binding = scope.or_else(|| self.ctx.program.lookup(func.library, sym));
         let setter = if func.kind == FunctionKind::Setter {
             Some(f)
         } else {
@@ -124,7 +128,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => None,
         };
         let v = self.combine(ast, op, cur, value);
-        self.call_direct(setter.0 as usize, None, vec![v.clone()]);
+        let args = self.match_args(setter.0 as usize, &[(None, v.clone())]);
+        self.call_direct(setter.0 as usize, None, args);
         v
     }
 
@@ -387,7 +392,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // the resolved element may be the getter; the setter is the
                     // other side of the same name in the scope.
                     Some(Resolved::Element(Element::Function(f))) => {
-                        self.assign_top_level_accessor(f, sym, ast, op, value, span)
+                        let scope = self.ctx.program.lookup_in_unit(self.unit_id, sym);
+                        self.assign_top_level_accessor(f, sym, ast, op, value, span, scope)
                     }
                     _ if self.lookup_local(sym).is_some_and(|l| l.ty.is_vector()) => {
                         // Unboxed SIMD local (`simd.rs`): the value comes as a vector.
@@ -449,7 +455,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // Explicit top-level getter/setter of the library of the
                     // prefix (`intl.defaultLocale = l`).
                     if let Element::Function(f) = el {
-                        return self.assign_top_level_accessor(f, name.sym, ast, op, value, span);
+                        let scope = match &ast.expr(*recv).kind {
+                            ast::ExprKind::Identifier(p) => self
+                                .ctx
+                                .program
+                                .lookup_prefixed_in_unit(self.unit_id, p.sym, name.sym),
+                            _ => None,
+                        };
+                        return self
+                            .assign_top_level_accessor(f, name.sym, ast, op, value, span, scope);
                     }
                 }
                 // `super.x = v` (P4).

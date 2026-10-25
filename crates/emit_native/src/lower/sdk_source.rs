@@ -1837,7 +1837,7 @@ fn field_symbol(ctx: &Context, vid: VariableId) -> String {
 
 /// The implemented instance member (it has a body, is a field, or is `external`
 /// with a patch or a native).
-fn implemented(ctx: &Context, fid: usize) -> bool {
+pub(super) fn implemented(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
     if f.variable.is_some() {
         return !f.abstract_;
@@ -2258,7 +2258,10 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
             }
             _ => {
                 let infos = b.function_params(fid);
-                let Some(vals) = b.unpack(&infos, args.clone(), desc.clone()) else {
+                b.nsm_on_mismatch = Some((recv.clone(), ctx.symbol_name(f.name).to_string(), 0));
+                let unpacked = b.unpack(&infos, args.clone(), desc.clone());
+                b.nsm_on_mismatch = None;
+                let Some(vals) = unpacked else {
                     b.finish(module);
                     continue;
                 };
@@ -2296,6 +2299,60 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                         Type::I64,
                     );
                     passed = Some(own.clone());
+                    // Type arguments of another arity: the receiver's
+                    // `noSuchMethod`, as in the VM.
+                    let n = ctx.outline.functions[fid].type_params.len() as i64;
+                    let len = b.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_rti_tuple_len".to_string(),
+                            args: vec![(own.clone(), Type::I64)],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    );
+                    let none = b.emit(
+                        Instruction::ICmp(
+                            ICmpOp::Eq,
+                            own.clone(),
+                            Operand::Constant(Constant::Int(0)),
+                        ),
+                        Type::I1,
+                    );
+                    let same = b.emit(
+                        Instruction::ICmp(ICmpOp::Eq, len, Operand::Constant(Constant::Int(n))),
+                        Type::I1,
+                    );
+                    let ok = b.emit(Instruction::Or(none, same), Type::I1);
+                    let b_ok = b.new_block();
+                    let b_nsm = b.new_block();
+                    b.terminate(Terminator::CondBranch {
+                        cond: ok,
+                        then_block: b_ok,
+                        else_block: b_nsm,
+                    });
+                    b.set_block(b_nsm);
+                    let name = b.emit(
+                        Instruction::Const(Constant::String(ctx.symbol_name(f.name).to_string())),
+                        Type::Ref,
+                    );
+                    let r = b.emit_call_with_check(
+                        Instruction::CallRuntime {
+                            name: "dartforge_nsm_mismatch".to_string(),
+                            args: vec![
+                                (recv.clone(), Type::Ref),
+                                (name, Type::Ref),
+                                (Operand::Constant(Constant::Int(0)), Type::I64),
+                                (args.clone(), Type::Ptr),
+                                (desc.clone(), Type::Ptr),
+                            ],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    );
+                    if !b.is_terminated() {
+                        b.terminate(Terminator::Return(Some(r)));
+                    }
+                    b.set_block(b_ok);
                     b.tuple_or_bounds(fid, own)
                 });
                 b.check_entry_arguments_with(fid, &vals, typed);

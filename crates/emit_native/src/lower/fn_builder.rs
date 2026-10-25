@@ -212,6 +212,10 @@ pub struct FnBuilder<'a, 'c> {
     /// The expression whose implicit instantiation is being lowered: its
     /// value comes first, uninstantiated (`lower_expr`).
     pub(crate) instantiating: Option<ExprId>,
+    /// In the uniform entry of a method: the receiver, the member's name and
+    /// the access code (0 method) — arguments that do not match go to the
+    /// receiver's `noSuchMethod` (`unpack`), as in the VM.
+    pub(crate) nsm_on_mismatch: Option<(Operand, String, i64)>,
     /// The expressions inside a deferred access already checked by the outer
     /// one (`lower/deferred.rs`).
     pub(crate) deferred_checked: std::collections::HashSet<ExprId>,
@@ -422,6 +426,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             call_shape: None,
             call_site: None,
             instantiating: None,
+            nsm_on_mismatch: None,
             deferred_checked: std::collections::HashSet::new(),
             call_types: None,
             this_extension: None,

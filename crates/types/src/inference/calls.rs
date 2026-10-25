@@ -910,6 +910,19 @@ fn invoke_value(
     // the receiver may be null: `invalid_use_of_null_value` (`Null`) or
     // `unchecked_use_of_nullable_value` (`Never?`) at the function; the
     // result is `dynamic` (not `Never`: there is no dead code after it).
+    // `null(…)` with an extension's `call` that applies to `Null`
+    // (`extension on Object? { call() … }`): that member.
+    if matches!(inf.table.get(t), Type::Null)
+        && let Some(call) = inf.sym.call
+        && let Search::Finding(m) = inf.lookup_member(cx.lib, t, call, false)
+        && m.of_extension
+        && m.method
+    {
+        super::expr::resolver(inf, cx, e, m.resolved.clone());
+        inf.arity_target = tgt;
+        inf.implicit_call = true;
+        return invoke(inf, cx, m.ty, args, ctx, explicit);
+    }
     if matches!(inf.table.get(t), Type::Null)
         && let ExprKind::Call { target, .. } = &inf.program.unit(cx.unit).ast.expr(e).kind
     {

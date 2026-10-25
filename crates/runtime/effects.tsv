@@ -776,6 +776,7 @@ dartforge_native_WeakReference_getTarget	1	1	0
 dartforge_native_WeakReference_setTarget	1	1	0
 dartforge_no_such_method_error_new	1	1	1
 dartforge_nsm_call	1	1	1
+dartforge_nsm_mismatch	1	1	1
 dartforge_null_check_error_new	1	1	1
 dartforge_object_fields	0	0	0
 dartforge_object_get	0	0	0
@@ -844,6 +845,7 @@ dartforge_list_elem_exact_cache	0	0	0
 dartforge_rti_string	1	1	0
 dartforge_rti_subtype	1	1	0
 dartforge_rti_tuple_join	1	0	0
+dartforge_rti_tuple_len	0	0	0
 dartforge_safepoint	1	1	1
 dartforge_selector	1	1	0
 dartforge_set_main_arguments	1	1	0

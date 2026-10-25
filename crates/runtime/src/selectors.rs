@@ -457,6 +457,39 @@ extern "C" fn dartforge_nsm_selector(recv: i64, args: *const i64, desc: *const i
     0
 }
 
+/// A dynamic call to the method `name` (a `String`; `code` 0 method, 1 getter,
+/// 2 setter) of `recv` whose arguments do not match its parameters: as in the
+/// VM, the receiver's `noSuchMethod` receives the `Invocation` (`Object`'s
+/// throws the `NoSuchMethodError`); its result is the call's.
+///
+/// # Safety
+/// `args` and `desc` are the vector and descriptor of a uniform call (the
+/// tuple slot after the arguments included).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_nsm_mismatch(recv: i64, name: i64, code: i64, args: *const i64, desc: *const i64) -> i64 {
+    // SAFETY: the call's descriptor and vector.
+    let (value_list, hashes, tuple) = unsafe {
+        let (npos, n_named) = (*desc as usize, *desc.add(1) as usize);
+        (
+            std::slice::from_raw_parts(args, npos + n_named).to_vec(),
+            std::slice::from_raw_parts(desc.add(2), n_named).to_vec(),
+            *args.add(npos + n_named),
+        )
+    };
+    let npos = value_list.len() - hashes.len();
+    let names: Vec<String> = {
+        let table = argument_names().read().unwrap_or_else(|e| e.into_inner());
+        hashes.iter().map(|h| table.get(h).cloned().unwrap_or_default()).collect()
+    };
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    if let Some(r) = with_roots(&[recv, name], || invoke_no_such_method(recv, code, name, &value_list, npos, &names, tuple)) {
+        return r;
+    }
+    let error = with_roots(&[name], || dartforge_no_such_method_error_new(name));
+    with_roots(&[error], || dartforge_exception_throw(error, 3));
+    0
+}
+
 /// The type arguments of an RTI tuple (`L<…>`), or none.
 fn tuple_arguments(tuple: i64) -> Vec<i64> {
     if tuple <= 0 {

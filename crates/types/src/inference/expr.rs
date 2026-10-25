@@ -75,8 +75,15 @@ fn record_implicit_call(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: Typ
             _ => break,
         }
     }
-    let accepts =
-        matches!(inf.table.get(context), Type::Function { .. }) || context == inf.core.function;
+    // `Function?` too: the analyzer's `isDartCoreFunction` ignores the
+    // nullability.
+    let core_function = match (inf.table.get(context), inf.table.get(inf.core.function)) {
+        (Type::Interface { class: a, .. }, Type::Interface { class: b, .. }) => a == b,
+        _ => false,
+    };
+    let accepts = matches!(inf.table.get(context), Type::Function { .. })
+        || context == inf.core.function
+        || core_function;
     if !accepts {
         return;
     }

@@ -926,19 +926,43 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 else_block: b_error,
             });
             self.set_block(b_error);
-            let call = Instruction::CallRuntime {
-                name: "dartforge_nsm_call".to_string(),
-                args: Vec::new(),
-                ret_ty: Type::Void,
-            };
-            if self.ctx.arc_memory {
-                // The reentry/pending contract needs an explicit error exit
-                // to validate the cleanup of the owners of the entry.
-                self.emit_call_with_check(call, Type::Void);
+            if let Some((recv, name, code)) = self.nsm_on_mismatch.clone() {
+                // The uniform entry of a method: the receiver's `noSuchMethod`
+                // with the `Invocation`, whose result is the call's.
+                let name = self.emit(Instruction::Const(Constant::String(name)), Type::Ref);
+                let recv = self.coerce(recv, Type::Ref);
+                let r = self.emit_call_with_check(
+                    Instruction::CallRuntime {
+                        name: "dartforge_nsm_mismatch".to_string(),
+                        args: vec![
+                            (recv, Type::Ref),
+                            (name, Type::Ref),
+                            (Operand::Constant(Constant::Int(code)), Type::I64),
+                            (args.clone(), Type::Ptr),
+                            (desc.clone(), Type::Ptr),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                );
+                if !self.is_terminated() {
+                    self.terminate(Terminator::Return(Some(r)));
+                }
             } else {
-                self.emit(call, Type::Void);
+                let call = Instruction::CallRuntime {
+                    name: "dartforge_nsm_call".to_string(),
+                    args: Vec::new(),
+                    ret_ty: Type::Void,
+                };
+                if self.ctx.arc_memory {
+                    // The reentry/pending contract needs an explicit error exit
+                    // to validate the cleanup of the owners of the entry.
+                    self.emit_call_with_check(call, Type::Void);
+                } else {
+                    self.emit(call, Type::Void);
+                }
+                self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
             }
-            self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
             self.set_block(b_ok);
         }
 

@@ -119,6 +119,13 @@ pub extern "C" fn dartforge_closure_entry(handle: i64) -> i64 {
     // the class table has the same convention (receiver, args, desc).
     code.or_else(|| class_method(dartforge_value_class(handle), name_hash("c:call")).map(|f| f as i64))
         .unwrap_or_else(|| {
+            // Another object without `call`: its `noSuchMethod` receives the
+            // `Invocation` of `call`, as in the VM (the entry of a missing
+            // selector).
+            if handle != 0 {
+                MISSING_SELECTOR.with(|s| *s.borrow_mut() = "c:call".to_string());
+                return dartforge_nsm_selector as usize as i64;
+            }
             dartforge_nsm_call();
             0
         })
@@ -131,6 +138,12 @@ pub extern "C" fn dartforge_nsm_call() {
     let name = HEAP.with(|heap| heap.borrow_mut().allocate_str("call"));
     let error = with_roots(&[name], || dartforge_no_such_method_error_new(name));
     with_roots(&[error], || dartforge_exception_throw(error, 3));
+}
+
+/// How many type arguments the tuple `tuple` has (0 for none).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_rti_tuple_len(tuple: i64) -> i64 {
+    tuple_arguments(tuple).len() as i64
 }
 
 /// The RTI tuple of a generic closure's body: the `n_outside` type arguments of

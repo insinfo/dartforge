@@ -1616,6 +1616,18 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
+        decl: "declare i64 @dartforge_rti_tuple_len(i64)",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
+        decl: "declare i64 @dartforge_nsm_mismatch(i64, i64, i64, ptr, ptr)",
+        effects: CONSERVATIVE,
+    },
+    Extern {
         decl: "declare void @dartforge_rti_bound(i64, i64, i64)",
         effects: CONSERVATIVE,
     },

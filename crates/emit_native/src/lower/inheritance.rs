@@ -13,6 +13,14 @@ use dartforge_diagnostics::Span;
 use dartforge_elements::model::{FunctionKind, VariableId};
 use dartforge_intern::SymbolId;
 
+/// How `super.name` is used (`super_beyond_program`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SuperAccess {
+    Call,
+    Read,
+    Write,
+}
+
 /// What `super.name` found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuperMember {
@@ -241,10 +249,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::Ref,
                     ),
                     "noSuchMethod" => s.throw_nsm("noSuchMethod"),
-                    other => {
-                        let n = other.to_string();
-                        s.unsupported(&format!("SDK `super.{n}`"), span)
-                    }
+                    _ => s.super_beyond_program(this, name, SuperAccess::Call, evaluated, span),
                 },
             },
         )
@@ -272,8 +277,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 SuperMember::Field(v) => s.read_field_with_late_direct(this, v, span),
                 SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
                 SuperMember::Sdk => {
-                    let n = s.ctx.symbol_name(name).to_string();
-                    s.unsupported(&format!("SDK `super.{n}`"), span)
+                    s.super_beyond_program(this, name, SuperAccess::Read, &[], span)
                 }
             },
         )
@@ -302,12 +306,128 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
                 SuperMember::Sdk => {
-                    let n = s.ctx.symbol_name(name).to_string();
-                    s.unsupported(&format!("SDK `super.{n} =`"), span)
+                    s.super_beyond_program(
+                        this,
+                        name,
+                        SuperAccess::Write,
+                        &[(None, v2.clone())],
+                        span,
+                    );
+                    v2.clone()
                 }
             },
         );
         value
+    }
+
+    /// `super.name` whose target is not in the program's linearization: the
+    /// implementation of an SDK superclass (`super.add` in a `ListBase`
+    /// subclass), called directly; or, when the superclass only declares the
+    /// member abstractly, its `noSuchMethod` forwarder — the receiver's
+    /// `noSuchMethod` with the `Invocation`, as the VM's forwarder does.
+    fn super_beyond_program(
+        &mut self,
+        this: Operand,
+        name: SymbolId,
+        access: SuperAccess,
+        evaluated: &[Evaluated],
+        span: Span,
+    ) -> Operand {
+        let text = self.ctx.symbol_name(name).to_string();
+        let key = match access {
+            SuperAccess::Write => self.ctx.interner.lookup(&format!("{text}_=")),
+            _ => Some(name),
+        };
+        if let Some(f) = key.and_then(|k| self.sdk_super_implementation(k)) {
+            let func = &self.ctx.program.functions[f];
+            return match (access, func.kind) {
+                (SuperAccess::Read, FunctionKind::Function) => self.method_tearoff(this, f, span),
+                (SuperAccess::Call, FunctionKind::Getter | FunctionKind::ImplicitAccessor) => {
+                    let v = self.call_direct(f, Some(this), Vec::new());
+                    self.call_function_value(v, evaluated)
+                }
+                _ => {
+                    let args = self.match_args(f, evaluated);
+                    self.call_direct(f, Some(this), args)
+                }
+            };
+        }
+        let positional: Vec<Operand> = evaluated
+            .iter()
+            .filter(|(n, _)| n.is_none())
+            .map(|(_, v)| v.clone())
+            .collect();
+        let named: Vec<(SymbolId, Operand)> = evaluated
+            .iter()
+            .filter_map(|(n, v)| n.map(|n| (n, v.clone())))
+            .collect();
+        let mut fields: Vec<Operand> = positional
+            .iter()
+            .chain(named.iter().map(|(_, v)| v))
+            .map(|v| self.coerce(v.clone(), Type::Ref))
+            .collect();
+        for (n, _) in &named {
+            let s = self.ctx.symbol_name(*n).to_string();
+            fields.push(self.emit(Instruction::Const(Constant::String(s)), Type::Ref));
+        }
+        let env = self.emit(Instruction::AllocEnv { values: fields }, Type::Ref);
+        let name_op = self.emit(Instruction::Const(Constant::String(text)), Type::Ref);
+        let this = self.coerce(this, Type::Ref);
+        let code = match access {
+            SuperAccess::Call => 0,
+            SuperAccess::Read => 1,
+            SuperAccess::Write => 2,
+        };
+        self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: "dartforge_forward_nsm".to_string(),
+                args: vec![
+                    (this, Type::Ref),
+                    (Operand::Constant(Constant::Int(code)), Type::I64),
+                    (name_op, Type::Ref),
+                    (env, Type::Ref),
+                    (
+                        Operand::Constant(Constant::Int(positional.len() as i64)),
+                        Type::I64,
+                    ),
+                    (
+                        Operand::Constant(Constant::Int(named.len() as i64)),
+                        Type::I64,
+                    ),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                ],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )
+    }
+
+    /// The concrete implementation of `key` in the superclass chain of the
+    /// enclosing class beyond the program (the SDK classes it extends or
+    /// mixes in).
+    fn sdk_super_implementation(&self, key: SymbolId) -> Option<usize> {
+        let cid = self.enclosing_class?;
+        let mut current = self.ctx.program.classes[cid.0 as usize].supertype_class;
+        let mut seen = 0;
+        while let Some(c) = current {
+            seen += 1;
+            if seen > 64 {
+                return None;
+            }
+            let class = &self.ctx.program.classes[c.0 as usize];
+            let mixins: Vec<_> = class.mixin_classes.iter().rev().copied().collect();
+            for k in std::iter::once(c).chain(mixins) {
+                if let Some(&f) = self.ctx.program.classes[k.0 as usize]
+                    .instance_members
+                    .get(&key)
+                    && super::sdk_source::implemented(self.ctx, f.0 as usize)
+                {
+                    return Some(f.0 as usize);
+                }
+            }
+            current = class.supertype_class;
+        }
+        None
     }
 
     /// `super op e` (`super == o`, `super + x`).
