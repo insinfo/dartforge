@@ -127,6 +127,8 @@ pub struct Ctx<'a> {
     /// 316 thousand lookups cost 1.84 M allocations (queue, visited set and
     /// instantiated supertypes on every call).
     member_memo: RefCell<HashMap<MemberLookup, MemberResolution>>,
+    /// [`Ctx::visible_extensions`] per library.
+    extension_memo: RefCell<HashMap<LibraryId, Vec<ExtensionId>>>,
     /// Memo of the rti of closed types (without `Ty::Param`): the recipe and
     /// the expression do not depend on the runtime environment. 132 thousand
     /// calls, 1.78 M allocations.
@@ -250,6 +252,7 @@ impl<'a> Ctx<'a> {
             interop_ext_types: HashSet::new(),
             js_names: HashMap::new(),
             member_memo: RefCell::new(HashMap::new()),
+            extension_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
             recipe_ids: std::cell::OnceCell::new(),
             short_recipe: std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0"),
@@ -2654,36 +2657,14 @@ impl<'a> Ctx<'a> {
     /// Extensions visible in a library: those declared in it and in the
     /// imported ones (and in `dart:core`).
     pub fn visible_extensions(&self, lib: LibraryId) -> Vec<ExtensionId> {
-        let mut libs: Vec<LibraryId> = vec![lib];
-        let l = self.program.library(lib);
-        for imp in &l.imports {
-            if !libs.contains(&imp.library) {
-                libs.push(imp.library);
-            }
+        if let Some(v) = self.extension_memo.borrow().get(&lib) {
+            return v.clone();
         }
-        if let Some(c) = self.program.core {
-            if !libs.contains(&c) {
-                libs.push(c);
-            }
-        }
-        // Transitive exports of the visible libraries.
-        let mut i = 0;
-        while i < libs.len() {
-            let cur = libs[i];
-            for exp in &self.program.library(cur).exports {
-                if !libs.contains(&exp.library) {
-                    libs.push(exp.library);
-                }
-            }
-            i += 1;
-        }
-        let mut out = Vec::new();
-        for (i, e) in self.program.extensions.iter().enumerate() {
-            if libs.contains(&e.library) {
-                out.push(ExtensionId(i as u32));
-            }
-        }
-        out
+        // Those the common inference sees: declared in the library or brought
+        // by a non-deferred import, after `show`/`hide`.
+        let v = dartforge_types::inference::accessible_extensions_of(self.program, lib);
+        self.extension_memo.borrow_mut().insert(lib, v.clone());
+        v
     }
 }
 

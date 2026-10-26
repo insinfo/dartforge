@@ -199,9 +199,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         );
                         (js, ty, vec![])
                     }
-                    IdentTarget::ExtMember(ext, fid) => {
+                    IdentTarget::ExtMember(ext, _) => {
+                        // The extension's own member is lexical: it wins over
+                        // a member of the `on` type with the same name.
                         let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
-                        let _ = (ext, fid);
+                        self.forced_ext = Some(ext);
                         let (js, ty) = self.emit_method_call(
                             &Js::prim("$this"),
                             &t,
@@ -292,6 +294,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     .ctx
                     .lookup_member(fty, "call", false)
                     .is_some_and(|m| matches!(m.kind, MemberKind::Method(_))) =>
+            {
+                self.emit_method_call(f, fty, "call", arguments, expected, false, None)
+            }
+            // A `call` method of an applicable extension (not a getter).
+            _ if !fty.is_dynamic()
+                && !fty.is_nullable()
+                && !matches!(fty, Ty::Iface { class, .. } if Some(*class) == self.ctx.function_)
+                && self
+                    .find_extension_member(fty, "call", false)
+                    .is_some_and(|(_, fid, _)| {
+                        self.ctx.program.function(fid).kind == FunctionKind::Function
+                    }) =>
             {
                 self.emit_method_call(f, fty, "call", arguments, expected, false, None)
             }
@@ -1029,11 +1043,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.static_extension_call(ext, name, arguments, expected)
                 }
                 IdentTarget::Element(Element::Typedef(td)) => {
-                    let data = &self.ctx.outline.typedefs[td.0 as usize];
-                    if let Ty::Iface { class, .. } = self.ctx.ty_of(data.target_type) {
-                        return self.static_call_on_class(class, name, arguments, expected);
-                    }
-                    None
+                    let (class, args, explicit) = self.alias_creation(td)?;
+                    self.static_call_on_class_with(class, name, arguments, expected, args, explicit)
                 }
                 _ => None,
             },
@@ -1118,6 +1129,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         arguments: &ast::Arguments,
         expected: Option<&Ty>,
     ) -> Option<(Js, Ty)> {
+        self.static_call_on_class_with(c, name, arguments, expected, vec![], false)
+    }
+
+    /// [`Self::static_call_on_class`] with the class arguments of a
+    /// constructor named through a type alias ([`Self::alias_creation`]).
+    fn static_call_on_class_with(
+        &mut self,
+        c: ClassId,
+        name: &str,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+        class_args: Vec<Ty>,
+        explicit_args: bool,
+    ) -> Option<(Js, Ty)> {
         let mut cur = Some(c);
         while let Some(k) = cur {
             if let Some(mk) = self.ctx.declared_static(k, name, false) {
@@ -1153,8 +1178,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let is_const = self.in_const;
             return Some(self.emit_constructor_call(
                 c,
-                vec![],
-                false,
+                class_args,
+                explicit_args,
                 cname,
                 arguments,
                 expected,
@@ -1176,6 +1201,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let ext_name = self.extension_js_name(ext);
         let lib_var = self.lib_var(e.library);
         if let Some(&fid) = e.static_members.get(&sym) {
+            if self.ctx.program.function(fid).kind == FunctionKind::Getter {
+                // The value of a static getter, called.
+                let g = Js::prim(format!(
+                    "{lib_var}[{}]()",
+                    js::string_literal(&format!("{ext_name}|get#{name}"))
+                ));
+                let gty = self
+                    .ctx
+                    .ty_of(self.ctx.outline.functions[fid.0 as usize].return_type);
+                return Some(self.emit_fn_value_call(&g, &gty, arguments, expected));
+            }
             let fty = self.ctx.fn_ty(fid);
             let (args, ret, targs) = self.emit_args_for(&fty, arguments, expected);
             let mut all = targs;
@@ -1337,23 +1373,35 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 (Js::prim("null"), Ty::Dynamic)
             }
             Element::Typedef(td) => {
-                let data = &self.ctx.outline.typedefs[td.0 as usize];
-                if let Ty::Iface { class, args, .. } = self.ctx.ty_of(data.target_type) {
+                if let Some((class, args, explicit)) = self.alias_creation(td) {
                     let is_const = self.in_const;
                     return self.emit_constructor_call(
-                        class,
-                        args.clone(),
-                        !args.is_empty(),
-                        "",
-                        arguments,
-                        expected,
-                        is_const,
+                        class, args, explicit, "", arguments, expected, is_const,
                     );
                 }
                 (Js::prim("null"), Ty::Dynamic)
             }
             Element::Prefix(..) => (Js::prim("null"), Ty::Dynamic),
         }
+    }
+
+    /// The class and type arguments of a creation through the type alias `td`
+    /// without written type arguments (`A(..)`, `A.name(..)`). Those of a
+    /// generic alias are inferred: the common inference records them as the
+    /// class's arguments. `bool`: the arguments are fixed.
+    pub fn alias_creation(
+        &self,
+        td: dartforge_elements::model::TypedefId,
+    ) -> Option<(ClassId, Vec<Ty>, bool)> {
+        let data = &self.ctx.outline.typedefs[td.0 as usize];
+        let Ty::Iface { class, args, .. } = self.ctx.ty_of(data.target_type) else {
+            return None;
+        };
+        if !data.type_params.is_empty() {
+            return Some((class, Vec::new(), false));
+        }
+        let explicit = !args.is_empty();
+        Some((class, args, explicit))
     }
 
     // -----------------------------------------------------------------------

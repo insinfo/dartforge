@@ -98,6 +98,9 @@ pub struct FnEmitter<'m, 'a> {
     pub extension_type: Option<ClassId>,
     /// Explicitly applied extension (`Ext(x).m`), consumed by the next access.
     pub forced_ext: Option<dartforge_elements::model::ExtensionId>,
+    /// Null-aware receivers of the compound assignment being emitted
+    /// (`FnEmitter::emit_compound`).
+    pub compound_guards: Vec<crate::expr::Guard>,
     /// Assignment pattern: the variables already exist.
     pub pattern_assign: bool,
     /// Inside a constant expression (implicit instantiations become `dart.const`).
@@ -215,6 +218,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             current_extension: None,
             extension_type: None,
             forced_ext: None,
+            compound_guards: Vec::new(),
             pattern_assign: false,
             in_const: false,
             interop_args: false,
@@ -314,10 +318,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// same JS parameter name.
     pub fn type_param_js_name(&mut self, name: &str) -> String {
         if name == "_" && self.wildcard.is_some() {
-            self.wildcard_name()
-        } else {
-            js::ident(name)
+            return self.wildcard_name();
         }
+        // A method's `T` that shadows the extension's `T`: both are
+        // parameters of the same JS function.
+        let base = js::ident(name);
+        let taken = |n: &str| self.fn_type_params.iter().any(|(_, j)| j == n);
+        if !taken(&base) {
+            return base;
+        }
+        (1..)
+            .map(|i| format!("{base}${i}"))
+            .find(|n| !taken(n))
+            .unwrap()
     }
 
     /// JS name of the already declared parameter `n` (`this.x`, `super.x`): the

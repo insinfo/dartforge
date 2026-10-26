@@ -1376,7 +1376,7 @@ fn function_text_ext(
     }
     for &pid in data.type_params.iter() {
         let p = ctx.ty_param_of(pid);
-        let jsn = js::ident(&p.name);
+        let jsn = e.type_param_js_name(&p.name);
         e.fn_type_params.insert(0, (p.id, jsn.clone()));
         params_js.push(jsn);
     }

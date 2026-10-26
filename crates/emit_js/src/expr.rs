@@ -71,10 +71,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             // Members of the extension itself, then of the `on` type.
             if let Some(ext) = self.current_extension {
                 let e = self.ctx.program.extension(ext);
-                if let Some(&fid) = e.instance_members.get(&sym) {
+                let setter = self.ctx.sym(&format!("{n}_="));
+                let member = |m: &HashMap<dartforge_intern::SymbolId, _>| {
+                    m.get(&sym)
+                        .or_else(|| setter.and_then(|k| m.get(&k)))
+                        .copied()
+                };
+                if let Some(fid) = member(&e.instance_members) {
                     return IdentTarget::ExtMember(ext, fid);
                 }
-                if let Some(&fid) = e.static_members.get(&sym) {
+                if let Some(fid) = member(&e.static_members) {
                     return IdentTarget::ExtStatic(ext, fid);
                 }
                 if e.fields
@@ -381,25 +387,32 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     subst,
                 }))
             }
-            Resolved::ExtensionMember { extension, .. } => {
-                // The element is the one for the name in the extension (a
-                // getter and a setter with the same name share the entry), as
-                // in the emitter's own lookup.
-                let x = p.extension(*extension);
+            Resolved::ExtensionMember { extension, member } => {
+                // The extension's own member (a setter is keyed `name_=`).
                 if self.current_extension == Some(*extension) {
-                    if let Some(&f) = x.instance_members.get(&sym) {
-                        return Some(IdentTarget::ExtMember(*extension, f));
-                    }
-                    return x
-                        .static_members
-                        .get(&sym)
-                        .map(|&f| IdentTarget::ExtStatic(*extension, f));
+                    let fe = p.function(*member);
+                    let is_static =
+                        fe.static_ || fe.variable.is_some_and(|v| p.variable(v).static_);
+                    return Some(if is_static {
+                        IdentTarget::ExtStatic(*extension, *member)
+                    } else {
+                        IdentTarget::ExtMember(*extension, *member)
+                    });
+                }
+                // Another extension applicable to the `$this` of an
+                // extension: the emitter dispatches on `$this` (getter or
+                // setter) and finds the same extension.
+                if self.extension_this.is_some() {
+                    return Some(IdentTarget::ExtThisMember(Member {
+                        class: self.ctx.object.unwrap_or(ClassId(0)),
+                        kind: MemberKind::Field(dartforge_elements::model::VariableId(0)),
+                        subst: HashMap::new(),
+                    }));
                 }
                 // Another extension applicable to the class's `this`: the
                 // emitter dispatches on the `this` receiver and finds the same
                 // extension.
-                (self.class.is_some() && !self.is_static && self.extension_this.is_none())
-                    .then_some(IdentTarget::ThisExt)
+                (self.class.is_some() && !self.is_static).then_some(IdentTarget::ThisExt)
             }
             Resolved::Member {
                 via_super: true, ..
@@ -849,6 +862,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             js::string_literal(&js_member_name(name))
         }
+    }
+
+    /// `-x`, `~x` through an applicable (or the explicit) extension:
+    /// `Ext|unary-`/`Ext|~`.
+    fn unary_extension_call(&mut self, v: &Js, vty: &Ty, op: &str) -> Option<(Js, Ty)> {
+        let found = self.find_extension_member(vty, op, false);
+        self.forced_ext = None;
+        let (ext, fid, subst) = found?;
+        let e = self.ctx.program.extension(ext);
+        let lib_var = self.lib_var(e.library);
+        let ext_name = self.extension_js_name(ext);
+        let ret = match self.ctx.fn_ty(fid).subst_prop(&subst) {
+            Ty::Fn { ret, .. } => (*ret).clone(),
+            _ => Ty::Dynamic,
+        };
+        let mut args = self.ext_type_args(ext, &subst);
+        args.push(v.code.clone());
+        Some((
+            Js::prim(format!(
+                "{lib_var}[{}]({})",
+                js::string_literal(&format!("{ext_name}|{op}")),
+                args.join(", ")
+            )),
+            ret,
+        ))
     }
 
     pub fn wrap_guards(&mut self, js: Js, guards: Vec<Guard>) -> Js {
@@ -2443,23 +2481,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let ext_name = self.extension_js_name(ext);
                 let lib_var = self.lib_var(e.library);
                 let f = self.ctx.program.function(fid);
-                let js = format!(
-                    "{lib_var}[{}]",
-                    js::string_literal(&format!("{ext_name}|{n}"))
-                );
                 if f.kind == FunctionKind::Getter {
+                    let js = format!(
+                        "{lib_var}[{}]",
+                        js::string_literal(&format!("{ext_name}|get#{n}"))
+                    );
                     return (
                         Js::prim(format!("{js}()")),
                         self.ctx
                             .ty_of(self.ctx.outline.functions[fid.0 as usize].return_type),
                     );
                 }
+                let js = format!(
+                    "{lib_var}[{}]",
+                    js::string_literal(&format!("{ext_name}|{n}"))
+                );
                 let ty = self.ctx.fn_ty(fid);
                 (self.tearoff_static(&js, &ty), ty)
             }
             IdentTarget::ExtMember(ext, _) => {
                 let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
-                let _ = ext;
+                self.forced_ext = Some(ext);
                 match self.try_extension_get(&Js::prim("$this"), &t, &n) {
                     Some(r) => r,
                     None => (Js::prim("null"), Ty::Dynamic),
@@ -3053,6 +3095,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             self.match_type(&on, recv_ty, &params, &mut subst);
             return Some((forced, fid, subst));
         }
+        // A type variable bounded by `dynamic` is a dynamic receiver: no
+        // extension applies.
+        if matches!(recv_ty, Ty::Param { .. }) && self.ctx.resolve_param_bound(recv_ty).is_dynamic()
+        {
+            return None;
+        }
         let recv_nn = recv_ty;
         let mut best: Option<ScoredExtensionMatch> = None;
         for ext in self.ctx.visible_extensions(self.lib) {
@@ -3071,6 +3119,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             let on_s = on.subst(&subst);
             if !self.ctx.is_subtype(recv_nn, &on_s) && !recv_nn.is_dynamic() {
+                continue;
+            }
+            // The inferred arguments must satisfy the bounds
+            // (`extension<T extends num> on List<T>` does not apply to a
+            // `List<Object>`).
+            let within_bounds = data.type_params.iter().all(|&pid| {
+                let p = self.ctx.ty_param_of(pid);
+                subst.get(&p.id).is_none_or(|a| {
+                    a.is_dynamic() || self.ctx.is_subtype(a, &p.bound.subst(&subst))
+                })
+            });
+            if !within_bounds {
                 continue;
             }
             // Specificity: the more specific `on` wins; on a tie → the current library.
@@ -3289,6 +3349,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     (tjs, tty)
                 };
+                // A type variable promoted to an intersection (`S & int`,
+                // which the emitter does not model): the extension the common
+                // resolution found.
+                if self.forced_ext.is_none()
+                    && matches!(recv_ty, Ty::Param { .. })
+                    && let Some(Resolved::ExtensionMember { extension, .. }) =
+                        self.common_resolution(e)
+                {
+                    self.forced_ext = Some(*extension);
+                }
                 let member = self.access_member(Some(e), &recv_ty, &n, false);
                 let (js, ty) = self.emit_member_get(&recv, &recv_ty, &n, member);
                 let js = self.contravariant_read_check(js, *target, &recv_ty, &n, &ty);
@@ -3561,10 +3631,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     if let Some(&fid) = e.static_members.get(&sym) {
                         let f = self.ctx.program.function(fid);
-                        let js = format!(
-                            "{lib_var}[{}]",
-                            js::string_literal(&format!("{ext_name}|{name}"))
-                        );
+                        let key = if f.kind == FunctionKind::Getter {
+                            format!("{ext_name}|get#{name}")
+                        } else {
+                            format!("{ext_name}|{name}")
+                        };
+                        let js = format!("{lib_var}[{}]", js::string_literal(&key));
                         if f.kind == FunctionKind::Getter {
                             return Some((
                                 Js::prim(format!("{js}()")),
@@ -3806,7 +3878,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Ty::Dynamic,
             );
         }
-        match self.access_member(node, recv_ty, "[]", false) {
+        // `Ext(x)[i]`: the explicit extension's operator.
+        let class_member = if self.forced_ext.is_some() {
+            None
+        } else {
+            self.access_member(node, recv_ty, "[]", false)
+        };
+        match class_member {
             Some(m) => {
                 let ty = match self.ctx.member_ty(&m) {
                     Ty::Fn { ret, .. } => (*ret).clone(),
@@ -3819,7 +3897,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 )
             }
             None => {
-                if let Some((ext, fid, subst)) = self.find_extension_member(recv_ty, "[]", false) {
+                let found = self.find_extension_member(recv_ty, "[]", false);
+                self.forced_ext = None;
+                if let Some((ext, fid, subst)) = found {
                     let e = self.ctx.program.extension(ext);
                     let lib_var = self.lib_var(e.library);
                     let ext_name = self.extension_js_name(ext);
@@ -3903,7 +3983,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         Ty::Dynamic,
                     );
                 }
-                match self.access_member(Some(e), &vty, "unary-", false) {
+                let class_member = if self.forced_ext.is_some() {
+                    None
+                } else {
+                    self.access_member(Some(e), &vty, "unary-", false)
+                };
+                match class_member {
                     Some(m) => {
                         let ret = match self.ctx.member_ty(&m) {
                             Ty::Fn { ret, .. } => (*ret).clone(),
@@ -3912,33 +3997,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let access = self.member_access(&vty, "unary-", false);
                         (Js::prim(format!("{}{access}()", v.at(P_PRIMARY))), ret)
                     }
-                    None => {
-                        if let Some((ext, fid, subst)) =
-                            self.find_extension_member(&vty, "unary-", false)
-                        {
-                            let e = self.ctx.program.extension(ext);
-                            let lib_var = self.lib_var(e.library);
-                            let ext_name = self.extension_js_name(ext);
-                            let ret = match self.ctx.fn_ty(fid).subst_prop(&subst) {
-                                Ty::Fn { ret, .. } => (*ret).clone(),
-                                _ => Ty::Dynamic,
-                            };
-                            let mut args = self.ext_type_args(ext, &subst);
-                            args.push(v.code.clone());
-                            return (
-                                Js::prim(format!(
-                                    "{lib_var}[{}]({})",
-                                    js::string_literal(&format!("{ext_name}|unary-")),
-                                    args.join(", ")
-                                )),
-                                ret,
-                            );
-                        }
-                        (
-                            Js::prim(format!("dart.dsend({}, '_negate', [])", v.code)),
-                            Ty::Dynamic,
-                        )
-                    }
+                    None => self
+                        .unary_extension_call(&v, &vty, "unary-")
+                        .unwrap_or_else(|| {
+                            (
+                                Js::prim(format!("dart.dsend({}, '_negate', [])", v.code)),
+                                Ty::Dynamic,
+                            )
+                        }),
                 }
             }
             UnaryOp::BitNot => {
@@ -3956,7 +4022,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         Ty::Dynamic,
                     );
                 }
-                match self.access_member(Some(e), &vty, "~", false) {
+                let class_member = if self.forced_ext.is_some() {
+                    None
+                } else {
+                    self.access_member(Some(e), &vty, "~", false)
+                };
+                match class_member {
                     Some(m) => {
                         let ret = match self.ctx.member_ty(&m) {
                             Ty::Fn { ret, .. } => (*ret).clone(),
@@ -3965,10 +4036,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let access = self.member_access(&vty, "~", false);
                         (Js::prim(format!("{}{access}()", v.at(P_PRIMARY))), ret)
                     }
-                    None => (
-                        Js::prim(format!("dart.dsend({}, '~', [])", v.code)),
-                        Ty::Dynamic,
-                    ),
+                    None => self.unary_extension_call(&v, &vty, "~").unwrap_or_else(|| {
+                        (
+                            Js::prim(format!("dart.dsend({}, '~', [])", v.code)),
+                            Ty::Dynamic,
+                        )
+                    }),
                 }
             }
             UnaryOp::NullAssert => {
@@ -4623,11 +4696,56 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             vty.clone(),
                         )
                     }
-                    IdentTarget::ExtThisMember(_)
+                    tgt @ (IdentTarget::ExtThisMember(_)
                     | IdentTarget::ExtMember(..)
-                    | IdentTarget::ExtStatic(..) => {
+                    | IdentTarget::ExtStatic(..)) => {
                         let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
-                        if let Some((ext, fid, subst)) = self.find_extension_member(&t, &name, true)
+                        // A static setter of the extension itself.
+                        if let IdentTarget::ExtStatic(ext, _) = tgt {
+                            let e = self.ctx.program.extension(ext);
+                            if let Some(fid) = self
+                                .ctx
+                                .sym(&format!("{name}_="))
+                                .and_then(|k| e.static_members.get(&k).copied())
+                            {
+                                let lib_var = self.lib_var(e.library);
+                                let ext_name = self.extension_js_name(ext);
+                                let result = self.temp();
+                                let pty = self.ctx.outline.functions[fid.0 as usize]
+                                    .parameters
+                                    .first()
+                                    .map(|p| self.ctx.ty_of(p.ty))
+                                    .unwrap_or(Ty::Dynamic);
+                                return (
+                                    Js::prim(format!(
+                                        "({lib_var}[{}]({result} = {}), {result})",
+                                        js::string_literal(&format!("{ext_name}|set#{name}")),
+                                        v.at(P_ASSIGN)
+                                    )),
+                                    pty,
+                                );
+                            }
+                        }
+                        // The extension's own setter is lexical.
+                        if let IdentTarget::ExtMember(ext, _) = tgt {
+                            self.forced_ext = Some(ext);
+                            let found = self.find_extension_member(&t, &name, true);
+                            self.forced_ext = None;
+                            if let Some((ext, fid, subst)) = found {
+                                let recv = Js::prim("$this");
+                                return (
+                                    self.extension_set(ext, fid, &subst, &recv, v, vty),
+                                    vty.clone(),
+                                );
+                            }
+                        }
+                        // A setter of the `on` type wins over another
+                        // extension's.
+                        let own = matches!(tgt, IdentTarget::ExtThisMember(_))
+                            && self.ctx.lookup_member(&t, &name, true).is_some();
+                        if !own
+                            && let Some((ext, fid, subst)) =
+                                self.find_extension_member(&t, &name, true)
                         {
                             return (
                                 self.extension_set(ext, fid, &subst, &Js::prim("$this"), v, vty),
@@ -4723,6 +4841,41 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 null_aware,
             } => {
                 let n = self.name(name.sym).to_string();
+                // `Ext.x = v`: a static field or setter of the extension.
+                if let ExprKind::Identifier(id) = &self.expr(*recv).kind
+                    && let IdentTarget::Element(Element::Extension(ext)) =
+                        self.ident_target(id.sym, *recv)
+                {
+                    let e = self.ctx.program.extension(ext);
+                    let lib_var = self.lib_var(e.library);
+                    let ext_name = self.extension_js_name(ext);
+                    if let Some(&vid) = e
+                        .fields
+                        .iter()
+                        .find(|v| self.ctx.program.variable(**v).name == name.sym)
+                    {
+                        return (
+                            Js::new(
+                                format!(
+                                    "{lib_var}[{}] = {}",
+                                    js::string_literal(&format!("{ext_name}|{n}")),
+                                    v.at(P_ASSIGN)
+                                ),
+                                P_ASSIGN,
+                            ),
+                            self.ctx.var_ty(vid),
+                        );
+                    }
+                    let result = self.temp();
+                    return (
+                        Js::prim(format!(
+                            "({lib_var}[{}]({result} = {}), {result})",
+                            js::string_literal(&format!("{ext_name}|set#{n}")),
+                            v.at(P_ASSIGN)
+                        )),
+                        vty.clone(),
+                    );
+                }
                 // Static through a class/prefix.
                 if let Some((target_js, interop)) = self.try_static_lvalue(*recv, &n) {
                     let v = if interop {
@@ -4777,6 +4930,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     (rjs, rty)
                 };
+                // `Ext(x).b = v`: the explicit extension's setter.
+                if self.forced_ext.is_some() {
+                    let found = self.find_extension_member(&recv_ty, &n, true);
+                    self.forced_ext = None;
+                    if let Some((ext, fid, subst)) = found {
+                        let js = self.extension_set(ext, fid, &subst, &recv_js, v, vty);
+                        return (self.wrap_guards(js, guards), vty.clone());
+                    }
+                }
                 let setter = self.access_member(Some(target), &recv_ty, &n, true);
                 let js = if recv_ty.is_dynamic() || setter.is_none() {
                     if let Some((ext, fid, subst)) = self.find_extension_member(&recv_ty, &n, true)
@@ -4831,7 +4993,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     (rjs, rty)
                 };
+                let forced = self.forced_ext.take();
                 let (ijs, _) = self.emit_expr(*index, None);
+                self.forced_ext = forced;
                 let js = self.emit_index_set(&recv_js, &recv_ty, &ijs, v);
                 (self.wrap_guards(js, guards), vty.clone())
             }
@@ -5047,10 +5211,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         parts.push(format!("{value} = {}", v.code));
         let call = if recv_ty.is_dynamic() {
             format!("dart.dsend({recv_js}, '_set', [{index}, {value}])")
-        } else if self.ctx.lookup_member(recv_ty, "[]=", false).is_some() {
+        } else if self.forced_ext.is_none()
+            && self.ctx.lookup_member(recv_ty, "[]=", false).is_some()
+        {
             let access = self.member_access(recv_ty, "[]=", false);
             format!("{recv_js}{access}({index}, {value})")
-        } else if let Some((ext, _, subst)) = self.find_extension_member(recv_ty, "[]=", false) {
+        } else if let Some((ext, _, subst)) = {
+            let found = self.find_extension_member(recv_ty, "[]=", false);
+            self.forced_ext = None;
+            found
+        } {
             let e = self.ctx.program.extension(ext);
             let lib_var = self.lib_var(e.library);
             let ext_name = self.extension_js_name(ext);
@@ -5074,6 +5244,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// `node` is the compound assignment or the `++`/`--`: the common
     /// resolution of the operator is recorded on it.
     fn emit_compound(
+        &mut self,
+        target: ExprId,
+        bop: BinaryOp,
+        value: Option<ExprId>,
+        literal: Option<i64>,
+        prefix: bool,
+        node: ExprId,
+    ) -> (Js, Ty) {
+        // `a?.b op= v`, `a?.b[i]++`: the null-aware receivers short-circuit
+        // the whole read-modify-write.
+        let saved = std::mem::take(&mut self.compound_guards);
+        let (js, ty) = self.emit_compound_inner(target, bop, value, literal, prefix, node);
+        let guards = std::mem::replace(&mut self.compound_guards, saved);
+        if guards.is_empty() {
+            return (js, ty);
+        }
+        (self.wrap_guards(js, guards), ty.with_nullable(true))
+    }
+
+    fn emit_compound_inner(
         &mut self,
         target: ExprId,
         bop: BinaryOp,
@@ -5243,16 +5433,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     )
                 } else {
                     let (rjs, rty, guards) = self.emit_target(*recv);
+                    self.compound_guards.extend(guards);
                     let rty = if *null_aware { rty.non_null() } else { rty };
                     let recv_js = if matches!(rjs.code.as_str(), "this" | "super") {
                         rjs.code.clone()
+                    } else if *null_aware {
+                        let tmp = self.temp();
+                        self.compound_guards.push(Guard {
+                            temp: tmp.clone(),
+                            init: rjs.code,
+                        });
+                        tmp
                     } else {
                         let tmp = self.temp();
                         // The temp's initialization prefix goes with the read.
                         self.pending_prefix.push(format!("{tmp} = {}", rjs.code));
                         tmp
                     };
-                    let _ = guards;
+                    // `Ext(x).b op= v`: the read and the write go through the
+                    // explicit extension.
+                    let forced = self.forced_ext;
                     // The common resolution of the target of `a.b op= v` is the
                     // setter's (one per node): the read finds the getter through
                     // the emitter's own lookup, on the same receiver type.
@@ -5263,6 +5463,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         r,
                         rt,
                         Box::new(move |s: &mut Self, v: &Js| {
+                            if forced.is_some() {
+                                s.forced_ext = forced;
+                                let found = s.find_extension_member(&recv_ty2, &n2, true);
+                                s.forced_ext = None;
+                                if let Some((ext, fid, subst)) = found {
+                                    return s.extension_set(
+                                        ext,
+                                        fid,
+                                        &subst,
+                                        &Js::prim(recv_js.clone()),
+                                        v,
+                                        &Ty::Dynamic,
+                                    );
+                                }
+                            }
                             if recv_ty2.is_dynamic()
                                 || s.access_member(Some(target), &recv_ty2, &n2, true)
                                     .is_none()
@@ -5298,19 +5513,30 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::Index {
                 target: recv,
                 index,
-                ..
+                null_aware,
             } => {
-                let (rjs, rty, _guards) = self.emit_target(*recv);
+                let (rjs, rty, guards) = self.emit_target(*recv);
+                self.compound_guards.extend(guards);
+                let rty = if *null_aware { rty.non_null() } else { rty };
                 let recv_js = if matches!(rjs.code.as_str(), "this" | "super") {
                     rjs.code.clone()
+                } else if *null_aware {
+                    let tmp = self.temp();
+                    self.compound_guards.push(Guard {
+                        temp: tmp.clone(),
+                        init: rjs.code,
+                    });
+                    tmp
                 } else {
                     let tmp = self.temp();
                     self.pending_prefix.push(format!("{tmp} = {}", rjs.code));
                     tmp
                 };
+                let forced = self.forced_ext.take();
                 let (ijs, _) = self.emit_expr(*index, None);
                 let idx_js = self.temp();
                 self.pending_prefix.push(format!("{idx_js} = {}", ijs.code));
+                self.forced_ext = forced;
                 let (r, rt) = self.emit_index_get(
                     &Js::prim(recv_js.clone()),
                     &rty,
@@ -5322,6 +5548,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     r,
                     rt,
                     Box::new(move |s: &mut Self, v: &Js| {
+                        s.forced_ext = forced;
                         s.emit_index_set(
                             &Js::prim(recv_js.clone()),
                             &rty2,

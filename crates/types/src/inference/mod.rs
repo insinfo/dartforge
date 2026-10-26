@@ -423,6 +423,51 @@ pub struct BodyInferrer<'a> {
     pub(crate) lookup_name: Option<SymbolId>,
 }
 
+/// Extensions accessible in a library (see
+/// [`BodyInferrer::accessible_extensions`], which caches this).
+pub fn accessible_extensions_of(program: &Program, lib: LibraryId) -> Vec<ExtensionId> {
+    let l = program.library(lib);
+    let mut v: Vec<ExtensionId> = Vec::new();
+    fn the_push(e: ExtensionId, v: &mut Vec<ExtensionId>) {
+        if !v.contains(&e) {
+            v.push(e);
+        }
+    }
+    for (i, e) in program.extensions.iter().enumerate() {
+        if e.library == lib {
+            the_push(ExtensionId(i as u32), &mut v);
+        }
+    }
+    // The scope also brings the implicit `dart:core` (which is not a
+    // directive).
+    let mut names: Vec<(&SymbolId, &dartforge_elements::model::Binding)> = l.scope.iter().collect();
+    names.sort_by_key(|(s, _)| s.as_u32());
+    for (_, b) in names {
+        if let Some(dartforge_elements::model::Element::Extension(e)) = b.getter {
+            the_push(e, &mut v);
+        }
+    }
+    for import in l.imports.iter().filter(|i| !i.deferred) {
+        let exported = &program.library(import.library).exported;
+        let mut names: Vec<_> = exported
+            .iter()
+            .filter(|(s, _)| {
+                import.combinators.iter().all(|c| match c {
+                    ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == **s),
+                    ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == **s),
+                })
+            })
+            .collect();
+        names.sort_by_key(|(s, _)| s.as_u32());
+        for (_, b) in names {
+            if let Some(dartforge_elements::model::Element::Extension(e)) = b.getter {
+                the_push(e, &mut v);
+            }
+        }
+    }
+    v
+}
+
 /// The extensions accessible in `lib` (the library's own and those the
 /// imports bring in, `BodyInferrer::accessible_extensions`) that apply to
 /// `recv`, with the inferred type arguments (the analyzer's `applicableTo`,
@@ -1118,46 +1163,7 @@ impl<'a> BodyInferrer<'a> {
             self.extensions.insert(lib.0, e.clone());
             return e;
         }
-        let l = self.program.library(lib);
-        let mut v: Vec<ExtensionId> = Vec::new();
-        fn the_push(e: ExtensionId, v: &mut Vec<ExtensionId>) {
-            if !v.contains(&e) {
-                v.push(e);
-            }
-        }
-        for (i, e) in self.program.extensions.iter().enumerate() {
-            if e.library == lib {
-                the_push(ExtensionId(i as u32), &mut v);
-            }
-        }
-        // The scope also brings the implicit `dart:core` (which is not a
-        // directive).
-        let mut names: Vec<(&SymbolId, &dartforge_elements::model::Binding)> =
-            l.scope.iter().collect();
-        names.sort_by_key(|(s, _)| s.as_u32());
-        for (_, b) in names {
-            if let Some(dartforge_elements::model::Element::Extension(e)) = b.getter {
-                the_push(e, &mut v);
-            }
-        }
-        for import in l.imports.iter().filter(|i| !i.deferred) {
-            let exported = &self.program.library(import.library).exported;
-            let mut names: Vec<_> = exported
-                .iter()
-                .filter(|(s, _)| {
-                    import.combinators.iter().all(|c| match c {
-                        ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == **s),
-                        ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == **s),
-                    })
-                })
-                .collect();
-            names.sort_by_key(|(s, _)| s.as_u32());
-            for (_, b) in names {
-                if let Some(dartforge_elements::model::Element::Extension(e)) = b.getter {
-                    the_push(e, &mut v);
-                }
-            }
-        }
+        let v = accessible_extensions_of(self.program, lib);
         let rc: Rc<[ExtensionId]> = v.into();
         self.extensions.insert(lib.0, rc.clone());
         if let Some(s) = self.shared {
