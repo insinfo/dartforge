@@ -816,16 +816,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let mut subst = HashMap::new();
                 self.match_type(&inner, expected, &free, &mut subst);
                 let mut rtis = Vec::new();
+                let mut constant = true;
                 for p in type_params {
                     let t = subst
                         .get(&p.id)
                         .cloned()
                         .unwrap_or_else(|| self.default_type_arg(&p.bound));
+                    constant &= !t.mentions_params();
                     subst.insert(p.id, t.clone());
                     rtis.push(self.rti(&t));
                 }
+                let code = format!("dart.gbind({}, {})", js.code, rtis.join(", "));
                 (
-                    Js::prim(format!("dart.gbind({}, {})", js.code, rtis.join(", "))),
+                    Js::prim(self.constant_instantiation(&js, code, constant)),
                     inner.subst(&subst),
                 )
             }
@@ -887,6 +890,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             )),
             ret,
         ))
+    }
+
+    /// The instantiation `code` (a `dart.gbind`) of `f`: when `f` is a static
+    /// or top-level function and the type arguments are `constant`, a
+    /// constant (`identical` to every other one), as the CFE makes it.
+    fn constant_instantiation(&mut self, f: &Js, code: String, constant: bool) -> String {
+        if !constant || !f.code.starts_with("dart.gFn(L$") {
+            return code;
+        }
+        self.m.note_const_record(self.lib);
+        let lv = self.lib_var(self.lib);
+        format!("{lv}.$C({}, () => {code})", js::string_literal(&code))
     }
 
     pub fn wrap_guards(&mut self, js: Js, guards: Vec<Guard>) -> Js {
@@ -1094,8 +1109,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     _ => Ty::Dynamic,
                 };
+                let code = format!("dart.gbind({}, {})", fjs.code, rtis.join(", "));
+                let constant = tys.iter().all(|t| !t.mentions_params());
                 (
-                    Js::prim(format!("dart.gbind({}, {})", fjs.code, rtis.join(", "))),
+                    Js::prim(self.constant_instantiation(&fjs, code, constant)),
                     ret_ty,
                 )
             }
@@ -3126,8 +3143,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             // `List<Object>`).
             let within_bounds = data.type_params.iter().all(|&pid| {
                 let p = self.ctx.ty_param_of(pid);
+                // (A generic function type is not compared: the emitter's
+                // subtyping does not rename its type parameters.)
                 subst.get(&p.id).is_none_or(|a| {
-                    a.is_dynamic() || self.ctx.is_subtype(a, &p.bound.subst(&subst))
+                    a.is_dynamic()
+                        || matches!(a, Ty::Fn { type_params, .. } if !type_params.is_empty())
+                        || self.ctx.is_subtype(a, &p.bound.subst(&subst))
                 })
             });
             if !within_bounds {

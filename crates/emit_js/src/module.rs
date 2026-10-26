@@ -2233,6 +2233,99 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let _ = &mut se;
     }
 
+    // Covariance forwarding stubs: an inherited implementation that does not
+    // check a parameter this class's interface makes covariant.
+    if !is_mixin {
+        let se = FnEmitter::new(ctx, m, unit, Some(c), false);
+        let this_ty = ctx.this_ty(c);
+        for stub in crate::own_sdk::covariance_stubs(ctx, c) {
+            if !ctx.selector_live(&stub.name) {
+                continue;
+            }
+            let data = &ctx.outline.functions[stub.implementation.0 as usize];
+            let offset = if crate::own_sdk::no_reify_generic_fn(ctx, stub.implementation) {
+                0
+            } else {
+                data.type_params.len()
+            };
+            let positional = data
+                .parameters
+                .iter()
+                .filter(|p| p.kind != ast::ParameterKind::Named)
+                .count();
+            let mut checks = String::new();
+            for (param, ty) in &stub.checks {
+                let rti = se.rti(ty);
+                match param {
+                    crate::own_sdk::StubParam::Positional(i) => {
+                        let a = format!("args[{}]", offset + i);
+                        if data.parameters[*i].kind == ast::ParameterKind::Required {
+                            checks.push_str(&format!("{rti}[_as]({a}); "));
+                        } else {
+                            checks.push_str(&format!("if ({a} !== void 0) {rti}[_as]({a}); "));
+                        }
+                    }
+                    crate::own_sdk::StubParam::Named(n) => {
+                        let o = format!("args[{}]", offset + positional);
+                        let k = js::prop_access(&ctx.named_key(n));
+                        checks.push_str(&format!(
+                            "if ({o} != null && {o}{k} !== void 0) {rti}[_as]({o}{k}); "
+                        ));
+                    }
+                }
+            }
+            let jsname = js_member_name(&stub.name);
+            let access = se.member_access(&this_ty, &stub.name, false);
+            cw.line(&format!(
+                "{}(...args) {{ {checks}return super{access}(...args); }}",
+                if access.starts_with('[') {
+                    access.clone()
+                } else {
+                    js::prop_key(&jsname)
+                }
+            ));
+            // Reified with the checked parameters as `Object?`.
+            let object_q = ctx.t_object_q();
+            let reified = match stub.signature {
+                Ty::Fn {
+                    type_params,
+                    ret,
+                    mut pos,
+                    mut opt,
+                    mut named,
+                    nullable,
+                } => {
+                    for (param, _) in &stub.checks {
+                        match param {
+                            crate::own_sdk::StubParam::Positional(i) => {
+                                if *i < pos.len() {
+                                    pos[*i] = object_q.clone();
+                                } else if let Some(t) = opt.get_mut(*i - pos.len()) {
+                                    *t = object_q.clone();
+                                }
+                            }
+                            crate::own_sdk::StubParam::Named(n) => {
+                                if let Some(e) = named.iter_mut().find(|(m, _, _)| m == n) {
+                                    e.1 = object_q.clone();
+                                }
+                            }
+                        }
+                    }
+                    Ty::Fn {
+                        type_params,
+                        ret,
+                        pos,
+                        opt,
+                        named,
+                        nullable,
+                    }
+                }
+                t => t,
+            };
+            method_sigs.push((jsname, reified));
+        }
+    }
+
     // Constructor tear-offs (`C.new == C.new`).
     if !is_mixin {
         for (csym, cfid) in class.constructors() {

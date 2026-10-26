@@ -915,6 +915,242 @@ pub fn user_covariance_checks(
     out
 }
 
+/// A parameter checked by a covariance forwarding stub
+/// ([`covariance_stubs`]): positional by index, or named.
+pub enum StubParam {
+    Positional(usize),
+    Named(String),
+}
+
+/// A forwarding stub the CFE inserts in a program class `c` for an inherited
+/// method whose implementation does not check a parameter that `c`'s
+/// interface makes covariant (`class C2 extends CC2<int>` with
+/// `CC2<X>.m(covariant X x)` abstract over `B2.m(num x)`): the stub checks
+/// the parameter against `c`'s member signature and calls `super`. Returns
+/// the name, the implementation, the signature in `c` and the checks.
+pub struct CovarianceStub {
+    pub name: String,
+    pub implementation: FunctionElementId,
+    pub signature: Ty,
+    pub checks: Vec<(StubParam, Ty)>,
+}
+
+fn ast_params<'a>(ctx: &Ctx<'a>, fid: FunctionElementId) -> &'a [ast::Parameter] {
+    match ctx.program.function(fid).node {
+        FunctionRef::Function { unit, function } => ctx
+            .program
+            .unit(unit)
+            .ast
+            .function(function)
+            .parameters
+            .as_deref()
+            .unwrap_or(&[]),
+        _ => &[],
+    }
+}
+
+/// Index in `params` of the parameter matching `p` of another declaration
+/// (same position, or same name for a named one).
+fn matching_param(
+    params: &[dartforge_types::ParameterTypeData],
+    p: &dartforge_types::ParameterTypeData,
+    i: usize,
+) -> Option<usize> {
+    if p.kind == ast::ParameterKind::Named {
+        params
+            .iter()
+            .position(|q| q.kind == ast::ParameterKind::Named && q.external_name == p.external_name)
+    } else {
+        params
+            .get(i)
+            .is_some_and(|q| q.kind != ast::ParameterKind::Named)
+            .then_some(i)
+    }
+}
+
+/// Parameter `j` of method `g` declared in `k` is covariant there.
+fn param_covariant_in(ctx: &Ctx, k: ClassId, g: FunctionElementId, j: usize) -> bool {
+    let ps = &ctx.outline.functions[g.0 as usize].parameters;
+    let ids: HashSet<u32> = ctx.class_params[k.0 as usize]
+        .iter()
+        .map(|p| p.id)
+        .collect();
+    occurs_covariantly(&ctx.ty_of(ps[j].ty), &ids, true)
+        || ast_params(ctx, g).get(j).is_some_and(|q| q.covariant)
+}
+
+pub fn covariance_stubs(ctx: &Ctx, c: ClassId) -> Vec<CovarianceStub> {
+    let class = ctx.program.class(c);
+    if ctx.libs[class.library.0 as usize].is_sdk
+        || ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+        || class.kind == dartforge_elements::model::ClassKind::Mixin
+    {
+        return Vec::new();
+    }
+    let Some(sc) = class.supertype_class else {
+        return Vec::new();
+    };
+    // `c` and its supertypes.
+    let mut closure: Vec<ClassId> = Vec::new();
+    let mut stack = vec![c];
+    while let Some(k) = stack.pop() {
+        if closure.contains(&k) || Some(k) == ctx.object {
+            continue;
+        }
+        closure.push(k);
+        stack.extend(
+            ctx.class_supers[k.0 as usize]
+                .iter()
+                .filter_map(|s| s.class()),
+        );
+    }
+    let mut names: Vec<dartforge_intern::SymbolId> = Vec::new();
+    for &k in &closure {
+        for (&sym, &g) in &ctx.program.class(k).instance_members {
+            let f = ctx.program.function(g);
+            if matches!(f.kind, FunctionKind::Function | FunctionKind::Operator)
+                && !f.static_
+                && !names.contains(&sym)
+            {
+                names.push(sym);
+            }
+        }
+    }
+    names.sort_by_key(|s| s.as_u32());
+    let mut out = Vec::new();
+    for sym in names {
+        let name = ctx.interner.resolve(sym).to_string();
+        if ctx
+            .program
+            .class(c)
+            .instance_members
+            .get(&sym)
+            .is_some_and(|&g| !ctx.program.function(g).abstract_)
+        {
+            continue;
+        }
+        // The implementation: from the last applied mixin that declares it
+        // concretely, otherwise from the superclass.
+        let from_mixin = class.mixin_classes.iter().rev().find_map(|&mx| {
+            let g = *ctx.program.class(mx).instance_members.get(&sym)?;
+            if ctx.program.function(g).abstract_ {
+                return None;
+            }
+            let sup = ctx.as_super(&ctx.this_ty(c), mx)?;
+            let subst: HashMap<u32, Ty> = ctx.class_params[mx.0 as usize]
+                .iter()
+                .map(|q| q.id)
+                .zip(sup.args().iter().cloned())
+                .collect();
+            Some(crate::ctx::Member {
+                class: mx,
+                kind: crate::ctx::MemberKind::Method(g),
+                subst,
+            })
+        });
+        let Some(imp) = from_mixin.or_else(|| ctx.lookup_member(&ctx.this_ty(sc), &name, false))
+        else {
+            continue;
+        };
+        let crate::ctx::MemberKind::Method(imp_fid) = imp.kind else {
+            continue;
+        };
+        let owner = imp.class;
+        if ctx.program.function(imp_fid).abstract_
+            || ctx.libs[ctx.lib_of_class(owner).0 as usize].is_sdk
+        {
+            continue;
+        }
+        let imp_params = &ctx.outline.functions[imp_fid.0 as usize].parameters;
+        let imp_ast = ast_params(ctx, imp_fid);
+        // `c`'s member signature: its own (abstract) declaration, or the
+        // combined signature of the direct supertypes' members (the one that
+        // is a subtype of all the others).
+        let own = ctx
+            .program
+            .class(c)
+            .instance_members
+            .get(&sym)
+            .map(|&g| ctx.fn_ty(g));
+        let signature = match own {
+            Some(t) => t,
+            None => {
+                let sigs: Vec<Ty> = ctx.class_supers[c.0 as usize]
+                    .iter()
+                    .filter_map(|st| ctx.lookup_member(st, &name, false))
+                    .map(|m| ctx.member_ty(&m))
+                    .collect();
+                sigs.iter()
+                    .find(|t| sigs.iter().all(|u| ctx.is_subtype(t, u)))
+                    .or_else(|| sigs.first())
+                    .cloned()
+                    .unwrap_or(Ty::Dynamic)
+            }
+        };
+        // The implementation's own parameter types, in `c`.
+        let Ty::Fn {
+            pos: ipos,
+            opt: iopt,
+            named: inamed,
+            ..
+        } = ctx.member_ty(&imp)
+        else {
+            continue;
+        };
+        let mut checks = Vec::new();
+        for (i, p) in imp_params.iter().enumerate() {
+            let already = imp_ast.get(i).is_some_and(|q| {
+                param_covariant_in(ctx, owner, imp_fid, i)
+                    || overrides_covariant(ctx, owner, imp_fid, i, q)
+            });
+            if already {
+                continue;
+            }
+            let needed = closure.iter().any(|&k| {
+                ctx.program
+                    .class(k)
+                    .instance_members
+                    .get(&sym)
+                    .is_some_and(|&g| {
+                        let gp = &ctx.outline.functions[g.0 as usize].parameters;
+                        matching_param(gp, p, i).is_some_and(|j| param_covariant_in(ctx, k, g, j))
+                    })
+            });
+            if !needed {
+                continue;
+            }
+            // Checked against the implementation's type (in `c`): the
+            // interface only makes the parameter covariant.
+            let (param, ty) = if p.kind == ast::ParameterKind::Named {
+                let Some(n) = p.external_name else { continue };
+                let n = ctx.interner.resolve(n).to_string();
+                let Some(t) = inamed.iter().find(|(m, _, _)| *m == n).map(|e| e.1.clone()) else {
+                    continue;
+                };
+                (StubParam::Named(n), t)
+            } else {
+                let Some(t) = ipos.iter().chain(iopt.iter()).nth(i).cloned() else {
+                    continue;
+                };
+                (StubParam::Positional(i), t)
+            };
+            if is_top(ctx, &ty) {
+                continue;
+            }
+            checks.push((param, ty));
+        }
+        if !checks.is_empty() {
+            out.push(CovarianceStub {
+                name,
+                implementation: imp_fid,
+                signature,
+                checks,
+            });
+        }
+    }
+    out
+}
+
 /// The reified type of the method `fid` of a program class `c` (its
 /// signature for tear-offs and dynamic calls): a covariant parameter is
 /// `Object?`, as the VM and the DDC reify it — the method checks it on entry

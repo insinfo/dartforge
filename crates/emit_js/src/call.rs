@@ -299,7 +299,6 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             // A `call` method of an applicable extension (not a getter).
             _ if !fty.is_dynamic()
-                && !fty.is_nullable()
                 && !matches!(fty, Ty::Iface { class, .. } if Some(*class) == self.ctx.function_)
                 && self
                     .find_extension_member(fty, "call", false)
