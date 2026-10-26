@@ -2511,29 +2511,31 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // inside `mixinOn`, on the class of each application — that is the one that
     // enters the prototype chain (`compiler.dart:1236-1248`).
     let ext_in_mixin = is_mixin && (!ext_methods.is_empty() || !ext_accessors.is_empty());
+    // The class expression's own name: a JS reserved word gets a `$`.
+    let cid = js::ident(&cname);
     let head = if ext_in_mixin {
         format!(
-            "{cref} = class {cname} extends core.Object {{{shell}}};\n{cref}[dart.mixinOn] = {cname}$mixin_super => {{\nconst {cname}$m = class {cname} extends {cname}$mixin_super {{",
+            "{cref} = class {cid} extends core.Object {{{shell}}};\n{cref}[dart.mixinOn] = {cid}$mixin_super => {{\nconst {cid}$m = class {cid} extends {cid}$mixin_super {{",
             shell = mixin_shell(&mixin_statics)
         )
     } else if is_mixin {
         format!(
-            "{cref} = class {cname} extends core.Object {{{}}};\n{cref}[dart.mixinOn] = {}$mixin_super => class {cname} extends {}$mixin_super {{",
+            "{cref} = class {cid} extends core.Object {{{}}};\n{cref}[dart.mixinOn] = {}$mixin_super => class {cid} extends {}$mixin_super {{",
             mixin_shell(&mixin_statics),
-            cname,
-            cname
+            cid,
+            cid
         )
     } else if ctx.sdk.is_some() && Some(c) == ctx.object {
         // SDK mode: `Object` has no superclass (`compiler.dart:1257-1259`).
-        format!("{cref} = class {cname} {{")
+        format!("{cref} = class {cid} {{")
     } else if ctx.sdk.is_some() && mentions_free_name(&cw.out, &cname) {
         // SDK mode: the name of the class expression would shadow, in the body,
         // the global with the same name that a `JS()` *template* references —
         // `new ResizeObserver(#)` in the `_create_1` of `html.ResizeObserver`.
         // DDC renames the class's temporary identifier (`ResizeObserver$`).
-        format!("{cref} = class {cname}$ extends {super_ref} {{")
+        format!("{cref} = class {cid}$ extends {super_ref} {{")
     } else {
-        format!("{cref} = class {cname} extends {super_ref} {{")
+        format!("{cref} = class {cid} extends {super_ref} {{")
     };
     m.use_sdk("core");
     w.line(&head);
@@ -2746,17 +2748,12 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             .map_or(crate::filter::State::Live, |f| ctx.fn_state(f));
         if state == crate::filter::State::Stub {
             let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &jsname));
-            crate::emit_line!(
-                w,
-                "({cref}.{jsname} = function(...a) {{ dart_podado({r}); }}).prototype = {cref}.prototype;"
-            );
+            let text = format!("function(...a) {{ dart_podado({r}); }}");
+            w.line(&constructor_assignment(ctx, c, &cref, &jsname, &text));
             continue;
         }
         let text = emit_constructor(ctx, m, c, mu, ctor, &fields, generic, is_enum);
-        crate::emit_line!(
-            w,
-            "({cref}.{jsname} = {text}).prototype = {cref}.prototype;"
-        );
+        w.line(&constructor_assignment(ctx, c, &cref, &jsname, &text));
     }
     if is_mixin || class.modifiers.mixin {
         let mut body = Writer {
@@ -3586,13 +3583,19 @@ fn emit_field_inits(
                 nulls.flush(body);
                 let mut e = FnEmitter::new(ctx, m, f.unit, Some(c), false);
                 let (js, _) = e.emit_expr(i, Some(&f.ty));
-                if !e.temps.is_empty() {
-                    body.line(&format!("let {};", e.temps.join(", ")));
+                // Each initializer has its own emitter, whose temporaries go
+                // in a block of their own.
+                let block = !e.temps.is_empty();
+                if block {
+                    body.line(&format!("{{ let {};", e.temps.join(", ")));
                 }
                 for line in e.w.out.lines() {
                     body.line(line);
                 }
                 crate::emit_line!(body, "{target} = {};", js.code);
+                if block {
+                    body.line("}");
+                }
             }
             _ => nulls.push(target, body),
         }
@@ -4010,6 +4013,31 @@ pub(crate) fn flush_stmts(e: &mut FnEmitter, body: &mut Writer) {
     let out = std::mem::take(&mut e.w.out);
     for line in out.lines() {
         body.line(line);
+    }
+}
+
+/// `(C.name = f).prototype = C.prototype;`. A name that the constructor
+/// function `C` already has as a read-only property (`length`, `caller`,
+/// `arguments`), or that a superclass's static occupies (an accessor
+/// without a setter), is defined with `dart.defineValue`, as the DDC does.
+fn constructor_assignment(ctx: &Ctx, c: ClassId, cref: &str, jsname: &str, text: &str) -> String {
+    // A superclass's static field or getter is an accessor on its
+    // constructor function (methods and constructors are writable data).
+    let inherited = std::iter::successors(ctx.superclass_of(c), |&k| ctx.superclass_of(k))
+        .take_while(|&k| Some(k) != ctx.object)
+        .any(|k| {
+            matches!(
+                ctx.declared_static(k, jsname, false),
+                Some(crate::ctx::MemberKind::Field(_) | crate::ctx::MemberKind::Getter(_))
+            )
+        });
+    if matches!(jsname, "length" | "caller" | "arguments") || inherited {
+        format!(
+            "dart.defineValue({cref}, {}, {text}).prototype = {cref}.prototype;",
+            js::string_literal(jsname)
+        )
+    } else {
+        format!("({cref}.{jsname} = {text}).prototype = {cref}.prototype;")
     }
 }
 

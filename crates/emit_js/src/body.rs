@@ -98,6 +98,9 @@ pub struct FnEmitter<'m, 'a> {
     pub extension_type: Option<ClassId>,
     /// Explicitly applied extension (`Ext(x).m`), consumed by the next access.
     pub forced_ext: Option<dartforge_elements::model::ExtensionId>,
+    /// JS names of the parameters declared in this function
+    /// ([`FnEmitter::declare`] does not reuse them).
+    pub param_names: Vec<String>,
     /// Null-aware receivers of the compound assignment being emitted
     /// (`FnEmitter::emit_compound`).
     pub compound_guards: Vec<crate::expr::Guard>,
@@ -218,6 +221,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             current_extension: None,
             extension_type: None,
             forced_ext: None,
+            param_names: Vec::new(),
             compound_guards: Vec::new(),
             pattern_assign: false,
             in_const: false,
@@ -284,7 +288,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return self.wildcard_name();
         }
         let base = js::ident(self.name(sym));
-        let in_use = |s: &Self, n: &str| s.scopes.iter().any(|sc| sc.values().any(|l| l.js == n));
+        let in_use = |s: &Self, n: &str| {
+            s.param_names.iter().any(|p| p == n)
+                || s.scopes.iter().any(|sc| sc.values().any(|l| l.js == n))
+        };
         let mut js = base.clone();
         let mut n = 0;
         while in_use(self, &js) {
@@ -1302,6 +1309,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
             let jsn = self.declare(name.sym, ty.clone());
+            // The JS parameter stays declared in the whole function, even
+            // where the Dart name is out of scope (the body of a constructor
+            // with `this.y`): a local `y` there gets another JS name.
+            self.param_names.push(jsn.clone());
             if self.wildcard == Some(name.sym) && (p.this_ || p.super_) {
                 // Wildcard `this._`/`super._`: binds no name, but the constructor
                 // still initializes the field/forwards with the value.

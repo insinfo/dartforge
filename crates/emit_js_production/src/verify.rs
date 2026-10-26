@@ -130,6 +130,25 @@ fn definitions(modules: &[(String, String)], idents: &HashSet<&str>) -> Definiti
                 continue;
             }
             let t = &text[start..];
+            // `dart.defineValue(ns.C, "n", function …).prototype = …`: a
+            // constructor whose name the class function already has
+            // (`length`) or inherits as an accessor.
+            if let Some(r) = t.strip_prefix("dart.defineValue(")
+                && let Some(comma) = r.find(',')
+            {
+                let target = r[..comma].trim();
+                let rest = r[comma + 1..].trim_start();
+                let ns = target.split('.').next().unwrap_or(target);
+                if idents.contains(ns)
+                    && !target.contains('(')
+                    && let Some(q) = rest.chars().next().filter(|c| *c == '"' || *c == '\'')
+                    && let Some(end) = rest[1..].find(q)
+                {
+                    d.names.insert(format!("{target}.{}", &rest[1..1 + end]));
+                    d.names.insert(target.to_string());
+                }
+                continue;
+            }
             // `dart.defineLazy(ns, {…})` and `dart.copyProperties(ns.C, {…})`.
             let mut handled = false;
             for pre in ["dart.copyProperties(", "dart.defineLazy("] {

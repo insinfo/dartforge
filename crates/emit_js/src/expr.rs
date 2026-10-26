@@ -6131,7 +6131,19 @@ fn parse_int(text: &str) -> String {
     if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
         match u64::from_str_radix(hex, 16) {
             Ok(v) => v.to_string(),
-            Err(_) => text.to_string(),
+            // Beyond 64 bits (only valid as a `double`): the decimal digits
+            // of the nearest double.
+            Err(_) => {
+                let v = u128::from_str_radix(hex, 16).map_or_else(
+                    |_| {
+                        hex.chars()
+                            .filter_map(|c| c.to_digit(16))
+                            .fold(0f64, |acc, d| acc * 16.0 + f64::from(d))
+                    },
+                    |v| v as f64,
+                );
+                format!("{v:.0}")
+            }
         }
     } else {
         let t = text.trim_start_matches('0');

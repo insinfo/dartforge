@@ -1142,7 +1142,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         class_args: Vec<Ty>,
         explicit_args: bool,
     ) -> Option<(Js, Ty)> {
-        let mut cur = Some(c);
+        // The class's own statics, then its constructors (statics are not
+        // inherited: `Bar.baz()` is `Bar`'s constructor even when a
+        // superclass has a static `baz`), then a superclass's statics.
+        if let Some(mk) = self.ctx.declared_static(c, name, false) {
+            return Some(self.emit_static_call(c, name, mk, arguments, expected));
+        }
+        let cname = if name == "new" { "" } else { name };
+        let own_constructor = (if cname.is_empty() {
+            self.ctx.empty_sym
+        } else {
+            self.ctx.sym(cname)
+        })
+        .is_some_and(|k| self.ctx.program.class(c).constructors.contains_key(&k));
+        let mut cur = self.ctx.superclass_of(c).filter(|_| !own_constructor);
         while let Some(k) = cur {
             if let Some(mk) = self.ctx.declared_static(k, name, false) {
                 return Some(self.emit_static_call(k, name, mk, arguments, expected));
@@ -1150,7 +1163,6 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             cur = self.ctx.superclass_of(k);
         }
         // Named constructor.
-        let cname = if name == "new" { "" } else { name };
         // SDK mode: the representation constructor of an interop extension
         // type (`JSNumber._(x)` in the `dart:js_interop` *patches*) is the
         // value itself, as with erased ones.
