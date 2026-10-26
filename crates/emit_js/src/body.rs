@@ -1518,7 +1518,12 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             }
             StmtKind::Variables(list) => self.emit_var_list(list),
             StmtKind::PatternVariables { pattern, value, .. } => {
-                let (vjs, vty) = self.emit_expr(*value, None);
+                let schema = self.pattern_schema(*pattern);
+                let (vjs, vty) = self.emit_expr(*value, schema.as_ref());
+                let (vjs, vty) = match &schema {
+                    Some(s) => self.coerce_to(vjs, vty, s),
+                    None => (vjs, vty),
+                };
                 let t = self.temp();
                 crate::emit_line!(self.w, "{t} = {};", vjs.code);
                 let mut binds = Vec::new();
@@ -1571,12 +1576,22 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                             format!("{} && {}", paren_if_needed(&full), gjs.at(crate::js::P_AND));
                     }
                     crate::open_block!(self.w, "if ({full}) {{");
+                    // The then branch is a scope inside the pattern
+                    // variables'; the else branch does not see them.
+                    self.push_scope();
                     self.emit_stmt(*then);
+                    self.pop_scope();
                     self.w.close("}");
+                    let pattern_scope = self.scopes.pop();
                     if let Some(e) = else_ {
                         self.w.open("else {");
+                        self.push_scope();
                         self.emit_stmt(*e);
+                        self.pop_scope();
                         self.w.close("}");
+                    }
+                    if let Some(scope) = pattern_scope {
+                        self.scopes.push(scope);
                     }
                     self.pop_scope();
                     self.w.close("}");
@@ -2316,10 +2331,21 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             self.push_scope();
             let mut alts: Vec<String> = Vec::new();
             let mut binds = Vec::new();
+            // Several heads sharing a body: each binds its own variables (a
+            // closure in its guard captures that head's), copied to the
+            // body's variables when it matches.
+            let per_head = group.len() > 1;
+            let mut head_scopes = 0;
+            let mut heads: Vec<Vec<(SymbolId, Ty, String)>> = Vec::new();
             for c in group {
+                let mut hb = Vec::new();
+                if per_head {
+                    self.push_scope();
+                    head_scopes += 1;
+                }
                 let cond = match c.pattern {
                     None => "true".to_string(),
-                    Some(p) => self.pattern_cond(p, &t, &vty, &mut binds, false),
+                    Some(p) => self.pattern_cond(p, &t, &vty, &mut hb, false),
                 };
                 let mut full = cond;
                 if let Some(g) = c.guard {
@@ -2327,6 +2353,54 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     full = format!("{} && {}", paren_if_needed(&full), gjs.at(crate::js::P_AND));
                 }
                 alts.push(full);
+                heads.push(hb);
+            }
+            if per_head && heads.iter().any(|h| !h.is_empty()) {
+                // The body's variables: those of the last head, with fresh
+                // names while the heads' are still in use.
+                let body_vars: Vec<(SymbolId, Ty, String)> = heads
+                    .last()
+                    .map(|h| {
+                        h.iter()
+                            .map(|(sym, ty, _)| (*sym, ty.clone(), self.declare(*sym, ty.clone())))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                for (alt, hb) in alts.iter_mut().zip(&heads) {
+                    let copies: Vec<String> = body_vars
+                        .iter()
+                        .filter_map(|(sym, _, b)| {
+                            let (_, _, h) = hb.iter().find(|(s, _, _)| s == sym)?;
+                            Some(format!("{b} = {h}"))
+                        })
+                        .collect();
+                    if !copies.is_empty() {
+                        *alt = format!("{} && ({}, true)", paren_if_needed(alt), copies.join(", "));
+                    }
+                }
+                for hb in heads.drain(..) {
+                    binds.extend(hb);
+                }
+                for _ in 0..head_scopes {
+                    self.pop_scope();
+                }
+                for (sym, ty, js) in &body_vars {
+                    self.declare_js(*sym, js.clone(), ty.clone());
+                }
+                binds.extend(body_vars);
+            } else {
+                for _ in 0..head_scopes {
+                    self.pop_scope();
+                }
+                // The heads' variables stay visible to the body.
+                for hb in heads.drain(..) {
+                    for (sym, ty, js) in &hb {
+                        if per_head {
+                            self.declare_js(*sym, js.clone(), ty.clone());
+                        }
+                    }
+                    binds.extend(hb);
+                }
             }
             for (_, _, jsn) in &binds {
                 crate::emit_line!(self.w, "let {jsn} = null;");
@@ -2345,9 +2419,12 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             };
             k += 1;
             crate::open_block!(self.w, "if ({full}) {{");
+            // The body is a scope inside the pattern variables' one.
+            self.push_scope();
             for &s in body_case.body.iter() {
                 self.emit_stmt(s);
             }
+            self.pop_scope();
             if !self.ends_with_jump(&body_case.body) {
                 crate::emit_line!(self.w, "break {label};");
             }

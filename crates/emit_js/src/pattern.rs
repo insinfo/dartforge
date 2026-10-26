@@ -10,6 +10,81 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// JS condition that tests `value_js` (of type `vty`) against the pattern,
     /// binding variables (`(x = v, true)`); `binds` receives the (symbol, type)
     /// pairs to declare.
+    /// The type schema a declaration pattern gives its initializer as the
+    /// context (`var (IntFn a) = C()` tears off `C.call`); `None` for the
+    /// unknown `_`.
+    pub fn pattern_schema(&mut self, p: ast::PatternId) -> Option<Ty> {
+        match &self.ast().pattern(p).kind {
+            PatternKind::Wildcard { ty } | PatternKind::Variable { ty, .. } => {
+                ty.map(|t| self.resolve_type(t))
+            }
+            PatternKind::Parenthesized(inner) => self.pattern_schema(*inner),
+            PatternKind::Object { ty, .. } => Some(self.resolve_type(*ty)),
+            PatternKind::List {
+                type_args,
+                elements,
+            } => {
+                if let Some(&t) = type_args.first() {
+                    return Some(self.ctx.t_list(self.resolve_type(t)));
+                }
+                let mut elem: Option<Ty> = None;
+                for e in elements.iter() {
+                    let ast::ListPatternElement::Pattern(q) = e else {
+                        return None;
+                    };
+                    let t = self.pattern_schema(*q)?;
+                    match &elem {
+                        Some(prev) if *prev != t => return None,
+                        _ => elem = Some(t),
+                    }
+                }
+                elem.map(|t| self.ctx.t_list(t))
+            }
+            PatternKind::Map {
+                type_args, entries, ..
+            } => {
+                if let [k, v] = &type_args[..] {
+                    let (k, v) = (self.resolve_type(*k), self.resolve_type(*v));
+                    return Some(self.ctx.t_map(k, v));
+                }
+                let mut value: Option<Ty> = None;
+                for e in entries.iter() {
+                    let t = self.pattern_schema(e.value)?;
+                    match &value {
+                        Some(prev) if *prev != t => return None,
+                        _ => value = Some(t),
+                    }
+                }
+                value.map(|v| self.ctx.t_map(Ty::Dynamic, v))
+            }
+            PatternKind::Record { fields } => {
+                let mut pos = Vec::new();
+                let mut named = Vec::new();
+                for f in fields.iter() {
+                    let t = self.pattern_schema(f.pattern).unwrap_or(Ty::Dynamic);
+                    match f.name {
+                        Some(n) => named.push((self.name(n.sym).to_string(), t)),
+                        None => pos.push(t),
+                    }
+                }
+                if pos
+                    .iter()
+                    .chain(named.iter().map(|(_, t)| t))
+                    .all(|t| t.is_dynamic())
+                {
+                    return None;
+                }
+                named.sort_by(|a, b| a.0.cmp(&b.0));
+                Some(Ty::Record {
+                    pos,
+                    named,
+                    nullable: false,
+                })
+            }
+            _ => None,
+        }
+    }
+
     pub fn pattern_cond(
         &mut self,
         p: ast::PatternId,

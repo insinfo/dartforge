@@ -2820,8 +2820,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             );
         }
         let Some(m) = member else {
+            // A record's own field wins over an extension's getter.
+            let record_field = match &recv_nn {
+                Ty::Record { pos, named, .. } => {
+                    name.strip_prefix('$')
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .is_some_and(|i| i >= 1 && i <= pos.len())
+                        || named.iter().any(|(n, _)| n == name)
+                }
+                _ => false,
+            };
             // Extension?
-            if let Some(r) = self.try_extension_get(recv, recv_ty, name) {
+            if !record_field && let Some(r) = self.try_extension_get(recv, recv_ty, name) {
                 return r;
             }
             if let Ty::Fn { .. } = recv_nn {
