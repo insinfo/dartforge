@@ -990,6 +990,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             self.ctx.t_type(),
                         );
                     }
+                    // `G<int>` of `typedef G<T> = List<T>`: the aliased type.
+                    if let IdentTarget::Element(Element::Typedef(td)) =
+                        self.ident_target(id.sym, *target)
+                    {
+                        let data = &self.ctx.outline.typedefs[td.0 as usize];
+                        let map: HashMap<u32, Ty> = data
+                            .type_params
+                            .iter()
+                            .map(|p| p.0)
+                            .zip(tys.iter().cloned())
+                            .collect();
+                        let t = self.ctx.ty_of(data.target_type).subst_prop(&map);
+                        let rti = self.rti(&t);
+                        if self.in_foreign_js {
+                            return (Js::prim(rti), self.ctx.t_type());
+                        }
+                        return (
+                            Js::prim(format!("dart_rti.createRuntimeType({rti})")),
+                            self.ctx.t_type(),
+                        );
+                    }
                 }
                 let (fjs, fty) = self.emit_expr(*target, None);
                 let rtis: Vec<String> = tys.iter().map(|t| self.rti(t)).collect();
@@ -2528,8 +2549,40 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 (Js::prim(js), ty)
             }
             Element::Class(c) => {
-                let rti = self.rti(&self.ctx.this_ty_default(c));
+                // A generic class without arguments is instantiated to its
+                // bounds (`C` is `C<num>` for `class C<T extends num>`).
+                let params: Vec<(u32, Ty)> = self.ctx.class_params[c.0 as usize]
+                    .iter()
+                    .map(|p| (p.id, (*p.bound).clone()))
+                    .collect();
+                let ty = Ty::Iface {
+                    class: c,
+                    args: self.ctx.bounds_instantiation(&params),
+                    nullable: false,
+                };
+                let rti = self.rti(&ty);
                 // SDK mode: a type literal inside `JS()` is the raw rti.
+                if self.in_foreign_js {
+                    return (Js::prim(rti), self.ctx.t_type());
+                }
+                (
+                    Js::prim(format!("dart_rti.createRuntimeType({rti})")),
+                    self.ctx.t_type(),
+                )
+            }
+            // A type alias used as a value: the `Type` of the aliased type,
+            // its parameters instantiated to bounds.
+            Element::Typedef(td) => {
+                let data = &self.ctx.outline.typedefs[td.0 as usize];
+                let params: Vec<(u32, Ty)> = data
+                    .type_params
+                    .iter()
+                    .map(|p| (p.0, self.ctx.ty_of(self.ctx.table.param(*p).bound)))
+                    .collect();
+                let args = self.ctx.bounds_instantiation(&params);
+                let map: HashMap<u32, Ty> = params.iter().map(|(id, _)| *id).zip(args).collect();
+                let ty = self.ctx.ty_of(data.target_type).subst_prop(&map);
+                let rti = self.rti(&ty);
                 if self.in_foreign_js {
                     return (Js::prim(rti), self.ctx.t_type());
                 }

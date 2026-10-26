@@ -2074,6 +2074,61 @@ impl<'a> Ctx<'a> {
     }
 
     /// `C<dynamic, …>`: the class as a type literal without arguments.
+    /// The instantiation to bounds of the type parameters `params` (id and
+    /// bound): no bound (or a top one) is `dynamic`; a bound, with the
+    /// parameters already instantiated substituted, in dependency order;
+    /// those left in a bound cycle get the bound with the cycle's parameters
+    /// as `dynamic` (the VM's `C` for `class C<T extends num>` is `C<num>`).
+    pub fn bounds_instantiation(&self, params: &[(u32, Ty)]) -> Vec<Ty> {
+        let top = |t: &Ty| match t {
+            Ty::Dynamic | Ty::Void => true,
+            Ty::Iface {
+                class,
+                nullable: true,
+                ..
+            } => Some(*class) == self.object,
+            _ => false,
+        };
+        let ids: Vec<u32> = params.iter().map(|(id, _)| *id).collect();
+        let mut done: HashMap<u32, Ty> = HashMap::new();
+        for (id, b) in params {
+            if top(b) {
+                done.insert(*id, Ty::Dynamic);
+            }
+        }
+        loop {
+            let mut progress = false;
+            for (id, b) in params {
+                if done.contains_key(id) {
+                    continue;
+                }
+                let mut used = Vec::new();
+                b.collect_params(&mut used);
+                if used
+                    .iter()
+                    .all(|u| !ids.contains(u) || done.contains_key(u))
+                {
+                    done.insert(*id, b.clone().subst_prop(&done));
+                    progress = true;
+                }
+            }
+            if !progress {
+                break;
+            }
+        }
+        let mut cycle = done.clone();
+        for id in &ids {
+            cycle.entry(*id).or_insert(Ty::Dynamic);
+        }
+        params
+            .iter()
+            .map(|(id, b)| match done.get(id) {
+                Some(t) => t.clone(),
+                None => b.clone().subst_prop(&cycle),
+            })
+            .collect()
+    }
+
     pub fn this_ty_default(&self, c: ClassId) -> Ty {
         let args = self.class_params[c.0 as usize]
             .iter()

@@ -105,8 +105,14 @@ pub struct FnEmitter<'m, 'a> {
     /// Arguments of a JS interop call: functions go through
     /// `dart.assertInterop` (except a direct `allowInterop(...)`).
     pub interop_args: bool,
-    /// `case` labels reachable by `continue`: (Dart name, JS label of the loop, value of the state variable).
+    /// `case` labels reachable by `continue`: (Dart name, JS label of the
+    /// loop, the assignment of the state variable that selects the case).
     pub case_labels: Vec<(String, String, String)>,
+    /// What an unlabeled `continue` leaves, innermost last: a loop (`None`)
+    /// or the `while (true)` of a `switch` with case labels (`Some((label,
+    /// state variable))`), which the `continue` must leave to reach the
+    /// enclosing loop; the flag says such a `continue` was emitted.
+    pub continue_scopes: Vec<Option<(String, String, bool)>>,
     /// The `_` symbol when the library has wildcards (Dart 3.7): a local,
     /// parameter or type parameter with that name does not bind a name.
     pub wildcard: Option<SymbolId>,
@@ -208,6 +214,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             in_const: false,
             interop_args: false,
             case_labels: Vec::new(),
+            continue_scopes: Vec::new(),
             wildcard: ctx
                 .program
                 .library(lib)
@@ -1593,14 +1600,18 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 let (cjs, _) = self.emit_cond(*condition);
                 crate::open_block!(self.w, "while ({cjs}) {{");
                 self.push_scope();
+                self.continue_scopes.push(None);
                 self.emit_stmt(*body);
+                self.continue_scopes.pop();
                 self.pop_scope();
                 self.w.close("}");
             }
             StmtKind::DoWhile { body, condition } => {
                 self.w.open("do {");
                 self.push_scope();
+                self.continue_scopes.push(None);
                 self.emit_stmt(*body);
+                self.continue_scopes.pop();
                 self.pop_scope();
                 let (cjs, _) = self.emit_cond(*condition);
                 crate::close_block!(self.w, "}} while ({cjs});");
@@ -1660,7 +1671,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         upd.join(", ")
                     ));
                     self.push_scope();
+                    self.continue_scopes.push(None);
                     self.emit_stmt(*body);
+                    self.continue_scopes.pop();
                     self.pop_scope();
                     self.w.close("}");
                     self.typed_loop_raw = saved;
@@ -1676,7 +1689,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     upd.join(", ")
                 ));
                 self.push_scope();
+                self.continue_scopes.push(None);
                 self.emit_stmt(*body);
+                self.continue_scopes.pop();
                 self.pop_scope();
                 self.w.close("}");
                 if versioned {
@@ -1691,7 +1706,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 iterable,
                 body,
             } => {
+                self.continue_scopes.push(None);
                 self.emit_for_in(*await_, target, *iterable, *body);
+                self.continue_scopes.pop();
             }
             StmtKind::Switch { value, cases } => self.emit_switch(*value, cases),
             StmtKind::Break(label) => match label {
@@ -1720,14 +1737,24 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         .find(|(k, _, _)| *k == n)
                         .cloned()
                     {
-                        crate::emit_line!(self.w, "t$state = {state};");
+                        crate::emit_line!(self.w, "{state};");
                         crate::emit_line!(self.w, "continue {loop_label};");
                     } else {
                         let js = self.js_label(&n);
                         crate::emit_line!(self.w, "continue {js};");
                     }
                 }
-                None => self.w.line("continue;"),
+                None => match self.continue_scopes.last_mut() {
+                    // Inside the `while (true)` of a `switch` with case labels:
+                    // leave it, and continue the loop after it.
+                    Some(Some((label, state, used))) => {
+                        *used = true;
+                        let (label, state) = (label.clone(), state.clone());
+                        crate::emit_line!(self.w, "{state} = -2;");
+                        crate::emit_line!(self.w, "break {label};");
+                    }
+                    _ => self.w.line("continue;"),
+                },
             },
             StmtKind::Return(e) => match e {
                 Some(e) => {
@@ -2118,25 +2145,29 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             self.switch_labels.push(None);
             if has_case_labels {
                 // `continue label` to another case: a loop with a state variable.
-                crate::emit_line!(self.w, "t$state = {};", vjs.code);
-                self.temps.push("t$state".into());
-                self.temps.dedup();
+                let state = self.temp();
+                crate::emit_line!(self.w, "{state} = {};", vjs.code);
                 crate::emit_line!(self.w, "{label}:");
                 self.w.open("while (true) {");
-                self.w.open("switch (t$state) {");
+                self.w.open(&format!("switch ({state}) {{"));
+                self.continue_scopes
+                    .push(Some((label.clone(), state.clone(), false)));
                 let mut n_pushed = 0;
                 for c in cases {
-                    if let Some(p) = c.pattern {
-                        let consts = self.const_pattern_values(p);
-                        if let Some(first) = consts.first() {
-                            for l in c.labels.iter() {
-                                self.case_labels.push((
-                                    self.name(l.sym).to_string(),
-                                    label.clone(),
-                                    first.clone(),
-                                ));
-                                n_pushed += 1;
-                            }
+                    // The value that selects the case: its first constant, or
+                    // for `default:` a new object, equal to no constant.
+                    let selector = match c.pattern {
+                        Some(p) => self.const_pattern_values(p).first().cloned(),
+                        None => Some("{}".to_string()),
+                    };
+                    if let Some(first) = selector {
+                        for l in c.labels.iter() {
+                            self.case_labels.push((
+                                self.name(l.sym).to_string(),
+                                label.clone(),
+                                format!("{state} = {first}"),
+                            ));
+                            n_pushed += 1;
                         }
                     }
                 }
@@ -2167,6 +2198,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     self.case_labels.pop();
                 }
                 self.switch_labels.pop();
+                if let Some(Some((_, _, true))) = self.continue_scopes.pop() {
+                    crate::emit_line!(self.w, "if ({state} === -2) continue;");
+                }
                 return;
             }
             crate::emit_line!(self.w, "{label}:");
@@ -2200,13 +2234,46 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             self.switch_labels.pop();
             return;
         }
-        // General form: a labeled block with pattern tests.
+        // General form: a labeled block with pattern tests. With case labels
+        // (`continue L` to another case), a `while (true)` whose state
+        // variable selects the case (-1: match the patterns).
         let label = self.fresh_label();
         let t = self.temp();
         crate::emit_line!(self.w, "{t} = {};", vjs.code);
         self.switch_labels.push(Some(label.clone()));
-        crate::open_block!(self.w, "{label}: {{");
+        let labeled = cases.iter().any(|c| !c.labels.is_empty());
+        let state = labeled.then(|| self.temp());
+        let mut n_pushed = 0;
+        if let Some(state) = &state {
+            crate::emit_line!(self.w, "{state} = -1;");
+            crate::open_block!(self.w, "{label}: while (true) {{");
+            self.continue_scopes
+                .push(Some((label.clone(), state.clone(), false)));
+            let mut i = 0;
+            let mut k = 0;
+            while i < cases.len() {
+                let mut j = i;
+                while j + 1 < cases.len() && cases[j].body.is_empty() {
+                    j += 1;
+                }
+                for c in &cases[i..=j] {
+                    for l in c.labels.iter() {
+                        self.case_labels.push((
+                            self.name(l.sym).to_string(),
+                            label.clone(),
+                            format!("{state} = {k}"),
+                        ));
+                        n_pushed += 1;
+                    }
+                }
+                k += 1;
+                i = j + 1;
+            }
+        } else {
+            crate::open_block!(self.w, "{label}: {{");
+        }
         let mut i = 0;
+        let mut k = 0;
         while i < cases.len() {
             // Consecutive cases without a body share the next body.
             let mut j = i;
@@ -2242,6 +2309,11 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     .collect::<Vec<_>>()
                     .join(" || ")
             };
+            let full = match &state {
+                Some(state) => format!("{state} === {k} || {state} === -1 && ({full})"),
+                None => full,
+            };
+            k += 1;
             crate::open_block!(self.w, "if ({full}) {{");
             for &s in body_case.body.iter() {
                 self.emit_stmt(s);
@@ -2254,7 +2326,19 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             self.w.close("}");
             i = j + 1;
         }
-        self.w.close("}");
+        if let Some(state) = &state {
+            // No case matched: leave the loop.
+            crate::emit_line!(self.w, "break {label};");
+            self.w.close("}");
+            for _ in 0..n_pushed {
+                self.case_labels.pop();
+            }
+            if let Some(Some((_, _, true))) = self.continue_scopes.pop() {
+                crate::emit_line!(self.w, "if ({state} === -2) continue;");
+            }
+        } else {
+            self.w.close("}");
+        }
         self.switch_labels.pop();
     }
 
