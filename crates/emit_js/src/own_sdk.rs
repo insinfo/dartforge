@@ -233,7 +233,64 @@ pub fn covariant_field(ctx: &Ctx, c: ClassId, vid: VariableId) -> bool {
         .iter()
         .map(|p| p.id)
         .collect();
-    occurs_covariantly(&ctx.var_ty(vid), &ids, true)
+    occurs_covariantly(&ctx.var_ty(vid), &ids, true) || overrides_covariant_setter(ctx, c, v.name)
+}
+
+/// The setter `name=` of some supertype of `c` has a covariant parameter:
+/// that of a field written `covariant` or mentioning the class's type
+/// parameters covariantly, or a parameter written `covariant`.
+fn overrides_covariant_setter(ctx: &Ctx, c: ClassId, name: dartforge_intern::SymbolId) -> bool {
+    let Some(key) = ctx.sym(&format!("{}_=", ctx.interner.resolve(name))) else {
+        return false;
+    };
+    let mut seen: HashSet<ClassId> = HashSet::new();
+    let mut stack: Vec<ClassId> = ctx.class_supers[c.0 as usize]
+        .iter()
+        .filter_map(|s| s.class())
+        .collect();
+    while let Some(k) = stack.pop() {
+        if !seen.insert(k) || Some(k) == ctx.object {
+            continue;
+        }
+        stack.extend(
+            ctx.class_supers[k.0 as usize]
+                .iter()
+                .filter_map(|s| s.class()),
+        );
+        let Some(&g) = ctx.program.class(k).instance_members.get(&key) else {
+            continue;
+        };
+        if let Some(v) = ctx.program.function(g).variable
+            && covariant_field(ctx, k, v)
+        {
+            return true;
+        }
+        let Some(p) = ctx.outline.functions[g.0 as usize].parameters.first() else {
+            continue;
+        };
+        let ids: HashSet<u32> = ctx.class_params[k.0 as usize]
+            .iter()
+            .map(|p| p.id)
+            .collect();
+        if occurs_covariantly(&ctx.ty_of(p.ty), &ids, true) {
+            return true;
+        }
+        if let dartforge_elements::model::FunctionRef::Function { unit, function } =
+            ctx.program.function(g).node
+            && ctx
+                .program
+                .unit(unit)
+                .ast
+                .function(function)
+                .parameters
+                .as_deref()
+                .and_then(|ps| ps.first())
+                .is_some_and(|q| q.covariant)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 fn annotation_name<'a>(ctx: &'a Ctx, a: &ast::Annotation) -> &'a str {

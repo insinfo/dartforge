@@ -1463,45 +1463,27 @@ pub(crate) fn emit_top_variables(
         };
         if v.late {
             m.use_sdk("_internal");
-            let storage = format!("_#{name}");
-            lazy.push(format!(
-                "get [{}]() {{\n{}\n}},\nset [{}](value) {{}}",
-                js::string_literal(&storage),
-                indent(&init),
-                js::string_literal(&storage)
+            let store = format!("{lvar}[{}]", js::string_literal(&format!("_#{name}")));
+            let is_set = (ty.is_nullable() || ty.is_dynamic())
+                .then(|| format!("{lvar}[{}]", js::string_literal(&format!("_#{name}#isSet"))));
+            let (get, set) = late_accessors(
+                &store,
+                is_set.as_deref(),
+                var.initializer.is_some().then_some(init.as_str()),
+                v.final_,
+                ctx.late_name(name),
+                "",
+            );
+            props.push(format!(
+                "get {}() {{\n{}\n}}",
+                js::prop_key(name),
+                indent(&get)
             ));
-            let getter = if var.initializer.is_some() {
-                format!(
-                    "get {}() {{\n  let t = {lvar}[{}];\n  if (t == null) {{ t = (() => {{\n{}\n  }})(); {lvar}[{}] = t; }}\n  return t;\n}}",
-                    js::prop_key(name),
-                    js::string_literal(&storage),
-                    indent(&indent(&init)),
-                    js::string_literal(&storage)
-                )
-            } else {
-                format!(
-                    "get {}() {{\n  let t = {lvar}[{}];\n  return t == null ? dart.throw(new _internal.LateError.fieldNI({})) : t;\n}}",
-                    js::prop_key(name),
-                    js::string_literal(&storage),
-                    js::string_literal(ctx.late_name(name))
-                )
-            };
-            props.push(getter);
-            if !v.final_ {
-                props.push(format!(
-                    "set {}(v) {{\n  {lvar}[{}] = v;\n}}",
-                    js::prop_key(name),
-                    js::string_literal(&storage)
-                ));
-            } else {
-                props.push(format!(
-                    "set {}(v) {{\n  if ({lvar}[{}] != null) dart.throw(new _internal.LateError.fieldAI({}));\n  {lvar}[{}] = v;\n}}",
-                    js::prop_key(name),
-                    js::string_literal(&storage),
-                    js::string_literal(ctx.late_name(name)),
-                    js::string_literal(&storage)
-                ));
-            }
+            props.push(format!(
+                "set {}(v) {{\n{}\n}}",
+                js::prop_key(name),
+                indent(&set)
+            ));
         } else if let Some(lit) = eager_literal(ctx, &init, name) {
             eager.push(format!("{lvar}{} = {lit};", js::prop_access(name)));
         } else {
@@ -1525,6 +1507,65 @@ pub(crate) fn emit_top_variables(
         w.push_raw(&indent(&lazy.join(",\n")));
         w.push_raw("\n});\n");
     }
+}
+
+/// Getter and setter bodies (the setter's parameter is `v`) of a `late`
+/// variable stored at `store`, as the CFE lowers it: a nullable type records
+/// whether it was set in `is_set`, a non-nullable one uses `null`. `init` is
+/// the initializer's function body; a `late final` one rejects an assignment
+/// made while the initializer runs (`LateError.fieldADI`). `check` precedes
+/// the write (a covariant field's check).
+pub(crate) fn late_accessors(
+    store: &str,
+    is_set: Option<&str>,
+    init: Option<&str>,
+    final_: bool,
+    late_name: &str,
+    check: &str,
+) -> (String, String) {
+    let name = js::string_literal(late_name);
+    let getter = match (init, is_set) {
+        (Some(init), Some(set)) => {
+            let adi = if final_ {
+                format!("if ({set}) dart.throw(new _internal.LateError.fieldADI({name})); ")
+            } else {
+                String::new()
+            };
+            format!(
+                "if (!{set}) {{ let t = (() => {{\n{init}\n}})(); {adi}{store} = t; {set} = true; }}\nreturn {store};"
+            )
+        }
+        (Some(init), None) => {
+            let adi = if final_ {
+                format!(
+                    "if ({store} != null) dart.throw(new _internal.LateError.fieldADI({name})); "
+                )
+            } else {
+                String::new()
+            };
+            format!(
+                "let t = {store};\nif (t == null) {{ t = (() => {{\n{init}\n}})(); {adi}{store} = t; }}\nreturn t;"
+            )
+        }
+        (None, Some(set)) => {
+            format!("return {set} ? {store} : dart.throw(new _internal.LateError.fieldNI({name}));")
+        }
+        (None, None) => format!(
+            "let t = {store};\nreturn t == null ? dart.throw(new _internal.LateError.fieldNI({name})) : t;"
+        ),
+    };
+    let mark = is_set
+        .map(|set| format!(" {set} = true;"))
+        .unwrap_or_default();
+    let setter = if final_ {
+        let assigned = is_set.map_or_else(|| format!("{store} != null"), str::to_string);
+        format!(
+            "if ({assigned}) dart.throw(new _internal.LateError.fieldAI({name}));\n{check}{store} = v;{mark}"
+        )
+    } else {
+        format!("{check}{store} = v;{mark}")
+    };
+    (getter, setter)
 }
 
 /// Production profile: the literal that a static or top-level variable's
@@ -1581,6 +1622,8 @@ struct FieldInfo {
     name: String,
     /// Storage symbol (`this[sym]`); `None` → direct property.
     storage: Option<String>,
+    /// `late` with a nullable type: the symbol of its "was set" flag.
+    is_set: Option<String>,
     late: bool,
     final_: bool,
     init: Option<ast::ExprId>,
@@ -1695,17 +1738,23 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             Some(m.private_sym(ctx, class.library, &format!("{cname}.{name}")))
         };
         let virtual_ = v.late || (!private && !is_enum && !plain);
+        let ty = ctx.var_ty(vid);
+        // A nullable `late` field records whether it was set (`null` is a
+        // value), as the CFE lowers it.
+        let is_set = (v.late && !helper && (ty.is_nullable() || ty.is_dynamic()))
+            .then(|| m.private_sym(ctx, class.library, &format!("_#{cname}#{name}#isSet")));
         fields.push(FieldInfo {
             vid,
             name,
             virtual_,
             helper,
             storage,
+            is_set,
             late: v.late,
             final_: v.final_,
             init: var.initializer,
             unit: fu,
-            ty: ctx.var_ty(vid),
+            ty,
         });
     }
 
@@ -1785,38 +1834,47 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             if f.late {
                 m.use_sdk("_internal");
                 let mut e = FnEmitter::new(ctx, m, f.unit, Some(c), false);
-                match f.init {
-                    Some(i) => {
-                        let (js, _) = e.emit_expr(i, Some(&f.ty));
-                        let pre = if e.temps.is_empty() {
-                            String::new()
-                        } else {
-                            format!("let {};\n", e.temps.join(", "))
-                        };
-                        crate::emit_line!(cw, "get {key}() {{");
-                        crate::emit_line!(cw, "  let t = this[{sym}];");
-                        cw.line(&format!("  if (t == null) {{ t = (() => {{ {pre}{}return {}; }})(); this[{sym}] = t; }}", e.w.out.replace('\n', " "), js.code));
-                        cw.line("  return t;");
-                        cw.line("}");
-                    }
-                    None => {
-                        crate::emit_line!(cw, "get {key}() {{");
-                        crate::emit_line!(cw, "  let t = this[{sym}];");
-                        cw.line(&format!("  return t == null ? dart.throw(new _internal.LateError.fieldNI({})) : t;", js::string_literal(ctx.late_name(&f.name))));
-                        cw.line("}");
-                    }
-                }
+                let init = f.init.map(|i| {
+                    let (js, _) = e.emit_expr(i, Some(&f.ty));
+                    let pre = if e.temps.is_empty() {
+                        String::new()
+                    } else {
+                        format!("let {};\n", e.temps.join(", "))
+                    };
+                    format!("{pre}{}return {};", e.w.out, js.code)
+                });
+                let is_set = f.is_set.as_ref().map(|set| format!("this[{set}]"));
                 let check = covariant_check
                     .as_ref()
                     .map(|r| format!("{r}[_as](v); "))
                     .unwrap_or_default();
-                if f.final_ {
-                    crate::emit_line!(cw, "set {key}(v) {{");
-                    cw.line(&format!("  if (this[{sym}] != null) dart.throw(new _internal.LateError.fieldAI({}));", js::string_literal(ctx.late_name(&f.name))));
-                    crate::emit_line!(cw, "  {check}this[{sym}] = v;");
-                    cw.line("}");
+                let (get, set) = late_accessors(
+                    &format!("this[{sym}]"),
+                    is_set.as_deref(),
+                    init.as_deref(),
+                    f.final_,
+                    ctx.late_name(&f.name),
+                    &check,
+                );
+                crate::emit_line!(cw, "get {key}() {{");
+                for l in get.lines() {
+                    cw.line(&format!("  {l}"));
+                }
+                cw.line("}");
+                if f.final_ && f.init.is_some() {
+                    // No setter of its own: an inherited one, if any.
+                    let sup = if key.starts_with('[') {
+                        key.clone()
+                    } else {
+                        js::prop_access(&crate::body::js_member_name(&f.name))
+                    };
+                    crate::emit_line!(cw, "set {key}(v) {{ super{sup} = v; }}");
                 } else {
-                    crate::emit_line!(cw, "set {key}(v) {{ {check}this[{sym}] = v; }}");
+                    crate::emit_line!(cw, "set {key}(v) {{");
+                    for l in set.lines() {
+                        cw.line(&format!("  {l}"));
+                    }
+                    cw.line("}");
                 }
             } else {
                 crate::emit_line!(cw, "get {key}() {{ return this[{sym}]; }}");
@@ -2692,6 +2750,14 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         .retain(|(n, _)| ctx.signature_live(n) || inherited_native_method_signatures.contains(n));
     generic_methods
         .retain(|(n, _)| ctx.signature_live(n) || inherited_native_method_signatures.contains(n));
+    // A `late` field is a getter/setter pair (its storage is the field):
+    // dynamic accesses find it by its name, as in the CFE's lowering.
+    for f in fields.iter().filter(|f| f.late && f.virtual_ && !f.helper) {
+        getter_sigs.push((f.name.clone(), f.ty.clone()));
+        if !(f.final_ && f.init.is_some()) {
+            setter_sigs.push((f.name.clone(), f.ty.clone()));
+        }
+    }
     getter_sigs.retain(|(n, _)| ctx.signature_live(n) || inherited_native_aliases.contains(n));
     setter_sigs.retain(|(n, _)| ctx.signature_live(n) || inherited_native_aliases.contains(n));
     let fields_sig: Vec<&FieldInfo> = fields
@@ -3005,38 +3071,29 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         };
         if v.late {
             m.use_sdk("_internal");
-            let storage = format!("_#{name}");
-            lazy.push(format!(
-                "get [{}]() {{\n{}\n}},\nset [{}](value) {{}}",
-                js::string_literal(&storage),
-                indent(&init),
-                js::string_literal(&storage)
-            ));
-            let getter = if var.initializer.is_some() {
-                format!(
-                    "get {}() {{\n  let t = {cref}[{}];\n  if (t == null) {{ t = (() => {{\n{}\n  }})(); {cref}[{}] = t; }}\n  return t;\n}}",
-                    js::prop_key(&name),
-                    js::string_literal(&storage),
-                    indent(&indent(&init)),
-                    js::string_literal(&storage)
-                )
-            } else {
-                format!(
-                    "get {}() {{\n  let t = {cref}[{}];\n  return t == null ? dart.throw(new _internal.LateError.fieldNI({})) : t;\n}}",
-                    js::prop_key(&name),
-                    js::string_literal(&storage),
-                    js::string_literal(ctx.late_name(&name))
-                )
-            };
-            let setter = format!(
-                "set {}(v) {{\n  {cref}[{}] = v;\n}}",
-                js::prop_key(&name),
-                js::string_literal(&storage)
+            let store = format!("{cref}[{}]", js::string_literal(&format!("_#{name}")));
+            let is_set = (ty.is_nullable() || ty.is_dynamic())
+                .then(|| format!("{cref}[{}]", js::string_literal(&format!("_#{name}#isSet"))));
+            let (get, set) = late_accessors(
+                &store,
+                is_set.as_deref(),
+                var.initializer.is_some().then_some(init.as_str()),
+                v.final_,
+                ctx.late_name(&name),
+                "",
             );
             w.line(&format!(
                 "dart.copyProperties({cref}, {{\n{},\n{}\n}});",
-                indent(&getter),
-                indent(&setter)
+                indent(&format!(
+                    "get {}() {{\n{}\n}}",
+                    js::prop_key(&name),
+                    indent(&get)
+                )),
+                indent(&format!(
+                    "set {}(v) {{\n{}\n}}",
+                    js::prop_key(&name),
+                    indent(&set)
+                ))
             ));
         } else if let Some(lit) = eager_literal(ctx, &init, &name) {
             w.line(&format!("{cref}{} = {lit};", js::prop_access(&name)));
@@ -3673,6 +3730,7 @@ fn emit_constructor(
                 let target = field_target(fields, &name);
                 let jsn = e.param_js_name(n);
                 crate::emit_line!(body, "{target} = {jsn};");
+                mark_set(fields, &name, &mut body);
             }
         }
     }
@@ -3687,6 +3745,7 @@ fn emit_constructor(
                 flush_stmts(&mut e, &mut body);
                 let target = field_target(fields, &n);
                 crate::emit_line!(body, "{target} = {};", js.code);
+                mark_set(fields, &n, &mut body);
             }
             ast::Initializer::Assert { .. } if ctx.filter.is_some_and(|f| !f.keep_asserts()) => {}
             ast::Initializer::Assert {
@@ -3858,6 +3917,18 @@ pub(crate) fn flush_stmts(e: &mut FnEmitter, body: &mut Writer) {
     let out = std::mem::take(&mut e.w.out);
     for line in out.lines() {
         body.line(line);
+    }
+}
+
+/// A constructor's write of a nullable `late` field also records that it was
+/// set.
+fn mark_set(fields: &[FieldInfo], name: &str, body: &mut Writer) {
+    if let Some(set) = fields
+        .iter()
+        .find(|f| f.name == name)
+        .and_then(|f| f.is_set.as_ref())
+    {
+        crate::emit_line!(body, "this[{set}] = true;");
     }
 }
 

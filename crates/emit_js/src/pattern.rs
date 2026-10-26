@@ -85,7 +85,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
             PatternKind::Constant(e) => {
+                // The expression of a constant pattern is a constant (`const
+                // (<int>[42])` is canonical).
+                let saved = std::mem::replace(&mut self.in_const, true);
                 let (c, cty) = self.emit_expr(*e, Some(vty));
+                self.in_const = saved;
                 self.emit_equals(&c, &cty, &v, vty).code
             }
             PatternKind::Relational { op, value } => {
