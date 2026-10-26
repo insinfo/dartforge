@@ -3528,6 +3528,7 @@ fn emit_constructor(
 ) -> String {
     let class = ctx.program.class(c);
     let mut e = FnEmitter::new(ctx, m, unit, Some(c), false);
+    e.explicit_super = true;
     e.in_constructor = true;
     let ctor_sym = ctor.name.map(|n| n.sym).or(ctx.empty_sym);
     let fid = ctor_sym.and_then(|s| class.constructors.get(&s).copied());

@@ -113,6 +113,11 @@ pub struct FnEmitter<'m, 'a> {
     /// state variable))`), which the `continue` must leave to reach the
     /// enclosing loop; the flag says such a `continue` was emitted.
     pub continue_scopes: Vec<Option<(String, String, bool)>>,
+    /// The body is not a method of a JavaScript class (a constructor, emitted
+    /// as `C.new = function() {…}`): `super` is not valid there, and
+    /// `super.x` goes through the superclass's prototype with `this` as the
+    /// receiver.
+    pub explicit_super: bool,
     /// The `_` symbol when the library has wildcards (Dart 3.7): a local,
     /// parameter or type parameter with that name does not bind a name.
     pub wildcard: Option<SymbolId>,
@@ -215,6 +220,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             interop_args: false,
             case_labels: Vec::new(),
             continue_scopes: Vec::new(),
+            explicit_super: false,
             wildcard: ctx
                 .program
                 .library(lib)

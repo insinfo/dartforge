@@ -758,7 +758,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         }
                         let mut all = targs;
                         all.extend(args);
-                        if is_super && self.async_kind != AsyncKind::None {
+                        if is_super && self.super_by_prototype() {
                             return (
                                 Js::prim(format!(
                                     "{}{access}.call(this{})",
@@ -792,6 +792,28 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if let Ty::Record { .. } = &recv_nn {
                     let (g, gty) = self.emit_member_get(recv, &recv_nn, name, None);
                     return self.emit_fn_value_call(&g, &gty, arguments, expected);
+                }
+                // `super.m()` whose member the static lookup does not find (a
+                // method of a mixin's `on` types): the superclass's method by
+                // name, not a dynamic send to `super`, which is not JavaScript.
+                if is_super {
+                    let (args, named, _) = self.emit_args_plain(arguments);
+                    let mut all = args;
+                    all.extend(named);
+                    let access = if name.starts_with('_') {
+                        let lib = self.ctx.program.unit(self.unit).library;
+                        format!("[{}]", self.private_sym(lib, name))
+                    } else {
+                        format!(".{}", crate::body::js_member_name(name))
+                    };
+                    let call = if self.super_by_prototype() {
+                        let mut with_this = vec!["this".to_string()];
+                        with_this.extend(all);
+                        format!("{}{access}.call({})", recv.code, with_this.join(", "))
+                    } else {
+                        format!("{}{access}({})", recv.code, all.join(", "))
+                    };
+                    return (Js::prim(call), Ty::Dynamic);
                 }
                 self.emit_dsend(recv, name, arguments)
             }

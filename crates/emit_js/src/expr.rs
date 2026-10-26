@@ -3245,11 +3245,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         .map(|m| self.ctx.member_ty(m))
                         .unwrap_or(Ty::Dynamic);
                     let access = self.member_access(&sup_ty, &n, false);
-                    return (
-                        Js::prim(format!("{}{access}", self.super_ref())),
-                        ty,
-                        vec![],
-                    );
+                    if self.super_field_storage(&sup_ty, &n, false) {
+                        return (Js::prim(format!("this{access}")), ty, vec![]);
+                    }
+                    // `super.m` of a method: the tear-off bound to `this` with
+                    // the superclass's function.
+                    if matches!(m.as_ref().map(|m| &m.kind), Some(MemberKind::Method(_))) {
+                        return (
+                            Js::prim(format!(
+                                "dart.bind(this, {}, {})",
+                                access_key(&access),
+                                self.super_read(&access)
+                            )),
+                            ty,
+                            vec![],
+                        );
+                    }
+                    return (Js::prim(self.super_read(&access)), ty, vec![]);
                 }
                 let (tjs, tty, mut guards) = self.emit_target(*target);
                 let (recv, recv_ty) = if *null_aware {
@@ -3351,8 +3363,45 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         base
     }
 
+    /// `super` cannot be written here (an `async` body, a constructor):
+    /// members go through the superclass's prototype, with `this`.
+    pub fn super_by_prototype(&self) -> bool {
+        self.async_kind != AsyncKind::None || self.explicit_super
+    }
+
+    /// The member `super.name` resolves to is a field stored directly on the
+    /// instance, without accessors on the prototype: a private field, or a
+    /// public one nobody overrides in the production profile
+    /// (`own_sdk::non_virtual_field`). Then `super.name` is `this.name`.
+    pub fn super_field_storage(&self, sup_ty: &Ty, name: &str, setter: bool) -> bool {
+        let Some(m) = self.ctx.lookup_member(sup_ty, name, setter) else {
+            return false;
+        };
+        let MemberKind::Field(vid) = m.kind else {
+            return false;
+        };
+        let var = self.ctx.program.variable(vid);
+        if var.late {
+            return false;
+        }
+        name.starts_with('_') || crate::own_sdk::non_virtual_field(self.ctx, m.class, var.name)
+    }
+
+    /// `super{access}` read with `this` as the receiver.
+    pub fn super_read(&self, access: &str) -> String {
+        if self.super_by_prototype() {
+            format!(
+                "dart.global.Reflect.get({}, {}, this)",
+                self.super_ref(),
+                access_key(access)
+            )
+        } else {
+            format!("super{access}")
+        }
+    }
+
     pub fn super_ref(&self) -> String {
-        if self.async_kind == AsyncKind::None {
+        if !self.super_by_prototype() {
             "super".to_string()
         } else {
             match self.class {
@@ -4302,7 +4351,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let mname = if is_eq { "==" } else { name };
             let (r, _) = self.emit_expr(right, None);
             let access = self.member_access(&sup_ty, mname, false);
-            let call = format!("{}{access}({})", self.super_ref(), r.code);
+            let call = if self.super_by_prototype() {
+                format!("{}{access}.call(this, {})", self.super_ref(), r.code)
+            } else {
+                format!("super{access}({})", r.code)
+            };
             let ret = if is_eq {
                 self.ctx.t_bool()
             } else {
@@ -4626,11 +4679,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if let ExprKind::Super = self.expr(*recv).kind {
                     let sup_ty = self.super_ty_for(&n, true);
                     let access = self.member_access(&sup_ty, &n, true);
+                    if self.super_field_storage(&sup_ty, &n, true) {
+                        return (
+                            Js::new(format!("this{access} = {}", v.at(P_ASSIGN)), P_ASSIGN),
+                            Ty::Dynamic,
+                        );
+                    }
+                    if self.super_by_prototype() {
+                        // The setter of the superclass with `this` as the
+                        // receiver; the expression's value is the value.
+                        let t = self.temp();
+                        return (
+                            Js::new(
+                                format!(
+                                    "({t} = {}, dart.global.Reflect.set({}, {}, {t}, this), {t})",
+                                    v.at(P_ASSIGN),
+                                    self.super_ref(),
+                                    access_key(&access)
+                                ),
+                                P_ASSIGN,
+                            ),
+                            Ty::Dynamic,
+                        );
+                    }
                     return (
-                        Js::new(
-                            format!("{}{access} = {}", self.super_ref(), v.at(P_ASSIGN)),
-                            P_ASSIGN,
-                        ),
+                        Js::new(format!("super{access} = {}", v.at(P_ASSIGN)), P_ASSIGN),
                         Ty::Dynamic,
                     );
                 }
@@ -5077,13 +5150,36 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let rt = m.map(|m| self.ctx.member_ty(&m)).unwrap_or(Ty::Dynamic);
                     let get = self.member_access(&sup_ty, &n, false);
                     let set = self.member_access(&sup_ty, &n, true);
+                    let storage = self.super_field_storage(&sup_ty, &n, false);
+                    let by_prototype = self.super_by_prototype();
                     let sr = self.super_ref();
-                    let sr2 = sr.clone();
+                    let read = if storage {
+                        format!("this{get}")
+                    } else {
+                        self.super_read(&get)
+                    };
                     (
-                        Js::prim(format!("{sr}{get}")),
+                        Js::prim(read),
                         rt,
-                        Box::new(move |_s: &mut Self, v: &Js| {
-                            Js::new(format!("{sr2}{set} = {}", v.at(P_ASSIGN)), P_ASSIGN)
+                        Box::new(move |s: &mut Self, v: &Js| {
+                            if storage {
+                                return Js::new(
+                                    format!("this{set} = {}", v.at(P_ASSIGN)),
+                                    P_ASSIGN,
+                                );
+                            }
+                            if by_prototype {
+                                let t = s.temp();
+                                return Js::new(
+                                    format!(
+                                        "({t} = {}, dart.global.Reflect.set({sr}, {}, {t}, this), {t})",
+                                        v.at(P_ASSIGN),
+                                        access_key(&set)
+                                    ),
+                                    P_ASSIGN,
+                                );
+                            }
+                            Js::new(format!("super{set} = {}", v.at(P_ASSIGN)), P_ASSIGN)
                         }),
                     )
                 } else {
@@ -5755,3 +5851,16 @@ impl Ty {
 
 #[allow(dead_code)]
 fn _unused(_: ClassKind, _: LibraryId) {}
+
+/// The property key of a member access (`.name` or `[key]`), as an
+/// expression: `"name"` or `key`.
+fn access_key(access: &str) -> String {
+    match access.strip_prefix('.') {
+        Some(name) => format!("\"{name}\""),
+        None => access
+            .strip_prefix('[')
+            .and_then(|a| a.strip_suffix(']'))
+            .unwrap_or(access)
+            .to_string(),
+    }
+}
