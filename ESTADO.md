@@ -1,4 +1,4 @@
-# Estado do DartForge — 2026-10-20
+# Estado do DartForge — 2026-10-26
 
 ## Balanço das últimas 48 horas — corte em 20/10/2026 às 14:33:15
 
@@ -327,6 +327,72 @@ para forçar compatibilidade. Para reconstruir o compilador, sysroots e detalhes
 dos cinco destinos, consultar [CROSS-COMPILACAO](docs/CROSS-COMPILACAO.md).
 Os comandos desta seção documentam reprodução; não foram todos reexecutados
 durante este balanço. A matriz efetivamente executada está vinculada acima.
+
+## Atualização de 25–26/10/2026: compilador JS
+
+Foco do dia: item 1 do plano de produção (JS), na ordem combinada. Oito
+commits, de `0592caa7` a `4d3ace5c`, todos validados localmente no macOS
+arm64 e enviados.
+
+### Medição
+
+`tests/language` contra a VM 3.6.2, binário congelado após `afdac406`, no
+conjunto de 2266 programas usado nas medições anteriores:
+
+| Ferramenta | Iguais à VM |
+|---|---:|
+| DartForge JS dev, antes (`30ddcc54`) | 2017 |
+| DartForge JS dev, agora | **2128** |
+| DDC 3.6.2 oficial (`dartdevc` + Node) | 2227 |
+
+Nenhuma regressão em relação à rodada anterior. O DDC também passou a ser
+medido na suíte inteira (`run_lang.py ddc`), para separar divergências
+nossas das que o próprio DDC tem: das falhas restantes, 113 são só nossas
+(o DDC acerta) e 26 o DDC também erra. Os commits posteriores à medição
+(`c25d7778`, `4d3ace5c`) corrigem mais cerca de 20 programas em subconjuntos
+(patterns, switch, records, nomes que colidem com JS), ainda sem rodada
+completa. Corpus JS: **252/252** em dev e em produção (eram 247).
+
+### O que entrou
+
+- Verificações de covariância como o DDC: parâmetros genérico-covariantes e
+  `covariant` no prólogo, setter de campo covariante, leitura de membro
+  contravariante, assinaturas reificadas com `Object?`.
+- *Forwarding stubs* de covariância: implementação herdada (da superclasse
+  ou de mixin) que não verifica um parâmetro covariante na interface da
+  classe ganha um stub que verifica contra o tipo da implementação.
+- Resolução de nomes dentro de extensões como o CFE (membros da própria
+  extensão, do tipo `on`, de outras extensões; estáticos `get#`/`set#`),
+  extensão explícita em compostos e índices, `?.` em compostos, `~`/`call`
+  por extensão, limites de extensão, `show`/`hide` nos imports.
+- `late` como o CFE: tipo anulável com flag `#isSet`, `fieldADI`, setter
+  herdado para `late final` com inicializador, assinaturas para acesso
+  dinâmico.
+- Padrões: expressão de padrão constante canônica, variáveis por cabeça em
+  casos compartilhados, escopos de `case`/`if-case`, contexto do padrão no
+  inicializador.
+- JS válido para nomes que colidem: construtores `length`/`caller`/
+  `arguments` com `dart.defineValue` (lido também pelo verificador de
+  produção), classe com nome reservado, locais × parâmetros `this.y`,
+  temporários de inicializadores de campo, hexadecimal acima de 64 bits.
+- Instanciação implícita/explícita de função estática com argumentos
+  constantes é constante (`identical`).
+
+### Pendências observadas
+
+- JS: contexto de record literal em padrões de declaração
+  (`patterns/call_tear_off_test`), limites de métodos genéricos em tear-off e
+  chamada dinâmica (`covariant/type_parameter_test`,
+  `subtyping_test.testGenericMethodBounds`), tipos de tear-off com
+  parâmetro covariante (`regress31596_*`), promoção de campos
+  (`inference_update_2`), `private/*`, `deferred/*`.
+- Analisador (item 4): não rejeita implementação herdada que não conforma
+  com a interface (`D extends C implements I` com parâmetro nomeado), nem
+  parâmetros `_` duplicados antes da 3.7; falsos avisos de
+  `type_argument_not_matching_bounds` com tipos de função genéricos e de
+  `return_of_invalid_type` em `this.call` com `T extends Function`.
+- Próximos itens do plano sem mudança hoje: AOT nativo (2160/2266, rodadas
+  Linux/Windows), pub/test, analisador, Wasm, iOS/Android.
 
 ## Atualização de 20/10/2026
 
