@@ -3264,7 +3264,22 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
             }
         }
     };
-    for (i, &mx) in ctx.mixins_of(c).iter().enumerate() {
+    // A mixin that applies mixins itself (`mixin class A = Object with M`, or
+    // a class with `with`): its mixins come first, then its own members —
+    // `dart.applyMixin` only copies the members declared in the class.
+    fn expand(ctx: &Ctx, mx: ClassId, depth: usize, out: &mut Vec<ClassId>) {
+        if depth < 32 {
+            for &inner in ctx.mixins_of(mx).iter() {
+                expand(ctx, inner, depth + 1, out);
+            }
+        }
+        out.push(mx);
+    }
+    let mut mixins = Vec::new();
+    for &mx in ctx.mixins_of(c).iter() {
+        expand(ctx, mx, 0, &mut mixins);
+    }
+    for (i, &mx) in mixins.iter().enumerate() {
         let tmp = FnEmitter::new(
             ctx,
             m,

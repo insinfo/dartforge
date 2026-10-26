@@ -1979,7 +1979,10 @@ impl<'a> Ctx<'a> {
             }
             for (sym, fid) in self.declared_members(k) {
                 let f = self.program.function(fid);
-                if !f.abstract_ {
+                // A member of an implemented class is part of the interface
+                // even when it is concrete there; what `c` inherits as an
+                // implementation is excluded below (`has_concrete_member`).
+                if !f.abstract_ && k == c {
                     continue;
                 }
                 let key = self.interner.resolve(sym).to_string();
