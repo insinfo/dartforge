@@ -49,6 +49,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 name,
                 null_aware,
             } => {
+                let receiver_expr = *recv;
                 let n = self.name(name.sym).to_string();
                 if let Some((owner, member)) = self.ext_type_member(target) {
                     let (rjs, _, mut guards) = self.emit_target(*recv);
@@ -76,13 +77,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 if let ExprKind::Super = self.expr(*recv).kind {
                     let sup_ty = self.super_ty_for(&n, false);
+                    // A field stored on the instance (no accessors): its value
+                    // is `this`'s, called (`super._f(x)`).
+                    let (receiver, is_super) = if self.super_field_storage(&sup_ty, &n, false) {
+                        ("this".to_string(), false)
+                    } else {
+                        (self.super_ref(), true)
+                    };
                     let (js, ty) = self.emit_method_call(
-                        &Js::prim(self.super_ref()),
+                        &Js::prim(receiver),
                         &sup_ty,
                         &n,
                         arguments,
                         expected,
-                        true,
+                        is_super,
                         None,
                     );
                     return (js, ty, vec![]);
@@ -107,6 +115,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     false,
                     Some(target),
                 );
+                let js = self.contravariant_read_check(js, receiver_expr, &recv_ty, &n, &ty);
                 let ty = if *null_aware {
                     ty.with_nullable(true)
                 } else {
@@ -779,7 +788,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     _ => {
                         // Getter/field returning a function.
-                        let getter = Js::prim(format!("{}{access}", recv.at(P_PRIMARY)));
+                        let mut getter = Js::prim(format!("{}{access}", recv.at(P_PRIMARY)));
+                        if !is_super
+                            && let Some(node) = node
+                            && let ExprKind::Property { target: r, .. } = &self.expr(node).kind
+                        {
+                            getter = self.contravariant_read_check(getter, *r, recv_ty, name, &mty);
+                        }
                         self.emit_fn_value_call(&getter, &mty, arguments, expected)
                     }
                 }

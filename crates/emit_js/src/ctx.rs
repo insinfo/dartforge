@@ -1979,10 +1979,13 @@ impl<'a> Ctx<'a> {
             }
             for (sym, fid) in self.declared_members(k) {
                 let f = self.program.function(fid);
-                // A member of an implemented class is part of the interface
-                // even when it is concrete there; what `c` inherits as an
-                // implementation is excluded below (`has_concrete_member`).
-                if !f.abstract_ && k == c {
+                // A member of an implemented program class is part of the
+                // interface even when it is concrete there; what `c` inherits
+                // as an implementation is excluded below
+                // (`has_concrete_member`). Concrete SDK members keep the SDK's
+                // own forwarding (their signatures use the SDK class's type
+                // parameters, out of scope here).
+                if !f.abstract_ && (k == c || self.libs[self.lib_of_class(k).0 as usize].is_sdk) {
                     continue;
                 }
                 let key = self.interner.resolve(sym).to_string();

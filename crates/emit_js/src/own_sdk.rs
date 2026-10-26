@@ -208,7 +208,32 @@ pub fn non_virtual_field(ctx: &Ctx, c: ClassId, name: dartforge_intern::SymbolId
         stack.extend(ka.supertype_class);
         stack.extend(ka.mixin_classes.iter().copied());
     }
-    true
+    // A covariant field keeps its setter, which checks the value.
+    let field = p
+        .class(c)
+        .fields
+        .iter()
+        .copied()
+        .find(|&v| p.variable(v).name == name && !p.variable(v).static_);
+    !field.is_some_and(|v| covariant_field(ctx, c, v))
+}
+
+/// The instance field `vid` of class `c` is covariant: written `covariant`,
+/// or of a type that mentions a type parameter of the class covariantly. Its
+/// implicit setter checks the value, as the DDC's (`T.as(value)`).
+pub fn covariant_field(ctx: &Ctx, c: ClassId, vid: VariableId) -> bool {
+    let v = ctx.program.variable(vid);
+    if let VariableRef::Field { unit, member, .. } = v.node
+        && let ast::MemberKind::Field(list) = &ctx.program.unit(unit).ast.member(member).kind
+        && list.covariant
+    {
+        return true;
+    }
+    let ids: HashSet<u32> = ctx.class_params[c.0 as usize]
+        .iter()
+        .map(|p| p.id)
+        .collect();
+    occurs_covariantly(&ctx.var_ty(vid), &ids, true)
 }
 
 fn annotation_name<'a>(ctx: &'a Ctx, a: &ast::Annotation) -> &'a str {
@@ -791,9 +816,213 @@ pub fn covariance_checks(e: &FnEmitter, params: &[ast::Parameter]) -> String {
     out
 }
 
+/// Covariance checks of the parameters of an instance method of a program
+/// class, as the DDC emits them (`T.as(x)` on entry): a parameter written
+/// `covariant`, one whose type mentions a type parameter of the class in a
+/// covariant position, and one that overrides such a parameter of a
+/// supertype (`m(int x)` overriding `m(T t)` of `C<T>`), checked against its
+/// own declared type — the static type of a call through a supertype does not
+/// guarantee it (`C<Object> c = C<int>(); c.f('s')` throws `TypeError`).
+pub fn user_covariance_checks(
+    e: &FnEmitter,
+    fid: dartforge_elements::model::FunctionElementId,
+    params: &[ast::Parameter],
+) -> String {
+    let Some(c) = e.class else {
+        return String::new();
+    };
+    if e.is_static || e.ctx.libs[e.lib.0 as usize].is_sdk || checks_omitted(e) {
+        return String::new();
+    }
+    let ctx = e.ctx;
+    let class_param_ids: HashSet<u32> = ctx.class_params[c.0 as usize]
+        .iter()
+        .map(|p| p.id)
+        .collect();
+    let mut out = String::new();
+    for (i, p) in params.iter().enumerate() {
+        let Some(n) = p.name else { continue };
+        let Some(l) = e.lookup_local(n.sym) else {
+            continue;
+        };
+        if is_top(ctx, &l.ty) {
+            continue;
+        }
+        let covariant = p.covariant
+            || occurs_covariantly(&l.ty, &class_param_ids, true)
+            || overrides_covariant(ctx, c, fid, i, p);
+        if covariant {
+            out.push_str(&format!("{1}[_as]({0});\n", l.js, e.rti(&l.ty)));
+        }
+    }
+    out
+}
+
+/// The reified type of the method `fid` of a program class `c` (its
+/// signature for tear-offs and dynamic calls): a covariant parameter is
+/// `Object?`, as the VM and the DDC reify it — the method checks it on entry
+/// (`user_covariance_checks`).
+pub fn reified_method_type(
+    ctx: &Ctx,
+    c: ClassId,
+    fid: dartforge_elements::model::FunctionElementId,
+    ty: Ty,
+) -> Ty {
+    let f = ctx.program.function(fid);
+    if f.static_ || ctx.libs[ctx.lib_of_class(c).0 as usize].is_sdk {
+        return ty;
+    }
+    let FunctionRef::Function { unit, function } = f.node else {
+        return ty;
+    };
+    let params = ctx
+        .program
+        .unit(unit)
+        .ast
+        .function(function)
+        .parameters
+        .as_deref()
+        .unwrap_or(&[]);
+    let Some(object) = ctx.object else { return ty };
+    let class_param_ids: HashSet<u32> = ctx.class_params[c.0 as usize]
+        .iter()
+        .map(|p| p.id)
+        .collect();
+    let Ty::Fn {
+        type_params,
+        ret,
+        mut pos,
+        mut opt,
+        mut named,
+        nullable,
+    } = ty
+    else {
+        return ty;
+    };
+    let top = Ty::Iface {
+        class: object,
+        args: Vec::new(),
+        nullable: true,
+    };
+    let data = &ctx.outline.functions[fid.0 as usize];
+    let mut k = 0;
+    for (i, p) in params.iter().enumerate() {
+        let declared = data
+            .parameters
+            .get(i)
+            .map(|q| ctx.ty_of(q.ty))
+            .unwrap_or(Ty::Dynamic);
+        let covariant = p.covariant
+            || occurs_covariantly(&declared, &class_param_ids, true)
+            || overrides_covariant(ctx, c, fid, i, p);
+        if p.kind == ast::ParameterKind::Named {
+            if covariant && let Some(n) = p.name {
+                let name = ctx.name(n.sym);
+                if let Some(entry) = named.iter_mut().find(|(m, _, _)| m == name) {
+                    entry.1 = top.clone();
+                }
+            }
+            continue;
+        }
+        if covariant {
+            if k < pos.len() {
+                pos[k] = top.clone();
+            } else if let Some(t) = opt.get_mut(k - pos.len()) {
+                *t = top.clone();
+            }
+        }
+        k += 1;
+    }
+    Ty::Fn {
+        type_params,
+        ret,
+        pos,
+        opt,
+        named,
+        nullable,
+    }
+}
+
+/// `dynamic`, `void` or `Object?`: nothing to check.
+pub(crate) fn is_top(ctx: &Ctx, t: &Ty) -> bool {
+    match t {
+        Ty::Dynamic | Ty::Void => true,
+        Ty::Iface {
+            class,
+            nullable: true,
+            ..
+        } => Some(*class) == ctx.object,
+        _ => false,
+    }
+}
+
+/// Parameter `i` (`p`) of the method `fid` of class `c` overrides a covariant
+/// parameter of a same-named member of some supertype: written `covariant`
+/// there, or mentioning that class's type parameters covariantly.
+fn overrides_covariant(
+    ctx: &Ctx,
+    c: ClassId,
+    fid: dartforge_elements::model::FunctionElementId,
+    i: usize,
+    p: &ast::Parameter,
+) -> bool {
+    let name = ctx.program.function(fid).name;
+    let mut seen: HashSet<ClassId> = HashSet::new();
+    let mut stack: Vec<ClassId> = ctx.class_supers[c.0 as usize]
+        .iter()
+        .filter_map(|s| s.class())
+        .collect();
+    while let Some(k) = stack.pop() {
+        if !seen.insert(k) || Some(k) == ctx.object {
+            continue;
+        }
+        stack.extend(
+            ctx.class_supers[k.0 as usize]
+                .iter()
+                .filter_map(|s| s.class()),
+        );
+        let Some(&g) = ctx.program.class(k).instance_members.get(&name) else {
+            continue;
+        };
+        let gp = &ctx.outline.functions[g.0 as usize].parameters;
+        let j = if p.kind == ast::ParameterKind::Named {
+            gp.iter().position(|q| {
+                q.kind == ast::ParameterKind::Named && q.external_name == p.name.map(|n| n.sym)
+            })
+        } else {
+            (gp.get(i)
+                .is_some_and(|q| q.kind != ast::ParameterKind::Named))
+            .then_some(i)
+        };
+        let Some(j) = j else { continue };
+        let ids: HashSet<u32> = ctx.class_params[k.0 as usize]
+            .iter()
+            .map(|p| p.id)
+            .collect();
+        if occurs_covariantly(&ctx.ty_of(gp[j].ty), &ids, true) {
+            return true;
+        }
+        if let dartforge_elements::model::FunctionRef::Function { unit, function } =
+            ctx.program.function(g).node
+            && ctx
+                .program
+                .unit(unit)
+                .ast
+                .function(function)
+                .parameters
+                .as_deref()
+                .and_then(|ps| ps.get(j))
+                .is_some_and(|q| q.covariant)
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// A type parameter in `ids` occurs in a covariant position of `t` (`positive`
 /// is the current polarity; a function parameter flips it).
-fn occurs_covariantly(t: &Ty, ids: &HashSet<u32>, positive: bool) -> bool {
+pub(crate) fn occurs_covariantly(t: &Ty, ids: &HashSet<u32>, positive: bool) -> bool {
     match t {
         Ty::Param { id, .. } => positive && ids.contains(id),
         Ty::Iface { args, .. } => args.iter().any(|a| occurs_covariantly(a, ids, positive)),

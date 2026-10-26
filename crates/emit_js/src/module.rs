@@ -1052,6 +1052,7 @@ pub(crate) fn function_text(
         extra_prologue.push_str(&crate::own_sdk::covariance_checks(&e, ps));
         extra_prologue.push_str(&crate::own_sdk::null_checks(&e, ps));
     }
+    extra_prologue.push_str(&crate::own_sdk::user_covariance_checks(&e, fid, ps));
     e.sdk_number_comparison = crate::own_sdk::modulo_number_comparison(&mut e, fid);
     e.emit_body(&af.body);
     let body = finish_body(&mut e);
@@ -1571,7 +1572,6 @@ pub(crate) fn indent(s: &str) -> String {
 
 /// Instance field and how it is stored.
 struct FieldInfo {
-    #[allow(dead_code)]
     vid: VariableId,
     /// Emits a getter/setter pair (virtual field).
     virtual_: bool,
@@ -1770,6 +1770,18 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             } else {
                 js::prop_key(&crate::body::js_member_name(&f.name))
             };
+            // A covariant field: its setter checks the value against the
+            // declared type (`Fields<Object> c = Fields<int>(); c.x = 's'`).
+            let covariant_check = if crate::own_sdk::covariant_field(ctx, c, f.vid)
+                && !ctx.libs[class.library.0 as usize].is_sdk
+                && !ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+                && !matches!(f.ty, Ty::Dynamic)
+            {
+                let e = FnEmitter::new(ctx, m, f.unit, Some(c), false);
+                Some(e.rti(&f.ty))
+            } else {
+                None
+            };
             if f.late {
                 m.use_sdk("_internal");
                 let mut e = FnEmitter::new(ctx, m, f.unit, Some(c), false);
@@ -1794,13 +1806,17 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                         cw.line("}");
                     }
                 }
+                let check = covariant_check
+                    .as_ref()
+                    .map(|r| format!("{r}[_as](v); "))
+                    .unwrap_or_default();
                 if f.final_ {
                     crate::emit_line!(cw, "set {key}(v) {{");
                     cw.line(&format!("  if (this[{sym}] != null) dart.throw(new _internal.LateError.fieldAI({}));", js::string_literal(ctx.late_name(&f.name))));
-                    crate::emit_line!(cw, "  this[{sym}] = v;");
+                    crate::emit_line!(cw, "  {check}this[{sym}] = v;");
                     cw.line("}");
                 } else {
-                    crate::emit_line!(cw, "set {key}(v) {{ this[{sym}] = v; }}");
+                    crate::emit_line!(cw, "set {key}(v) {{ {check}this[{sym}] = v; }}");
                 }
             } else {
                 crate::emit_line!(cw, "get {key}() {{ return this[{sym}]; }}");
@@ -1813,6 +1829,11 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                             js::prop_access(&crate::body::js_member_name(&f.name))
                         }
                     ));
+                } else if let Some(check) = &covariant_check {
+                    crate::emit_line!(
+                        cw,
+                        "set {key}(value) {{ {check}[_as](value); this[{sym}] = value; }}"
+                    );
                 } else {
                     crate::emit_line!(cw, "set {key}(value) {{ this[{sym}] = value; }}");
                 }
@@ -2002,7 +2023,10 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                             }
                         }
                         _ => {
-                            method_sigs.push((jsname.clone(), fty.clone()));
+                            method_sigs.push((
+                                jsname.clone(),
+                                crate::own_sdk::reified_method_type(ctx, c, feid, fty.clone()),
+                            ));
                             if is_generic {
                                 let defaults: Vec<Ty> = data
                                     .type_params

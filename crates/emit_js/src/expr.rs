@@ -754,6 +754,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             return (js, ty);
         }
+        // `Function`/`Function?` context: a callable class is torn off too.
+        if matches!(expected, Ty::Iface { class, .. } if Some(*class) == self.ctx.function_)
+            && let Ty::Iface {
+                class,
+                nullable: false,
+                ..
+            } = &ty
+            && Some(*class) != self.ctx.function_
+            && let Some(m) = self.ctx.lookup_member(&ty, "call", false)
+            && matches!(m.kind, MemberKind::Method(_))
+        {
+            let mty = self.ctx.member_ty(&m);
+            let key = self.member_key_string(&ty, "call");
+            return (Js::prim(format!("dart.bind({}, {key})", js.code)), mty);
+        }
         let Ty::Fn {
             type_params: etps, ..
         } = expected
@@ -3276,6 +3291,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 };
                 let member = self.access_member(Some(e), &recv_ty, &n, false);
                 let (js, ty) = self.emit_member_get(&recv, &recv_ty, &n, member);
+                let js = self.contravariant_read_check(js, *target, &recv_ty, &n, &ty);
                 let ty = if *null_aware {
                     ty.with_nullable(true)
                 } else {
@@ -3385,6 +3401,49 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return false;
         }
         name.starts_with('_') || crate::own_sdk::non_virtual_field(self.ctx, m.class, var.name)
+    }
+
+    /// The DDC's covariance check of a member read through a receiver other
+    /// than `this` (a field, a getter, a method's result or tear-off) whose
+    /// declared type uses a type parameter of its class in a contravariant
+    /// position: the value may not have the static type (`C<Object> c =
+    /// C<String>(); c.f` with `void Function(T) f`), so it is cast to it.
+    pub fn contravariant_read_check(
+        &self,
+        js: Js,
+        recv_expr: ExprId,
+        recv_ty: &Ty,
+        name: &str,
+        result: &Ty,
+    ) -> Js {
+        if matches!(self.expr(recv_expr).kind, ExprKind::This | ExprKind::Super)
+            || self.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+            || crate::own_sdk::is_top(self.ctx, result)
+        {
+            return js;
+        }
+        let Some(m) = self.ctx.lookup_member(recv_ty, name, false) else {
+            return js;
+        };
+        if self.ctx.libs[self.ctx.lib_of_class(m.class).0 as usize].is_sdk {
+            return js;
+        }
+        let declared = match m.kind {
+            MemberKind::Method(fid) | MemberKind::Getter(fid) => match self.ctx.fn_ty(fid) {
+                Ty::Fn { ret, .. } => *ret,
+                t => t,
+            },
+            MemberKind::Field(vid) => self.ctx.var_ty(vid),
+            MemberKind::Setter(_) => return js,
+        };
+        let ids: std::collections::HashSet<u32> = self.ctx.class_params[m.class.0 as usize]
+            .iter()
+            .map(|p| p.id)
+            .collect();
+        if !crate::own_sdk::occurs_covariantly(&declared, &ids, false) {
+            return js;
+        }
+        Js::prim(format!("{}[_as]({})", self.rti(result), js.code))
     }
 
     /// `super{access}` read with `this` as the receiver.
