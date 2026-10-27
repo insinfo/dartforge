@@ -72,6 +72,8 @@ pub struct Constants<'a> {
     /// filter before looking the declaration up).
     null_names: RefCell<HashMap<SymbolId, u32>>,
     units: RefCell<HashMap<UnitId, Rc<UnitParams>>>,
+    /// No record exists at run time ([`crate::Options::without_records`]).
+    without_records: std::cell::Cell<bool>,
 }
 
 impl<'a> Constants<'a> {
@@ -84,7 +86,85 @@ impl<'a> Constants<'a> {
             null_params: RefCell::new(HashSet::new()),
             null_names: RefCell::new(HashMap::new()),
             units: RefCell::new(HashMap::new()),
+            without_records: std::cell::Cell::new(false),
         }
+    }
+
+    /// No record type or value exists at run time: `k == Rti.kindRecord`
+    /// (`k` a local or a `dart:_rti` getter call) is `false`, and so is
+    /// `x is Record` (`x` a local).
+    pub fn set_without_records(&self, b: bool) {
+        self.without_records.set(b);
+    }
+
+    /// Whether `x` reads `Rti.kindRecord` of `dart:_rti`.
+    fn is_record_kind(&self, u: UnitId, x: ExprId) -> bool {
+        let p = self.e.program;
+        let v = match self.resolved(u, x) {
+            Some(Resolved::Element(Element::Variable(v))) => v,
+            Some(Resolved::Member {
+                member: dartforge_types::resolved::MemberRef::Variable(v),
+                ..
+            }) => v,
+            _ => return false,
+        };
+        let var = p.variable(*v);
+        p.library(var.library).uri == "dart:_rti"
+            && self.e.interner.resolve(var.name) == "kindRecord"
+            && var
+                .class
+                .is_some_and(|c| self.e.interner.resolve(p.class(c).name) == "Rti")
+    }
+
+    /// An expression whose evaluation has no effect: a local, a parameter,
+    /// or a call of a `_get…` function of `dart:_rti` (the field accessors)
+    /// with such arguments.
+    fn pure_rti_read(&self, u: UnitId, x: ExprId, depth: u32) -> bool {
+        if depth > 6 {
+            return false;
+        }
+        let p = self.e.program;
+        match &p.unit(u).ast.expr(x).kind {
+            ExprKind::Parenthesized(i) => self.pure_rti_read(u, *i, depth + 1),
+            ExprKind::Identifier(_) => matches!(
+                self.resolved(u, x),
+                Some(Resolved::Local(_) | Resolved::Parameter { .. })
+            ),
+            ExprKind::Call { target, arguments } => {
+                let callee = match self.resolved(u, x).or_else(|| self.resolved(u, *target)) {
+                    Some(Resolved::Element(Element::Function(f))) => *f,
+                    _ => return false,
+                };
+                let func = p.function(callee);
+                p.library(func.library).uri == "dart:_rti"
+                    && (func.static_ || func.class.is_none())
+                    && self.e.interner.resolve(func.name).starts_with("_get")
+                    && arguments.type_args.is_empty()
+                    && arguments
+                        .args
+                        .iter()
+                        .all(|a| a.name.is_none() && self.pure_rti_read(u, a.value, depth + 1))
+            }
+            _ => false,
+        }
+    }
+
+    /// `x is Record` with `Record` of `dart:core`, `x` a local.
+    fn is_record_test(&self, u: UnitId, value: ExprId, ty: ast::TypeId) -> bool {
+        let p = self.e.program;
+        let unit = p.unit(u);
+        let ast::TypeKind::Named { name, args } = &unit.ast.ty(ty).kind else {
+            return false;
+        };
+        if name.len() != 1 || !args.is_empty() || unit.ast.ty(ty).nullable {
+            return false;
+        }
+        let is_record = matches!(
+            p.lookup(unit.library, name[0].sym).and_then(|b| b.getter),
+            Some(Element::Class(c)) if Some(p.class(c).library) == p.core
+                && self.e.interner.resolve(p.class(c).name) == "Record"
+        );
+        is_record && self.pure_rti_read(u, value, 0)
     }
 
     /// Replaces the parameters proved always `null` (the emitter's side: the
@@ -212,6 +292,7 @@ impl<'a> Constants<'a> {
             | ExprKind::Property { .. }
             | ExprKind::Unary { .. }
             | ExprKind::Binary { .. }
+            | ExprKind::Is { .. }
             | ExprKind::Parenthesized(_) => self.bool_of(u, x),
             _ => None,
         }
@@ -295,6 +376,21 @@ impl<'a> Constants<'a> {
                 },
                 Value::Null => None,
             },
+            ExprKind::Binary {
+                op: op @ (BinaryOp::Eq | BinaryOp::NotEq),
+                left,
+                right,
+            } if self.without_records.get()
+                && ((self.is_record_kind(u, *left) && self.pure_rti_read(u, *right, 0))
+                    || (self.is_record_kind(u, *right) && self.pure_rti_read(u, *left, 0))) =>
+            {
+                Some(Value::Bool(*op == BinaryOp::NotEq))
+            }
+            ExprKind::Is { value, ty, negated }
+                if self.without_records.get() && self.is_record_test(u, *value, *ty) =>
+            {
+                Some(Value::Bool(*negated))
+            }
             ExprKind::Binary {
                 op: op @ (BinaryOp::Eq | BinaryOp::NotEq),
                 left,

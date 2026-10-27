@@ -633,6 +633,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             | ExprKind::Property { .. }
             | ExprKind::Unary { .. }
             | ExprKind::Binary { .. }
+            | ExprKind::Is { .. }
             | ExprKind::Parenthesized(_) => f.const_bool(self.unit, x),
             _ => None,
         }

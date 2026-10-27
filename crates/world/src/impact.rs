@@ -738,6 +738,7 @@ fn ast_type(m: &mut Engine<'_>, ctx: &Context, t: ast::TypeId) {
             walk_parameters(m, ctx, parameters);
         }
         TypeKind::Record { positional, named } => {
+            m.see_records();
             for x in positional.iter() {
                 ast_type(m, ctx, *x);
             }
@@ -1628,6 +1629,7 @@ pub(crate) fn constant_condition(m: &Engine<'_>, ctx: &Context, x: ExprId) -> Op
         | ExprKind::Property { .. }
         | ExprKind::Unary { .. }
         | ExprKind::Binary { .. }
+        | ExprKind::Is { .. }
         | ExprKind::Parenthesized(_) => c.bool_of(ctx.unit, x),
         _ => None,
     }
@@ -1767,6 +1769,7 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
         ExprKind::Record {
             positional, named, ..
         } => {
+            m.see_records();
             for x in positional.iter() {
                 expr(m, ctx, *x);
             }

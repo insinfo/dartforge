@@ -335,11 +335,15 @@ fn fixed_point(
     report: &mut WorldReport,
 ) -> Result<Option<EmittedWithSdk>, String> {
     let mut roots = roots(a, &input);
-    let opm = dartforge_world::Options {
+    // No records at run time until the world or the text shows one
+    // (`DARTFORGE_JSPROD_RECORDS_GATE=0` assumes they may exist).
+    let mut opm = dartforge_world::Options {
         include_sdk: true,
         without_asserts: !op.asserts,
+        without_records: std::env::var("DARTFORGE_JSPROD_RECORDS_GATE").map_or(true, |v| v != "0"),
     };
     let constants = dartforge_world::Constants::new(input, !op.asserts);
+    constants.set_without_records(opm.without_records);
     let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_ROUNDS")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -351,7 +355,16 @@ fn fixed_point(
     for round in 1..=max_rounds {
         let t = Instant::now();
         computation.seed(&roots);
-        let world = computation.world();
+        let mut world = computation.world();
+        if opm.without_records && world.records_seen() {
+            // The assumption failed: the record branches the world skipped
+            // are needed, so it starts over with them.
+            opm.without_records = false;
+            constants.set_without_records(false);
+            computation = dartforge_world::Computation::new(input, opm);
+            computation.seed(&roots);
+            world = computation.world();
+        }
         report.world_time += t.elapsed();
         // The emitter folds the same `p == null` the world folded.
         constants.set_null_params(world.null_params());
@@ -399,6 +412,14 @@ fn fixed_point(
         let missing = verify::check(&texts, &libs, a.program, a.interner, &world);
         report.verify_time += t.elapsed();
         report.rounds += 1;
+        // A record recipe the world did not see (a signature, a rule): the
+        // same restart, and another round.
+        if opm.without_records && texts.iter().any(|(_, t)| cites_record_recipe(t)) {
+            opm.without_records = false;
+            constants.set_without_records(false);
+            computation = dartforge_world::Computation::new(input, opm);
+            continue;
+        }
         report.no_element = missing.no_element.clone();
         // `DARTFORGE_JSPROD_DUMP=file`: the round's text (diagnostics).
         if let Ok(p) = std::env::var("DARTFORGE_JSPROD_DUMP") {
@@ -440,6 +461,48 @@ fn fixed_point(
         roots.selectors.extend(missing.selectors);
     }
     Ok(None)
+}
+
+/// Whether `text` holds a string literal that looks like an rti recipe with
+/// a record type (`"+(|a,|b)"`, `"|F<+n(|a)>"`): `+`, then the partial
+/// shape, then `(`, in a literal without spaces. A false positive only keeps
+/// the record branches of `dart:_rti`.
+fn cites_record_recipe(text: &str) -> bool {
+    let b = text.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'"' {
+            i += 1;
+            continue;
+        }
+        let start = i + 1;
+        let mut j = start;
+        while j < b.len() && b[j] != b'"' && b[j] != b'\n' {
+            j += if b[j] == b'\\' { 2 } else { 1 };
+        }
+        let lit = &b[start..j.min(b.len())];
+        if !lit.contains(&b' ') {
+            for (k, &c) in lit.iter().enumerate() {
+                if c != b'+' {
+                    continue;
+                }
+                let mut m = k + 1;
+                while m < lit.len()
+                    && (lit[m].is_ascii_alphanumeric()
+                        || lit[m] == b','
+                        || lit[m] == b'_'
+                        || lit[m] == b'$')
+                {
+                    m += 1;
+                }
+                if m < lit.len() && lit[m] == b'(' {
+                    return true;
+                }
+            }
+        }
+        i = j + 1;
+    }
+    false
 }
 
 /// Closed world (with the SDK) → filtered emission → text verification,
@@ -957,6 +1020,15 @@ pub fn assemble(
 #[cfg(test)]
 mod front_coding_tests {
     use super::*;
+
+    #[test]
+    fn finds_record_recipes_only() {
+        assert!(cites_record_recipe(r#"t$R("+(|a,|b)")"#));
+        assert!(cites_record_recipe(r#"x = "|F<+n(|a)>";"#));
+        assert!(!cites_record_recipe(r#"dsend(a, "+", [b])"#));
+        assert!(!cites_record_recipe(r#"new RegExp("^Symbol\((_.+)\)$")"#));
+        assert!(!cites_record_recipe(r#""a + b(c)""#));
+    }
 
     /// The JS decoder of `FRONT_DECODER`, in Rust.
     fn decode(s: &str) -> Vec<String> {

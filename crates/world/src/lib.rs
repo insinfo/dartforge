@@ -277,6 +277,8 @@ pub struct World {
     null_params: Vec<ParamKey>,
     /// [`World::in_instance_prototype_chain`], per class.
     proto_chain: Vec<bool>,
+    /// [`World::records_seen`].
+    records_seen: bool,
 }
 
 /// The instantiated classes and their superclasses, transitively.
@@ -315,6 +317,11 @@ impl World {
     /// `c` is an instantiated class or the superclass (transitively) of one:
     /// an object whose prototype chain reaches `c`'s prototype may exist.
     /// Interfaces and mixins do not count (their members and tags are copied).
+    /// Some record type or record value may exist at run time: a record
+    /// type or literal in live code, or `RecordImpl` instantiated.
+    pub fn records_seen(&self) -> bool {
+        self.records_seen
+    }
     pub fn in_instance_prototype_chain(&self, c: ClassId) -> bool {
         self.proto_chain.get(c.0 as usize).copied().unwrap_or(false)
     }
@@ -395,6 +402,10 @@ pub struct Options {
     /// `dart2js`): their bodies are not traversed, and the conditions that
     /// only they changed become constants (`constants.rs`).
     pub without_asserts: bool,
+    /// No record value or record type exists at run time (assumed, then
+    /// checked: [`World::records_seen`]). The `dart:_rti` branches for the
+    /// record kind fold away (`constants.rs`).
+    pub without_records: bool,
 }
 
 /// Computes the world. Deterministic: the queue is FIFO, the roots are
@@ -665,6 +676,9 @@ impl<'a> Computation<'a> {
             m.natives_by_interface = natives_by_interface(&e, &m.natives);
             m.dartx_classes = dartx_classes(&e, &m.natives);
             m.constants = Some(Constants::new(e, op.without_asserts));
+            if let Some(c) = &m.constants {
+                c.set_without_records(op.without_records);
+            }
             if std::env::var("DARTFORGE_JSPROD_NULL_PARAMS").map_or(true, |v| v != "0") {
                 m.params = Some(params::ParamFlow::new(e, &m.universal_names));
             }
@@ -1009,6 +1023,8 @@ pub(crate) struct Engine<'a> {
     /// `dart:_runtime`'s `polyfill`, used (by `global_`) while
     /// [`Engine::dom_open`] is false.
     held_polyfill: Option<FunctionElementId>,
+    /// A record type or a record literal reached the world.
+    records_seen: bool,
 }
 
 /// Libraries whose code creates or receives objects of the native classes
@@ -1186,6 +1202,7 @@ impl<'a> Engine<'a> {
                 .map_or(true, |v| v != "0"),
             dom_open: std::env::var("DARTFORGE_JSPROD_DOM_POLYFILL").is_ok_and(|v| v == "0"),
             held_polyfill: None,
+            records_seen: false,
         }
     }
 
@@ -1325,6 +1342,22 @@ impl<'a> Engine<'a> {
         if let Some(obj) = self.object_class() {
             self.instantiate(obj);
         }
+    }
+
+    /// `dart:_runtime`'s `RecordImpl` (the representation of every record
+    /// value) is instantiated.
+    fn record_impl_instantiated(&self) -> bool {
+        let p = self.e.program;
+        p.classes.iter().enumerate().any(|(i, c)| {
+            self.classes[i] == ClassLevel::Instantiated
+                && self.name(c.name) == "RecordImpl"
+                && p.library(c.library).uri == "dart:_runtime"
+        })
+    }
+
+    /// The world saw a record type or literal.
+    pub(crate) fn see_records(&mut self) {
+        self.records_seen = true;
     }
 
     /// `dart:core`'s `Object`.
@@ -1917,6 +1950,7 @@ impl<'a> Engine<'a> {
             Type::Record {
                 positional, named, ..
             } => {
+                self.records_seen = true;
                 let mut ts: Vec<dartforge_types::table::TypeId> = positional.to_vec();
                 ts.extend(named.iter().map(|(_, t)| *t));
                 for x in ts {
@@ -2290,6 +2324,7 @@ impl<'a> Engine<'a> {
                 .map(Constants::null_params)
                 .unwrap_or_default(),
             proto_chain: prototype_chains(self.e.program, &self.classes),
+            records_seen: self.records_seen || self.record_impl_instantiated(),
         }
     }
 
@@ -2354,13 +2389,14 @@ impl<'a> Engine<'a> {
             .as_ref()
             .map(Constants::null_params)
             .unwrap_or_default();
+        let proto_chain = prototype_chains(self.e.program, &self.classes);
+        let records_seen = self.records_seen || self.record_impl_instantiated();
         let mut sel_cone: HashMap<String, Vec<ClassId>> = HashMap::new();
         for (n, cs) in self.sel_cone {
             let mut v: Vec<ClassId> = cs.into_iter().collect();
             v.sort();
             sel_cone.insert(n, v);
         }
-        let proto_chain = prototype_chains(self.e.program, &self.classes);
         World {
             classes: self.classes,
             functions: self.fn_live,
@@ -2378,6 +2414,7 @@ impl<'a> Engine<'a> {
             hier: self.hier,
             inst_sub: self.inst_sub,
             proto_chain,
+            records_seen,
             js_names: self.js_names,
             null_params,
         }
