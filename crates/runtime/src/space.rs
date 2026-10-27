@@ -1762,7 +1762,12 @@ impl ObjectSpace {
     /// low addresses go out first, like after the full sweep).
     fn merge_free_ranges(&mut self, class: usize) {
         let list = &mut self.free_list[class];
-        list.sort_unstable_by_key(|&(start, _)| std::cmp::Reverse(start as usize));
+        // The list is a few runs already in order (the address-descending ranges of
+        // the last merge, then those the sweeps appended in address order): the
+        // stable sort merges runs in about linear time, where the unstable one
+        // re-partitioned it (1.2% of the binary trees). The ranges are disjoint, so
+        // stability changes nothing.
+        list.sort_by_key(|&(start, _)| std::cmp::Reverse(start as usize));
         // Descending: the range at `i` ends where the one at `i - 1` begins.
         let mut out = 0;
         for i in 0..list.len() {
