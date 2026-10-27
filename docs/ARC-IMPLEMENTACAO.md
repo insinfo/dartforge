@@ -27,15 +27,18 @@ a separação entre opção do compilador e argumento de `main`.
 | `arc` no AOT e no JIT | contagem de referências com coleta de ciclos; a migração de instâncias da recarga conta pela foto (`Heap::trocar_campos`) |
 
 O SDK compilado leva `memoria=arc_v1` na chave (`sdk_modulo::chave_do_sdk`).
-O programa ARC chama `dartforge_memory_arc_v1` na entrada (no
-`df.prepare_isolate` de cada isolado, ou no `dartforge_entry`), e esse
-símbolo versionado faz a ligação com um runtime sem a ABI falhar (§24).
+O programa ARC chama `dartforge_memory_arc_nursery_v1` na entrada (no
+`df.prepare_isolate` de cada isolado, ou no `dartforge_entry`): o berçário
+da §7. Compilado com `DARTFORGE_ARC_NURSERY=0` (outra chave do SDK,
+`arc=pure_v1`), chama `dartforge_memory_arc_v1`, o ARC puro da §6. Esses
+símbolos versionados fazem a ligação com um runtime sem a ABI falhar (§24).
 
 ## 2. Primeiro desenho: RC adiado das raízes, contado nos maduros
 
 O runtime é um só para os dois modos. O ARC liga por isolado, em tempo de
-execução. Esta seção registra o primeiro desenho, ainda selecionável com
-`DARTFORGE_ARC_NURSERY=1`. O padrão atual é o ARC puro da §6.
+execução. Esta seção registra o primeiro desenho, que a §7 retomou como
+padrão (com o envelhecimento e a escrita em linha no jovem); o ARC puro da
+§6 ficou para `DARTFORGE_ARC_NURSERY=0` na compilação.
 
 | Parte | Como funciona hoje | Arquivo |
 | --- | --- | --- |
@@ -133,7 +136,8 @@ o padrão do modo `arc`, ninguém percorre o heap para decidir vida:
 | Ciclos | Na completa, o ponto fixo da §22.3 quando há efêmeros; senão a *trial deletion* até não haver morte nova. Candidatos: quem desceu a RC positivo, o zero que voltou a subir, o jovem que sobreviveu à drenagem e quem uma raiz vê. | `heap.rs`, `arc.rs` |
 | Memória | O jovem morto sai pela varredura dos jovens (sem marca); o morto pelo RC volta à faixa livre da classe um a um (`EspacoDeObjetos::soltar_morto`, com o bit de marca apagado), sem varrer páginas. | `espaco.rs` |
 
-`DARTFORGE_ARC_NURSERY=1` volta ao desenho da §2 (para comparar).
+`DARTFORGE_ARC_NURSERY=1` volta ao desenho da §2 (para comparar). Desde
+2026-10-27 o padrão é o berçário da §7, e o ARC puro é escolha de compilação.
 
 Validação (Windows x86-64): os grafos aleatórios da §4 nos três modos (3000
 sementes cada); o corpus nativo com a auditoria (238/238), com
@@ -565,6 +569,21 @@ as obrigações nativas continuam sob seu protocolo próprio. Não há medida
 de ganho desta consulta no benchmark completo.
 Release: 140 unitários, 13 de integração e 12 doctests aprovados;
 três microbenchmarks ignorados. Fonte única AOT/JIT aprovada.
+
+## 7. Berçário como padrão (2026-10-27)
+
+O desenho da §2 voltou a ser o padrão do modo `arc`, preparado ou não
+(`dartforge_memory_arc_nursery_v1`), depois de corrigido e acelerado
+(RELATORIO-PRONTIDAO-PRODUCAO.md, seção de 2026-10-27 sobre o berçário):
+
+| Parte | Como funciona | Arquivo |
+| --- | --- | --- |
+| Jovem sem contagem | Nenhum caminho registra um jovem: o slot dono (global, token de código, quadro dono, tabela canônica) só conta destino já registrado. A promoção conta as ocorrências dos donos que ainda o seguram. | `heap.rs` (`arc_swap_owning_root`, `sync_arc`) |
+| Velho → jovem | A varredura de cartões da coleta menor registra as referências dos lembrados para jovens; a promoção conta as de alvo promovido (sem reler o lembrado inteiro). | `heap.rs` (`old_to_young`) |
+| Envelhecimento | O jovem alcançado sobrevive uma vez sem contagem e só a menor seguinte o promove (a completa não envelhece). Os velhos que um sobrevivente referencia ficam protegidos como alvos de raiz até ele ser promovido ou morrer. | `heap.rs` (`promotion_data`), `space.rs` (`young_marked`) |
+| Escrita em linha | O código não preparado (`Module::arc_nursery_writes`) grava em linha no objeto novo e, depois de testar o estado, no jovem (sem barreira); só o dono velho vai ao runtime, que conta a troca. Listas idem (`@df.list_*` com a divisão). Por isso o ARC puro passou a ser escolha de compilação. | `llvm/mod.rs`, `llvm/ir_lists.rs`, `lower/lists.rs` |
+| Código preparado | Os tokens de código são raízes da coleta menor e donos contados na promoção; o código preparado não muda. | `heap.rs` |
+| Ponto fixo | O alcance da completa marca o mapa de bits em vez de um conjunto por hash; as arestas percorridas espaçam as completas sob `--gc-stress`. | `heap.rs` (`mark_reachable`) |
 
 ## 5. Pendências
 

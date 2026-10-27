@@ -426,6 +426,8 @@ têm alvo. Nada de ARC mudou nesta rodada além do que entrou antes
 
 ## ARC com berçário: medido, ainda não padrão
 
+(Superado pela seção seguinte: o berçário foi corrigido e é o padrão.)
+
 O runtime já tem o desenho que o perfil acima aponta, como modo experimental do ARC
 simples: `DARTFORGE_ARC_NURSERY=1` em tempo de execução (`HeapArc::pure` falso). Objetos
 jovens não são contados; a coleta jovem libera os mortos em bloco, e só os promovidos
@@ -458,6 +460,114 @@ ocorrência não contada (as escritas cruas dos natives sobre donos velhos, `arc
 e as que não passam pelo conjunto lembrado são as candidatas), depois ligar o berçário no
 ARC simples e, por último, ensinar ao ARC preparado que um jovem não tem contagem até a
 promoção.
+
+## ARC com berçário: corrigido, padrão e acelerado (2026-10-27, continuação)
+
+Mesmo Mac mini M4, carga de 5 a 29 (outro agente trabalhando em paralelo): os
+ciclos e as instruções de `time -l` valem mais que o tempo de parede. Os núcleos
+de `bench/comparison/bench.dart` rodam isolados, 10 rodadas por processo
+(mediana em ms); o servidor é `bench/comparison/server.dart` com
+`load_keepalive.dart` (4 × 8 conexões, 5 s), ciclos por pedido do processo
+servidor. "Antes" é o ARC puro, o padrão até esta rodada, compilado hoje com
+`DARTFORGE_ARC_NURSERY=0` (os caminhos do modo puro não mudaram).
+
+| medida | tracing | ARC simples antes (puro) | ARC simples agora | ARC preparado antes (puro) | ARC preparado agora |
+|---|---:|---:|---:|---:|---:|
+| árvores, ms | 13 | 282 | 24 | 360 | 171 |
+| árvores, ciclos | 0,58 G | 11,4 G | 1,05 G (1,8×) | 14,6 G | 6,9 G |
+| strings, ms | 42 | 132 | 53 | 370 | 267 |
+| strings, ciclos | 1,74 G | 5,3 G | 2,18 G (1,25×) | 14,9 G | 10,5 G |
+| JSON, ms | 74 | 300 | 165 | 743 | 582 |
+| JSON, ciclos | 3,0 G | 12,6 G | 6,7 G (2,2×) | 30,7 G | 23,5 G |
+| servidor `/json`, pedidos/s | 55,1 mil | 14,1 mil | 40,5 mil | 5,6 mil | 8,2 mil |
+| servidor, ciclos / instruções por pedido | 80 mil / 271 mil | 275 mil / 1,10 M | 99 mil / 375 mil | 676 mil / 3,61 M | 467 mil / 2,70 M |
+| servidor, RSS depois da carga | 18 MB | 77 MB | 20 MB | 78 MB | 20 MB |
+
+O ARC simples ficou entre 1,25× e 2,2× o tracing em ciclos (era 3× a 19×) e o
+servidor foi a 73% do tracing (era 26%). O preparado melhorou 1,3× a 2,1×, mas
+continua 6× a 12× o tracing.
+
+**A causa do `RcZero`.** Não eram as escritas cruas (`arc_raw_write`) nem o
+conjunto lembrado: o slot dono (global, token de código, quadro dono, tabela
+canônica, fila de finalização) passava por `arc_swap_owning_root`, que
+registrava o destino jovem (`arc_retain_registering`) também no berçário. O
+jovem registrado ficava com uma contagem que não via as ocorrências dos donos
+jovens; ao morrer por RC antes da promoção (o slot soltou, contagem zero), o
+descarte soltava filhos que ele nunca tinha contado. No programa 40, o objeto
+registrado na linha 405 do rastro morre na drenagem e solta o filho
+`4344588450` de contagem zero. No berçário o slot agora só conta destino já
+registrado, e a promoção conta as ocorrências dos donos que ainda seguram o
+jovem. Teste: `nursery_owning_slot_leaves_young_object_uncounted`.
+
+**O que entrou** (cada passo validado: os 152 programas `.dart` do corpus
+nativo comparados com o ARC puro do mesmo programa em berçário, em berçário com
+`DARTFORGE_GC_STRESS=1` e com `DARTFORGE_ARC_CHECK=1` — 152/152, em ARC simples
+e preparado; o harness tem 160/160 em `--optimize` com
+`DARTFORGE_CHECK_SHADOW=1`, em desenvolvimento e no Wasm, e 158/160 em
+`--optimize --gc-stress` com o 91 e o 98 estourando os 5 s sob carga 29, ambos
+ok rodados sozinhos, como em rodadas anteriores; testes de
+`dartforge-emit-native` (1.040, mais os 13 ignorados de `tests/contract.rs`) e
+de `dartforge-runtime`, `clippy -D warnings`):
+
+- `7aa4e87e`: a correção acima. Também: a promoção relia cada objeto lembrado
+  inteiro a cada coleta menor (uma lista de 200 mil posições por alocação sob
+  `--gc-stress`); agora a varredura de cartões da menor registra as referências
+  velho → jovem e a promoção conta essas. O ponto fixo da completa marca o mapa
+  de bits em vez de um conjunto por hash, e as arestas que ele percorre espaçam
+  as completas sob estresse como no tracing. O 97 sob berçário e estresse foi de
+  209 s para 2,6 s; o 91, de mais de 300 s para 14 s.
+- `73bd0d11`: o programa não preparado entra por
+  `dartforge_memory_arc_nursery_v1`.
+- `c90b2da7`: o preparado também. Os tokens do código preparado são raízes da
+  coleta menor e donos contados na promoção; com a correção, o corpus inteiro
+  passa sem mudar o código preparado. `DARTFORGE_ARC_NURSERY=0` na compilação
+  mantém o ARC puro (outra chave do SDK).
+- `2a2a2ddf`: no código não preparado (`Module::arc_nursery_writes`) a escrita
+  num objeto novo sai em linha, e nos demais depois de testar o estado do dono:
+  jovem em linha, sem barreira nem contagem; velho por `dartforge_object_set`.
+  As listas do núcleo usam os ajudantes do tracing com a mesma divisão (e o
+  crescimento em código gerado); a alocação com campos não chama mais
+  `dartforge_arc_initial`. Por isso o ARC puro virou escolha de compilação. Na
+  promoção, os promovidos são reconhecidos pela geração do registro (sem
+  conjunto por hash) e as raízes que protegem zeros são um vetor ordenado.
+  Árvores 61 → 36 ms, JSON 238 → 178 ms.
+- `ba08c369`: o berçário envelhece como o tracing: o jovem alcançado sobrevive
+  uma vez sem contagem e só a menor seguinte o promove (a completa não
+  envelhece, porque a reclamação só guarda contados). As referências de um
+  sobrevivente não são contadas até a promoção, então os velhos que ele
+  referencia ficam protegidos como alvos de raiz; a referência de um lembrado
+  só conta quando o alvo é promovido. Teste:
+  `nursery_aging_protects_old_targets_of_survivors`. Árvores 36 → 27 ms.
+- `dc20d708`: os mortos das tabelas laterais são reconhecidos por não terem
+  metadados (sem conjunto por hash de todo morto); as trocas de slot dono e de
+  campo pulam a tabela para jovens (o caso comum dos tokens do código
+  preparado); a ação de finalização jovem não é registrada ao entrar na fila.
+  Preparado: árvores 198 → 171 ms, JSON 611 → 592 ms.
+
+**O que falta e por quê:**
+
+1. **ARC preparado.** No perfil das árvores, 60% do tempo é a maquinaria dos
+   tokens: `retain_code_owner`/`release_code_owner` (um `HashMap` de tokens por
+   chamada), `arc_swap_owning_root`, as leituras e escritas de campo pela ABI
+   auditada (`dartforge_arc_read_field_ref_v1`, `..._write_field_ref_v1`) e a
+   alocação com dono, cada uma uma chamada ao runtime com TLS e empréstimo do
+   heap. O berçário tira a contagem dos jovens, mas não os tokens: eles são as
+   raízes do código preparado. Baixar isso pede mudar a preparação (não emitir
+   token para valor jovem emprestado, operações de token em linha), trabalho de
+   compilador com as provas de posse, não de runtime.
+2. **JSON a 2,2×.** 37% do tempo é a sincronização, quase toda a morte por RC
+   dos objetos promovidos (`drain_zeros` → `discard_located`, `take_edges`,
+   `release` de cada filho): os 50 mil mapas vivem o núcleo inteiro, são
+   promovidos e morrem um a um, onde o tracing varre em lote.
+3. **Escritas que ainda vão ao runtime no ARC simples**: a célula de variável
+   capturada (`emit_cell_set`) e a escrita num dono velho. A escrita escalar num
+   campo escalar de dono velho poderia sair em linha testando o bit do mapa.
+4. `abi::tests_gc_roots::lean_descriptor_gives_n_zeroed_slots_and_same_area`
+   termina com SIGBUS no perfil de teste de depuração, também sem as mudanças
+   desta rodada (não investigado).
+5. O harness não tem modo ARC: a comparação usa um script que confronta cada
+   programa com o mesmo programa em ARC puro (que confere com `dart run` em
+   150/152, os dois restantes explicados na seção de testes de ARC acima).
 
 ## O que entrou nesta rodada
 
