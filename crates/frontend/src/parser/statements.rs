@@ -1176,10 +1176,13 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 
     /// Position after the `<...>` group starting at `pos`, counting only `<` and
-    /// `>` (which arrive isolated from the lexer). Gives up at `;`, `{`, `}`,
-    /// `=>`, `<<` or end — none of that fits in a type parameter list.
+    /// `>` (which arrive isolated from the lexer). Gives up at `;`, `=>`, `<<`,
+    /// end, or a `{`/`}` outside parentheses — none of that fits in a type
+    /// parameter list (braces only appear in a function type's named
+    /// parameters: `<X extends void Function({X p})>`).
     fn skip_angle_group(&self, pos: usize) -> Option<usize> {
         let mut depth = 0usize;
+        let mut parens = 0usize;
         let mut i = pos;
         loop {
             match self.kind_of(i) {
@@ -1190,6 +1193,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                         return Some(i + 1);
                     }
                 }
+                Kind::Op(Op::LParen) => parens += 1,
+                Kind::Op(Op::RParen) => parens = parens.checked_sub(1)?,
+                Kind::Op(Op::LBrace | Op::RBrace) if parens > 0 => {}
                 Kind::Op(Op::Semicolon | Op::LBrace | Op::RBrace | Op::Arrow | Op::LtLt)
                 | Kind::Eof => return None,
                 _ => {}

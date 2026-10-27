@@ -1201,8 +1201,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 target: t2,
                 type_args,
             } => {
-                // `C<int>.named(args)`
+                // `C<int>.named(args)`, `Alias<int>.named(args)`
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
+                    if let IdentTarget::Element(Element::Typedef(td)) =
+                        self.ident_target(id.sym, *t2)
+                    {
+                        let targs: Vec<Ty> =
+                            type_args.iter().map(|t| self.resolve_type(*t)).collect();
+                        let data = &self.ctx.outline.typedefs[td.0 as usize];
+                        let map: HashMap<u32, Ty> =
+                            data.type_params.iter().map(|p| p.0).zip(targs).collect();
+                        if let Ty::Iface { class, args, .. } =
+                            self.ctx.ty_of(data.target_type).subst(&map)
+                        {
+                            let cname = if name == "new" { "" } else { name };
+                            let is_const = self.in_const;
+                            return Some(self.emit_constructor_call(
+                                class, args, true, cname, arguments, expected, is_const,
+                            ));
+                        }
+                    }
                     if let IdentTarget::Element(Element::Class(c)) = self.ident_target(id.sym, *t2)
                     {
                         let targs: Vec<Ty> =
@@ -1504,7 +1522,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         td: dartforge_elements::model::TypedefId,
     ) -> Option<(ClassId, Vec<Ty>, bool)> {
         let data = &self.ctx.outline.typedefs[td.0 as usize];
-        let Ty::Iface { class, args, .. } = self.ctx.ty_of(data.target_type) else {
+        // An alias to a type variable (`typedef TB<T extends C> = T;`, used
+        // raw or through another alias) denotes its bound's class.
+        let target = match self.ctx.ty_of(data.target_type) {
+            p @ Ty::Param { .. } => self.ctx.resolve_param_bound(&p),
+            t => t,
+        };
+        let Ty::Iface { class, args, .. } = target else {
             return None;
         };
         if !data.type_params.is_empty() {

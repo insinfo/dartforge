@@ -1438,11 +1438,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 };
                 self.returns.push(ty);
                 if matches!(self.async_kind, AsyncKind::None | AsyncKind::Async) {
-                    if self.ret_ty == Ty::Void && !self.is_closure_body {
-                        crate::emit_line!(self.w, "{};", js.code);
-                    } else {
-                        crate::emit_line!(self.w, "return {};", js.code);
-                    }
+                    // `void f() => e` still returns the value of `e`.
+                    crate::emit_line!(self.w, "return {};", js.code);
                 } else {
                     crate::emit_line!(self.w, "{};", js.code);
                 }

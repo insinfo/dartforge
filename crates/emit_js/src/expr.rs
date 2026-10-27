@@ -612,7 +612,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let expr = self.expr(e);
         let registration = self.register_shorthand_context(e, expected);
         let (js, ty) = match &expr.kind {
-            ExprKind::Property { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } => {
+            ExprKind::Property { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Unary {
+                op: UnaryOp::NullAssert,
+                ..
+            } => {
                 let (js, ty, guards) = self.emit_selector(e, expected);
                 (self.wrap_guards(js, guards), ty)
             }
@@ -3517,6 +3523,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Emits a selector (`a.b`, `a[i]`, `f(x)`), returning the text without
     /// the `?.` guards, the type, and the accumulated guards.
+    /// A link of a null-shorting chain: a property, index, call, or `!`.
+    pub fn is_selector(&self, e: ExprId) -> bool {
+        matches!(
+            self.expr(e).kind,
+            ExprKind::Property { .. }
+                | ExprKind::Index { .. }
+                | ExprKind::Call { .. }
+                | ExprKind::Unary {
+                    op: UnaryOp::NullAssert,
+                    ..
+                }
+        )
+    }
+
     pub fn emit_selector(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty, Vec<Guard>) {
         let expr = self.expr(e);
         if let Some(ty) = self.typed_loop_raw.get(&e).cloned() {
@@ -3532,6 +3552,29 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 _ => unreachable!("typed loop proof contains only selectors"),
             }
+        }
+        // `a?.b!`: the null check belongs to the null-shorting chain
+        // (`a == null ? null : nullCheck(a.b)`).
+        if let ExprKind::Unary {
+            op: UnaryOp::NullAssert,
+            operand,
+        } = &expr.kind
+        {
+            let operand = *operand;
+            let (v, vty, guards) = if self.is_selector(operand) {
+                self.emit_selector(operand, None)
+            } else {
+                let (v, vty) = self.emit_expr(operand, None);
+                (v, vty, vec![])
+            };
+            if !vty.is_nullable() && !vty.is_dynamic() {
+                return (v, vty, guards);
+            }
+            return (
+                Js::prim(format!("dart.nullCheck({})", v.code)),
+                vty.non_null(),
+                guards,
+            );
         }
         match &expr.kind {
             ExprKind::Property {
@@ -3841,7 +3884,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         match &t.kind {
-            ExprKind::Property { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } => {
+            ExprKind::Property { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Unary {
+                op: UnaryOp::NullAssert,
+                ..
+            } => {
                 // As in `emit_expr`: a promoted field read has the promoted type.
                 let (js, ty, guards) = self.emit_selector(target, None);
                 (js, self.refine_by_common(target, ty), guards)
@@ -3888,6 +3937,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     Some(self.emit_element_get(el, name))
                 }
                 IdentTarget::Element(Element::Class(c)) => self.static_member_get(c, name),
+                // `Alias.x`: a static of the class the alias denotes.
+                IdentTarget::Element(Element::Typedef(td)) => {
+                    let (c, _, _) = self.alias_creation(td)?;
+                    self.static_member_get(c, name)
+                }
                 IdentTarget::Element(Element::Extension(ext)) => {
                     let e = self.ctx.program.extension(ext);
                     let sym = self.ctx.sym(name)?;
@@ -4734,8 +4788,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (l, lt) = self.emit_expr(left, context.as_ref());
                 self.uncoerced.insert(right);
                 let (r, rt) = self.emit_expr(right, expected.or(Some(&lt.non_null())));
-                let t = self.temp();
                 let ty = self.ctx.lub(&lt.non_null(), &rt);
+                // A constant (or a plain name) is read twice instead of
+                // through a temporary: default values have no body to declare
+                // one in.
+                if self.in_const || crate::expr::is_simple(&l.code) {
+                    return (
+                        Js::new(
+                            format!(
+                                "{} == null ? {} : {}",
+                                l.at(P_EQ),
+                                r.at(P_COND),
+                                l.at(P_COND)
+                            ),
+                            P_COND,
+                        )
+                        .paren(),
+                        ty,
+                    );
+                }
+                let t = self.temp();
                 return (
                     Js::new(
                         format!("{t} = {}, {t} == null ? {} : {t}", l.code, r.at(P_COND)),
