@@ -41,6 +41,35 @@ pub(super) fn tuple_read(
     matches!(def(i), Some(Instruction::Add(a, b)) if descriptor_read(a, 0) && descriptor_read(b, 1))
 }
 
+/// The receiver's `noSuchMethod` for a uniform call whose arguments do not
+/// match (`dartforge_nsm_mismatch(recv, name, code, args, desc)`, emitted by
+/// `FnBuilder::unpack` and the type-argument check of a generic entry): the
+/// runtime only reads the declared vector and descriptor, borrowing the `Ref`
+/// arguments for the duration of the call, like a forwarding adapter. The
+/// name may carry the scope or Owned-thunk prefix of a later preparation.
+pub(super) fn mismatch_forward(
+    inst: &Instruction,
+    roles: &HashMap<ValueId, DartEntryVector>,
+) -> bool {
+    let Instruction::CallRuntime { name, args, .. } = inst else {
+        return false;
+    };
+    let base = name
+        .strip_prefix(super::NATIVE_SCOPE_PREFIX)
+        .or_else(|| name.strip_prefix(super::GENERIC_OWNED_PREFIX))
+        .unwrap_or(name);
+    let role = |o: &Operand| match o {
+        Operand::Val(v) => roles.get(v).copied(),
+        _ => None,
+    };
+    base == "dartforge_nsm_mismatch"
+        && matches!(args.as_slice(),
+            [(recv, Type::Ref), (text, Type::Ref), (code, Type::I64), (a, Type::Ptr), (d, Type::Ptr)]
+                if role(recv).is_none() && role(text).is_none() && role(code).is_none()
+                    && role(a) == Some(DartEntryVector::Arguments)
+                    && role(d) == Some(DartEntryVector::Descriptor))
+}
+
 pub(super) fn checked_read(inst: &Instruction, roles: &HashMap<ValueId, DartEntryVector>) -> bool {
     matches!(inst, Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
         if name == READ_ARGUMENT && matches!(args.as_slice(),
@@ -256,6 +285,8 @@ pub(super) fn produce(
                     desc,
                     ..
                 } if descriptor(desc) && !descriptor(recv) && !descriptor(args) => {}
+                // The receiver's `noSuchMethod` on an arity mismatch.
+                Instruction::CallRuntime { .. } if mismatch_forward(inst, roles) => {}
                 // Read-only native queries of the ABI; their call/representation
                 // contracts are still checked by the catalog.
                 Instruction::CallRuntime { name, args, .. }
@@ -268,7 +299,7 @@ pub(super) fn produce(
                         && args.iter().skip(1).all(|(o, _)| !descriptor(o)) => {}
                 _ => {
                     return Err(format!(
-                        "ABI vectors: {sym_name} v{} uses the descriptor outside the covered reads",
+                        "ABI vectors: {sym_name} v{} uses the descriptor outside the covered reads: {inst:?}",
                         v.0
                     ));
                 }
@@ -585,5 +616,48 @@ mod tests {
                 assert_eq!(ps["entrada"].classes, classes);
             }
         }
+    }
+
+    #[test]
+    fn arity_mismatch_forwards_only_the_declared_vector_and_descriptor() {
+        let roles: HashMap<_, _> = [
+            (ValueId(1), DartEntryVector::Arguments),
+            (ValueId(2), DartEntryVector::Descriptor),
+        ]
+        .into_iter()
+        .collect();
+        let call = |name: &str, args: u32, desc: u32, recv: u32| Instruction::CallRuntime {
+            name: name.into(),
+            args: vec![
+                (Operand::Val(ValueId(recv)), Type::Ref),
+                (Operand::Val(ValueId(3)), Type::Ref),
+                (Operand::Constant(Constant::Int(0)), Type::I64),
+                (Operand::Val(ValueId(args)), Type::Ptr),
+                (Operand::Val(ValueId(desc)), Type::Ptr),
+            ],
+            ret_ty: Type::Ref,
+        };
+        assert!(mismatch_forward(
+            &call("dartforge_nsm_mismatch", 1, 2, 0),
+            &roles
+        ));
+        let scoped = format!(
+            "{}dartforge_nsm_mismatch",
+            super::super::NATIVE_SCOPE_PREFIX
+        );
+        assert!(mismatch_forward(&call(&scoped, 1, 2, 0), &roles));
+        // Swapped roles, a vector as the receiver, or another runtime function.
+        assert!(!mismatch_forward(
+            &call("dartforge_nsm_mismatch", 2, 1, 0),
+            &roles
+        ));
+        assert!(!mismatch_forward(
+            &call("dartforge_nsm_mismatch", 1, 2, 1),
+            &roles
+        ));
+        assert!(!mismatch_forward(
+            &call("dartforge_forward_nsm", 1, 2, 0),
+            &roles
+        ));
     }
 }
