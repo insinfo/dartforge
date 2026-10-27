@@ -1114,6 +1114,13 @@ pub fn minify_with_properties(
     } else {
         source
     };
+    // Library IIFEs without declarations unwrapped, names declared where
+    // first assigned (`unwrap.rs`); `DARTFORGE_JSPROD_UNWRAP=0` turns it off.
+    let source = if std::env::var("DARTFORGE_JSPROD_UNWRAP").map_or(true, |v| v != "0") {
+        crate::unwrap::apply(&source)?
+    } else {
+        source
+    };
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, &source, SourceType::cjs()).parse();
     if let Some(e) = parsed.diagnostics.first() {
