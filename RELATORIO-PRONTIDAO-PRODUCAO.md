@@ -110,6 +110,93 @@ por seletor passa os argumentos num vetor e devolve o resultado em caixa (`bytes
 `_CopyingBytesBuilder` é uma dessas por byte). Uma entrada com argumentos diretos por aridade,
 com fallback para a uniforme, é o próximo passo estrutural.
 
+## Rodada de 2026-10-27: desempenho do AOT nativo
+
+Medido no `main`, de `28a109bc` (início) a `3153448f` (fim), num Mac mini M4
+com outras sessões compilando e testando ao mesmo tempo (carga de 4 a 20). Por isso,
+além do tempo de parede, a comparação usa os contadores do `time -l`
+(`instructions retired`, `cycles elapsed`): processos alternados, mediana de 5
+execuções. O tempo de parede só vale nas rodadas sem carga, indicadas abaixo.
+
+| medida | início | fim | Dart AOT 3.6.2 |
+|---|---:|---:|---:|
+| árvores (`bench/comparison/bench.dart`), ms por rodada | 15 [14] | 14 [13] | 12 [11] |
+| árvores, 40 rodadas, ciclos / instruções | 2,44 G / 11,62 G | 2,34 G / 10,97 G | 2,15 G / 9,97 G |
+| `async` (`bench/comparison/async_await.dart`), ms | 320 [316] | 259 [253] | 253 [249] |
+| `async`, ciclos / instruções | 6,48 G / 39,4 G | 5,26 G / 30,5 G | 5,14 G / 14,2 G |
+| JSON, ms / ciclos | 74,5 / 3,69 G | 77,5 / 3,70 G | 78 / 4,57 G |
+| strings, ms / ciclos | 45 / 2,17 G | 43 / 2,10 G | 47 / 2,30 G |
+| servidor `/json` com keep-alive, pedidos/s (rodadas sem carga) | 46,7 mil | 49,7 mil | 69,7 mil |
+| CPU do servidor por pedido | 25,7 µs | 24,3 µs | 19,2 µs |
+| instruções / ciclos por pedido (todo o processo) | ~306 mil / 91 mil | ~298 mil / 87,5 mil | ~215 mil / 72 mil |
+| RSS do servidor depois da carga | 15,3 MB | 17,6 MB | 17,2 MB |
+
+Entre colchetes, o mínimo. O gerador de carga agora está no repositório
+(`bench/comparison/load_keepalive.dart`, 4 isolados × 8 conexões, compilado pelo
+Dart AOT), assim como o microbenchmark `async`.
+
+**O que entrou** (cada um validado com o corpus nativo, 160/160 em `--optimize` com
+`DARTFORGE_CHECK_SHADOW=1` e em `--optimize --gc-stress`, e com os testes de
+`dartforge-emit-native` e `dartforge-runtime`):
+
+- `0215a534`: o cache de `is` no sítio de uso também responde para `null` e Smi
+  (chaves `-16 - cid`), que antes iam sempre ao runtime (`_Uint8List.[]=` a cada
+  byte, `value is Future` no `complete` de toda função `async` que devolve `int`).
+  `async` −3,2% de instruções; servidor −0,9%.
+- `db4ebe6d`: `await` de um `_Future` já concluído ou de um valor que não é
+  futuro segue o `_SuspendState._await` da VM: um microtask próprio retoma o
+  corpo, sem `_FutureListener`, futuro de resultado e `_propagateToListeners`.
+  `async` −15% de instruções, −13% de ciclos.
+- `e813b03d`: o quadro de cada chamada `async` (`_AsyncFrame`) é alocado em linha
+  na TLAB, como as instâncias, em vez de `dartforge_object_new_m`. `async` −5,5%.
+- `77a66079`: `DARTFORGE_FRAME_POINTERS=1` na compilação mantém os registros de
+  quadro, e o `sample` passa a mostrar as pilhas Dart inteiras (só para perfil, com
+  um `DARTFORGE_NATIVE_CACHE` próprio).
+- `783c2ee5`: coleta jovem a cada 4 MiB em vez de 2 MiB. Árvores −4,3% de ciclos,
+  `objects_in_collections` −4%, `fresh_list_append` −14%, JSON e strings −1 a −2%,
+  servidor −3% de instruções e −5% de ciclos por pedido, ao custo de ~2 MB de RSS
+  (igual ao Dart). `temporary_objects` +1%.
+- `3153448f`: a fusão das faixas livres usa a ordenação estável, que aproveita as
+  sequências já ordenadas (o quicksort era 1,2% das árvores). Árvores −0,8%.
+
+**Testado e descartado:** cache de duas vias nos sítios de `is` e de avaliação de
+tipo. As faltas que sobram não alternam entre duas chaves (são instanciações
+genéricas novas), e o servidor não mudou (−0,4% de instruções).
+
+**Onde vai o tempo do servidor agora** (perfil com registros de quadro, thread
+principal): `write` 19,5%, `read` 7,3%, `ioctl` 2,3%; código Rust do runtime cerca de
+25%, dos quais RTI ~6,5% (faltas dos caches de `is`, de avaliação e de `rti_set` em
+sítios genéricos polimórficos) e alocação e coleta ~8% (as duas `Uint8List` de 8 KiB
+por pedido vão por `allocate_block_outside_tlab`; na coleta jovem, a varredura pesa
+mais que a marcação); as entradas uniformes `$c`/`$tc` somam 8,4% em tempo próprio.
+O laço byte a byte de `_CopyingBytesBuilder.add` sobre `String.codeUnits` (cabeçalhos)
+faz `bytes[i]` e `bytes.length` por seletor, com o argumento num vetor e o resultado
+em caixa: ~3,3%. O `async` está no nível do Dart em ciclos, com o dobro de
+instruções; nas árvores, a coleta (marcação e varredura) ainda é ~14% e o `memset`
+das faixas entregues ~7%.
+
+**Próximos passos, em ordem:**
+
+1. Entrada direta por aridade para chamadas por seletor (`[]`, `length`, `add`),
+   com o cache do sítio apontando para ela e fallback para a uniforme. É o maior item
+   isolado do servidor (o laço dos cabeçalhos e boa parte dos 8,4% das entradas `$tc`).
+2. Empurrar o quadro de raízes e as conferências de exceção pendente só nos
+   caminhos lentos das entradas uniformes e das folhas (hoje todo `$tc` empurra o
+   quadro na entrada, mesmo quando só o caminho lento aloca).
+3. RTI de alocações genéricas sem ir ao runtime: guardar no objeto, ou no sítio, os
+   argumentos de tipo já instanciados do chamador, como o vetor de argumentos de tipo
+   compartilhado da VM.
+4. Árvores: zerar no momento da alocação (o código gerado já escreve todos os
+   campos) em vez de zerar a faixa inteira na entrega, e reduzir o custo da varredura
+   jovem.
+5. Menores: `String.[]` em linha para Latin-1 (hoje vai ao runtime), acesso a
+   variáveis por thread no runtime Rust (`_tlv_get_addr`, 1,3%).
+
+Dois testes de ARC de `dartforge-emit-native`
+(`ordinary_nullable_coalesce_with_throwing_inline_fallback_certifies` e
+`ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards`) já
+falhavam em `28a109bc`, sem estas mudanças.
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
@@ -128,10 +215,13 @@ com fallback para a uniforme, é o próximo passo estrutural.
    nulo e elimina `boolean_selector`, `source_span`, `string_scanner` e `stream_channel`, que
    aqui somam cerca de 160 KB sem minificação. No hello o piso vem dos membros de `Object`
    tratados como universais (`universal_names`): `toString` puxa o RTI inteiro.
-2. **Vazão HTTP ~70% do Dart.** Perfil achatado; os ganhos estruturais são o modelo `async`
+2. **Vazão HTTP ~70% do Dart** (49,7 contra 69,7 mil pedidos/s em 2026-10-27).
+   Perfil achatado; os ganhos estruturais são o modelo `async`
    da VM, o contexto da thread em registrador e menos chamadas ao runtime em Rust.
-3. **`async` 1,3× o Dart.** O que sobra é a própria máquina de estados no estilo do
-   dart2js (`_propagateToListeners`, closures por `await`). A saída é o modelo da VM.
+3. **`async` 1,3× o Dart** (em 2026-10-27: 259 contra 253 ms, no nível do Dart em
+   ciclos, com o dobro de instruções). O que sobra é a própria máquina de estados no
+   estilo do dart2js (`_wrapBody` e o `guarded` por chamada, o corpo chamado pela
+   entrada uniforme). A saída é o modelo da VM.
 4. **Enums e constantes como objetos da imagem.** Hoje cada `T.a` lê uma flag de
    inicialização e pode chamar o getter; com objetos estáticos a comparação vira um
    endereço constante e o tamanho cai.
@@ -150,4 +240,9 @@ target/p4/release/dartforge-differential --production --corpus corpus/js --jobs 
 # servidor sob carga
 dartforge aot bench/comparison/server.dart srv --optimize
 ./srv 18081 & ab -k -c 32 -n 200000 http://127.0.0.1:18081/json; ps -o rss= -p $!
+
+# keep-alive HTTP/1.1 (4 isolados × 8 conexões, 5 s) e contadores do processo
+dart compile exe bench/comparison/load_keepalive.dart -o load
+/usr/bin/time -l ./srv 18081 & ./load 18081 4 8 5; curl -s http://127.0.0.1:18081/quit
+dartforge aot bench/comparison/async_await.dart async_await --optimize && /usr/bin/time -l ./async_await
 ```
