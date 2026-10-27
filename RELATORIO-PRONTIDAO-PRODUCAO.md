@@ -424,6 +424,41 @@ têm alvo. Nada de ARC mudou nesta rodada além do que entrou antes
 (`1818759f`, `2d870798`, `45327774`). Árvores em ARC continuam em ~250 ms (simples) e
 ~351 ms (preparado), JSON ~325 e ~685 ms, contra 14 e ~75 ms no tracing.
 
+## ARC com berçário: medido, ainda não padrão
+
+O runtime já tem o desenho que o perfil acima aponta, como modo experimental do ARC
+simples: `DARTFORGE_ARC_NURSERY=1` em tempo de execução (`HeapArc::pure` falso). Objetos
+jovens não são contados; a coleta jovem libera os mortos em bloco, e só os promovidos
+entram na contagem (as arestas dos jovens entram na promoção, `Heap::sync_arc`); a
+barreira de escrita só conta com dono velho. Medido no `bench/comparison/bench.dart` em
+ARC simples (carga 4 a 6, ms por rodada):
+
+| núcleo | ARC puro (padrão atual) | ARC com berçário | tracing |
+|---|---:|---:|---:|
+| árvores | 255 | 64 | 14 |
+| strings | 152 | 55 | 42 |
+| JSON | 325 | 283 | 74 |
+
+Seria de 18× para 4,5× o tracing nas árvores, 1,3× nas strings e 3,8× no JSON. Mas o
+modo não está correto: comparado com o ARC puro nos 152 programas do corpus nativo, 9
+divergem (`14`, `40`, `87`, `91`, `93`, `96`, `97`, `98`, `99`), sempre por
+`ARC bug: RcZero` — um `release` de um objeto com contagem zero, vindo de
+`Heap::sync_arc` na promoção ou da barreira de `dartforge_object_set`. O rastro
+(`DARTFORGE_ARC_TRACE=1`) mostra um objeto registrado na promoção e depois liberado uma
+vez a mais do que foi retido: alguma ocorrência escrita num dono enquanto o alvo ainda
+era jovem não entra na contagem (nem pela barreira nem pelo conjunto lembrado), e a
+sobrescrita posterior a libera. O ARC preparado com berçário falha já na primeira coleta
+(o código preparado conta os donos jovens, e a promoção os conta de novo).
+
+Tornar o berçário o padrão do ARC simples ficou num patch fora do repositório: o programa
+não preparado chama `dartforge_memory_arc_nursery_v1` (o preparado continua com
+`dartforge_memory_arc_v1`, puro), com `DARTFORGE_ARC_NURSERY=0` para medir. Não entrou
+porque deixaria 9 programas do corpus quebrados em ARC. O próximo passo do ARC é achar a
+ocorrência não contada (as escritas cruas dos natives sobre donos velhos, `arc_raw_write`,
+e as que não passam pelo conjunto lembrado são as candidatas), depois ligar o berçário no
+ARC simples e, por último, ensinar ao ARC preparado que um jovem não tem contagem até a
+promoção.
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
