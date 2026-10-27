@@ -1321,7 +1321,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             // External name (the key in `opts`): the public one of a 3.12 private
             // named parameter; the local one stays `name`.
             let external = p.external_name().unwrap_or(name);
-            let mut ty = if p.ty.is_none() && p.function_parameters.is_none() {
+            // An old-style generic function parameter (`bar<V>(V v)`) takes
+            // the signature's type, which keeps its type parameters.
+            let from_signature = p.ty.is_none() && p.function_parameters.is_none()
+                || !p.function_type_params.is_empty() && tys.is_some();
+            let mut ty = if from_signature {
                 match p.kind {
                     ast::ParameterKind::Required => {
                         pos_expected.get(pi).cloned().unwrap_or(Ty::Dynamic)
