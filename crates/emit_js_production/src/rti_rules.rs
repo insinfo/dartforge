@@ -24,7 +24,7 @@
 //! The rule values never cite a type variable by name (they use the indexes
 //! `"1"`, `"2"`… of `module.rs::rule_recipe`).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const CALLS: &[&str] = &[
     "_Universe.addRules(dart.typeUniverse, JSON.parse(",
@@ -476,6 +476,14 @@ pub fn merge_program_rules(js: &str, program_start: usize) -> String {
 /// `registerExtension` receives: they copy its marks at load, so its
 /// statement stays. Each statement cost the call and the list:
 /// 2,067 in limitless_ui. `DARTFORGE_JSPROD_BATCH_RESOURCES=0` turns it off.
+///
+/// The SDK's statements (before `program_start`) join the same call, except
+/// those of the classes whose marks are copied at load: the arguments of
+/// `applyMixin`/`registerExtension`, the classes with a `[dart.mixinOn]`,
+/// and every superclass of those (`registerExtension` copies the marks of
+/// the whole Dart chain of a native type). Without a readable superclass
+/// for one of them the SDK stays as it is.
+/// `DARTFORGE_JSPROD_BATCH_SDK_RESOURCES=0` keeps the SDK's in place.
 pub fn batch_program_resources(js: &str, program_start: usize) -> String {
     const CALL: &str = "dart.addRtiResources(";
     // `applyMixin` and `registerExtension` copy the marks at load: a class
@@ -488,9 +496,20 @@ pub fn batch_program_resources(js: &str, program_start: usize) -> String {
             copied.extend(args.split(", ").map(str::trim));
         }
     }
+    let sdk_pinned =
+        if std::env::var("DARTFORGE_JSPROD_BATCH_SDK_RESOURCES").is_ok_and(|v| v == "0") {
+            None
+        } else {
+            sdk_copied_classes(js, program_start)
+        };
     let mut found: Vec<(usize, usize, &str, Vec<&str>)> = Vec::new();
-    for (p, _) in js[program_start..].match_indices(CALL) {
-        let p = program_start + p;
+    let scan_from = if sdk_pinned.is_some() {
+        0
+    } else {
+        program_start
+    };
+    for (p, _) in js[scan_from..].match_indices(CALL) {
+        let p = scan_from + p;
         // A whole statement on its own line: `dart.addRtiResources(C, [...]);`.
         if p > 0 && js.as_bytes()[p - 1] != b'\n' {
             continue;
@@ -506,14 +525,19 @@ pub fn batch_program_resources(js: &str, program_start: usize) -> String {
         let Some(list) = list.strip_suffix("]);") else {
             continue;
         };
-        // Only a class reached through its library's namespace (`L$lib.C`):
-        // a local of the library's IIFE (a mixin application) would not be
-        // in scope at the last statement.
+        // Only a class reached through its library's namespace (`L$lib.C`,
+        // `core.C`): a local of the library's IIFE (a mixin application)
+        // would not be in scope at the last statement.
         let Some((namespace, _)) = class.split_once('.') else {
             continue;
         };
-        if !namespace.starts_with("L$")
-            || copied.contains(class)
+        let in_sdk = p < program_start;
+        let pinned = if in_sdk {
+            sdk_pinned.as_ref().is_none_or(|s| s.contains(class))
+        } else {
+            !namespace.starts_with("L$") || copied.contains(class)
+        };
+        if pinned
             || !class
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b == b'.')
@@ -564,6 +588,77 @@ pub fn batch_program_resources(js: &str, program_start: usize) -> String {
     }
     out.push_str(&js[pos..]);
     out
+}
+
+/// The SDK classes (before `program_start`) whose marks some runtime call
+/// copies at load: the arguments of `applyMixin`/`registerExtension` in the
+/// whole file, the classes with a `[dart.mixinOn]`, and the superclasses of
+/// all of them, read from the `N = class C extends S {` lines. `None` when a
+/// superclass of one of them is not such a line (nothing of the SDK may
+/// move then).
+fn sdk_copied_classes(js: &str, program_start: usize) -> Option<HashSet<String>> {
+    let mut supers: HashMap<&str, &str> = HashMap::new();
+    for line in js[..program_start].lines() {
+        let l = line
+            .strip_prefix("const ")
+            .or_else(|| line.strip_prefix("let "))
+            .or_else(|| line.strip_prefix("var "))
+            .unwrap_or(line);
+        let Some((name, rest)) = l.split_once(" = class ") else {
+            continue;
+        };
+        if name.contains(' ') {
+            continue;
+        }
+        let Some((_, after)) = rest.split_once(" extends ") else {
+            continue;
+        };
+        let Some(sup) = after
+            .strip_suffix(" {")
+            .or_else(|| after.strip_suffix(" {};"))
+        else {
+            continue;
+        };
+        if sup.contains(' ') {
+            continue;
+        }
+        supers.insert(name, sup);
+    }
+    let mut pinned: HashSet<String> = HashSet::new();
+    let mut queue: Vec<&str> = Vec::new();
+    for c in ["applyMixin(", "registerExtension("] {
+        for (p, _) in js.match_indices(c) {
+            // The runtime's own definition is not a call.
+            if js[..p].ends_with("function ") {
+                continue;
+            }
+            let rest = &js[p + c.len()..];
+            let args = &rest[..rest.find(')').unwrap_or(0)];
+            queue.extend(
+                args.split(',')
+                    .map(str::trim)
+                    .filter(|a| !a.starts_with(['"', '\'']) && !a.is_empty()),
+            );
+        }
+    }
+    for (p, _) in js.match_indices("[dart.mixinOn] = ") {
+        let before = &js[..p];
+        let start = before.rfind('\n').map_or(0, |i| i + 1);
+        queue.push(before[start..].trim());
+    }
+    while let Some(c) = queue.pop() {
+        if !pinned.insert(c.to_string()) || c == "core.Object" {
+            continue;
+        }
+        match supers.get(c) {
+            Some(s) => queue.push(s),
+            // A program class (`L$…`) or a local has no SDK marks to keep;
+            // an SDK class without a readable superclass stops the batch.
+            None if c.starts_with("L$") => {}
+            None => return None,
+        }
+    }
+    Some(pinned)
 }
 
 // Transport only: reconstruct the exact canonical recipe string before the
@@ -725,18 +820,24 @@ mod tests {
 
     #[test]
     fn program_resources_batch_into_the_last_statement() {
-        let mut js = "dart.addRtiResources(core.S, [\"|s\"]);\nEND\nL$a.A = class {};\ndart.addRtiResources(L$a.A, [\"|a\"]);\nL$a.B = class {};\ndart.addRtiResources(L$a.B, [\"|b\", \"|c\"]);\n".to_string();
+        let mut js = "core.S = class S extends core.T {\n};\ncore.T = class T extends core.Object {\n};\ncore.U = class U extends core.Object {\n};\ndart.addRtiResources(core.T, [\"|t\"]);\ndart.addRtiResources(core.S, [\"|s\"]);\ndart.registerExtension(\"Array\", core.S);\ndart.addRtiResources(core.U, [\"|u\"]);\nEND\nL$a.A = class {};\ndart.addRtiResources(L$a.A, [\"|a\"]);\nL$a.B = class {};\ndart.addRtiResources(L$a.B, [\"|b\", \"|c\"]);\n".to_string();
         for i in 0..40 {
             js.push_str(&format!("dart.addRtiResources(L$a.C{i}, [\"|c{i}\"]);\n"));
         }
         js.push_str("main();\n");
         let out = batch_program_resources(&js, js.find("END").unwrap());
+        // A native peer and its superclass keep their marks in place for
+        // `registerExtension`; the other SDK class joins the batch.
         assert!(
-            out.starts_with("dart.addRtiResources(core.S, [\"|s\"]);"),
+            out.contains(
+                "dart.addRtiResources(core.T, [\"|t\"]);\ndart.addRtiResources(core.S, [\"|s\"]);"
+            ),
             "{out}"
         );
         assert!(
-            out.contains("})([L$a.A, \"|a\", L$a.B, [\"|b\", \"|c\"], L$a.C0, \"|c0\""),
+            out.contains(
+                "})([core.U, \"|u\", L$a.A, \"|a\", L$a.B, [\"|b\", \"|c\"], L$a.C0, \"|c0\""
+            ),
             "{out}"
         );
         assert!(out.contains("L$a.C39, \"|c39\"]);\nmain();"), "{out}");
