@@ -1839,6 +1839,20 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             continue;
         }
         if let Some(sym) = &f.storage {
+            // A final field has no setter of its own; the forwarding one
+            // keeps an inherited setter reachable. In production it is only
+            // written when a superclass or a mixin declares that setter
+            // (`DARTFORGE_JSPROD_FINAL_SETTERS=0` writes it always).
+            let forward_setter = !ctx.production()
+                || std::env::var("DARTFORGE_JSPROD_FINAL_SETTERS").is_ok_and(|v| v == "0")
+                || class
+                    .supertype_class
+                    .and_then(|sc| ctx.lookup_member(&ctx.this_ty(sc), &f.name, true))
+                    .is_some()
+                || ctx.mixins_of(c).iter().any(|mx| {
+                    ctx.lookup_member(&ctx.this_ty(*mx), &f.name, true)
+                        .is_some()
+                });
             let key = if f.name.starts_with('_') {
                 format!("[{}]", m.private_sym(ctx, class.library, &f.name))
             } else {
@@ -1893,7 +1907,9 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     } else {
                         js::prop_access(&crate::body::js_member_name(&f.name))
                     };
-                    crate::emit_line!(cw, "set {key}(v) {{ super{sup} = v; }}");
+                    if forward_setter {
+                        crate::emit_line!(cw, "set {key}(v) {{ super{sup} = v; }}");
+                    }
                 } else {
                     crate::emit_line!(cw, "set {key}(v) {{");
                     for l in set.lines() {
@@ -1904,14 +1920,16 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             } else {
                 crate::emit_line!(cw, "get {key}() {{ return this[{sym}]; }}");
                 if f.final_ {
-                    cw.line(&format!(
-                        "set {key}(value) {{ super{} = value; }}",
-                        if f.name.starts_with('_') {
-                            format!("[{sym}]")
-                        } else {
-                            js::prop_access(&crate::body::js_member_name(&f.name))
-                        }
-                    ));
+                    if forward_setter {
+                        cw.line(&format!(
+                            "set {key}(value) {{ super{} = value; }}",
+                            if f.name.starts_with('_') {
+                                format!("[{sym}]")
+                            } else {
+                                js::prop_access(&crate::body::js_member_name(&f.name))
+                            }
+                        ));
+                    }
                 } else if let Some(check) = &covariant_check {
                     crate::emit_line!(
                         cw,
