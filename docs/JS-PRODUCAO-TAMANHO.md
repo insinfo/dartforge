@@ -1440,3 +1440,223 @@ erro.
    lote) e com as assinaturas.
 4. Os itens estimados da §14.3 (ordem das regras, ids implícitos, limiar da
    deduplicação).
+
+## 15. Rodada de 2026-10-27 (macOS): os dois projetos abaixo do `dart2js -O4`
+
+Medido antes de mexer (o `main` em `45327774`, macOS arm64, Node 24.21,
+SDK 3.6.2; `gzip -9`). O `dart2js -O4` dos projetos foi refeito hoje com o
+`build_runner build --release` (`dart2js_args: ["-O4"]`), sobre os mesmos
+*commits* dos projetos de antes:
+
+| alvo | nosso | `dart2js -O4` |
+| --- | ---: | ---: |
+| `limitless_ui/example` | 6.579.927 (gz 1.595.453) ¹ | 3.704.125 (gz 982.814) |
+| `new_sali/frontend` | 7.634.602 (gz 2.071.615) | 7.614.136 (gz 2.018.523) |
+| corpus (273 programas com saída do `dart2js`) | 18.852.978 (gz 6.198.985) | 11.024.980 (gz 3.582.721) |
+| mediana nosso/`dart2js` no corpus | 1,574× (gz 1,621×) | |
+| `print('hi')` | 47.555 (gz 16.431) | 5.074 (gz 1.801) |
+
+¹ O ponto fixo do mundo não convergia em 40 rodadas e o arquivo saía sem
+poda (§15.1). Corrigido isso, o ponto de partida real era 3.610.318 (gz
+1.036.655).
+
+Cada passo abaixo foi validado sozinho: corpus diferencial `corpus/js`
+274/274 em desenvolvimento e produção e `corpus/modern` 26/26 em produção
+(24/26 em desenvolvimento, as mesmas duas falhas de antes, §15.12), testes
+e `clippy` dos *crates* tocados. Os passos que mudam o que vive ou como as
+*tear-offs* e os metadados rodam passaram também pelo e2e do `limitless_ui`
+(15/15), pelas 48 rotas sem erro no Chrome e pelo `new_sali` carregando sem
+erro (o mesmo HTML montado, 6.087 caracteres, que o do `dart2js`). Cada
+otimização tem o seu `DARTFORGE_JSPROD_*=0`.
+
+### 15.1 `callAsFunction` do `dart:js_interop` (`emit_js`, `ctx.rs`)
+
+O `@JS('call') external callAsFunction` do `JSFunctionUtilExtension` não tem
+*patch*: o CFE troca cada chamada por `f.call(…)`. O emissor deixava os
+membros `external` do SDK fora dos membros de extensão de interop, e a chamada
+ia para um `js_interop["JSFunctionUtilExtension|callAsFunction"]` que nunca é
+definido; em produção o verificador o reenraizava a cada rodada, o ponto fixo
+do `limitless_ui` não fechava (o `sanitize_dom` o usa) e o arquivo saía sem
+poda (6,6 MB). Os nomes `@JS` dos membros `external` de extensão do
+`dart:js_interop` agora são lidos como os do programa, nos dois perfis
+(suíte `tests/language`: 2756/2863, sem regressão).
+
+### 15.2 Membros de `Object` e acessos estáticos como seletores (`world`)
+
+* Os membros de `Object` (`toString`, `==`, `hashCode`, `noSuchMethod`,
+  `runtimeType`) deixaram de ser vivos em toda classe instanciada. O runtime
+  os chama por `extensionSymbol('toString')` (`dart.str`, `dart.equals`…),
+  que agora registra o seletor quando a função do runtime vive; quando uma
+  biblioteca de interop vive (o JavaScript pode segurar qualquer objeto Dart)
+  todos voltam a valer e o `core.Object` é instanciado. A porta é a de
+  interop, não a dos nativos: `dart:typed_data` só cria nativos.
+  `DARTFORGE_JSPROD_OBJECT_SELECTORS=0`.
+* `C.nome` e `prefixo.nome` não registram seletor de instância (o acesso é
+  estático). `DARTFORGE_JSPROD_STATIC_SELECTORS=0`.
+* `bind` nos *templates* `JS()` e no texto do runtime (`#.bind(#)` do
+  `dart.bind` e do *patch* de `async`) é o `Function.prototype.bind`, não o
+  `Converter.bind`: ele mantinha vivo todo `bind` de `Converter`/
+  `StreamTransformer`, e com eles a maquinaria de *streams*, em todo programa
+  com `dart:convert`. `jsonEncode([1, 2])`: 134 → 84 KB.
+  `DARTFORGE_JSPROD_FUNCTION_METHODS=0`.
+* Um identificador resolvido para local ou parâmetro não mantém vivos os
+  estáticos de mesmo nome (`int hash = …` em `Object.hashAll` mantinha
+  `Object.hash` e o `SystemHash` inteiro). `DARTFORGE_JSPROD_LOCAL_NAMES=0`.
+* O inicializador de um campo `late` de instância é percorrido com o
+  *getter* implícito do campo (o emissor o calcula ali, na primeira leitura),
+  não na instanciação da classe: os `late` não lidos do `_Uri`
+  (`pathSegments`, `queryParametersAll`…) mantinham UTF-8, Base64 e
+  `Map.unmodifiable` em todo programa que faz `Uri.parse`.
+  `DARTFORGE_JSPROD_LATE_INITIALIZERS=0`.
+
+### 15.3 Remendos do piso (`sdk_patches.rs`, `DARTFORGE_JSPROD_FLOOR_PATCHES`)
+
+* `trackCall` (atrás de todo `dload`/`dput`/`dsend`) amostra chamadas para o
+  depurador do DDC só com `dart.__trackProfile`, que só o carregador de
+  desenvolvimento liga: em produção o corpo fica vazio.
+* `InvocationImpl` montava os argumentos nomeados com
+  `Map.unmodifiable(Map.fromIterable(…))`, cuja fábrica de `LinkedHashMap`
+  mantinha `CustomHashMap`, `IdentityMap` e o preenchimento por iterável; um
+  mapa literal no mesmo `UnmodifiableMapView` tem as mesmas chaves, ordem e
+  tipo (conferido contra o perfil sem o remendo). −5 a −6 KB nos programas
+  com chamadas dinâmicas.
+* `_rtiToString` cortava o prefixo da biblioteca com `String.indexOf`, cujo
+  caminho de `Pattern` mantinha `JSSyntaxRegExp`, `matchAsPrefix` e
+  `StringMatch` em quase todo programa; o separador é uma *string* e
+  `_Utils.stringIndexOf` é o mesmo `indexOf` do JavaScript. Corpus −325 KB.
+
+### 15.4 Prelúdios içados para fora das IIFEs (`own_sdk.rs`)
+
+Cada IIFE de biblioteca declarava os seus apelidos de `dartx` e os símbolos
+privados do SDK (`var $add = dartx.add`, `var _is = dart.privateName(…)`):
+474 cópias das mesmas sete linhas no `limitless_ui`, e o mesmo símbolo com um
+nome minificado diferente em cada biblioteca. Os apelidos que valem o mesmo
+em todo módulo viram uma declaração depois do *bootstrap*; um nome com dois
+valores fica local. `limitless_ui` −16 KB brutos e **−13 KB gzip**: o gzip
+passa a ver o mesmo nome em toda biblioteca. `DARTFORGE_JSPROD_HOIST_PRELUDES=0`.
+
+### 15.5 IIFEs desembrulhadas e nomes declarados na primeira atribuição (`unwrap.rs`)
+
+Com os prelúdios içados e os membros achatados, quase toda IIFE de biblioteca
+só atribui nomes do arquivo. Ela dá lugar ao seu corpo — também quando
+declara nomes que não aparecem em nenhum outro lugar — e os nomes que o
+achatamento declarava sem valor no topo (`var a, b, c, …`: 3.500 nomes
+aleatórios no `limitless_ui`, que o gzip não comprime) passam a ser
+declarados pela primeira atribuição no escopo do arquivo (o mesmo `var`
+içado). Fica a IIFE com diretivas ou `return` no topo.
+`limitless_ui` −14 KB / −8,5 KB gzip; corpus −205 KB gzip.
+`DARTFORGE_JSPROD_UNWRAP=0`.
+
+### 15.6 Metadados das classes agrupados antes do `main` (`unwrap.rs`)
+
+O `dart.lateFields` e as assinaturas de cada classe ficavam entre os corpos
+de classe, onde o gzip não casava uma lista de nomes curtos com a seguinte.
+Agora vão, na ordem, para logo antes da chamada do `main`: nada os lê
+enquanto as bibliotecas carregam (as assinaturas são *thunks* preguiçosos,
+os acessores `late` servem instâncias), menos as cópias feitas na carga
+(`applyMixin`, `registerExtension`, `defineExtensionMethods`/`Accessors`,
+`mixinOn`), cujas classes mantêm os seus. **−9,6 KB gzip** no
+`limitless_ui`, −8,9 KB no `new_sali`. `DARTFORGE_JSPROD_GROUP_METADATA=0`.
+
+Junto: as chaves dos campos `late` (sem os nomes, §13.5) saem como uma
+*string* por classe (`"k1 k2"`), que o minificador reescreve palavra a
+palavra depois do renomeio e ordena (`DARTFORGE_JSPROD_LATE_STRING=0`), e as
+entradas do JSON das regras rti saem ordenadas pelo valor, com as *views*
+vizinhas (`DARTFORGE_JSPROD_RULE_ORDER=0`).
+
+### 15.7 *Tear-offs* com o tipo na chamada (`emit_js`, `sdk_patches.rs`)
+
+O `dart.bind` lê o tipo da *tear-off* na tabela de assinaturas da classe,
+então todo método destacado (cada `_handleEvent_N` das *views*) precisava de
+uma entrada. Em produção, quando todo método de instância com aquele nome no
+programa tem o mesmo tipo fechado e não genérico, e nenhum tem parâmetro
+`covariant` explícito (cujos *stubs* de encaminhamento têm outro tipo), o
+emissor escreve `dart.tbind(o, "m", T)`, um remendo do runtime que liga com o
+tipo dado; o nome deixa de pedir assinatura (continua seletor vivo). O caso
+do `corpus/js/264` (*stub* de covariância com tipo `(Object?, Object?)`)
+pegou a primeira versão, sem a exclusão de `covariant`.
+`DARTFORGE_JSPROD_TYPED_BIND=0`.
+
+### 15.8 Argumentos finais sem uso descartados (`inline.rs`)
+
+O *inline* recusava o `checkBinding(old, new, "expr", location)` das *views*
+porque os argumentos são leituras de propriedade, e a expressão e a
+localização (deduplicadas em variáveis `t$S`) também não eram descartáveis.
+Uma chamada que não pode ser substituída perde agora os argumentos finais de
+parâmetros que o corpo não lê, quando não podem lançar, e uma *string*
+deduplicada (um `var` com valor literal, inicializado antes de tudo) conta
+como tal. 3.370 chamadas no `limitless_ui`: **−78 KB brutos, −21,7 KB gzip**;
+no `new_sali` −77 KB e −24,7 KB. `DARTFORGE_JSPROD_DROP_UNUSED_ARGS=0`.
+
+### 15.9 Resultado
+
+| alvo | início | agora | `dart2js -O4` | agora/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| `limitless_ui/example` | 3.610.318 (gz 1.036.655) | **3.455.727** (gz **969.872**) | 3.704.125 (gz 982.814) | 0,933× (gz 0,987×) |
+| `new_sali/frontend` | 7.634.602 (gz 2.071.615) | **7.404.523** (gz **1.977.531**) | 7.614.136 (gz 2.018.523) | 0,972× (gz 0,980×) |
+| corpus (273) | 18.852.978 (gz 6.198.985) | **17.242.249** (gz **5.572.874**) | 11.024.980 (gz 3.582.721) | 1,56× (gz 1,56×) |
+| mediana nosso/`dart2js` | 1,574× (gz 1,621×) | **1,465×** (gz **1,474×**) | | |
+| `print('hi')` | 47.555 (gz 16.431) | **44.383** (gz **14.959**) | 5.074 (gz 1.801) | 8,7× |
+| `01_print` | 58.806 | 55.685 | 34.926 | 1,59× |
+| `120_convert_json` | 163.921 | 97.136 | 58.550 | 1,66× |
+| `135_convert_json_classes` | 238.599 | 178.342 | 101.193 | 1,76× |
+| `136_string_interpolacao_avancada` | 212.238 | 149.892 | 90.463 | 1,66× |
+
+Os dois projetos reais ficaram **menores que o `dart2js -O4` no bruto e no
+gzip**. O corpus e os programas pequenos continuam acima.
+
+### 15.10 Medidos e descartados
+
+* Nomes de propriedade por posição dentro do grupo de coabitação (os campos
+  de cada *view* com a mesma sequência de nomes): +1,8 KB gzip no
+  `limitless_ui`; a ordem global por frequência é melhor.
+* Tirar só o `toString` dos seletores vivos (limite superior, inseguro):
+  nada muda no `print('hi')`; o piso é outro (abaixo).
+* Tirar os três `findType` do fim do *bootstrap*: −30 bytes; o `_Universe`
+  continua vivo por `instanceType`, `typeName` e as checagens do `JSArray`.
+* `x == null` sem registrar o `==` resolvido: correto, mas sem efeito (o
+  runtime usa `==` por outros caminhos).
+* Constantes `static get x() { return null; }` (`_debugComponentUrl` das
+  *views*) *inline*: só 114 restavam, −0,4 KB gzip.
+* Tabela de nomes (`t$N`) em ordem de nome (ids reatribuídos): −0,7 KB
+  gzip estimado; não feito (muda os ids de todas as receitas).
+
+### 15.11 O que falta, por ganho esperado
+
+1. **O piso** (`print('hi')` 44 KB contra 5 KB): mais da metade é o
+   `dart:_rti` (`_Universe`, `_Parser`, subtipagem e `toString` de todo tipo),
+   vivo porque o *bootstrap* e as classes nativas avaliam receitas
+   (`instanceType(this)[_eval]` no `JSArray`, `findType`) e o `dart.str` do
+   `print` chama `toString` sem tipo, o que acorda o `JSArray.toString` e o
+   `StringBuffer`. O `dart2js` corta isso por inferência de tipo de argumento
+   (o `print` só recebe `String`); aqui pede restringir o `toString` do
+   `str`/`print` pelo tipo estático em cada chamada (delegação pelo
+   parâmetro) e um caminho de receitas que só some quando nenhum tipo é
+   avaliado.
+2. **Registros no rti**: as funções de *record* do `dart:_rti`
+   (`_lookupRecordRti`, `_isRecordSubtype`, `_recordRtiToString`,
+   `createRecordTypePredicate`…) ficam vivas pelo `switch` de espécie mesmo
+   sem *record* no programa; sairiam com uma condição constante "o programa
+   tem receita de *record*".
+3. **`unsafeCast` do ngdart**: o `@pragma('dart2js:as:trust')` faz o
+   `dart2js` omitir o `as T` em qualquer `-O`; nós checamos (1.928 chamadas
+   no `limitless_ui`). Honrar o *pragma* é mudança de contrato (decisão do
+   dono).
+4. Metadados que sobram no `limitless_ui` (gzip): assinaturas ~10,7 KB
+   (`dload`/`dsend` dinâmicos dos *templates*), regras rti ~7,6 KB, tabela
+   `t$N` ~7,6 KB, `lateFields` ~6,1 KB, recursos rti ~5 KB.
+
+### 15.12 Observações da validação
+
+* `corpus/modern` 340 e 341 falham no **desenvolvimento** (`Undefined name
+  'cru'`, erro de linguagem do analisador antes da emissão) desde o começo da
+  rodada; em produção passam. Nada desta rodada toca o analisador.
+* O teste ignorado `tests/identity.rs` do `emit_js_production` (sem filtro e
+  com `AllLive` emitem o mesmo texto) já falhava no `main` antes da rodada
+  (`p3_classes.dart`).
+* O `scripts/limitless-ui-production.sh` chama um `tool/serve_example.dart`
+  que não existe mais no `limitless_ui`; o e2e foi rodado com um servidor
+  estático (`python3 -m http.server`) no lugar dele.
+* Suíte `tests/language` (`scripts/run-language-suite.py`): 2756/2863 iguais
+  à VM, sem regressão (o emissor de desenvolvimento só mudou em §15.1; as
+  demais mudanças do `emit_js` são do perfil de produção).
