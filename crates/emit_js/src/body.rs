@@ -113,6 +113,13 @@ pub struct FnEmitter<'m, 'a> {
     pub extension_type: Option<ClassId>,
     /// Explicitly applied extension (`Ext(x).m`), consumed by the next access.
     pub forced_ext: Option<dartforge_elements::model::ExtensionId>,
+    /// The function expression assigned to a promoted local: its common type
+    /// was inferred with the promoted type as context (the analyzer's rule),
+    /// but at run time the context is the declared type (the CFE's).
+    pub declared_context_closure: Option<ExprId>,
+    /// [`Self::match_type`] binds a parameter matched against `Never` (the
+    /// context of an implicit instantiation, where `Never` is a solution).
+    pub match_never: std::cell::Cell<bool>,
     /// JS names of the parameters declared in this function
     /// ([`FnEmitter::declare`] does not reuse them).
     pub param_names: Vec<String>,
@@ -240,6 +247,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             current_extension: None,
             extension_type: None,
             forced_ext: None,
+            declared_context_closure: None,
+            match_never: std::cell::Cell::new(false),
             param_names: Vec::new(),
             compound_guards: Vec::new(),
             pattern_assign: false,
@@ -1721,6 +1730,17 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 ..
             } => {
                 self.push_scope();
+                if let Some(ast::ForInit::Variables(list)) = init {
+                    if list
+                        .variables
+                        .iter()
+                        .any(|v| v.initializer.is_some_and(|e| self.contains_closure(e)))
+                    {
+                        self.emit_for_capturing_init(list, *condition, updates, *body);
+                        self.pop_scope();
+                        return;
+                    }
+                }
                 let init_js = match init {
                     Some(ast::ForInit::Variables(list)) => {
                         let mut parts = Vec::new();
@@ -2076,8 +2096,18 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         let ty = self.local_fn_ty(f);
         let jsn = self.declare(name.sym, ty.clone());
         // The signature is that of `local_fn_ty` (the one in scope, which the
-        // calls already read); the shared type of the local function is not used.
-        let (fn_js, inferred) = self.emit_function_expr(fid, Some(&ty), None);
+        // calls already read). The shared type gives the return type inferred
+        // from every `return`, also those of branches not emitted (`if (false)`).
+        let common = self
+            .ctx
+            .bodies
+            .units
+            .get(self.unit.0 as usize)
+            .and_then(|u| {
+                u.function_runtime_type(fid)
+                    .or_else(|| u.local_type(name.span.start))
+            });
+        let (fn_js, inferred) = self.emit_function_expr(fid, Some(&ty), common);
         crate::emit_line!(self.w, "let {jsn} = {};", fn_js.code);
         // Without a written return type, the local function's return type is
         // the one inferred from the body (the same its rti carries): the
@@ -2128,6 +2158,78 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             named,
             nullable: false,
         }
+    }
+
+    /// Whether a function expression occurs inside `e`. Sub-expressions are
+    /// allocated before their parent, so they sit right below `e` in the
+    /// arena, with spans inside its span.
+    fn contains_closure(&self, e: ExprId) -> bool {
+        let ast = self.ast();
+        let span = ast.expr(e).span;
+        (0..=e.0)
+            .rev()
+            .map(|i| ast.expr(ExprId(i)))
+            .take_while(|x| x.span.start >= span.start && x.span.end <= span.end)
+            .any(|x| matches!(x.kind, ast::ExprKind::FunctionExpression(_)))
+    }
+
+    /// `for (var i = 0, f = () => i; c; u) b` where a closure in the
+    /// initializer captures the loop variables. Dart makes the initializer's
+    /// variables those of the first iteration, but a JS `for` copies them
+    /// into a fresh environment before it. The variables are declared without
+    /// value in the header and initialized in the first iteration, where the
+    /// condition also runs; the update still runs in the next iteration's
+    /// copy, as in Dart.
+    fn emit_for_capturing_init(
+        &mut self,
+        list: &ast::VariableList,
+        condition: Option<ExprId>,
+        updates: &[ExprId],
+        body: StmtId,
+    ) {
+        let first = format!("t${}", self.temp_counter);
+        self.temp_counter += 1;
+        let declared = list.ty.map(|t| self.resolve_type(t));
+        let mut names = vec![format!("{first} = true")];
+        let mut inits = Vec::new();
+        for v in list.variables.iter() {
+            let (ijs, ity) = match v.initializer {
+                Some(e) => {
+                    let (j, t) = self.emit_expr(e, declared.as_ref());
+                    (j.at(P_ASSIGN + 1).to_string(), t)
+                }
+                None => ("null".to_string(), Ty::Null),
+            };
+            let ty = declared.clone().unwrap_or(ity);
+            let jsn = self.declare(v.name.sym, ty);
+            inits.push(format!("{jsn} = {ijs};"));
+            names.push(jsn);
+        }
+        let upd: Vec<String> = updates
+            .iter()
+            .map(|u| self.emit_discarded(*u).code)
+            .collect();
+        self.w.open(&format!(
+            "for (let {}; ; {}) {{",
+            names.join(", "),
+            upd.join(", ")
+        ));
+        self.w.open(&format!("if ({first}) {{"));
+        crate::emit_line!(self.w, "{first} = false;");
+        for i in inits {
+            self.w.line(&i);
+        }
+        self.w.close("}");
+        if let Some(c) = condition {
+            let (cjs, _) = self.emit_cond(c);
+            crate::emit_line!(self.w, "if (!({cjs})) break;");
+        }
+        self.push_scope();
+        self.continue_scopes.push(None);
+        self.emit_stmt(body);
+        self.continue_scopes.pop();
+        self.pop_scope();
+        self.w.close("}");
     }
 
     fn emit_for_in(

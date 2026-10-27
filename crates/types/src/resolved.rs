@@ -159,6 +159,10 @@ pub struct UnitBodyTypes {
     /// The `writeType` of each assignment (simple and compound), by the
     /// assignment expression.
     pub write_types: std::collections::HashMap<ast::ExprId, TypeId>,
+    /// The assignments to a local whose right side was analyzed in the context
+    /// of the promoted type instead of the `writeType` (the analyzer's rule;
+    /// the CFE uses the declared type).
+    pub promoted_contexts: std::collections::HashSet<ast::ExprId>,
     /// The `PatternField.element` of each object pattern field that found a
     /// member, by the field's subpattern.
     pub field_elements: std::collections::HashMap<ast::PatternId, Resolved>,
@@ -193,6 +197,7 @@ impl UnitBodyTypes {
             implicit_calls: std::collections::HashSet::new(),
             parameter_types: std::collections::HashMap::new(),
             write_types: std::collections::HashMap::new(),
+            promoted_contexts: std::collections::HashSet::new(),
             field_elements: std::collections::HashMap::new(),
             relational_operators: std::collections::HashMap::new(),
         }

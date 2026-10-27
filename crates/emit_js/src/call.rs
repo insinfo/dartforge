@@ -1749,6 +1749,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             i
                         }
                     }
+                    // Not a subtype of the context's return type: that type
+                    // (`() { return o; }` with a `dynamic o` in a
+                    // `List<Object> Function()` context).
+                    (Some(e), AsyncKind::None)
+                        if !e.is_dynamic() && !e.mentions_params() && !matches!(i, Ty::Never) =>
+                    {
+                        e.clone()
+                    }
                     _ => i,
                 }
             }
@@ -1765,14 +1773,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let ret_ty = match kind {
             _ if common_ret.is_some() => common_ret.unwrap_or(Ty::Dynamic),
             AsyncKind::None => inner_ret,
-            AsyncKind::Async => match &inner_ret {
-                Ty::Iface { class, .. }
-                    if Some(*class) == self.ctx.future_ && declared_ret.is_some() =>
-                {
-                    inner_ret.clone()
-                }
-                _ => self.ctx.t_future(self.flatten_future(&inner_ret)),
-            },
+            // A written return type is the function's (`dynamic f() async`
+            // is a `dynamic Function()`).
+            AsyncKind::Async if declared_ret.is_some() => inner_ret,
+            AsyncKind::Async => self.ctx.t_future(self.flatten_future(&inner_ret)),
             AsyncKind::AsyncStar | AsyncKind::SyncStar if declared_ret.is_some() => inner_ret,
             AsyncKind::AsyncStar | AsyncKind::SyncStar => self.inferred_generator_return(
                 kind,

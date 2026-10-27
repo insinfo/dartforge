@@ -6058,6 +6058,11 @@ fn assignment(
             inf.body_types.units[cx.unit.0 as usize]
                 .write_types
                 .insert(e, write);
+            if local.is_some() && context != write {
+                inf.body_types.units[cx.unit.0 as usize]
+                    .promoted_contexts
+                    .insert(e);
+            }
             // `flow.write(…, rhs)` (`_write`, `flow_analysis.dart:6133-6149`): writing
             // a condition into a local keeps its true/false models in the SSA node,
             // like the initializer (§7.10).

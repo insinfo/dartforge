@@ -520,6 +520,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.common_ty_in_scope(id)
     }
 
+    /// `S` when the common inference typed `e` as the intersection `X & S`
+    /// (a promoted type variable) and `S` can be reified here.
+    fn promoted_bound(&self, e: ExprId) -> Option<Ty> {
+        let id = self
+            .ctx
+            .bodies
+            .units
+            .get(self.unit.0 as usize)?
+            .get_type(e)?;
+        match self.ctx.table.get(id) {
+            dartforge_types::table::Type::Intersection { bound, .. } => {
+                self.common_ty_in_scope(*bound)
+            }
+            _ => None,
+        }
+    }
+
     pub fn common_type(&self, e: ExprId) -> Option<Ty> {
         if e.0 == u32::MAX {
             return None;
@@ -904,7 +921,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     t => t.clone(),
                 };
                 let mut subst = HashMap::new();
+                self.match_never.set(true);
                 self.match_type(&inner, expected, &free, &mut subst);
+                self.match_never.set(false);
                 let mut rtis = Vec::new();
                 let mut constant = true;
                 for p in type_params {
@@ -1149,7 +1168,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     .bodies
                     .units
                     .get(self.unit.0 as usize)
-                    .and_then(|u| u.function_runtime_type(*fid).or_else(|| u.get_type(e)));
+                    .and_then(|u| u.function_runtime_type(*fid).or_else(|| u.get_type(e)))
+                    .filter(|_| self.declared_context_closure != Some(e));
                 let r = self.emit_function_expr(*fid, expected, common);
                 self.in_const = saved_const;
                 r
@@ -1426,6 +1446,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::Await(inner) => {
                 let (v, vty) = self.emit_expr(*inner, None);
+                // A type variable promoted to a future type (`X & Future<A>`)
+                // flattens as that type.
+                let vty = self
+                    .promoted_bound(*inner)
+                    .filter(|b| {
+                        matches!(b, Ty::FutureOr { .. })
+                            || self
+                                .ctx
+                                .future_
+                                .and_then(|f| self.ctx.as_super(b, f))
+                                .is_some()
+                    })
+                    .unwrap_or(vty);
                 let ty = match &vty {
                     Ty::FutureOr { arg, .. } => (**arg).clone(),
                     Ty::Iface { .. } => {
@@ -3532,7 +3565,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     ) -> bool {
         match pattern {
             Ty::Param { id, .. } if params.contains(id) => {
-                if matches!(actual, Ty::Dynamic | Ty::Never) {
+                // `dynamic`/`void` against `T?` constrain `T` to `Object`.
+                let object;
+                let actual = if pattern.is_nullable() && matches!(actual, Ty::Dynamic | Ty::Void) {
+                    object = self.ctx.t_object();
+                    &object
+                } else {
+                    actual
+                };
+                if matches!(actual, Ty::Dynamic)
+                    || matches!(actual, Ty::Never) && !self.match_never.get()
+                {
                     return true;
                 }
                 if let Some(prev) = subst.get(id) {
@@ -5243,8 +5286,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 )
                 .then(|| self.common_write_type(e))
                 .flatten();
+                let promoted = self
+                    .ctx
+                    .bodies
+                    .units
+                    .get(self.unit.0 as usize)
+                    .is_some_and(|u| u.promoted_contexts.contains(&e));
+                if promoted && matches!(self.expr(value).kind, ExprKind::FunctionExpression(_)) {
+                    self.declared_context_closure = Some(value);
+                }
                 let tty = declared.or_else(|| self.target_ty(target));
                 let (v, vty) = self.emit_expr(value, tty.as_ref());
+                self.declared_context_closure = None;
                 // Update the type of an unannotated local with a known value type (promotion by assignment).
                 let (js, _) = self.emit_assign_to(target, &v, &vty);
                 (js, vty)
