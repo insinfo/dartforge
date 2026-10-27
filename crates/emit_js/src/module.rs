@@ -3040,10 +3040,24 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         iqueue.extend(ic.mixin_classes.iter().copied());
     }
     let recipes_js: Vec<String> = recipes.iter().map(|r| js::string_literal(r)).collect();
-    w.line(&format!(
-        "dart.addRtiResources({cref}, [{}]);",
-        recipes_js.join(", ")
-    ));
+    // A class no instance has in its prototype chain needs neither its recipe
+    // nor its tags, unless the runtime copies them at load time: a mixin
+    // (`applyMixin`), `Object` and a native peer (`registerExtension`).
+    let copied = is_mixin
+        || class.modifiers.mixin
+        || legacy_mixin
+        || Some(c) == ctx.object
+        || ctx.is_mixed_in(c)
+        || ctx
+            .sdk
+            .as_ref()
+            .is_some_and(|s| s.peers.get(&c).is_some_and(|t| !t.is_empty()));
+    if copied || ctx.filter.is_none_or(|f| f.rti_resources(c)) {
+        w.line(&format!(
+            "dart.addRtiResources({cref}, [{}]);",
+            recipes_js.join(", ")
+        ));
+    }
 
     // Signatures.
     let mut se = FnEmitter::new(ctx, m, unit, Some(c), false);

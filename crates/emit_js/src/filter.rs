@@ -48,6 +48,13 @@ pub trait Liveness {
     fn signature(&self, _name: &str) -> bool {
         true
     }
+    /// The class's `addRtiResources` (its recipe on the constructor and its
+    /// type tags on the prototype) is emitted. Only objects read them, so a
+    /// class that no instance has in its prototype chain may go without; the
+    /// default is to emit it.
+    fn rti_resources(&self, _c: ClassId) -> bool {
+        true
+    }
     /// The program's `assert`s are emitted (the production profile turns them
     /// off by default, like `dart2js`).
     fn keep_asserts(&self) -> bool {

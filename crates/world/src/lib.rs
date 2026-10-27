@@ -275,6 +275,28 @@ pub struct World {
     pub js_names: HashSet<String>,
     /// Parameters proved always `null` (`params.rs`), sorted.
     null_params: Vec<ParamKey>,
+    /// [`World::in_instance_prototype_chain`], per class.
+    proto_chain: Vec<bool>,
+}
+
+/// The instantiated classes and their superclasses, transitively.
+fn prototype_chains(p: &dartforge_elements::model::Program, classes: &[ClassLevel]) -> Vec<bool> {
+    let mut out = vec![false; classes.len()];
+    for (i, level) in classes.iter().enumerate() {
+        if *level != ClassLevel::Instantiated {
+            continue;
+        }
+        let mut cur = Some(ClassId(i as u32));
+        while let Some(c) = cur {
+            let k = c.0 as usize;
+            if k >= out.len() || out[k] {
+                break;
+            }
+            out[k] = true;
+            cur = p.class(c).supertype_class;
+        }
+    }
+    out
 }
 
 impl World {
@@ -289,6 +311,12 @@ impl World {
             .get(c.0 as usize)
             .copied()
             .unwrap_or(ClassLevel::Dead)
+    }
+    /// `c` is an instantiated class or the superclass (transitively) of one:
+    /// an object whose prototype chain reaches `c`'s prototype may exist.
+    /// Interfaces and mixins do not count (their members and tags are copied).
+    pub fn in_instance_prototype_chain(&self, c: ClassId) -> bool {
+        self.proto_chain.get(c.0 as usize).copied().unwrap_or(false)
     }
     pub fn is_live_function(&self, f: FunctionElementId) -> bool {
         self.functions.get(f.0 as usize).copied().unwrap_or(false)
@@ -2261,6 +2289,7 @@ impl<'a> Engine<'a> {
                 .as_ref()
                 .map(Constants::null_params)
                 .unwrap_or_default(),
+            proto_chain: prototype_chains(self.e.program, &self.classes),
         }
     }
 
@@ -2331,6 +2360,7 @@ impl<'a> Engine<'a> {
             v.sort();
             sel_cone.insert(n, v);
         }
+        let proto_chain = prototype_chains(self.e.program, &self.classes);
         World {
             classes: self.classes,
             functions: self.fn_live,
@@ -2347,6 +2377,7 @@ impl<'a> Engine<'a> {
             include_sdk: self.include_sdk,
             hier: self.hier,
             inst_sub: self.inst_sub,
+            proto_chain,
             js_names: self.js_names,
             null_params,
         }

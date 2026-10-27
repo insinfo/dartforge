@@ -80,6 +80,12 @@ impl Liveness for Adapter<'_> {
             s.contains(name) || s.contains(dartforge_emit_js::body::js_member_name(name).as_str())
         })
     }
+    fn rti_resources(&self, c: ClassId) -> bool {
+        // `DARTFORGE_JSPROD_RTI_RESOURCES=0` emits them for every class.
+        self.stub
+            || self.world.in_instance_prototype_chain(c)
+            || std::env::var("DARTFORGE_JSPROD_RTI_RESOURCES").is_ok_and(|v| v == "0")
+    }
     fn keep_asserts(&self) -> bool {
         self.constants.is_none_or(|c| !c.without_asserts())
     }
