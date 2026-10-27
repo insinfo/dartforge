@@ -344,6 +344,18 @@ fn fixed_point(
     };
     let constants = dartforge_world::Constants::new(input, !op.asserts);
     constants.set_without_records(opm.without_records);
+    let identity_hash = a.program.core.and_then(|core| {
+        match a
+            .program
+            .library(core)
+            .declared
+            .get(&a.interner.lookup("identityHashCode")?)?
+            .getter?
+        {
+            Element::Function(f) => Some(f),
+            _ => None,
+        }
+    });
     let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_ROUNDS")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -394,6 +406,7 @@ fn fixed_point(
             constants: Some(&constants),
             named_args: named_args.as_ref(),
             omit_checks: op.omit_checks,
+            identity_hash,
         };
         let t = Instant::now();
         let mut e = a.emit_with_sdk(Some(&ad))?;

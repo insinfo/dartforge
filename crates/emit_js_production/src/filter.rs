@@ -20,6 +20,8 @@ pub struct Adapter<'m> {
     pub named_args: Option<&'m crate::named_args::NamedArgs>,
     /// `--omit-checks`.
     pub omit_checks: bool,
+    /// `identityHashCode` of `dart:core` (`None`: unknown, assumed live).
+    pub identity_hash: Option<FunctionElementId>,
 }
 
 impl Liveness for Adapter<'_> {
@@ -85,6 +87,14 @@ impl Liveness for Adapter<'_> {
         self.stub
             || self.world.in_instance_prototype_chain(c)
             || std::env::var("DARTFORGE_JSPROD_RTI_RESOURCES").is_ok_and(|v| v == "0")
+    }
+    fn identity_hash_code(&self) -> bool {
+        // `DARTFORGE_JSPROD_PRIMITIVE_HASH=0` always defines it.
+        self.stub
+            || std::env::var("DARTFORGE_JSPROD_PRIMITIVE_HASH").is_ok_and(|v| v == "0")
+            || self
+                .identity_hash
+                .is_none_or(|f| self.world.is_live_function(f))
     }
     fn keep_asserts(&self) -> bool {
         self.constants.is_none_or(|c| !c.without_asserts())

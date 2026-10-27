@@ -2194,7 +2194,12 @@ pub fn class_epilogue(ctx: &Ctx, c: ClassId, cref: &str) -> String {
         return out;
     }
     if let Some(tags) = s.peers.get(&c) {
-        if !tags.is_empty() && s.primitives.contains(&c) {
+        // Only `identityHashCode` reads the property it copies: without it,
+        // the primitives' `hashCode` getters need not exist.
+        if !tags.is_empty()
+            && s.primitives.contains(&c)
+            && ctx.filter.is_none_or(|f| f.identity_hash_code())
+        {
             out.push_str(&format!(
                 "dart.definePrimitiveHashCode({cref}.prototype);\n"
             ));

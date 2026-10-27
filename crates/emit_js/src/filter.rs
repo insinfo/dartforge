@@ -55,6 +55,12 @@ pub trait Liveness {
     fn rti_resources(&self, _c: ClassId) -> bool {
         true
     }
+    /// `identityHashCode` of `dart:core` may run: the primitives get the
+    /// property it reads (`dart.definePrimitiveHashCode`). Without a filter,
+    /// always.
+    fn identity_hash_code(&self) -> bool {
+        true
+    }
     /// The program's `assert`s are emitted (the production profile turns them
     /// off by default, like `dart2js`).
     fn keep_asserts(&self) -> bool {
