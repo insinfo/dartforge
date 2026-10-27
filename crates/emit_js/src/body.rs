@@ -76,8 +76,8 @@ pub struct FnEmitter<'m, 'a> {
     /// (`_shouldSkipImplicitCallReferenceDueToForm`).
     pub uncoerced: std::collections::HashSet<ExprId>,
     /// The next [`Self::emit_method_call`] calls a member through an implicit
-    /// `this` (`m(arg)`).
-    pub implicit_this_call: bool,
+    /// `this` (`m(arg)`): the identifier.
+    pub implicit_this_call: Option<ExprId>,
     pub returns: Vec<Ty>,
     pub w: Writer,
     pub label_counter: u32,
@@ -210,7 +210,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ret_ty: Ty::Dynamic,
             deferred_checked: std::collections::HashSet::new(),
             uncoerced: std::collections::HashSet::new(),
-            implicit_this_call: false,
+            implicit_this_call: None,
             returns: Vec::new(),
             w: Writer::default(),
             label_counter: 0,
@@ -483,6 +483,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Private symbol `dart.privateName(lib, name)`.
     pub fn private_sym(&self, lib: LibraryId, name: &str) -> String {
         self.m.private_sym(self.ctx, lib, name)
+    }
+
+    /// The key of a dynamic access (`dart.dload`, `dart.dput`, `dart.dsend`)
+    /// to the Dart member `name`: a private name is the current library's.
+    pub fn dynamic_member_key(&self, name: &str) -> String {
+        if name.starts_with('_') {
+            self.private_sym(self.lib, name)
+        } else {
+            js::string_literal(&js_member_name(name))
+        }
     }
 
     /// DDC's `_assertInterop`: a function passed to JS without a direct

@@ -91,7 +91,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         arguments,
                         expected,
                         is_super,
-                        None,
+                        Some(target),
                     );
                     return (js, ty, vec![]);
                 }
@@ -151,7 +151,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             .class
                             .map(|c| self.ctx.this_ty(c))
                             .unwrap_or(Ty::Dynamic);
-                        self.implicit_this_call = true;
+                        self.implicit_this_call = Some(target);
                         let (js, ty) = self.emit_method_call(
                             &Js::prim("this"),
                             &this_ty,
@@ -808,10 +808,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         // evaluates the arguments before reading the member;
                         // `super`, statics and top-level getters read it first.
                         let explicit = !is_super
-                            && (implicit_this
+                            && (implicit_this.is_some()
                                 || node.is_some_and(|n| {
-                                    matches!(self.expr(n).kind, ExprKind::Property { .. })
+                                    matches!(&self.expr(n).kind, ExprKind::Property { target, .. }
+                                        if !matches!(self.expr(*target).kind, ExprKind::Super))
                                 }));
+                        // A promoted private field (`if (_a is B) _a(x)`): the
+                        // type the common inference gave the read.
+                        let mty = match implicit_this.or(node).and_then(|n| self.common_type(n)) {
+                            Some(t)
+                                if !t.is_dynamic() && t != mty && self.ctx.is_subtype(&t, &mty) =>
+                            {
+                                t
+                            }
+                            _ => mty,
+                        };
                         let dynamic_call = mty.is_dynamic()
                             || matches!(&mty, Ty::Iface { class, .. } if Some(*class) == self.ctx.function_);
                         let typed_call = matches!(
@@ -889,6 +900,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         if !is_super
                             && let Some(node) = node
                             && let ExprKind::Property { target: r, .. } = &self.expr(node).kind
+                            && !matches!(self.expr(*r).kind, ExprKind::Super)
                         {
                             getter = self.contravariant_read_check(getter, *r, recv_ty, name, &mty);
                         }
@@ -944,7 +956,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn emit_dsend(&mut self, recv: &Js, name: &str, arguments: &ast::Arguments) -> (Js, Ty) {
         let (args, named, _) = self.emit_args_plain(arguments);
         let named_js = named.map(|n| format!(", {n}")).unwrap_or_default();
-        let jsname = crate::body::js_member_name(name);
+        let key = self.dynamic_member_key(name);
         if !arguments.type_args.is_empty() {
             let targs: Vec<String> = arguments
                 .type_args
@@ -956,7 +968,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     "dart.dgsend({}, [{}], {}, [{}]{named_js})",
                     recv.code,
                     targs.join(", "),
-                    js::string_literal(&jsname),
+                    key,
                     args.join(", ")
                 )),
                 Ty::Dynamic,
@@ -966,7 +978,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Js::prim(format!(
                 "dart.dsend({}, {}, [{}]{named_js})",
                 recv.code,
-                js::string_literal(&jsname),
+                key,
                 args.join(", ")
             )),
             Ty::Dynamic,

@@ -1830,14 +1830,53 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 await_,
             } => {
                 let (ijs, ity) = self.emit_expr(*iterable, None);
-                let et = self
-                    .ctx
-                    .iterable_
+                let et = if *await_ { self.ctx.stream_ } else { self.ctx.iterable_ }
                     .and_then(|i| self.ctx.as_super(&ity, i))
                     .and_then(|t| t.args().first().cloned())
                     .unwrap_or(Ty::Dynamic);
                 self.push_scope();
-                let _ = await_;
+                if *await_ {
+                    // `await for` in an `async` body, like the statement: a
+                    // `StreamIterator` advanced with `yield` (`await`).
+                    self.m.use_sdk("async");
+                    let it = self.temp();
+                    let elem_rti = self.rti(&et);
+                    let recipe =
+                        self.ctx
+                            .recipe_of("dart:async", "StreamIterator", "async|StreamIterator");
+                    crate::emit_line!(
+                        self.w,
+                        "{it} = async.StreamIterator.new({elem_rti}[_eval](\"{recipe}<0>\"), {});",
+                        ijs.code
+                    );
+                    self.w.open("try {");
+                    crate::open_block!(self.w, "while ((yield {it}.moveNext())) {{");
+                    let current = format!("{it}.current");
+                    match target {
+                        ast::ForInTarget::Declared { name, ty, .. } => {
+                            let t = ty.map(|t| self.resolve_type(t)).unwrap_or(et.clone());
+                            let jsn = self.declare(name.sym, t);
+                            crate::emit_line!(self.w, "let {jsn} = {current};");
+                        }
+                        ast::ForInTarget::Pattern { pattern, .. } => {
+                            let t = self.temp();
+                            crate::emit_line!(self.w, "{t} = {current};");
+                            self.emit_pattern_bind_stmt(*pattern, &t, &et);
+                        }
+                        ast::ForInTarget::Expression(e) => {
+                            let (ljs, _) = self.emit_assign_to(*e, &Js::prim(current), &et);
+                            crate::emit_line!(self.w, "{};", ljs.code);
+                        }
+                    }
+                    self.emit_collection_element(body, elem_ty, value_ty, add);
+                    self.w.close("}");
+                    self.w.close("}");
+                    self.w.open("finally {");
+                    crate::emit_line!(self.w, "yield {it}.cancel();");
+                    self.w.close("}");
+                    self.pop_scope();
+                    return;
+                }
                 match target {
                     ast::ForInTarget::Declared { name, ty, .. } => {
                         let t = ty.map(|t| self.resolve_type(t)).unwrap_or(et.clone());
@@ -2855,7 +2894,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Js::prim(format!(
                     "dart.dload({}, {})",
                     recv.code,
-                    js::string_literal(&crate::body::js_member_name(name))
+                    self.dynamic_member_key(name)
                 )),
                 Ty::Dynamic,
             );
@@ -2900,7 +2939,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Js::prim(format!(
                     "dart.dload({}, {})",
                     recv.code,
-                    js::string_literal(&crate::body::js_member_name(name))
+                    self.dynamic_member_key(name)
                 )),
                 Ty::Dynamic,
             );
@@ -3656,7 +3695,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         match &t.kind {
             ExprKind::Property { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } => {
-                self.emit_selector(target, None)
+                // As in `emit_expr`: a promoted field read has the promoted type.
+                let (js, ty, guards) = self.emit_selector(target, None);
+                (js, self.refine_by_common(target, ty), guards)
             }
             _ => {
                 let (js, ty) = self.emit_expr(target, None);
@@ -5106,7 +5147,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         Js::prim(format!(
                             "dart.dput({}, {}, {})",
                             recv_js.code,
-                            js::string_literal(&crate::body::js_member_name(&n)),
+                            self.dynamic_member_key(&n),
                             v.code
                         ))
                     }
@@ -5647,7 +5688,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                                 }
                                 Js::prim(format!(
                                     "dart.dput({recv_js}, {}, {})",
-                                    js::string_literal(&n2),
+                                    s.dynamic_member_key(&n2),
                                     v.code
                                 ))
                             } else {

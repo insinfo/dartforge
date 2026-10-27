@@ -2330,6 +2330,11 @@ pub(crate) fn the_call(
                     } else {
                         define_target(inf, None, span);
                         let read_value = expr::property_read_type(inf, cx, target, m.ty);
+                        if read_value != m.ty {
+                            // The promoted read is the function's type (the
+                            // `PropertyAccess` of the rewritten invocation).
+                            record_type(inf, cx, target, read_value);
+                        }
                         let r = invoke_value(inf, cx, (e, span), read_value, args, ctx, explicit);
                         inf.arity_target = None;
                         r

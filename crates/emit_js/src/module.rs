@@ -1746,18 +1746,21 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             && crate::own_sdk::non_virtual_field(ctx, c, v.name);
         let helper =
             v.late && var.initializer.is_none() && ctx.sdk.is_some() && private && !is_mixin;
+        // A private field that overrides an inherited member of its library
+        // (a getter, or a `noSuchMethod` forwarder) is an accessor pair too.
+        let private_override = private && !v.late && overrides_supertype_member(ctx, c, &name);
         let storage = if helper {
             None
         } else if v.late {
             Some(m.private_sym(ctx, class.library, &format!("_#{cname}#{name}")))
-        } else if private {
+        } else if private && !private_override {
             Some(m.private_sym(ctx, class.library, &name))
         } else if is_enum || plain {
             None
         } else {
             Some(m.private_sym(ctx, class.library, &format!("{cname}.{name}")))
         };
-        let virtual_ = v.late || (!private && !is_enum && !plain);
+        let virtual_ = v.late || private_override || (!private && !is_enum && !plain);
         let ty = ctx.var_ty(vid);
         // A nullable `late` field records whether it was set (`null` is a
         // value), as the CFE lowers it.
@@ -2201,7 +2204,35 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         m.use_sdk("core");
         let mut se = FnEmitter::new(ctx, m, unit, Some(c), false);
         for (name, mk) in ctx.unimplemented_abstract(c) {
-            if name == "noSuchMethod" || name.starts_with('_') {
+            // A private member forwards only within its own library; one of
+            // another library is not accessible here.
+            let declaring = match mk {
+                crate::ctx::MemberKind::Method(f)
+                | crate::ctx::MemberKind::Getter(f)
+                | crate::ctx::MemberKind::Setter(f) => Some(ctx.program.function(f).library),
+                crate::ctx::MemberKind::Field(_) => None,
+            };
+            if name == "noSuchMethod" {
+                continue;
+            }
+            let inaccessible = name.starts_with('_') && declaring != Some(class.library);
+            // A superclass of the declaring library that has the member in its
+            // interface already forwards it.
+            let owner = match mk {
+                crate::ctx::MemberKind::Method(f)
+                | crate::ctx::MemberKind::Getter(f)
+                | crate::ctx::MemberKind::Setter(f) => ctx.program.function(f).class,
+                crate::ctx::MemberKind::Field(_) => None,
+            };
+            if inaccessible
+                && let Some(owner) = owner
+                && std::iter::successors(ctx.superclass_of(c), |&k| ctx.superclass_of(k)).any(|k| {
+                    Some(ctx.lib_of_class(k)) == declaring
+                        && !ctx.program.class(k).modifiers.abstract_
+                        && ctx.has_user_nsm(k)
+                        && ctx.as_super(&ctx.this_ty(k), owner).is_some()
+                })
+            {
                 continue;
             }
             // Abstract setter: the forwarder exists only if someone writes;
@@ -2217,11 +2248,59 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 "dart.const(new _internal.Symbol.new({}))",
                 js::string_literal(&name)
             );
+            // A private member of another library: a thrower, not a forwarder
+            // (the class's `noSuchMethod` cannot see the name).
+            if inaccessible && let Some(lib) = declaring {
+                let key = format!("[{}]", se.private_sym(lib, &name));
+                let throw = |invocation: String| {
+                    format!(
+                        "return dart.throw(new core.NoSuchMethodError._withInvocation(this, {invocation}));"
+                    )
+                };
+                // Signed under the declaring library's key, so that dynamic
+                // accesses find the thrower too (`RAW_SIG_KEY`).
+                let raw = format!("{RAW_SIG_KEY}{name}{RAW_SIG_KEY}{key}");
+                match mk {
+                    crate::ctx::MemberKind::Method(f) => {
+                        cw.line(&format!(
+                            "{key}(...args) {{ {} }}",
+                            throw(format!(
+                                "new core._Invocation.method({sym}, null, args, null)"
+                            ))
+                        ));
+                        method_sigs.push((raw, ctx.fn_ty(f)));
+                    }
+                    crate::ctx::MemberKind::Getter(f) => {
+                        cw.line(&format!(
+                            "get {key}() {{ {} }}",
+                            throw(format!("new core._Invocation.getter({sym})"))
+                        ));
+                        let ret = ctx.ty_of(ctx.outline.functions[f.0 as usize].return_type);
+                        getter_sigs.push((raw, ret));
+                    }
+                    crate::ctx::MemberKind::Setter(f) => {
+                        cw.line(&format!(
+                            "set {key}(v) {{ {} }}",
+                            throw(format!(
+                                "new core._Invocation.setter(dart.const(new _internal.Symbol.new({})), v)",
+                                js::string_literal(&format!("{name}="))
+                            ))
+                        ));
+                        let value = ctx.outline.functions[f.0 as usize]
+                            .parameters
+                            .first()
+                            .map_or(Ty::Dynamic, |p| ctx.ty_of(p.ty));
+                        setter_sigs.push((raw, value));
+                    }
+                    crate::ctx::MemberKind::Field(_) => {}
+                }
+                continue;
+            }
             match mk {
                 crate::ctx::MemberKind::Method(fid) => {
                     let jsname = js_member_name(&name);
                     let text = nsm_forwarder(ctx, m, c, unit, fid, &sym);
-                    cw.line(&format!("{}{text}", js::prop_key(&jsname)));
+                    cw.line(&format!("{}{text}", sig_key(&jsname, &se, c)));
                     method_sigs.push((jsname.clone(), ctx.fn_ty(fid)));
                     if natives.contains(&name) {
                         ext_methods.push(jsname);
@@ -2234,7 +2313,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     } else {
                         format!("{}[_as]", se.rti(&ret))
                     };
-                    cw.line(&format!("get {}() {{ return {cast}(dart.noSuchMethod(this, new core._Invocation.getter({sym}))); }}", js::prop_key(&name)));
+                    cw.line(&format!("get {}() {{ return {cast}(dart.noSuchMethod(this, new core._Invocation.getter({sym}))); }}", sig_key(&name, &se, c)));
                     getter_sigs.push((name.clone(), ret));
                     if natives.contains(&name) {
                         ext_accessors.push(name.clone());
@@ -2245,7 +2324,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                         "dart.const(new _internal.Symbol.new({}))",
                         js::string_literal(&format!("{name}="))
                     );
-                    cw.line(&format!("set {}(v) {{ dart.noSuchMethod(this, new core._Invocation.setter({ssym}, v)); }}", js::prop_key(&name)));
+                    cw.line(&format!("set {}(v) {{ dart.noSuchMethod(this, new core._Invocation.setter({ssym}, v)); }}", sig_key(&name, &se, c)));
                 }
                 crate::ctx::MemberKind::Field(_) => {}
             }
@@ -2876,8 +2955,12 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             setter_sigs.push((f.name.clone(), f.ty.clone()));
         }
     }
-    getter_sigs.retain(|(n, _)| ctx.signature_live(n) || inherited_native_aliases.contains(n));
-    setter_sigs.retain(|(n, _)| ctx.signature_live(n) || inherited_native_aliases.contains(n));
+    getter_sigs.retain(|(n, _)| {
+        ctx.signature_live(signature_name(n)) || inherited_native_aliases.contains(n)
+    });
+    setter_sigs.retain(|(n, _)| {
+        ctx.signature_live(signature_name(n)) || inherited_native_aliases.contains(n)
+    });
     let fields_sig: Vec<&FieldInfo> = fields
         .iter()
         .filter(|f| ctx.signature_live(&f.name))
@@ -3393,7 +3476,53 @@ fn fix_equals_param(text: &str) -> String {
     text.to_string()
 }
 
+/// Whether a proper supertype of `c` declares an instance member `name`.
+fn overrides_supertype_member(ctx: &Ctx, c: ClassId, name: &str) -> bool {
+    let keys: Vec<_> = [ctx.sym(name), ctx.sym(&format!("{name}_="))]
+        .into_iter()
+        .flatten()
+        .collect();
+    let mut seen = HashSet::new();
+    let mut queue: Vec<ClassId> = ctx.class_supers[c.0 as usize]
+        .iter()
+        .filter_map(|s| s.class())
+        .collect();
+    while let Some(k) = queue.pop() {
+        if Some(k) == ctx.object || !seen.insert(k) {
+            continue;
+        }
+        let members = &ctx.program.class(k).instance_members;
+        if keys.iter().any(|s| members.contains_key(s)) {
+            return true;
+        }
+        queue.extend(
+            ctx.class_supers[k.0 as usize]
+                .iter()
+                .filter_map(|s| s.class()),
+        );
+    }
+    false
+}
+
+/// Separator of a signature entry that carries its own JS key,
+/// `\u{1}name\u{1}key` (a thrower for a private member of another library).
+const RAW_SIG_KEY: char = '\u{1}';
+
+/// The Dart name of a signature entry.
+fn signature_name(entry: &str) -> &str {
+    match entry.strip_prefix(RAW_SIG_KEY) {
+        Some(rest) => rest.split(RAW_SIG_KEY).next().unwrap_or(rest),
+        None => entry,
+    }
+}
+
 fn sig_key(name: &str, e: &FnEmitter, c: ClassId) -> String {
+    if let Some((_, key)) = name
+        .strip_prefix(RAW_SIG_KEY)
+        .and_then(|rest| rest.split_once(RAW_SIG_KEY))
+    {
+        return key.to_string();
+    }
     // SDK mode: for a native class, the key is the `dartx` symbol (the declaration's).
     if crate::own_sdk::is_native_class(e.ctx, c)
         && (!name.starts_with('_') || matches!(name, "_equals" | "_get" | "_set" | "_negate"))
