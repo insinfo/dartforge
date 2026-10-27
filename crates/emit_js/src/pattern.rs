@@ -173,7 +173,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let matched = vty.clone();
                     self.with_shorthand_context(*value, &matched, |s| s.emit_expr(*value, None))
                 } else {
-                    self.emit_expr(*value, None)
+                    // The operand's context is the operator's parameter type
+                    // (a generic function constant is instantiated for it).
+                    let param = self
+                        .ctx
+                        .lookup_member(&vty.non_null(), crate::expr::binop_name(*op), false)
+                        .and_then(|m| match self.ctx.member_ty(&m) {
+                            Ty::Fn { pos, .. } => pos.first().cloned(),
+                            _ => None,
+                        });
+                    self.emit_expr(*value, param.as_ref())
                 };
                 match op {
                     BinaryOp::Eq => self.emit_equals(&v, vty, &c, &cty).code,
@@ -211,7 +220,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             PatternKind::Cast { pattern, ty } => {
                 let t = self.resolve_type(*ty);
                 let cast = self.as_cast(&v, &t);
-                self.pattern_cond(*pattern, &cast.code, &t, binds, irrefutable)
+                if cast.code == v.code {
+                    return self.pattern_cond(*pattern, &cast.code, &t, binds, irrefutable);
+                }
+                // The cast runs even when the subpattern is statically true
+                // (`(A() || B()) as A` throws for a `B`), and only once.
+                let temp = self.temp();
+                let inner = self.pattern_cond(*pattern, &temp, &t, binds, irrefutable);
+                and(&format!("({temp} = {}, true)", cast.code), &inner)
             }
             PatternKind::Parenthesized(inner) => {
                 self.pattern_cond(*inner, value_js, vty, binds, irrefutable)

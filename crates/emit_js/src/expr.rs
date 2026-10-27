@@ -581,6 +581,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return ty;
         }
         match self.common_type(e) {
+            // The common type of a generic function value in a non-generic
+            // context is already its instantiation, which `coerce_to` makes.
+            Some(Ty::Fn { type_params, .. })
+                if type_params.is_empty()
+                    && matches!(&ty, Ty::Fn { type_params, .. } if !type_params.is_empty()) =>
+            {
+                ty
+            }
             Some(c) if !c.is_dynamic() && c != ty && self.ctx.is_subtype(&c, &ty) => c,
             _ => ty,
         }
@@ -2652,7 +2660,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     Some(Resolved::Local(_) | Resolved::Parameter { .. })
                         if !self.ctx.is_write_target(self.unit, e) =>
                     {
-                        self.common_type(e).unwrap_or(ty)
+                        match self.common_type(e) {
+                            // A generic function in a non-generic context:
+                            // the common type is the instantiation that
+                            // `coerce_to` still has to make.
+                            Some(Ty::Fn { type_params, .. })
+                                if type_params.is_empty()
+                                    && matches!(&ty, Ty::Fn { type_params, .. } if !type_params.is_empty()) =>
+                            {
+                                ty
+                            }
+                            common => common.unwrap_or(ty),
+                        }
                     }
                     _ => ty,
                 };
