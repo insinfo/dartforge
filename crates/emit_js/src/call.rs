@@ -1305,6 +1305,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if let Some(mk) = self.ctx.declared_static(c, name, false) {
             return Some(self.emit_static_call(c, name, mk, arguments, expected));
         }
+        // An enum value called through `call` (`E.v1(42)`).
+        if self.ctx.program.class(c).kind == dartforge_elements::model::ClassKind::Enum
+            && self
+                .ctx
+                .program
+                .class(c)
+                .enum_constants
+                .iter()
+                .any(|&v| self.ctx.name(self.ctx.program.variable(v).name) == name)
+            && let Some((value, ty)) = self.static_member_get(c, name)
+        {
+            return Some(self.emit_fn_value_call(&value, &ty, arguments, expected));
+        }
         let cname = if name == "new" { "" } else { name };
         let own_constructor = (if cname.is_empty() {
             self.ctx.empty_sym

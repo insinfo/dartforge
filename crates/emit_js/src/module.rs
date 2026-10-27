@@ -2118,7 +2118,9 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                                     .iter()
                                     .map(|p| {
                                         let tp = ctx.ty_param_of(*p);
-                                        if tp.bound.mentions_params() {
+                                        if tp.bound.mentions_params()
+                                            || crate::own_sdk::is_top(ctx, &tp.bound)
+                                        {
                                             Ty::Dynamic
                                         } else {
                                             (*tp.bound).clone()
@@ -2681,7 +2683,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                             .map(|p| {
                                 let tp = ctx.ty_param_of(*p);
                                 let bound = tp.bound.subst(&member.subst);
-                                if bound.mentions_params() {
+                                if bound.mentions_params() || crate::own_sdk::is_top(ctx, &bound) {
                                     Ty::Dynamic
                                 } else {
                                     bound
@@ -3300,7 +3302,33 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             };
             if generic {
                 let mut tys: Vec<Ty> = ec.type_args.iter().map(|t| e.resolve_type(*t)).collect();
-                while tys.len() < ctx.class_params[c.0 as usize].len() {
+                // Without written arguments, those the value was inferred
+                // with (its static field's type: `v1` of `E<T extends num>`
+                // is an `E<num>`).
+                if tys.is_empty()
+                    && let Some(crate::ctx::MemberKind::Field(v)) =
+                        ctx.declared_static(c, &n, false)
+                    && let Ty::Iface { class, args, .. } = ctx.var_ty(v)
+                    && class == c
+                    && !args.iter().any(|a| a.mentions_params())
+                {
+                    tys = args;
+                }
+                // Otherwise the instantiation the common inference chose for
+                // the value's arguments, or the bounds when it has none.
+                let params = ctx.class_params[c.0 as usize].clone();
+                if tys.is_empty() {
+                    tys = match &ec.arguments {
+                        Some(a) if !a.args.is_empty() => {
+                            e.common_instantiation(a, params.len()).unwrap_or_default()
+                        }
+                        _ => params
+                            .iter()
+                            .map(|p| e.default_type_arg(&p.bound))
+                            .collect(),
+                    };
+                }
+                while tys.len() < params.len() {
                     tys.push(Ty::Dynamic);
                 }
                 let t = Ty::Iface {

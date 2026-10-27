@@ -5614,6 +5614,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                 }
                 IdentTarget::Element(Element::Class(c)) => self.class_static_lvalue(c, name),
+                // `Alias.x = v`: the static of the class the alias denotes.
+                IdentTarget::Element(Element::Typedef(td)) => {
+                    let (c, _, _) = self.alias_creation(td)?;
+                    self.class_static_lvalue(c, name)
+                }
                 _ => None,
             },
             // `p.C.x` with `p` an import prefix: the static member of `C`.
