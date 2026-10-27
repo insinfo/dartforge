@@ -154,6 +154,18 @@ impl LineTable {
         offset
     }
 
+    /// A converter for many offsets visited in increasing order (see
+    /// [`PositionCursor`]).
+    pub fn cursor<'a>(&'a self, text: &'a str) -> PositionCursor<'a> {
+        PositionCursor {
+            table: self,
+            text,
+            offset: 0,
+            line: 0,
+            column: 0,
+        }
+    }
+
     /// Width of the line in UTF-16 units, without the break (used in tests).
     pub fn line_width(&self, text: &str, line: usize) -> usize {
         let line = min(line, self.starts.len() - 1);
@@ -164,9 +176,78 @@ impl LineTable {
     }
 }
 
+/// Sequential [`LineTable::offset_position`]: remembers the last converted
+/// offset and, when the next one is on the same line and not before it, only
+/// counts the UTF-16 units in between.
+///
+/// [`LineTable::offset_position`] costs the column of the offset, so
+/// converting every edit of a long single-line document (a formatted
+/// 80 000-term expression) would be quadratic; with the offsets in increasing
+/// order the whole pass is linear in the text. An offset before the previous
+/// one is still correct, at the cost of [`LineTable::offset_position`].
+///
+/// ```
+/// let text = "a👭b\ncd";
+/// let table = dartforge_lsp::utf16::LineTable::build(text);
+/// let mut cursor = table.cursor(text);
+/// assert_eq!(cursor.position(5), (0, 3));
+/// assert_eq!(cursor.position(6), (0, 4));
+/// assert_eq!(cursor.position(8), (1, 1));
+/// assert_eq!(cursor.position(1), (0, 1));
+/// ```
+#[derive(Debug, Clone)]
+pub struct PositionCursor<'a> {
+    table: &'a LineTable,
+    text: &'a str,
+    offset: usize,
+    line: usize,
+    column: usize,
+}
+
+impl PositionCursor<'_> {
+    /// The (line, UTF-16 column) of `offset`, with the same saturation and
+    /// boundary rules as [`LineTable::offset_position`].
+    pub fn position(&mut self, offset: usize) -> (u32, u32) {
+        let text = self.text;
+        let mut offset = min(offset, text.len());
+        while !text.is_char_boundary(offset) {
+            offset -= 1;
+        }
+        let line = self.table.line_of(text, offset);
+        let (from, column) = if line == self.line && offset >= self.offset {
+            (self.offset, self.column)
+        } else {
+            (self.table.line_start(line), 0)
+        };
+        let column = column
+            + text[from..offset]
+                .chars()
+                .map(char::len_utf16)
+                .sum::<usize>();
+        self.offset = offset;
+        self.line = line;
+        self.column = column;
+        (line as u32, column as u32)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cursor_agrees_with_offset_position() {
+        let text = "x👭 y\r\nz\rw é\n";
+        let table = LineTable::build(text);
+        let mut cursor = table.cursor(text);
+        for offset in (0..=text.len() + 2).chain([3, 0, 9, 2]) {
+            assert_eq!(
+                cursor.position(offset),
+                table.offset_position(text, offset),
+                "{offset}"
+            );
+        }
+    }
 
     #[test]
     fn emoji_counts_two_units_both_ways() {

@@ -36,6 +36,10 @@ impl Splits {
 #[derive(Debug, Clone)]
 struct RuleValues(Vec<Option<i32>>);
 
+/// The previous values of the entries a [`RuleValues::try_bind`] changed, in
+/// order, so that [`RuleValues::undo`] can restore them.
+type UndoLog = Vec<(usize, Option<i32>)>;
+
 impl RuleValues {
     fn index(a: &Arenas, r: RuleId) -> Option<usize> {
         a.rules[r as usize].index
@@ -63,24 +67,39 @@ impl RuleValues {
         Self::index(a, r).and_then(|i| self.0.get(i).copied().flatten())
     }
 
-    fn set_value(&mut self, a: &Arenas, r: RuleId, v: i32) {
+    fn set_value(&mut self, a: &Arenas, r: RuleId, v: i32, log: &mut UndoLog) {
         if let Some(i) = Self::index(a, r)
             && i < self.0.len()
         {
+            log.push((i, self.0[i]));
             self.0[i] = Some(v);
         }
     }
 
+    /// Restores the entries recorded in `log`, newest first, and empties it.
+    fn undo(&mut self, log: &mut UndoLog) {
+        while let Some((i, old)) = log.pop() {
+            self.0[i] = old;
+        }
+    }
+
     /// `tryBind(rules, rule, value, onSplitRule)`.
+    ///
+    /// Binds in place and records every change in `log`. The original binds
+    /// on a fresh clone of the set; here the caller undoes the bindings
+    /// instead, so that a binding that fails (most of them, on a line with
+    /// thousands of live rules) costs only the rules it touched rather than a
+    /// copy of the whole set.
     fn try_bind(
         &mut self,
         a: &Arenas,
         r: RuleId,
         value: i32,
         on_split: &mut dyn FnMut(RuleId),
+        log: &mut UndoLog,
     ) -> bool {
         debug_assert!(!a.is_hardened(r));
-        self.set_value(a, r, value);
+        self.set_value(a, r, value, log);
         let mut i = 0;
         while let Some(other) = a.constrained(r, i) {
             i += 1;
@@ -94,14 +113,14 @@ impl RuleValues {
                 None => {
                     if constraint == Some(MUST_SPLIT) {
                         if a.num_values(other) == 2 {
-                            if !self.try_bind(a, other, 1, on_split) {
+                            if !self.try_bind(a, other, 1, on_split, log) {
                                 return false;
                             }
                         } else {
                             on_split(other);
                         }
                     } else if let Some(c) = constraint
-                        && !self.try_bind(a, other, c, on_split)
+                        && !self.try_bind(a, other, c, on_split, log)
                     {
                         return false;
                     }
@@ -375,18 +394,24 @@ impl LineSplitter {
         current: usize,
     ) {
         let mut no_split = states[current].values.clone();
+        let mut log = UndoLog::new();
         let mut attempted = 0;
         for &r in &self.rules {
             if states[current].live_set.contains(&r) {
                 for value in 1..a.num_values(r) {
-                    let mut bound = no_split.clone();
                     let mut must: Option<Vec<RuleId>> = None;
-                    let valid = bound.try_bind(a, r, value, &mut |x| {
-                        must.get_or_insert_with(Vec::new).push(x)
-                    });
-                    if !valid {
+                    let valid = no_split.try_bind(
+                        a,
+                        r,
+                        value,
+                        &mut |x| must.get_or_insert_with(Vec::new).push(x),
+                        &mut log,
+                    );
+                    let bound = valid.then(|| no_split.clone());
+                    no_split.undo(&mut log);
+                    let Some(bound) = bound else {
                         continue;
-                    }
+                    };
                     let mut new = self.new_state(a, cache, bound);
                     if let Some(must) = must {
                         new.full = false;
@@ -405,11 +430,14 @@ impl LineSplitter {
                     break;
                 }
             }
+            // The original binds a clone and keeps it only on success; on failure
+            // the loop stops, so binding in place is equivalent.
             if !states[current].values.contains_rule(a, r)
-                && !no_split.try_bind(a, r, 0, &mut |_| {})
+                && !no_split.try_bind(a, r, 0, &mut |_| {}, &mut log)
             {
                 break;
             }
+            log.clear();
         }
     }
 

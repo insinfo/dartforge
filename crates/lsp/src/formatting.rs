@@ -8,12 +8,96 @@
 //! the response is the minimal whitespace edits between tokens
 //! ([`dartforge_formatter::edits::minimal_edits`]). Without changes, or
 //! with a syntax error, the response is `null`.
+//!
+//! Formatting cannot be interrupted halfway, and pathological inputs (an
+//! argument list with thousands of arguments) take seconds, as they do in
+//! `dart format`. So the server runs each formatting on its own thread
+//! ([`start`]): when it does not finish within a short budget the request is
+//! answered later, while other messages keep being dispatched, and a
+//! `$/cancelRequest` answers it at once (the result is discarded).
 
 use dartforge_formatter::edits::minimal_edits;
 use dartforge_formatter::{FormatOptions, format};
 use serde_json::{Value, json};
 
+use std::sync::mpsc;
+use std::time::Duration;
+
 use crate::utf16::LineTable;
+
+/// Stack of a formatting thread: the parser and the formatter recurse over
+/// the syntax tree, as on the dispatcher thread (address space reserved, not
+/// memory used).
+const STACK: usize = 1 << 30;
+
+/// A formatting still running on its own thread.
+#[derive(Debug)]
+pub(crate) struct Background {
+    receiver: mpsc::Receiver<Value>,
+}
+
+impl Background {
+    /// The result once the thread is done: `Some(None)` if it panicked,
+    /// `None` while it is still running.
+    pub(crate) fn poll(&self) -> Option<Option<Value>> {
+        match self.receiver.try_recv() {
+            Ok(v) => Some(Some(v)),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => Some(None),
+        }
+    }
+}
+
+/// What [`start`] gives back.
+#[derive(Debug)]
+pub(crate) enum Outcome {
+    /// The [`edits`] (`None` when the computation panicked).
+    Ready(Option<Value>),
+    /// Still running after the budget; `wake` is called when it finishes.
+    Running(Background),
+}
+
+/// Computes [`edits`] on a thread of its own and waits for it up to
+/// `budget` (`None`: until it finishes; zero: not at all). `wake` is called
+/// from that thread once the result is available.
+pub(crate) fn start(
+    text: String,
+    width: Option<u64>,
+    range: Option<(usize, usize)>,
+    budget: Option<Duration>,
+    wake: Option<crate::typed::Wake>,
+) -> Outcome {
+    let (sender, receiver) = mpsc::channel();
+    let text = std::sync::Arc::new(text);
+    let shared = std::sync::Arc::clone(&text);
+    let spawned = std::thread::Builder::new()
+        .name("format".to_string())
+        .stack_size(STACK)
+        .spawn(move || {
+            let result = edits(&shared, width, range);
+            // The request may have been cancelled meanwhile: nobody listens.
+            let _ = sender.send(result);
+            if let Some(w) = wake {
+                (w.0)();
+            }
+        });
+    if spawned.is_err() {
+        // No thread: formats here, blocking, as before.
+        return Outcome::Ready(Some(edits(&text, width, range)));
+    }
+    let received = match budget {
+        None => receiver
+            .recv()
+            .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+        Some(b) if b.is_zero() => Err(mpsc::RecvTimeoutError::Timeout),
+        Some(b) => receiver.recv_timeout(b),
+    };
+    match received {
+        Ok(v) => Outcome::Ready(Some(v)),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Outcome::Ready(None),
+        Err(mpsc::RecvTimeoutError::Timeout) => Outcome::Running(Background { receiver }),
+    }
+}
 
 /// The first character that triggers formatting while typing, and the others
 /// (`dartTypeFormattingCharacters`, `constants.dart:46`).
@@ -42,8 +126,11 @@ pub fn edits(text: &str, width: Option<u64>, range: Option<(usize, usize)>) -> V
         return Value::Null;
     }
     let table = LineTable::build(text);
-    let position = |o: usize| {
-        let (l, c) = table.offset_position(text, o);
+    // The edits come in increasing offset order: a sequential cursor keeps
+    // the conversion linear on long lines.
+    let mut cursor = table.cursor(text);
+    let mut position = |o: usize| {
+        let (l, c) = cursor.position(o);
         json!({"line": l, "character": c})
     };
     let list: Vec<Value> = minimal_edits(text, &formatted, range)

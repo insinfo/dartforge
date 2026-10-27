@@ -106,6 +106,9 @@ const REFACTORING_TYPES: &[&str] = &[
 const COMPUTATION_FAILURE: i32 = -32014;
 /// `ContentModified`.
 const MODIFIED_CONTENT: i32 = -32801;
+/// How long a formatting request may hold the dispatcher before it goes on
+/// in the background ([`Server::set_formatting_budget`]).
+const FORMATTING_BUDGET: std::time::Duration = std::time::Duration::from_millis(200);
 /// The `codeAction` source actions, in Dart's order: title, kind and command.
 const SOURCE_ACTIONS: &[(&str, &str, &str)] = &[
     (
@@ -148,6 +151,19 @@ struct UnimportedCompletion {
 
 /// The text of a file on disk and its line table.
 type TextWithLines = std::sync::Arc<(String, crate::utf16::LineTable)>;
+
+/// A formatting request answered later: its edits are computed on another
+/// thread ([`crate::formatting::start`]).
+#[derive(Debug)]
+struct FormattingJob {
+    id: Value,
+    key: String,
+    uri: String,
+    /// The document version that was formatted (`None` for a file not open).
+    version: Option<i32>,
+    method: String,
+    job: crate::formatting::Background,
+}
 
 /// Global server state: owner of the documents, the queue and the cancellations.
 ///
@@ -257,6 +273,11 @@ pub struct Server<A = SyntacticAnalyzer> {
     /// Messages to the client produced outside `pump` (the start of the
     /// analysis), delivered on the next pass.
     pending_outputs: Vec<Value>,
+    /// Formatting requests still running in the background, in arrival order.
+    formatting_jobs: Vec<FormattingJob>,
+    /// How long the dispatcher waits for a formatting before answering it in
+    /// the background (only with a wake hook, see [`Server::on_diagnostics`]).
+    formatting_budget: std::time::Duration,
     /// The `outline` initialization option: the server sends
     /// `dart/textDocument/publishOutline` for the open documents.
     outline: bool,
@@ -435,6 +456,8 @@ impl<A: Analyzer> Server<A> {
             work_progress: false,
             analyzing: false,
             pending_outputs: Vec::new(),
+            formatting_jobs: Vec::new(),
+            formatting_budget: FORMATTING_BUDGET,
             outline: false,
             change_annotations: false,
             actions_literals: false,
@@ -677,8 +700,54 @@ impl<A: Analyzer> Server<A> {
     /// Registers the hook called (from another thread) when the typed analysis
     /// has a result: the `main` loop uses it to wake up and call
     /// [`Server::pump`], which publishes what is still of the current version.
+    ///
+    /// The same hook announces a formatting finished in the background: with
+    /// it, a formatting that takes longer than the budget
+    /// ([`Server::set_formatting_budget`]) no longer holds the dispatcher.
+    /// Without it, formatting answers synchronously.
     pub fn on_diagnostics(&mut self, hook: impl Fn() + Send + Sync + 'static) {
         self.wake = Some(crate::typed::Wake(std::sync::Arc::new(hook)));
+    }
+
+    /// How long a formatting request is waited for before it continues in the
+    /// background (200 ms by default; zero sends every formatting to the
+    /// background). Only applies with a wake hook ([`Server::on_diagnostics`]).
+    ///
+    /// ```
+    /// let mut server = dartforge_lsp::Server::new();
+    /// server.on_diagnostics(|| {});
+    /// server.set_formatting_budget(std::time::Duration::ZERO);
+    /// ```
+    pub fn set_formatting_budget(&mut self, budget: std::time::Duration) {
+        self.formatting_budget = budget;
+    }
+
+    /// The finished background formattings, as responses: `ContentModified`
+    /// when the document changed while it was being formatted.
+    fn drain_formatting(&mut self) -> Vec<Value> {
+        let mut outputs = Vec::new();
+        let mut i = 0;
+        while i < self.formatting_jobs.len() {
+            let Some(result) = self.formatting_jobs[i].job.poll() else {
+                i += 1;
+                continue;
+            };
+            let job = self.formatting_jobs.remove(i);
+            outputs.push(match result {
+                _ if self.documents.version(&job.uri) != job.version => error(
+                    &job.id,
+                    MODIFIED_CONTENT,
+                    "Document was modified before operation completed",
+                ),
+                Some(edits) => response(&job.id, edits),
+                None => error(
+                    &job.id,
+                    ERROR_NOT_HANDLED,
+                    format!("An error occurred while handling {} request", job.method),
+                ),
+            });
+        }
+        outputs
     }
 
     /// Runs each typed analysis in a child process: `exe` (the `dartforge-lsp`
@@ -1001,6 +1070,8 @@ impl<A: Analyzer> Server<A> {
             }));
             let elapsed = started.elapsed();
             match response {
+                // `null`: a formatting answered later (`drain_formatting`).
+                Ok(Value::Null) => {}
                 Ok(r) => outputs.push(r),
                 Err(panic) => {
                     // The Dart server's `UnhandledError` (-32001), with its message, and the
@@ -1035,6 +1106,7 @@ impl<A: Analyzer> Server<A> {
             with_pending.append(&mut outputs);
             outputs = with_pending;
         }
+        outputs.extend(self.drain_formatting());
         outputs.extend(self.drain_typed());
         outputs
     }
@@ -1059,6 +1131,17 @@ impl<A: Analyzer> Server<A> {
             let target = cancelled.get("params").and_then(|p| p.get("id")).cloned();
             if let Some(id) = target {
                 let key = key_id(&id);
+                // A formatting running in the background is answered now; its thread
+                // finishes on its own and the result is dropped.
+                if let Some(at) = self.formatting_jobs.iter().position(|j| j.key == key) {
+                    let job = self.formatting_jobs.remove(at);
+                    self.pending_outputs.push(error(
+                        &job.id,
+                        REQUEST_CANCELLED,
+                        "request cancelled",
+                    ));
+                    continue;
+                }
                 let has_request = self.queue.iter().any(|m| {
                     is_request(m) && m.get("id").is_some_and(|other| key_id(other) == key)
                 });
@@ -2412,7 +2495,28 @@ impl<A: Analyzer> Server<A> {
                 } else {
                     None
                 };
-                response(&id, crate::formatting::edits(&text, width, range_))
+                // On another thread: a formatting that does not finish within the
+                // budget is answered later (`drain_formatting`) and can be cancelled.
+                let budget = self.wake.is_some().then_some(self.formatting_budget);
+                match crate::formatting::start(text, width, range_, budget, self.wake.clone()) {
+                    crate::formatting::Outcome::Ready(Some(edits)) => response(&id, edits),
+                    crate::formatting::Outcome::Ready(None) => error(
+                        &id,
+                        ERROR_NOT_HANDLED,
+                        format!("An error occurred while handling {method} request"),
+                    ),
+                    crate::formatting::Outcome::Running(job) => {
+                        self.formatting_jobs.push(FormattingJob {
+                            key: key_id(&id),
+                            id,
+                            version: self.documents.version(&uri),
+                            uri,
+                            method: method.to_string(),
+                            job,
+                        });
+                        Value::Null
+                    }
+                }
             }
             "textDocument/documentLink" => {
                 // The `{@tool}` blocks that cite the example code (`crate::links`, the 3.6.2
