@@ -1023,6 +1023,45 @@ fn static_interface(m: &Engine<'_>, ctx: &Context, x: ExprId) -> Option<(ClassId
     }
 }
 
+/// The `dart:core` function a production SDK patch provides for the call
+/// `id` (`Object.hash(a, b)` → `_hash2`): the emitter calls it instead of the
+/// static (`dartforge_emit_js::arity_specialization`, the same rule).
+fn arity_specialization(
+    m: &Engine<'_>,
+    ctx: &Context,
+    id: ExprId,
+    a: &ast::Arguments,
+) -> Option<FunctionElementId> {
+    if !m.include_sdk || !a.type_args.is_empty() || a.args.iter().any(|x| x.name.is_some()) {
+        return None;
+    }
+    let Callee::Direct(f) = callee_of(m, ctx, id) else {
+        return None;
+    };
+    let p = m.e.program;
+    let core = p.core?;
+    let func = p.function(f);
+    let class = func.class?;
+    let n = a.args.len();
+    if func.library != core
+        || !func.static_
+        || m.e.interner.resolve(p.class(class).name) != "Object"
+        || m.e.interner.resolve(func.name) != "hash"
+        || !(2..=20).contains(&n)
+    {
+        return None;
+    }
+    match p
+        .library(core)
+        .declared
+        .get(&m.e.interner.lookup(&format!("_hash{n}"))?)?
+        .getter?
+    {
+        Element::Function(g) if p.function(g).library == core => Some(g),
+        _ => None,
+    }
+}
+
 /// Whether a value of class `c` is a JavaScript string, number or boolean
 /// (`emit_js::ctx::Ctx::is_js_primitive`): `int`, `double`, `num`, `String`,
 /// `bool` and their interceptors.
@@ -2173,8 +2212,19 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             // `JS_GET_NAME(JsGetName.RTI_NAME)`: the emitter folds the enum
             // constant into the name itself, so neither it nor the helper's
             // type (`String Function(JsGetName)`) is read.
-            let folded = folded_enum_argument(m, ctx, *target, arguments);
-            if folded.is_none() {
+            // Production: a static with a patched per-arity version is
+            // called through it, as the emitter writes it
+            // (`arity_specialization`).
+            let special = arity_specialization(m, ctx, id, arguments);
+            if let Some(g) = special {
+                m.use_function(g);
+            }
+            let folded = if special.is_some() {
+                None
+            } else {
+                folded_enum_argument(m, ctx, *target, arguments)
+            };
+            if folded.is_none() && special.is_none() {
                 m.call_target = Some(*target);
                 let saved = m.invoked.replace(unwrapped_callee(ast, *target));
                 expr(m, ctx, *target);

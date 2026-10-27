@@ -276,6 +276,59 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
         "/// Binds the `call` method of an interface type, handling null.\n",
         "/// The tear-off of the method `name` of `obj`, of type `type`.\ntbind(obj, name, type) => bind(obj, name, null, type);\n\n/// Binds the `call` method of an interface type, handling null.\n",
+    ), // `Object.hash` dispatches on how many arguments it got (a sentinel
+    // default for each omitted one), which keeps every arity and every
+    // `SystemHash.hashN` alive. One function per arity, called directly by
+    // the production profile at each call site
+    // (`Ctx::arity_specialization`); the original stays for tear-offs.
+    (
+        Some("DARTFORGE_JSPROD_HASH_ARITY"),
+        "core/object.dart",
+        "final int _hashSeed = identityHashCode(Object);\n",
+        r##"final int _hashSeed = identityHashCode(Object);
+
+// `Object.hash` by number of arguments: the production profile calls these
+// directly (`emit_js`'s arity specialization), so the other arities and
+// their `SystemHash` combinations are not reached.
+int _hash2(Object? o1, Object? o2) =>
+    SystemHash.hash2(o1.hashCode, o2.hashCode, _hashSeed);
+int _hash3(Object? o1, Object? o2, Object? o3) =>
+    SystemHash.hash3(o1.hashCode, o2.hashCode, o3.hashCode, _hashSeed);
+int _hash4(Object? o1, Object? o2, Object? o3, Object? o4) =>
+    SystemHash.hash4(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, _hashSeed);
+int _hash5(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5) =>
+    SystemHash.hash5(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, _hashSeed);
+int _hash6(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6) =>
+    SystemHash.hash6(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, _hashSeed);
+int _hash7(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7) =>
+    SystemHash.hash7(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, _hashSeed);
+int _hash8(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8) =>
+    SystemHash.hash8(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, _hashSeed);
+int _hash9(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9) =>
+    SystemHash.hash9(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, _hashSeed);
+int _hash10(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9, Object? o10) =>
+    SystemHash.hash10(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, _hashSeed);
+int _hash11(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9, Object? o10, Object? o11) =>
+    SystemHash.hash11(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, o11.hashCode, _hashSeed);
+int _hash12(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9, Object? o10, Object? o11, Object? o12) =>
+    SystemHash.hash12(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, o11.hashCode, o12.hashCode, _hashSeed);
+int _hash13(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9, Object? o10, Object? o11, Object? o12, Object? o13) =>
+    SystemHash.hash13(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, o11.hashCode, o12.hashCode, o13.hashCode, _hashSeed);
+int _hash14(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9, Object? o10, Object? o11, Object? o12, Object? o13, Object? o14) =>
+    SystemHash.hash14(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, o11.hashCode, o12.hashCode, o13.hashCode, o14.hashCode, _hashSeed);
+int _hash15(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9, Object? o10, Object? o11, Object? o12, Object? o13, Object? o14, Object? o15) =>
+    SystemHash.hash15(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, o11.hashCode, o12.hashCode, o13.hashCode, o14.hashCode, o15.hashCode, _hashSeed);
+int _hash16(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9, Object? o10, Object? o11, Object? o12, Object? o13, Object? o14, Object? o15, Object? o16) =>
+    SystemHash.hash16(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, o11.hashCode, o12.hashCode, o13.hashCode, o14.hashCode, o15.hashCode, o16.hashCode, _hashSeed);
+int _hash17(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9, Object? o10, Object? o11, Object? o12, Object? o13, Object? o14, Object? o15, Object? o16, Object? o17) =>
+    SystemHash.hash17(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, o11.hashCode, o12.hashCode, o13.hashCode, o14.hashCode, o15.hashCode, o16.hashCode, o17.hashCode, _hashSeed);
+int _hash18(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9, Object? o10, Object? o11, Object? o12, Object? o13, Object? o14, Object? o15, Object? o16, Object? o17, Object? o18) =>
+    SystemHash.hash18(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, o11.hashCode, o12.hashCode, o13.hashCode, o14.hashCode, o15.hashCode, o16.hashCode, o17.hashCode, o18.hashCode, _hashSeed);
+int _hash19(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9, Object? o10, Object? o11, Object? o12, Object? o13, Object? o14, Object? o15, Object? o16, Object? o17, Object? o18, Object? o19) =>
+    SystemHash.hash19(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, o11.hashCode, o12.hashCode, o13.hashCode, o14.hashCode, o15.hashCode, o16.hashCode, o17.hashCode, o18.hashCode, o19.hashCode, _hashSeed);
+int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? o6, Object? o7, Object? o8, Object? o9, Object? o10, Object? o11, Object? o12, Object? o13, Object? o14, Object? o15, Object? o16, Object? o17, Object? o18, Object? o19, Object? o20) =>
+    SystemHash.hash20(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, o11.hashCode, o12.hashCode, o13.hashCode, o14.hashCode, o15.hashCode, o16.hashCode, o17.hashCode, o18.hashCode, o19.hashCode, o20.hashCode, _hashSeed);
+"##,
     ),
 ];
 

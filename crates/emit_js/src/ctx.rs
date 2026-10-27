@@ -1824,6 +1824,19 @@ impl<'a> Ctx<'a> {
             .contains(&c)
     }
 
+    /// The function of `dart:core` that a production SDK patch
+    /// (`sdk_patches.rs`) provides for a call of `fid` with `positional`
+    /// positional arguments and nothing else: `Object.hash` with `n`
+    /// arguments is `_hashN`, which does what `hash` does when the arguments
+    /// after the `n`-th are left at their sentinel default.
+    pub fn arity_specialization(
+        &self,
+        fid: FunctionElementId,
+        positional: usize,
+    ) -> Option<FunctionElementId> {
+        crate::arity_specialization(self.program, self.interner, fid, positional)
+    }
+
     /// Interfaces of the class from the outline.
     pub fn interfaces_of(&self, c: ClassId) -> Vec<ClassId> {
         let data = &self.outline.classes[c.0 as usize];

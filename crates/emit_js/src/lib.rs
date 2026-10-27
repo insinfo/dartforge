@@ -202,6 +202,40 @@ pub fn recipe_ids_ranked<K: Ord>(
     out
 }
 
+/// The `dart:core` function a production SDK patch provides for a call of
+/// `fid` with `positional` positional arguments and no named or type
+/// arguments (`Object.hash(a, b)` → `_hash2(a, b)`); the emitter writes the
+/// call to it and the closed world (`dartforge_world`) uses it instead of
+/// `fid`. `None` when `fid` has no specialization or the patch is absent.
+pub fn arity_specialization(
+    program: &dartforge_elements::model::Program,
+    interner: &dartforge_intern::Interner,
+    fid: dartforge_elements::model::FunctionElementId,
+    positional: usize,
+) -> Option<dartforge_elements::model::FunctionElementId> {
+    use dartforge_elements::model::Element;
+    let core = program.core?;
+    let f = program.function(fid);
+    let class = f.class?;
+    if f.library != core
+        || !f.static_
+        || interner.resolve(program.class(class).name) != "Object"
+        || interner.resolve(f.name) != "hash"
+        || !(2..=20).contains(&positional)
+    {
+        return None;
+    }
+    match program
+        .library(core)
+        .declared
+        .get(&interner.lookup(&format!("_hash{positional}"))?)?
+        .getter?
+    {
+        Element::Function(g) if program.function(g).library == core => Some(g),
+        _ => None,
+    }
+}
+
 /// Short library tag in the rti recipes of the production profile
 /// (`Ctx::class_recipe` in SDK mode): `$` + the id in base 36. It starts with
 /// `$`, which no SDK library identifier uses.

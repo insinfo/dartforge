@@ -1469,6 +1469,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 MemberKind::Setter(_) => (Js::prim("null"), Ty::Dynamic),
             };
         }
+        // Production: a patched per-arity version of the static
+        // (`Ctx::arity_specialization`); the world makes the same choice.
+        if let MemberKind::Method(fid) = mk
+            && self.ctx.production()
+            && arguments.type_args.is_empty()
+            && arguments.args.iter().all(|a| a.name.is_none())
+            && let Some(g) = self.ctx.arity_specialization(fid, arguments.args.len())
+            && let Some((js, fty)) = self.element_ref(Element::Function(g))
+        {
+            let (args, ret, _) = self.emit_args_for(&fty, arguments, expected);
+            return (Js::prim(format!("{js}({})", args.join(", "))), ret);
+        }
         let cls = self.class_ref(c);
         let js = format!("{cls}{}", js::prop_access(&static_member_name(name)));
         match mk {
