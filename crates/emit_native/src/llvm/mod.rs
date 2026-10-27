@@ -3981,7 +3981,8 @@ impl<'a> LlvmEmitter<'a> {
     /// sort called `dartforge_rti_e` (13% of `ordenar_objetos`). `null` and a
     /// `Smi` have the keys `-16 - 1` and `-16 - 2` of `value_key` and go through the
     /// same comparison: `_Uint8List.[]=` and `value is Future` on an `int` missed
-    /// on every call. The rest (runtime values, a miss) calls
+    /// on every call. The rest (runtime values, a miss) calls the module's
+    /// `@df.rti_is_probe`, which tries the thread's memo before
     /// `dartforge_rti_e_cache`, which answers and stores.
     fn emit_rti_test_cached(&mut self, v: u32, args: &[(Operand, Type)]) {
         let value = self.coerce(&args[0].0, Type::I64);
@@ -4049,32 +4050,31 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %rt{v}ok = and i1 %rt{v}ok1, %rt{v}ok2").unwrap();
         writeln!(
             o,
-            "  br i1 %rt{v}ok, label %rt{v}.acerto, label %rt{v}.sonda"
+            "  br i1 %rt{v}ok, label %rt{v}.acerto, label %rt{v}.lenta"
         )
         .unwrap();
         writeln!(o, "rt{v}.acerto:").unwrap();
         writeln!(o, "  %rt{v}b = and i64 %rt{v}w, 1").unwrap();
         writeln!(o, "  %rt{v}r1 = trunc i64 %rt{v}b to i8").unwrap();
         writeln!(o, "  br label %rt{v}.fim").unwrap();
-        // Another key: the thread's memo (`rti_is_probe_helper`) before the runtime.
-        writeln!(o, "rt{v}.sonda:").unwrap();
-        writeln!(
-            o,
-            "  %rt{v}r3 = call i8 @df.rti_is_probe(ptr %rt{v}c, i64 %rt{v}k, i64 {value}, i64 {t})"
-        )
-        .unwrap();
-        writeln!(o, "  br label %rt{v}.fim").unwrap();
+        // One call per site for every miss: the thread's memo
+        // (`rti_is_probe_helper`) with the key, or 0 (no key) for the runtime.
         writeln!(o, "rt{v}.lenta:").unwrap();
         writeln!(
             o,
-            "  %rt{v}r2 = call i8 @dartforge_rti_e_cache(ptr %rt{v}c, i64 {value}, i64 {t})"
+            "  %rt{v}kk = phi i64 [ 0, %rt{v}.imm ], [ %rt{v}k, %rt{v}.cmp ]"
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "  %rt{v}r2 = call i8 @df.rti_is_probe(ptr %rt{v}c, i64 %rt{v}kk, i64 {value}, i64 {t})"
         )
         .unwrap();
         writeln!(o, "  br label %rt{v}.fim").unwrap();
         writeln!(o, "rt{v}.fim:").unwrap();
         writeln!(
             o,
-            "  %v{v} = phi i8 [ %rt{v}r1, %rt{v}.acerto ], [ %rt{v}r2, %rt{v}.lenta ], [ %rt{v}r3, %rt{v}.sonda ]"
+            "  %v{v} = phi i8 [ %rt{v}r1, %rt{v}.acerto ], [ %rt{v}r2, %rt{v}.lenta ]"
         )
         .unwrap();
         self.current_label = format!("rt{v}.fim");
@@ -4086,8 +4086,9 @@ impl<'a> LlvmEmitter<'a> {
     /// of the handle), or `-16 - class` without metadata, the same key as the memory
     /// of the runtime (`value_key`) — and the result. An object of the space
     /// with the stored key answers with two loads; the rest (runtime
-    /// values, the first time, another key) calls
-    /// `dartforge_rti_eval_cache`, which answers and stores. The model and the
+    /// values, the first time, another key) calls `@df.rti_eval_probe`, which
+    /// tries the thread's memo before `dartforge_rti_eval_cache`, which answers
+    /// and stores. The model and the
     /// class are constants of the site; the tuple is 0. The area is per isolate (the
     /// type ids are of its universe) and reload zeroes the caches.
     fn emit_rti_evaluate_cached(&mut self, v: u32, args: &[(Operand, Type)]) {
@@ -4095,6 +4096,7 @@ impl<'a> LlvmEmitter<'a> {
         let this = self.coerce(&args[1].0, Type::I64);
         let class = self.coerce(&args[2].0, Type::I64);
         let slot = self.cache_slot();
+        let entry = self.current_label.clone();
         let o = &mut self.out;
         writeln!(o, "  %ra{v}c = getelementptr i64, ptr %area, i64 {slot}").unwrap();
         writeln!(o, "  %ra{v}m = and i64 {this}, {OBJECT_MASK}").unwrap();
@@ -4127,7 +4129,7 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %ra{v}ok = icmp eq i64 %ra{v}k0, %ra{v}k").unwrap();
         writeln!(
             o,
-            "  br i1 %ra{v}ok, label %ra{v}.acerto, label %ra{v}.sonda"
+            "  br i1 %ra{v}ok, label %ra{v}.acerto, label %ra{v}.lenta"
         )
         .unwrap();
         writeln!(o, "ra{v}.acerto:").unwrap();
@@ -4138,17 +4140,20 @@ impl<'a> LlvmEmitter<'a> {
         .unwrap();
         writeln!(o, "  %ra{v}r1 = load i64, ptr %ra{v}rp, align 8").unwrap();
         writeln!(o, "  br label %ra{v}.fim").unwrap();
-        // Another key: the thread's memo (`rti_eval_probe_helper`) before the runtime.
-        writeln!(o, "ra{v}.sonda:").unwrap();
-        writeln!(o, "  %ra{v}r3 = call i64 @df.rti_eval_probe(ptr %ra{v}c, i64 %ra{v}k, i64 {model}, i64 {this}, i64 {class})").unwrap();
-        writeln!(o, "  br label %ra{v}.fim").unwrap();
+        // One call per site for every miss: the thread's memo
+        // (`rti_eval_probe_helper`) with the key, or 0 (no key) for the runtime.
         writeln!(o, "ra{v}.lenta:").unwrap();
-        writeln!(o, "  %ra{v}r2 = call i64 @dartforge_rti_eval_cache(ptr %ra{v}c, i64 {model}, i64 {this}, i64 {class})").unwrap();
+        writeln!(
+            o,
+            "  %ra{v}kk = phi i64 [ 0, %{entry} ], [ %ra{v}k, %ra{v}.obj ]"
+        )
+        .unwrap();
+        writeln!(o, "  %ra{v}r2 = call i64 @df.rti_eval_probe(ptr %ra{v}c, i64 %ra{v}kk, i64 {model}, i64 {this}, i64 {class})").unwrap();
         writeln!(o, "  br label %ra{v}.fim").unwrap();
         writeln!(o, "ra{v}.fim:").unwrap();
         writeln!(
             o,
-            "  %v{v} = phi i64 [ %ra{v}r1, %ra{v}.acerto ], [ %ra{v}r2, %ra{v}.lenta ], [ %ra{v}r3, %ra{v}.sonda ]"
+            "  %v{v} = phi i64 [ %ra{v}r1, %ra{v}.acerto ], [ %ra{v}r2, %ra{v}.lenta ]"
         )
         .unwrap();
         self.current_label = format!("ra{v}.fim");
@@ -7572,14 +7577,17 @@ fn rti_memo_insert(a: &str, b: &str, kind: &str, answer: &str) -> String {
     o
 }
 
-/// `@df.rti_is_probe(cache, key, v, t)`: the miss of the `is` cache of a use site
-/// with the value key `key` already computed ([`LlvmEmitter::emit_rti_test_cached`]).
-/// The thread's memo answers and refills the site; otherwise
-/// `dartforge_rti_e_cache` answers and fills both.
+/// `@df.rti_is_probe(cache, key, v, t)`: every miss of the `is` cache of a use
+/// site ([`LlvmEmitter::emit_rti_test_cached`]), with the value key `key` already
+/// computed, or 0 for a value without a key. The thread's memo answers and
+/// refills the site; otherwise `dartforge_rti_e_cache` answers and fills both.
 fn rti_is_probe_helper() -> String {
     format!(
         "define internal i8 @df.rti_is_probe(ptr %c, i64 %key, i64 %v, i64 %t) noinline {{\n\
 entry:\n\
+  %valid = icmp ne i64 %key, 0\n\
+  br i1 %valid, label %probe, label %runtime\n\
+probe:\n\
 {lookup}  br i1 %mfound, label %memo, label %runtime\n\
 memo:\n\
   store i64 %key, ptr %c, align 8\n\
@@ -7601,15 +7609,18 @@ runtime:\n\
     )
 }
 
-/// `@df.rti_eval_probe(cache, key, model, this, class)`: the miss of the `P<i>`
-/// cache of a use site with the key of `this` already computed
-/// ([`LlvmEmitter::emit_rti_evaluate_cached`]). The memo kind of `P<i>` is the
-/// class, so a negative class (no memo entry) always goes to the runtime.
+/// `@df.rti_eval_probe(cache, key, model, this, class)`: every miss of the `P<i>`
+/// cache of a use site ([`LlvmEmitter::emit_rti_evaluate_cached`]), with the key
+/// of `this` already computed, or 0 when `this` is not an object. The memo kind
+/// of `P<i>` is the class, so a negative class (no memo entry) and a missing key
+/// go to `dartforge_rti_eval_cache` directly.
 fn rti_eval_probe_helper() -> String {
     format!(
         "define internal i64 @df.rti_eval_probe(ptr %c, i64 %key, i64 %m, i64 %h, i64 %cl) noinline {{\n\
 entry:\n\
-  %valid = icmp sge i64 %cl, 0\n\
+  %vcl = icmp sge i64 %cl, 0\n\
+  %vkey = icmp ne i64 %key, 0\n\
+  %valid = and i1 %vcl, %vkey\n\
   br i1 %valid, label %probe, label %runtime\n\
 probe:\n\
 {lookup}  br i1 %mfound, label %memo, label %runtime\n\

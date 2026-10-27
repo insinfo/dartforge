@@ -2695,10 +2695,17 @@ fn rti_eval_with_a_constant_class_goes_through_the_site_cache() {
     // a miss probes the thread's memo first and fills it after evaluating.
     let helper = body_of(&ir, "df.rti_eval_site");
     assert!(helper.contains("call i64 @dartforge_rti_eval(i64 %m, i64 %h, i64 %k, i64 %t)"));
-    assert!(helper.contains("%mfound = or i1 %mfound0, %mfound1"), "{helper}");
+    assert!(
+        helper.contains("%mfound = or i1 %mfound0, %mfound1"),
+        "{helper}"
+    );
     // The site's four words on each of the three paths (memo hit, evaluation
     // that fills the memo, evaluation outside it) and the memo's two ways.
-    assert_eq!(helper.matches("store i64").count(), 4 * 3 + 2 * 4, "{helper}");
+    assert_eq!(
+        helper.matches("store i64").count(),
+        4 * 3 + 2 * 4,
+        "{helper}"
+    );
 }
 
 #[test]

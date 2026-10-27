@@ -43,8 +43,9 @@ use std::fmt::Write;
 /// * `@df.string_equals(a, b)`: `==` between two strings (identity; different lengths and
 ///   different computed hashes give false without a call; two strings of the same
 ///   class are compared unit by unit inline, the one-character strings of
-///   `String.[]` among them, whose hash is often not computed yet; only a
-///   one-byte string against a two-byte one goes to the runtime);
+///   `String.[]` among them, whose hash is often not computed yet, by
+///   `@df.string_units_equal`, out of line so that each comparison site stays
+///   small; only a one-byte string against a two-byte one goes to the runtime);
 /// * `@df.string_equals_object(a, b)`: `==` of a string with an `Object?` (the
 ///   overlay's `_StringBase.==`): what is not a string is different.
 pub const HELPERS: &str = "\
@@ -162,8 +163,19 @@ hashes:
   %mh = icmp eq i32 %ha, %hb
   %algum = or i1 %az, %bz
   %talvez = or i1 %algum, %mh
-  br i1 %talvez, label %classes, label %nao
-classes:
+  br i1 %talvez, label %unidades, label %nao
+unidades:
+  %r = call i1 @df.string_units_equal(i64 %a, i64 %b, i64 %la)
+  ret i1 %r
+sim:
+  ret i1 true
+nao:
+  ret i1 false
+}
+define internal i1 @df.string_units_equal(i64 %a, i64 %b, i64 %n) noinline nounwind {
+entrada:
+  %pa = inttoptr i64 %a to ptr
+  %pb = inttoptr i64 %b to ptr
   %pca = getelementptr inbounds i8, ptr %pa, i64 2
   %pcb = getelementptr inbounds i8, ptr %pb, i64 2
   %ca = load i32, ptr %pca, align 4, !invariant.load !{}
@@ -176,7 +188,7 @@ classes:
 unidades:
   %dois = icmp ne i32 %ca, 6
   %sh = zext i1 %dois to i64
-  %nb = shl i64 %la, %sh
+  %nb = shl i64 %n, %sh
   %ua = getelementptr inbounds i8, ptr %pa, i64 22
   %ub = getelementptr inbounds i8, ptr %pb, i64 22
   br label %laco
