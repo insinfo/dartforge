@@ -2638,6 +2638,22 @@ impl<'a> Ctx<'a> {
     /// recipe for the verifier and the rules (`emit_js_production::regras`);
     /// the name that `_rtiToString` shows comes from the table the production
     /// profile puts into `unmangleGlobalNameIfPreservedAnyways`.
+    /// The name of the type variable `name` of class `c` in recipes and in
+    /// the rti rules (`List.E`). With the short class ids of the production
+    /// profile it is the class's id (`|h.E`): the recipe parser reads any
+    /// identifier with a period as a type variable, and only the rules give
+    /// it meaning. `DARTFORGE_JSPROD_SHORT_TYPE_VARIABLES=0` keeps the class
+    /// name.
+    pub fn type_var_key(&self, c: ClassId, name: &str) -> String {
+        if self.sdk.is_some()
+            && self.short_recipe
+            && std::env::var("DARTFORGE_JSPROD_SHORT_TYPE_VARIABLES").map_or(true, |v| v != "0")
+        {
+            return format!("{}.{name}", self.class_recipe(c));
+        }
+        format!("{}.{name}", self.class_name(c))
+    }
+
     pub fn class_recipe(&self, c: ClassId) -> String {
         let lib = self.lib_of_class(c);
         if self.sdk.is_some() && self.short_recipe {

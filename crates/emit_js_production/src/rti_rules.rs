@@ -101,6 +101,10 @@ fn dotted_names(t: &str, out: &mut HashSet<String>) {
         while i > 0 && id(b[i - 1]) {
             i -= 1;
         }
+        // A short class id (`|h.E`).
+        if i > 0 && b[i - 1] == b'|' {
+            i -= 1;
+        }
         let mut f = p + 1;
         while f < b.len() && id(b[f]) {
             f += 1;
@@ -114,7 +118,9 @@ fn dotted_names(t: &str, out: &mut HashSet<String>) {
 /// Whether a rule key is the substitution of a type variable (`List.E`), not
 /// a supertype (`|j`, `lib|C`).
 fn is_type_variable_key(k: &str) -> bool {
-    !k.contains('|') && k.contains('.')
+    // A supertype is `|id` or `lib|C`; only a type variable has a period
+    // (`List.E`, or `|h.E` with short ids).
+    k.contains('.')
 }
 
 /// `addRtiResources(C, ["a|C", "b|I", …])` puts on `C`'s prototype the mark

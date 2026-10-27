@@ -765,9 +765,8 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
         let mut items: Vec<String> = Vec::new();
         for (i, p) in params.iter().enumerate() {
             items.push(format!(
-                "\"{}.{}\":\"{}\"",
-                ctx.class_name(c),
-                p.name,
+                "{}:\"{}\"",
+                json_str(&ctx.type_var_key(c, &p.name.to_string())),
                 i + 1
             ));
         }
@@ -799,9 +798,8 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
             let sparams = &ctx.class_params[sc.0 as usize];
             for (p, a) in sparams.iter().zip(args.iter()) {
                 items.push(format!(
-                    "\"{}.{}\":{}",
-                    ctx.class_name(*sc),
-                    p.name,
+                    "{}:{}",
+                    json_str(&ctx.type_var_key(*sc, &p.name.to_string())),
                     json_str(&rule_recipe(ctx, a, c))
                 ));
             }

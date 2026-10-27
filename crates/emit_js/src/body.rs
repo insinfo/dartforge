@@ -1004,7 +1004,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         .any(|p| p.id == *id)
                     {
                         *used_class = true;
-                        return format!("{}.{}{}", self.ctx.class_name(c), name, q);
+                        return format!("{}{q}", self.ctx.type_var_key(c, name));
                     }
                 }
                 if self.fn_type_params.iter().any(|(pid, _)| pid == id) {
