@@ -2700,7 +2700,8 @@ pub fn js_member_name_ext(name: &str, external: bool) -> String {
         "[]=" => "_set".into(),
         "==" => "_equals".into(),
         "unary-" => "_negate".into(),
-        "constructor" | "prototype" if !external => format!("_{name}"),
+        // As the DDC: the runtime maps dynamic `constructor`/`prototype` here.
+        "constructor" | "prototype" if !external => format!("+{name}"),
         _ => name.to_string(),
     }
 }

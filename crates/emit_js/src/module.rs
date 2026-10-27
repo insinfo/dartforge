@@ -2535,7 +2535,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // Keep fields out: a plain instance field has no prototype descriptor.
     let mut inherited_native_aliases = HashSet::new();
     let mut inherited_native_method_signatures = HashSet::new();
-    if !native_class && !is_mixin && !class.modifiers.abstract_ && !ctx.mixins_of(c).is_empty() {
+    if !native_class && !is_mixin && !class.modifiers.abstract_ {
         let mut names: Vec<_> = natives.iter().collect();
         names.sort();
         for name in names {
@@ -2544,21 +2544,33 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     continue;
                 }
                 // Runtime mixin applications overwrite the superclass and
-                // earlier mixins. Interface/BFS lookup is not that order.
-                let member = ctx.mixins_of(c).into_iter().rev().find_map(|mixin| {
-                    let kind = ctx.declared_member(mixin, name, setter)?;
-                    let applied = ctx.as_super(&ctx.this_ty(c), mixin)?;
-                    let subst = ctx.class_params[mixin.0 as usize]
-                        .iter()
-                        .enumerate()
-                        .map(|(i, p)| (p.id, applied.args().get(i).cloned().unwrap_or(Ty::Dynamic)))
+                // earlier mixins (interface/BFS lookup is not that order);
+                // then the superclass chain.
+                let supers: Vec<ClassId> =
+                    std::iter::successors(ctx.superclass_of(c), |&k| ctx.superclass_of(k))
+                        .take_while(|&k| Some(k) != ctx.object)
                         .collect();
-                    Some(crate::ctx::Member {
-                        class: mixin,
-                        kind,
-                        subst,
-                    })
-                });
+                let member = ctx
+                    .mixins_of(c)
+                    .into_iter()
+                    .rev()
+                    .chain(supers)
+                    .find_map(|mixin| {
+                        let kind = ctx.declared_member(mixin, name, setter)?;
+                        let applied = ctx.as_super(&ctx.this_ty(c), mixin)?;
+                        let subst = ctx.class_params[mixin.0 as usize]
+                            .iter()
+                            .enumerate()
+                            .map(|(i, p)| {
+                                (p.id, applied.args().get(i).cloned().unwrap_or(Ty::Dynamic))
+                            })
+                            .collect();
+                        Some(crate::ctx::Member {
+                            class: mixin,
+                            kind,
+                            subst,
+                        })
+                    });
                 let Some(member) = member else { continue };
                 if ctx.is_ext_member(&ctx.this_ty(member.class), name, setter) {
                     continue;
@@ -3601,7 +3613,7 @@ fn sig_key(name: &str, e: &FnEmitter, c: ClassId) -> String {
     if name.starts_with('_') && !matches!(name, "_equals" | "_get" | "_set" | "_negate") {
         e.decl_member_key(c, name)
     } else {
-        js::prop_key(name)
+        js::prop_key(&js_member_name(name))
     }
 }
 
