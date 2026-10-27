@@ -390,7 +390,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 for f in fields.iter() {
                     match self.pattern_field_name(f) {
                         Some(n) => {
-                            let sub = format!("{value_js}{}", js::prop_access(&n));
+                            let sub = format!("{value_js}{}", js::record_field_access(&n));
                             let fty = named_tys
                                 .iter()
                                 .find(|(x, _)| *x == n)

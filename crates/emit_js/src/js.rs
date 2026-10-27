@@ -431,3 +431,12 @@ pub fn has_named(opts: &str, key: &str) -> String {
         format!("{} in {opts}", string_literal(key))
     }
 }
+
+/// The JS property of a record's named field: the runtime renames
+/// `constructor` and `prototype` to `_constructor` and `_prototype`.
+pub fn record_field_access(name: &str) -> String {
+    match name {
+        "constructor" | "prototype" => prop_access(&format!("_{name}")),
+        _ => prop_access(name),
+    }
+}

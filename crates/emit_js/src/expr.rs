@@ -841,7 +841,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Ty::Iface {
                     class, nullable, ..
                 } => !(Some(*class) == self.ctx.object && *nullable),
-                Ty::Fn { .. } | Ty::Record { .. } | Ty::FutureOr { .. } | Ty::Param { .. } => true,
+                Ty::Fn { .. }
+                | Ty::Record { .. }
+                | Ty::FutureOr { .. }
+                | Ty::Param { .. }
+                | Ty::Never
+                | Ty::Null => true,
                 _ => false,
             };
             if needs_cast
@@ -3127,7 +3132,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 if let Some((_, t)) = named.iter().find(|(n, _)| n == name) {
                     return (
-                        Js::prim(format!("{}{}", recv.at(P_PRIMARY), js::prop_access(name))),
+                        Js::prim(format!(
+                            "{}{}",
+                            recv.at(P_PRIMARY),
+                            js::record_field_access(name)
+                        )),
                         t.clone(),
                     );
                 }
