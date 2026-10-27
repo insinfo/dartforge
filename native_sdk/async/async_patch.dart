@@ -97,15 +97,67 @@ class _AsyncAwaitCompleter<T> implements Completer<T> {
         _errorCallback ??= (Object error, StackTrace stackTrace) {
       bodyFunction(_ERROR, _DfAsyncError(error, stackTrace));
     };
+    // The VM's `_SuspendState._await`: a completed `_Future` and a value that is
+    // not a `Future` resume the body from a microtask of their own, without a
+    // `_FutureListener`, a result `_Future` and `_propagateToListeners`.
     if (object is _Future) {
-      // The continuation was already registered in the zone (`_wrapBody`).
-      object._thenAwait(thenCallback, errorCallback);
-    } else if (object is Future) {
-      object.then(thenCallback, onError: errorCallback);
+      if (object._isComplete) {
+        _awaitCompletedFuture(object, thenCallback, errorCallback);
+      } else {
+        // The continuation was already registered in the zone (`_wrapBody`).
+        object._thenAwait(thenCallback, errorCallback);
+      }
+    } else if (object is! Future) {
+      _awaitNotFuture(object, thenCallback);
     } else {
-      _Future future = _Future().._setValue(object);
-      future._thenAwait(thenCallback, errorCallback);
+      object.then(thenCallback, onError: errorCallback);
     }
+  }
+
+  /// The VM's `_SuspendState._awaitCompletedFuture`: the continuation runs in
+  /// the current zone from a microtask scheduled in the future's zone, the
+  /// microtask `_addListener` schedules for a late listener; an error does not
+  /// cross into another error zone.
+  @pragma("dartforge:hidden-frame")
+  void _awaitCompletedFuture(_Future future,
+      FutureOr<dynamic> Function(dynamic) thenCallback, Function errorCallback) {
+    final zone = Zone._current;
+    if (future._hasError) {
+      void run() {
+        final AsyncError asyncError =
+            unsafeCast<AsyncError>(future._resultOrListeners);
+        if (!future._zone.inSameErrorZone(zone)) {
+          // Don't cross zone boundaries with errors.
+          future._zone
+              .handleUncaughtError(asyncError.error, asyncError.stackTrace);
+        } else {
+          zone.runBinary(
+              unsafeCast<dynamic Function(Object, StackTrace)>(errorCallback),
+              asyncError.error,
+              asyncError.stackTrace);
+        }
+      }
+
+      future._zone.scheduleMicrotask(run);
+    } else {
+      void run() {
+        zone.runUnary(thenCallback, future._resultOrListeners);
+      }
+
+      future._zone.scheduleMicrotask(run);
+    }
+  }
+
+  /// The VM's `_SuspendState._awaitNotFuture`.
+  @pragma("dartforge:hidden-frame")
+  void _awaitNotFuture(
+      Object? object, FutureOr<dynamic> Function(dynamic) thenCallback) {
+    final zone = Zone._current;
+    void run() {
+      zone.runUnary(thenCallback, object);
+    }
+
+    zone.scheduleMicrotask(run);
   }
 }
 
