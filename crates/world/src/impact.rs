@@ -1275,16 +1275,32 @@ fn stmt(m: &mut Engine<'_>, ctx: &Context, id: StmtId) {
         }
         StmtKind::Switch { value, cases } => {
             expr(m, ctx, *value);
+            // A case that never matches is not written, nor its body unless
+            // an empty case before it falls into it (the emitter's rule,
+            // `emit_js::body`).
+            let mut falls = false;
             for c in cases.iter() {
-                if let Some(pp) = c.pattern {
-                    walk_pattern(m, ctx, pp);
+                let dead = c.guard.is_none()
+                    && c.pattern.is_some_and(|pp| {
+                        m.constants
+                            .as_ref()
+                            .is_some_and(|k| k.dead_case(ctx.unit, pp))
+                    });
+                if dead && !falls {
+                    continue;
                 }
-                if let Some(g) = c.guard {
-                    expr(m, ctx, g);
+                if !dead {
+                    if let Some(pp) = c.pattern {
+                        walk_pattern(m, ctx, pp);
+                    }
+                    if let Some(g) = c.guard {
+                        expr(m, ctx, g);
+                    }
                 }
                 for s in c.body.iter() {
                     stmt(m, ctx, *s);
                 }
+                falls = c.body.is_empty() && (!dead || falls);
             }
         }
         StmtKind::Break(_) | StmtKind::Continue(_) | StmtKind::Empty => {}

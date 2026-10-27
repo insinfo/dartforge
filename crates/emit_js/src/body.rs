@@ -2434,10 +2434,22 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             }
             crate::emit_line!(self.w, "{label}:");
             crate::open_block!(self.w, "switch ({}) {{", vjs.code);
+            // A case that never matches (`Liveness::dead_case`) loses its
+            // label, and its body unless an empty case before it falls into
+            // it (the world's rule, `dartforge_world::impact`).
+            let mut falls = false;
             for c in cases {
                 let has_stmts = !c.body.is_empty();
+                let dead = c
+                    .pattern
+                    .is_some_and(|p| self.ctx.filter.is_some_and(|f| f.dead_case(self.unit, p)));
+                if dead && !falls {
+                    continue;
+                }
+                falls = !has_stmts && (!dead || falls);
                 match c.pattern {
                     None => self.w.line("default:"),
+                    Some(_) if dead => {}
                     Some(p) => {
                         let consts = self.const_pattern_values(p);
                         for cv in consts {

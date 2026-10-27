@@ -351,9 +351,12 @@ fn fixed_point(
         include_sdk: true,
         without_asserts: !op.asserts,
         without_records: std::env::var("DARTFORGE_JSPROD_RECORDS_GATE").map_or(true, |v| v != "0"),
+        // `DARTFORGE_JSPROD_LEGACY_GATE=0` assumes legacy types may exist.
+        without_legacy: std::env::var("DARTFORGE_JSPROD_LEGACY_GATE").map_or(true, |v| v != "0"),
     };
     let constants = dartforge_world::Constants::new(input, !op.asserts);
     constants.set_without_records(opm.without_records);
+    constants.set_without_legacy(opm.without_legacy);
     let runtime_equals = a
         .program
         .libraries
@@ -461,6 +464,12 @@ fn fixed_point(
             computation = dartforge_world::Computation::new(input, opm);
             continue;
         }
+        if opm.without_legacy && texts.iter().any(|(_, t)| cites_legacy_recipe(t)) {
+            opm.without_legacy = false;
+            constants.set_without_legacy(false);
+            computation = dartforge_world::Computation::new(input, opm);
+            continue;
+        }
         report.no_element = missing.no_element.clone();
         // `DARTFORGE_JSPROD_DUMP=file`: the round's text (diagnostics).
         if let Ok(p) = std::env::var("DARTFORGE_JSPROD_DUMP") {
@@ -540,6 +549,36 @@ fn cites_record_recipe(text: &str) -> bool {
                     return true;
                 }
             }
+        }
+        i = j + 1;
+    }
+    false
+}
+
+/// Whether `text` holds a string literal that looks like an rti recipe with
+/// a legacy type (`"|f*"`, `"0&*"`, `"|F<|a*>"`): only recipe characters, a
+/// `*` after a type. A false positive only keeps the legacy branches.
+fn cites_legacy_recipe(text: &str) -> bool {
+    let recipe = |c: u8| c.is_ascii_alphanumeric() || b"_$|&@~#*?/<>(),;:!^+[]{}".contains(&c);
+    let b = text.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'"' {
+            i += 1;
+            continue;
+        }
+        let start = i + 1;
+        let mut j = start;
+        while j < b.len() && b[j] != b'"' && b[j] != b'\n' {
+            j += if b[j] == b'\\' { 2 } else { 1 };
+        }
+        let lit = &b[start..j.min(b.len())];
+        if lit.iter().all(|&c| recipe(c))
+            && lit
+                .windows(2)
+                .any(|w| w[1] == b'*' && (w[0].is_ascii_alphanumeric() || b"&>)?".contains(&w[0])))
+        {
+            return true;
         }
         i = j + 1;
     }
@@ -1061,6 +1100,14 @@ pub fn assemble(
 #[cfg(test)]
 mod front_coding_tests {
     use super::*;
+
+    #[test]
+    fn finds_legacy_recipes_only() {
+        assert!(cites_legacy_recipe(r#"findType("|f*")"#));
+        assert!(cites_legacy_recipe(r#"t$R("0&*")"#));
+        assert!(!cites_legacy_recipe(r#"join(s, "*")"#));
+        assert!(!cites_legacy_recipe(r#""a * b""#));
+    }
 
     #[test]
     fn finds_record_recipes_only() {

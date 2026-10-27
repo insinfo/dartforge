@@ -74,6 +74,9 @@ pub struct Constants<'a> {
     units: RefCell<HashMap<UnitId, Rc<UnitParams>>>,
     /// No record exists at run time ([`crate::Options::without_records`]).
     without_records: std::cell::Cell<bool>,
+    /// No legacy (`T*`) type exists at run time
+    /// ([`crate::Options::without_legacy`]).
+    without_legacy: std::cell::Cell<bool>,
 }
 
 impl<'a> Constants<'a> {
@@ -87,6 +90,7 @@ impl<'a> Constants<'a> {
             null_names: RefCell::new(HashMap::new()),
             units: RefCell::new(HashMap::new()),
             without_records: std::cell::Cell::new(false),
+            without_legacy: std::cell::Cell::new(false),
         }
     }
 
@@ -95,6 +99,18 @@ impl<'a> Constants<'a> {
     /// `x is Record` (`x` a local).
     pub fn set_without_records(&self, b: bool) {
         self.without_records.set(b);
+    }
+
+    /// No legacy type exists at run time (sound null safety and no `*`
+    /// recipe): `k == Rti.kindStar` is `false`, its `case`s never match, and
+    /// a comparison with `LEGACY_TYPE_REF<T>()` is `false`.
+    pub fn set_without_legacy(&self, b: bool) {
+        self.without_legacy.set(b);
+    }
+
+    /// [`Constants::set_without_legacy`].
+    pub fn without_legacy(&self) -> bool {
+        self.without_legacy.get()
     }
 
     /// `JS_GET_FLAG('X')` of `dart:_foreign_helper`, with the values the
@@ -127,8 +143,23 @@ impl<'a> Constants<'a> {
         }
     }
 
-    /// Whether `x` reads `Rti.kindRecord` of `dart:_rti`.
-    fn is_record_kind(&self, u: UnitId, x: ExprId) -> bool {
+    /// A `case` that can never match: its pattern is a constant that no
+    /// value at run time equals (the record kind and recipe characters
+    /// without records). `DARTFORGE_JSPROD_DEAD_CASES=0` keeps every case.
+    pub fn dead_case(&self, u: UnitId, pattern: ast::PatternId) -> bool {
+        if std::env::var("DARTFORGE_JSPROD_DEAD_CASES").is_ok_and(|v| v == "0") {
+            return false;
+        }
+        match &self.e.program.unit(u).ast.pattern(pattern).kind {
+            ast::PatternKind::Constant(x) => self.gated_constant(u, *x),
+            _ => false,
+        }
+    }
+
+    /// A constant no value at run time equals: `Rti.kindRecord`,
+    /// `Recipe.startRecord` or `_Parser.gotoRecord` without records,
+    /// `Rti.kindStar` or `Recipe.wrapStar` without legacy types.
+    fn gated_constant(&self, u: UnitId, x: ExprId) -> bool {
         let p = self.e.program;
         let v = match self.resolved(u, x) {
             Some(Resolved::Element(Element::Variable(v))) => v,
@@ -139,11 +170,65 @@ impl<'a> Constants<'a> {
             _ => return false,
         };
         let var = p.variable(*v);
-        p.library(var.library).uri == "dart:_rti"
-            && self.e.interner.resolve(var.name) == "kindRecord"
-            && var
-                .class
-                .is_some_and(|c| self.e.interner.resolve(p.class(c).name) == "Rti")
+        let Some(c) = var.class else {
+            return false;
+        };
+        let lib = p.library(var.library).uri.as_str();
+        let class = self.e.interner.resolve(p.class(c).name);
+        let name = self.e.interner.resolve(var.name);
+        let record = matches!(
+            (lib, class, name),
+            ("dart:_rti", "Rti", "kindRecord")
+                | ("dart:_rti", "_Parser", "gotoRecord")
+                | ("dart:_recipe_syntax", "Recipe", "startRecord")
+        );
+        let legacy = matches!(
+            (lib, class, name),
+            ("dart:_rti", "Rti", "kindStar") | ("dart:_recipe_syntax", "Recipe", "wrapStar")
+        );
+        (record && self.without_records.get()) || (legacy && self.without_legacy.get())
+    }
+
+    /// `_Utils.isIdentical(x, LEGACY_TYPE_REF<T>())` (either order, `x` pure).
+    fn legacy_identity(&self, u: UnitId, target: ExprId, arguments: &ast::Arguments) -> bool {
+        let p = self.e.program;
+        if !self.without_legacy.get() || arguments.args.len() != 2 {
+            return false;
+        }
+        let is = |x: ExprId, lib: &str, name: &str| {
+            let f = match self.resolved(u, x) {
+                Some(Resolved::Element(Element::Function(f))) => *f,
+                Some(Resolved::Member {
+                    member: dartforge_types::resolved::MemberRef::Function(f),
+                    ..
+                }) => *f,
+                _ => return false,
+            };
+            let func = p.function(f);
+            p.library(func.library).uri == lib && self.e.interner.resolve(func.name) == name
+        };
+        if !is(target, "dart:_rti", "isIdentical") {
+            return false;
+        }
+        let legacy_ref = |x: ExprId| {
+            let mut x = x;
+            if let ExprKind::TypeArguments { target, .. } = &p.unit(u).ast.expr(x).kind {
+                x = *target;
+            }
+            match &p.unit(u).ast.expr(x).kind {
+                ExprKind::Call { target, .. } => {
+                    let mut t = *target;
+                    if let ExprKind::TypeArguments { target, .. } = &p.unit(u).ast.expr(t).kind {
+                        t = *target;
+                    }
+                    is(t, "dart:_foreign_helper", "LEGACY_TYPE_REF")
+                }
+                _ => false,
+            }
+        };
+        let (a, b) = (arguments.args[0].value, arguments.args[1].value);
+        (legacy_ref(b) && self.pure_rti_read(u, a, 0))
+            || (legacy_ref(a) && self.pure_rti_read(u, b, 0))
     }
 
     /// An expression whose evaluation has no effect: a local, a parameter,
@@ -411,9 +496,8 @@ impl<'a> Constants<'a> {
                 op: op @ (BinaryOp::Eq | BinaryOp::NotEq),
                 left,
                 right,
-            } if self.without_records.get()
-                && ((self.is_record_kind(u, *left) && self.pure_rti_read(u, *right, 0))
-                    || (self.is_record_kind(u, *right) && self.pure_rti_read(u, *left, 0))) =>
+            } if (self.gated_constant(u, *left) && self.pure_rti_read(u, *right, 0))
+                || (self.gated_constant(u, *right) && self.pure_rti_read(u, *left, 0)) =>
             {
                 Some(Value::Bool(*op == BinaryOp::NotEq))
             }
@@ -430,6 +514,9 @@ impl<'a> Constants<'a> {
                 let a = self.expr(u, *left, locals, depth + 1)?;
                 let b = self.expr(u, *right, locals, depth + 1)?;
                 Some(Value::Bool((a == b) == (*op == BinaryOp::Eq)))
+            }
+            ExprKind::Call { target, arguments } if self.legacy_identity(u, *target, arguments) => {
+                Some(Value::Bool(false))
             }
             ExprKind::Call { target, arguments } => self.flag(u, *target, arguments),
             ExprKind::Identifier(n) => match self.resolved(u, x)? {

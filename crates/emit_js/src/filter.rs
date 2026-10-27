@@ -61,6 +61,19 @@ pub trait Liveness {
     fn identity_hash_code(&self) -> bool {
         true
     }
+    /// Legacy (`T*`) types may exist at run time. Without a filter, always.
+    fn legacy_types(&self) -> bool {
+        true
+    }
+    /// The `case` with pattern `p` (of unit `u`, without a guard) can never
+    /// match and is not written (`dartforge_world::Constants::dead_case`).
+    fn dead_case(
+        &self,
+        _u: dartforge_elements::model::UnitId,
+        _p: dartforge_frontend::ast::PatternId,
+    ) -> bool {
+        false
+    }
     /// `dart.equals` of the runtime may run: `Object` installs the identity
     /// `==` it compares against (`dart._installIdentityEquals`). Without a
     /// filter, always.

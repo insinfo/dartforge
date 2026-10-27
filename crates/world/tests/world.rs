@@ -297,6 +297,7 @@ fn always_null_parameters() {
                 include_sdk: true,
                 without_asserts: true,
                 without_records: false,
+                without_legacy: false,
             };
             let mut computation = dartforge_world::Computation::new(e, options);
             computation.seed(&roots);

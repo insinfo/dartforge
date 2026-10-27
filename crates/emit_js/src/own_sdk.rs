@@ -2464,7 +2464,15 @@ pub fn emit_sdk_module(ctx: &Ctx) -> (String, BTreeSet<String>) {
     crate::typed_read_guards::emit(&m, &mut out);
     out.push_str(&body.out);
     let object_recipe = ctx.recipe_of("dart:core", "Object", "core|Object");
-    out.push_str(&format!("dart_rti.findType(\"{object_recipe}*\");\ndart_rti.findType(\"{object_recipe}?\");\ndart_rti.findType(\"0&*\");\n"));
+    // DDC warms the universe with `Object*`, `Object?` and `Never*` at load.
+    // `Object?` must come first (evaluating a nullable type tests it); the
+    // legacy two are left out when the production world proved no legacy
+    // type exists (`Liveness::legacy_types`).
+    if ctx.filter.is_none_or(|f| f.legacy_types()) {
+        out.push_str(&format!("dart_rti.findType(\"{object_recipe}*\");\ndart_rti.findType(\"{object_recipe}?\");\ndart_rti.findType(\"0&*\");\n"));
+    } else {
+        out.push_str(&format!("dart_rti.findType(\"{object_recipe}?\");\n"));
+    }
     (out, dartx_names)
 }
 

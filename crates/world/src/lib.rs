@@ -417,6 +417,9 @@ pub struct Options {
     /// checked: [`World::records_seen`]). The `dart:_rti` branches for the
     /// record kind fold away (`constants.rs`).
     pub without_records: bool,
+    /// No legacy (`T*`) type exists at run time (assumed in sound null
+    /// safety, then checked against the emitted recipes).
+    pub without_legacy: bool,
 }
 
 /// Computes the world. Deterministic: the queue is FIFO, the roots are
@@ -689,6 +692,7 @@ impl<'a> Computation<'a> {
             m.constants = Some(Constants::new(e, op.without_asserts));
             if let Some(c) = &m.constants {
                 c.set_without_records(op.without_records);
+                c.set_without_legacy(op.without_legacy);
             }
             if std::env::var("DARTFORGE_JSPROD_NULL_PARAMS").map_or(true, |v| v != "0") {
                 m.params = Some(params::ParamFlow::new(e, &m.universal_names));

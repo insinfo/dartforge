@@ -105,6 +105,16 @@ impl Liveness for Adapter<'_> {
                 .runtime_equals
                 .is_none_or(|f| self.world.is_live_function(f))
     }
+    fn legacy_types(&self) -> bool {
+        self.constants.is_none_or(|c| !c.without_legacy())
+    }
+    fn dead_case(
+        &self,
+        u: dartforge_elements::model::UnitId,
+        p: dartforge_frontend::ast::PatternId,
+    ) -> bool {
+        self.constants.is_some_and(|c| c.dead_case(u, p))
+    }
     fn keep_asserts(&self) -> bool {
         self.constants.is_none_or(|c| !c.without_asserts())
     }
