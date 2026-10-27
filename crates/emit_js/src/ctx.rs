@@ -2693,6 +2693,9 @@ impl<'a> Ctx<'a> {
     pub fn class_recipe(&self, c: ClassId) -> String {
         let lib = self.lib_of_class(c);
         if self.sdk.is_some() && self.short_recipe {
+            if let Some(ids) = self.filter.and_then(|f| f.recipe_ids()) {
+                return format!("|{}", ids[c.0 as usize]);
+            }
             let ids = self
                 .recipe_ids
                 .get_or_init(|| crate::recipe_ids(self.program, self.interner));

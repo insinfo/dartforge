@@ -374,6 +374,10 @@ fn cause_chain(
     out.join(" <- ")
 }
 
+/// A converged phase: the emission and the recipe ids it used
+/// (`filter::recipe_ids`).
+type Converged = (EmittedWithSdk, Option<Vec<String>>);
+
 /// One phase of the fixed point: world → filtered emission → text
 /// verification. Returns the final emission, or `None` if it did not
 /// converge.
@@ -383,7 +387,7 @@ fn fixed_point(
     op: Options,
     signatures: Option<&SignatureNames>,
     report: &mut WorldReport,
-) -> Result<Option<EmittedWithSdk>, String> {
+) -> Result<Option<Converged>, String> {
     let mut roots = roots(a, &input);
     // No records at run time until the world or the text shows one
     // (`DARTFORGE_JSPROD_RECORDS_GATE=0` assumes they may exist).
@@ -468,10 +472,12 @@ fn fixed_point(
         } else {
             None
         };
+        let ids = filter::recipe_ids(&world, a.program, a.interner);
         let ad = filter::Adapter {
             world: &world,
             program: a.program,
             stub: op.stub,
+            recipe_ids: ids.as_deref(),
             signatures: signatures.map(|s| &s.names),
             symbol_signatures: signatures.map(|s| &s.symbols),
             constants: Some(&constants),
@@ -494,7 +500,7 @@ fn fixed_point(
             "dart_sdk.js".to_string(),
             format!("{}{}", e.bootstrap, e.sdk),
         ));
-        let missing = verify::check(&texts, &libs, a.program, a.interner, &world);
+        let missing = verify::check(&texts, &libs, a.program, a.interner, &world, ids.as_deref());
         report.verify_time += t.elapsed();
         report.rounds += 1;
         // A record recipe the world did not see (a signature, a rule): the
@@ -539,7 +545,7 @@ fn fixed_point(
             if let Ok(target) = std::env::var("DARTFORGE_JSPROD_WHY") {
                 diagnose(a, &world, &target);
             }
-            return Ok(Some(e));
+            return Ok(Some((e, ids)));
         }
         report.fixes.extend(missing.description.iter().cloned());
         roots.functions.extend(missing.functions);
@@ -654,7 +660,7 @@ pub fn emit(
         bodies: a.bodies,
     };
     let mut report = WorldReport::default();
-    let Some(first) = fixed_point(a, input, op, None, &mut report)? else {
+    let Some((first, first_ids)) = fixed_point(a, input, op, None, &mut report)? else {
         report.pruning_disabled = true;
         report
             .fixes
@@ -664,6 +670,7 @@ pub fn emit(
         return Ok((e, Some(report)));
     };
     if std::env::var("DARTFORGE_JSPROD_SIGNATURES").is_ok_and(|v| v == "all") {
+        report.recipe_ids = first_ids;
         return Ok((first, Some(report)));
     }
     let texts = |e: &EmittedWithSdk| {
@@ -674,7 +681,7 @@ pub fn emit(
     let mut names = dynamic_names(&texts(&first));
     let trace = std::env::var("DARTFORGE_JSPROD_TRACE").is_ok();
     for phase in 0..8 {
-        let Some(e) = fixed_point(a, input, op, Some(&names), &mut report)? else {
+        let Some((e, ids)) = fixed_point(a, input, op, Some(&names), &mut report)? else {
             if trace {
                 eprintln!("[jsprod] signature phase {phase}: the fixed point did not converge");
             }
@@ -682,6 +689,7 @@ pub fn emit(
         };
         let new = dynamic_names(&texts(&e));
         if new.is_subset(&names) {
+            report.recipe_ids = ids;
             return Ok((e, Some(report)));
         }
         if trace {
@@ -700,6 +708,7 @@ pub fn emit(
     }
     // The second phase did not close: the first one (with every signature)
     // stands.
+    report.recipe_ids = first_ids;
     Ok((first, Some(report)))
 }
 
@@ -750,23 +759,29 @@ pub fn alias_recipes(js: &str) -> String {
 /// Short recipe id → class name (`dartforge_emit_js::recipe_ids`), for
 /// the table that `_rtiToString` looks up (§9.5 of
 /// `docs/JS-PRODUCAO-TAMANHO.md`).
-pub fn recipe_names(a: &dartforge_emit_js::Analysis<'_>) -> HashMap<String, String> {
-    dartforge_emit_js::recipe_ids(a.program, a.interner)
-        .into_iter()
-        .enumerate()
-        .map(|(i, id)| {
-            (
-                id,
-                a.interner
-                    .resolve(
-                        a.program
-                            .class(dartforge_elements::model::ClassId(i as u32))
-                            .name,
-                    )
-                    .to_string(),
-            )
-        })
-        .collect()
+pub fn recipe_names(
+    a: &dartforge_emit_js::Analysis<'_>,
+    ids: Option<&[String]>,
+) -> HashMap<String, String> {
+    ids.map_or_else(
+        || dartforge_emit_js::recipe_ids(a.program, a.interner),
+        <[String]>::to_vec,
+    )
+    .into_iter()
+    .enumerate()
+    .map(|(i, id)| {
+        (
+            id,
+            a.interner
+                .resolve(
+                    a.program
+                        .class(dartforge_elements::model::ClassId(i as u32))
+                        .name,
+                )
+                .to_string(),
+        )
+    })
+    .collect()
 }
 
 /// What DDC's `unmangleGlobalNameIfPreservedAnyways` (`js_names.dart`)

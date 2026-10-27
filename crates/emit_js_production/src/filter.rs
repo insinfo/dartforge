@@ -5,6 +5,33 @@ use dartforge_elements::model::{ClassId, FunctionElementId, Program, VariableId}
 use dartforge_emit_js::filter::{Level, Liveness, State};
 use dartforge_world::{ClassLevel, World};
 
+/// The short recipe ids ranked by `world`: the live classes among the
+/// frequent ones first (`int`, `String`, `List`…), then the instantiated
+/// classes, then those only used as types, then the dead ones
+/// (`dartforge_emit_js::recipe_ids_ranked`). The live classes get the short
+/// ids and the name table (`t$N`) has no holes for the dead ones. Ranking by
+/// how often the text cites each class was measured too: a little smaller in
+/// the corpus, but larger in gzip and in both projects.
+/// `DARTFORGE_JSPROD_RANKED_IDS=0` keeps the program's order.
+pub fn recipe_ids(
+    world: &World,
+    program: &Program,
+    interner: &dartforge_intern::Interner,
+) -> Option<Vec<String>> {
+    if std::env::var("DARTFORGE_JSPROD_RANKED_IDS").is_ok_and(|v| v == "0") {
+        return None;
+    }
+    Some(dartforge_emit_js::recipe_ids_ranked(
+        program,
+        interner,
+        |c, frequent| match world.class_level(c) {
+            ClassLevel::Dead => (2u8, 0u8),
+            ClassLevel::Instantiated => (u8::from(!frequent), 0),
+            ClassLevel::Type => (u8::from(!frequent), 1),
+        },
+    ))
+}
+
 pub struct Adapter<'m> {
     pub world: &'m World,
     pub program: &'m Program,
@@ -18,6 +45,9 @@ pub struct Adapter<'m> {
     /// the `dartx` signature entries of Dart classes outside the native
     /// chains; `None`: all of them.
     pub symbol_signatures: Option<&'m std::collections::HashSet<String>>,
+    /// The short recipe ids ranked by the world (`recipe_ids`); `None`: the
+    /// program's order.
+    pub recipe_ids: Option<&'m [String]>,
     /// Constant conditions and `assert` (profile with the own SDK).
     pub constants: Option<&'m dartforge_world::Constants<'m>>,
     /// Short keys for named parameters (`named_args.rs`).
@@ -95,6 +125,9 @@ impl Liveness for Adapter<'_> {
                 s.contains(name)
                     || s.contains(dartforge_emit_js::body::js_member_name(name).as_str())
             })
+    }
+    fn recipe_ids(&self) -> Option<&[String]> {
+        self.recipe_ids
     }
     fn rti_resources(&self, c: ClassId) -> bool {
         // `DARTFORGE_JSPROD_RTI_RESOURCES=0` emits them for every class.

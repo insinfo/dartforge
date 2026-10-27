@@ -91,6 +91,9 @@ pub struct WorldReport {
     pub js_names: std::collections::HashSet<String>,
     /// The named-parameter map used in the final emission (`named_args.rs`).
     pub named_args: Option<crate::named_args::NamedArgs>,
+    /// The short recipe ids of the final emission (`filter::recipe_ids`);
+    /// `None`: the program's order.
+    pub recipe_ids: Option<Vec<String>>,
 }
 
 /// Profile options.
@@ -173,7 +176,9 @@ pub fn compile_own_sdk(
                     .and_then(|r| r.named_args.as_ref())
                     .map(|n| &n.map),
             );
-            Ok((e, report, names, own_sdk::recipe_names(a)))
+            let rti =
+                own_sdk::recipe_names(a, report.as_ref().and_then(|r| r.recipe_ids.as_deref()));
+            Ok((e, report, names, rti))
         },
     )?;
     let mut p = own_sdk::assemble(&e, op, Some(&names), Some(&rti));
@@ -277,6 +282,7 @@ pub fn emit_with_world(
             stub: op.stub,
             signatures: None,
             symbol_signatures: None,
+            recipe_ids: None,
             constants: None,
             named_args: None,
             omit_checks: false,
@@ -289,7 +295,7 @@ pub fn emit_with_world(
         let t = Instant::now();
         // JS identifier → library, to translate `L$x.Name` into an element.
         let libs = verify::libraries_from_text(&emitted.modules, a.program);
-        let missing = verify::check(&emitted.modules, &libs, a.program, a.interner, &world);
+        let missing = verify::check(&emitted.modules, &libs, a.program, a.interner, &world, None);
         report.verify_time += t.elapsed();
         report.rounds = round;
         report.no_element = missing.no_element.clone();

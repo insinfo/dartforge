@@ -57,6 +57,12 @@ pub trait Liveness {
     fn symbol_signature(&self, _name: &str) -> bool {
         true
     }
+    /// The short recipe id of each class (index: `ClassId`), when the
+    /// caller ranks them ([`crate::recipe_ids_ranked`]); `None`: the
+    /// program's own order ([`crate::recipe_ids`]).
+    fn recipe_ids(&self) -> Option<&[String]> {
+        None
+    }
     /// The class's `addRtiResources` (its recipe on the constructor and its
     /// type tags on the prototype) is emitted. Only objects read them, so a
     /// class that no instance has in its prototype chain may go without; the

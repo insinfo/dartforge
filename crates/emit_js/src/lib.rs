@@ -142,6 +142,19 @@ pub fn recipe_ids(
     program: &dartforge_elements::model::Program,
     interner: &dartforge_intern::Interner,
 ) -> Vec<String> {
+    recipe_ids_ranked(program, interner, |_, _| 0u8)
+}
+
+/// Like [`recipe_ids`], with the classes ordered by `rank` first (lower
+/// first; inside a rank, the `FREQUENT_CLASSES` and then program order). The
+/// production profile ranks by the closed world, so that the live classes get
+/// the short ids and the name table has no holes for dead ones; whoever
+/// emits, checks or tabulates the text must use the same ranking.
+pub fn recipe_ids_ranked<K: Ord>(
+    program: &dartforge_elements::model::Program,
+    interner: &dartforge_intern::Interner,
+    rank: impl Fn(dartforge_elements::model::ClassId, bool) -> K,
+) -> Vec<String> {
     use dartforge_elements::model::{ClassId, Element};
     const FIRST: &[u8] = ID_FIRST;
     const OTHERS: &[u8] = ID_NEXT;
@@ -155,9 +168,9 @@ pub fn recipe_ids(
         }
         String::from_utf8(s).unwrap_or_default()
     };
-    let mut order: Vec<ClassId> = Vec::with_capacity(program.classes.len());
-    let mut seen = vec![false; program.classes.len()];
-    for (uri, n) in FREQUENT_CLASSES {
+    // Position among the frequent classes (`usize::MAX` for the others).
+    let mut frequent = vec![usize::MAX; program.classes.len()];
+    for (k, (uri, n)) in FREQUENT_CLASSES.iter().enumerate() {
         let Some(lib) = program.libraries.iter().position(|l| l.uri == *uri) else {
             continue;
         };
@@ -169,17 +182,19 @@ pub fn recipe_ids(
             .declared
             .get(&sym)
             .and_then(|b| b.getter)
-            && !seen[c.0 as usize]
+            && frequent[c.0 as usize] == usize::MAX
         {
-            seen[c.0 as usize] = true;
-            order.push(c);
+            frequent[c.0 as usize] = k;
         }
     }
-    for (i, v) in seen.iter().enumerate() {
-        if !v {
-            order.push(ClassId(i as u32));
-        }
-    }
+    let mut order: Vec<(K, usize, u32)> = (0..program.classes.len() as u32)
+        .map(|i| {
+            let f = frequent[i as usize];
+            (rank(ClassId(i), f != usize::MAX), f, i)
+        })
+        .collect();
+    order.sort();
+    let order = order.into_iter().map(|(_, _, i)| ClassId(i));
     let mut out = vec![String::new(); program.classes.len()];
     for (k, c) in order.into_iter().enumerate() {
         out[c.0 as usize] = name(k);

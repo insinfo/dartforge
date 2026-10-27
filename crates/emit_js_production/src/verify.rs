@@ -640,6 +640,7 @@ pub fn check(
     program: &Program,
     interner: &Interner,
     world: &World,
+    recipe_ids: Option<&[String]>,
 ) -> Missing {
     let idents: HashSet<&str> = libs.keys().map(String::as_str).collect();
     let defs = definitions(modules, &idents);
@@ -661,7 +662,11 @@ pub fn check(
     let recipes: HashMap<&str, &str> = by_recipe.iter().map(|(k, v)| (k.as_str(), *v)).collect();
     // Short recipe id (`|id`) → `var.Class`.
     let lib_var: HashMap<LibraryId, &str> = libs.iter().map(|(v, l)| (*l, v.as_str())).collect();
-    let ids: HashMap<String, String> = dartforge_emit_js::recipe_ids(program, interner)
+    let ids: HashMap<String, String> = recipe_ids
+        .map_or_else(
+            || dartforge_emit_js::recipe_ids(program, interner),
+            <[String]>::to_vec,
+        )
         .into_iter()
         .enumerate()
         .filter_map(|(i, id)| {
