@@ -2337,6 +2337,11 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                         Type::I64,
                     );
                     passed = Some(own.clone());
+                    // The typed entry's caller passed the type arguments the
+                    // static type of the call requires (or none).
+                    if typed {
+                        return b.tuple_or_bounds(fid, own);
+                    }
                     // Type arguments of another arity: the receiver's
                     // `noSuchMethod`, as in the VM.
                     let n = ctx.outline.functions[fid].type_params.len() as i64;

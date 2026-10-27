@@ -1212,20 +1212,38 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             text.push_str(bound.as_ref().map_or("D", |r| r.text.as_str()));
         }
         text.push('>');
+        // A passed tuple is already an interned tuple of the method's arity
+        // (the caller checked it), so `dartforge_rti_tuple_join(0, 0, own,
+        // bounds)` would only intern it again: use it as is, and build the
+        // bounds only when nothing was passed.
+        let passed = self.emit(
+            Instruction::ICmp(
+                ICmpOp::Sgt,
+                own.clone(),
+                Operand::Constant(Constant::Int(0)),
+            ),
+            Type::I1,
+        );
+        let b_passed = self.current_block;
+        let b_bounds = self.new_block();
+        let b_join = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: passed,
+            then_block: b_join,
+            else_block: b_bounds,
+        });
+        self.set_block(b_bounds);
         let pattern = self.recipe_rti(&Recipe {
             text,
             variables: false,
         });
+        let b_bounds_end = self.current_block;
+        self.terminate(Terminator::Branch(b_join));
+        self.set_block(b_join);
         self.emit(
-            Instruction::CallRuntime {
-                name: "dartforge_rti_tuple_join".to_string(),
-                args: vec![
-                    (Operand::Constant(Constant::Int(0)), Type::I64),
-                    (Operand::Constant(Constant::Int(0)), Type::I64),
-                    (own, Type::I64),
-                    (pattern, Type::I64),
-                ],
-                ret_ty: Type::I64,
+            Instruction::Phi {
+                incoming: vec![(b_passed, own), (b_bounds_end, pattern)],
+                ty: Type::I64,
             },
             Type::I64,
         )
