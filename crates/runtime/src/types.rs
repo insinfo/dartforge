@@ -1823,9 +1823,10 @@ pub extern "C" fn dartforge_rti_e(v: i64, t: i64) -> u8 {
 }
 
 /// `v is T` from the cache of a use site (`emit_native`, `emit_rti_test_cached`):
-/// answers like [`dartforge_rti_e`] and, for an object of the space with a value
-/// key, stores the key and `T << 1 | answer` in the two words of `cache` — the
-/// pair that the runtime memo of `is` uses too.
+/// answers like [`dartforge_rti_e`] and, for `null`, a `Smi` or an object of the
+/// space with a value key, stores the key and `T << 1 | answer` in the two words
+/// of `cache` — the pair that the runtime memo of `is` uses too. The site
+/// computes the same key inline for those three kinds of value.
 ///
 /// # Safety
 /// `cache` points to two words of the isolate's area (only its thread writes them).
@@ -1833,7 +1834,7 @@ pub extern "C" fn dartforge_rti_e(v: i64, t: i64) -> u8 {
 #[allow(unsafe_code)]
 pub unsafe extern "C" fn dartforge_rti_e_cache(cache: *mut i64, v: i64, t: i64) -> u8 {
     let r = dartforge_rti_e(v, t);
-    if crate::heap::is_object(v)
+    if (v == 0 || smi::is_smi(v) || crate::heap::is_object(v))
         && (0..1 << 62).contains(&t)
         && let Some(key) = value_key(v)
         && key != 0

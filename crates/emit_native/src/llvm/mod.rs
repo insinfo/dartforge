@@ -3936,9 +3936,11 @@ impl<'a> LlvmEmitter<'a> {
     /// `-16 - class`) and `T << 1 | answer`. The runtime's memo of `is` is keyed
     /// by the same pair, so an object with the stored key and the same `T` answers
     /// with three loads and no call — the covariance check of `List.[]=` in a
-    /// sort called `dartforge_rti_e` (13% of `ordenar_objetos`). The rest (null,
-    /// `Smi`, runtime values, a miss) calls `dartforge_rti_e_cache`, which
-    /// answers and stores.
+    /// sort called `dartforge_rti_e` (13% of `ordenar_objetos`). `null` and a
+    /// `Smi` have the keys `-16 - 1` and `-16 - 2` of `value_key` and go through the
+    /// same comparison: `_Uint8List.[]=` and `value is Future` on an `int` missed
+    /// on every call. The rest (runtime values, a miss) calls
+    /// `dartforge_rti_e_cache`, which answers and stores.
     fn emit_rti_test_cached(&mut self, v: u32, args: &[(Operand, Type)]) {
         let value = self.coerce(&args[0].0, Type::I64);
         let t = self.coerce(&args[1].0, Type::I64);
@@ -3947,7 +3949,21 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %rt{v}c = getelementptr i64, ptr %area, i64 {slot}").unwrap();
         writeln!(o, "  %rt{v}m = and i64 {value}, {OBJECT_MASK}").unwrap();
         writeln!(o, "  %rt{v}o = icmp eq i64 %rt{v}m, 2").unwrap();
-        writeln!(o, "  br i1 %rt{v}o, label %rt{v}.obj, label %rt{v}.lenta").unwrap();
+        writeln!(o, "  br i1 %rt{v}o, label %rt{v}.obj, label %rt{v}.imm").unwrap();
+        // `null` (0) and a `Smi` (low bit set): the keys of their cids.
+        writeln!(o, "rt{v}.imm:").unwrap();
+        writeln!(o, "  %rt{v}sb = and i64 {value}, 1").unwrap();
+        writeln!(o, "  %rt{v}si = icmp ne i64 %rt{v}sb, 0").unwrap();
+        writeln!(o, "  %rt{v}nu = icmp eq i64 {value}, 0").unwrap();
+        writeln!(o, "  %rt{v}im = or i1 %rt{v}si, %rt{v}nu").unwrap();
+        writeln!(
+            o,
+            "  %rt{v}ki = select i1 %rt{v}si, i64 {}, i64 {}",
+            -16 - i64::from(layout::cid::SMI),
+            -16 - i64::from(layout::cid::NULL)
+        )
+        .unwrap();
+        writeln!(o, "  br i1 %rt{v}im, label %rt{v}.cmp, label %rt{v}.lenta").unwrap();
         writeln!(o, "rt{v}.obj:").unwrap();
         writeln!(o, "  %rt{v}p = inttoptr i64 {value} to ptr").unwrap();
         writeln!(
@@ -3968,7 +3984,14 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %rt{v}tm = icmp ne i32 %rt{v}md, 0").unwrap();
         writeln!(
             o,
-            "  %rt{v}k = select i1 %rt{v}tm, i64 %rt{v}mz, i64 %rt{v}cn"
+            "  %rt{v}ko = select i1 %rt{v}tm, i64 %rt{v}mz, i64 %rt{v}cn"
+        )
+        .unwrap();
+        writeln!(o, "  br label %rt{v}.cmp").unwrap();
+        writeln!(o, "rt{v}.cmp:").unwrap();
+        writeln!(
+            o,
+            "  %rt{v}k = phi i64 [ %rt{v}ko, %rt{v}.obj ], [ %rt{v}ki, %rt{v}.imm ]"
         )
         .unwrap();
         writeln!(o, "  %rt{v}k0 = load i64, ptr %rt{v}c, align 8").unwrap();
