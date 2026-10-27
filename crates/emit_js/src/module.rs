@@ -1732,6 +1732,10 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let MemberKind::Field(list) = &mem.kind else {
             continue;
         };
+        // An abstract field only declares a getter and a setter.
+        if list.abstract_ {
+            continue;
+        }
         let var = &list.variables[index];
         let private = name.starts_with('_');
         // Production profile: a public field that nobody overrides is a plain
@@ -1748,7 +1752,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             v.late && var.initializer.is_none() && ctx.sdk.is_some() && private && !is_mixin;
         // A private field that overrides an inherited member of its library
         // (a getter, or a `noSuchMethod` forwarder) is an accessor pair too.
-        let private_override = private && !v.late && overrides_supertype_member(ctx, c, &name);
+        let private_override = private && !v.late && private_field_is_virtual(ctx, c, &name);
         let storage = if helper {
             None
         } else if v.late {
@@ -2195,9 +2199,12 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
 
     // `noSuchMethod` forwarders in concrete classes with abstract members.
+    // Without a `noSuchMethod`, only the throwers of the private members of
+    // another library's supertype (`class Foo implements lib.Bar {}`).
+    let user_nsm = ctx.has_user_nsm(c);
     if !class.modifiers.abstract_
         && !is_mixin
-        && ctx.has_user_nsm(c)
+        && (user_nsm || foreign_private_supertype(ctx, c))
         && ctx.class_level(c) == crate::filter::Level::Instantiated
     {
         m.use_sdk("_internal");
@@ -2216,6 +2223,9 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 continue;
             }
             let inaccessible = name.starts_with('_') && declaring != Some(class.library);
+            if !user_nsm && !inaccessible {
+                continue;
+            }
             // A superclass of the declaring library that has the member in its
             // interface already forwards it.
             let owner = match mk {
@@ -2943,8 +2953,9 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // Newly bridged native-interface aliases require their actual substituted
     // signature: retaining only an older superclass signature loses generic
     // function information during dynamic calls of the bound method.
-    method_sigs
-        .retain(|(n, _)| ctx.signature_live(n) || inherited_native_method_signatures.contains(n));
+    method_sigs.retain(|(n, _)| {
+        ctx.signature_live(signature_name(n)) || inherited_native_method_signatures.contains(n)
+    });
     generic_methods
         .retain(|(n, _)| ctx.signature_live(n) || inherited_native_method_signatures.contains(n));
     // A `late` field is a getter/setter pair (its storage is the field):
@@ -3476,6 +3487,62 @@ fn fix_equals_param(text: &str) -> String {
     text.to_string()
 }
 
+/// Whether a supertype of `c` from another program library declares private
+/// instance members (which `c` cannot implement).
+fn foreign_private_supertype(ctx: &Ctx, c: ClassId) -> bool {
+    let library = ctx.program.class(c).library;
+    let mut seen = HashSet::new();
+    let mut queue: Vec<ClassId> = ctx.class_supers[c.0 as usize]
+        .iter()
+        .filter_map(|s| s.class())
+        .collect();
+    while let Some(k) = queue.pop() {
+        if Some(k) == ctx.object || !seen.insert(k) {
+            continue;
+        }
+        let class = ctx.program.class(k);
+        if class.library != library
+            && !ctx.libs[class.library.0 as usize].is_sdk
+            && class
+                .instance_members
+                .keys()
+                .any(|s| ctx.interner.resolve(*s).starts_with('_'))
+        {
+            return true;
+        }
+        queue.extend(
+            ctx.class_supers[k.0 as usize]
+                .iter()
+                .filter_map(|s| s.class()),
+        );
+    }
+    false
+}
+
+/// Whether the private field `name` of `c` is an accessor pair over its own
+/// storage: it overrides an inherited member, or a subtype overrides it.
+pub(crate) fn private_field_is_virtual(ctx: &Ctx, c: ClassId, name: &str) -> bool {
+    overrides_supertype_member(ctx, c, name) || overridden_in_library(ctx, c, name)
+}
+
+/// Whether another class of `c`'s library that has `c` as a supertype
+/// declares an instance member `name` (a private member is only overridden in
+/// its own library).
+fn overridden_in_library(ctx: &Ctx, c: ClassId, name: &str) -> bool {
+    let keys: Vec<_> = [ctx.sym(name), ctx.sym(&format!("{name}_="))]
+        .into_iter()
+        .flatten()
+        .collect();
+    let library = ctx.program.class(c).library;
+    ctx.program.classes.iter().enumerate().any(|(i, k)| {
+        let k_id = ClassId(i as u32);
+        k_id != c
+            && k.library == library
+            && keys.iter().any(|s| k.instance_members.contains_key(s))
+            && ctx.as_super(&ctx.this_ty(k_id), c).is_some()
+    })
+}
+
 /// Whether a proper supertype of `c` declares an instance member `name`.
 fn overrides_supertype_member(ctx: &Ctx, c: ClassId, name: &str) -> bool {
     let keys: Vec<_> = [ctx.sym(name), ctx.sym(&format!("{name}_="))]
@@ -3491,8 +3558,10 @@ fn overrides_supertype_member(ctx: &Ctx, c: ClassId, name: &str) -> bool {
         if Some(k) == ctx.object || !seen.insert(k) {
             continue;
         }
-        let members = &ctx.program.class(k).instance_members;
-        if keys.iter().any(|s| members.contains_key(s)) {
+        let class = ctx.program.class(k);
+        // A private name is only the same member within its library.
+        let comparable = !name.starts_with('_') || class.library == ctx.program.class(c).library;
+        if comparable && keys.iter().any(|s| class.instance_members.contains_key(s)) {
             return true;
         }
         queue.extend(

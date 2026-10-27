@@ -222,11 +222,59 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         setter: bool,
     ) -> Option<Member> {
         let common = e.and_then(|e| self.member_from_resolution(e, recv_ty, name, setter));
-        let own = || self.ctx.lookup_member(recv_ty, name, setter);
+        let own = || self.lookup_member_here(recv_ty, name, setter);
         if let Some(e) = e {
             self.check_member(e, name, common.as_ref(), own().as_ref());
         }
         common.or_else(own)
+    }
+
+    /// [`Ctx::lookup_member`] seen from the current library: a private name
+    /// is only that library's (`c._f` does not find another library's `_f`
+    /// declared in a subclass).
+    pub fn lookup_member_here(&self, recv_ty: &Ty, name: &str, setter: bool) -> Option<Member> {
+        let found = self.ctx.lookup_member(recv_ty, name, setter);
+        if !name.starts_with('_') {
+            return found;
+        }
+        if found
+            .as_ref()
+            .is_none_or(|m| self.ctx.lib_of_class(m.class) == self.lib)
+        {
+            return found;
+        }
+        let start = match recv_ty.non_null() {
+            Ty::Iface { class, .. } => class,
+            Ty::Param { .. } => self.ctx.resolve_param_bound(recv_ty).class()?,
+            _ => return found,
+        };
+        let key = self.ctx.sym(&if setter {
+            format!("{name}_=")
+        } else {
+            name.to_string()
+        })?;
+        let plain = self.ctx.sym(name);
+        let mut seen = std::collections::HashSet::new();
+        let mut queue = std::collections::VecDeque::from([start]);
+        while let Some(k) = queue.pop_front() {
+            if !seen.insert(k) {
+                continue;
+            }
+            let class = self.ctx.program.class(k);
+            if class.library == self.lib
+                && (class.instance_members.contains_key(&key)
+                    || plain.is_some_and(|p| class.instance_members.contains_key(&p)))
+            {
+                let sup = self.ctx.as_super(&recv_ty.non_null(), k)?;
+                return self.ctx.lookup_member(&sup, name, setter);
+            }
+            queue.extend(
+                self.ctx.class_supers[k.0 as usize]
+                    .iter()
+                    .filter_map(|s| s.class()),
+            );
+        }
+        found
     }
 
     fn member_from_resolution(
@@ -866,8 +914,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn member_key_string(&self, recv_ty: &Ty, name: &str) -> String {
         if name.starts_with('_') {
             let lib = self
-                .ctx
-                .lookup_member(recv_ty, name, false)
+                .lookup_member_here(recv_ty, name, false)
                 .map(|m| self.ctx.lib_of_class(m.class))
                 .unwrap_or(self.lib);
             self.private_sym(lib, name)
@@ -3675,7 +3722,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if var.late {
             return false;
         }
-        name.starts_with('_') || crate::own_sdk::non_virtual_field(self.ctx, m.class, var.name)
+        if name.starts_with('_') {
+            return !crate::module::private_field_is_virtual(self.ctx, m.class, name);
+        }
+        crate::own_sdk::non_virtual_field(self.ctx, m.class, var.name)
     }
 
     /// The DDC's covariance check of a member read through a receiver other

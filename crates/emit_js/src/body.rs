@@ -571,8 +571,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if name.starts_with('_') {
             // Private: scope of the library that declares it.
             let lib = self
-                .ctx
-                .lookup_member(recv_ty, name, setter)
+                .lookup_member_here(recv_ty, name, setter)
                 .map(|m| self.ctx.lib_of_class(m.class))
                 .unwrap_or(self.lib);
             return format!("[{}]", self.private_sym(lib, name));
@@ -1240,11 +1239,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } = t
         {
             if Some(*class) == self.ctx.object {
-                return Js::prim("true");
+                return always_true(value);
             }
         }
         if matches!(t, Ty::Dynamic | Ty::Void) {
-            return Js::prim("true");
+            return always_true(value);
         }
         Js::prim(format!("{}[_is]({})", self.rti(t), value.code))
     }
@@ -2731,5 +2730,18 @@ pub fn paren_if_needed(s: &str) -> String {
         s.to_string()
     } else {
         format!("({s})")
+    }
+}
+
+/// A test against a top type: `true`, after evaluating the operand when it
+/// may have effects (`f() is Object?` still calls `f`).
+fn always_true(value: &Js) -> Js {
+    if crate::expr::is_simple(&value.code) {
+        Js::prim("true")
+    } else {
+        Js::new(
+            format!("({}, true)", value.at(P_ASSIGN)),
+            crate::js::P_PRIMARY,
+        )
     }
 }
