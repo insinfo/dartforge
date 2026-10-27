@@ -1321,13 +1321,17 @@ pub(crate) fn occurs_covariantly(t: &Ty, ids: &HashSet<u32>, positive: bool) -> 
         Ty::Iface { args, .. } => args.iter().any(|a| occurs_covariantly(a, ids, positive)),
         Ty::FutureOr { arg, .. } => occurs_covariantly(arg, ids, positive),
         Ty::Fn {
+            type_params,
             ret,
             pos,
             opt,
             named,
             ..
         } => {
-            occurs_covariantly(ret, ids, positive)
+            // A bound is an invariant position.
+            type_params.iter().any(|p| {
+                occurs_covariantly(&p.bound, ids, true) || occurs_covariantly(&p.bound, ids, false)
+            }) || occurs_covariantly(ret, ids, positive)
                 || pos
                     .iter()
                     .chain(opt.iter())

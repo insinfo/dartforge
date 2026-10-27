@@ -2426,10 +2426,24 @@ fn enum_constant_type(
 /// With nothing (or no agreement), the initializer decides.
 fn overlay_type(inf: &mut BodyInferrer<'_>, c: ClassId, vid: VariableId) -> Option<TypeId> {
     let before = inf.declared_untyped.replace(c);
+    // Other provisional types than this class's own untyped fields.
+    let other_events = |inf: &BodyInferrer<'_>| inf.provisional_events - inf.untyped_events;
+    let others = other_events(inf);
+    if before.is_none()
+        && let Some((k, at, cached)) = inf.overlay_cache.take()
+        && k == c
+        && at == others
+    {
+        inf.inheritance = cached;
+        inf.provisional_inheritance = true;
+    }
     let r = overlay_type_at(inf, c, vid);
     inf.declared_untyped = before;
     if inf.provisional_inheritance && before.is_none() {
-        inf.inheritance = crate::inheritance::InheritanceManager::default();
+        let built = std::mem::take(&mut inf.inheritance);
+        if other_events(inf) == others {
+            inf.overlay_cache = Some((c, others, built));
+        }
         inf.provisional_inheritance = false;
     }
     r

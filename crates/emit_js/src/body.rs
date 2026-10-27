@@ -78,6 +78,9 @@ pub struct FnEmitter<'m, 'a> {
     /// The next [`Self::emit_method_call`] calls a member through an implicit
     /// `this` (`m(arg)`): the identifier.
     pub implicit_this_call: Option<ExprId>,
+    /// The out-of-scope type parameters whose bounds [`Self::recipe`] is
+    /// expanding (an F-bound must not recurse forever).
+    pub expanding_bounds: std::cell::RefCell<Vec<u32>>,
     pub returns: Vec<Ty>,
     pub w: Writer,
     pub label_counter: u32,
@@ -211,6 +214,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             deferred_checked: std::collections::HashSet::new(),
             uncoerced: std::collections::HashSet::new(),
             implicit_this_call: None,
+            expanding_bounds: std::cell::RefCell::new(Vec::new()),
             returns: Vec::new(),
             w: Writer::default(),
             label_counter: 0,
@@ -996,13 +1000,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     // Index filled in later: a marker.
                     return format!("\u{1}{id}\u{2}{q}");
                 }
-                // Out-of-scope parameter: uses the bound.
+                // Out-of-scope parameter: uses the bound; an F-bound
+                // (`Y extends A<Y>`) mentioning a parameter being expanded
+                // is `dynamic` there.
                 let b = self.ctx.bound_of(*id);
-                if matches!(b, Ty::Param { .. }) {
+                if matches!(b, Ty::Param { .. }) || self.expanding_bounds.borrow().contains(id) {
                     return format!("@{}", "");
                 }
                 let bt = if *nullable { b.with_nullable(true) } else { b };
-                self.recipe(&bt, unbound, used_fn, used_class)
+                self.expanding_bounds.borrow_mut().push(*id);
+                let r = self.recipe(&bt, unbound, used_fn, used_class);
+                self.expanding_bounds.borrow_mut().pop();
+                r
             }
             Ty::Fn {
                 type_params,

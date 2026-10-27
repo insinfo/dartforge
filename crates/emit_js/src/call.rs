@@ -115,7 +115,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     false,
                     Some(target),
                 );
-                let js = self.contravariant_read_check(js, receiver_expr, &recv_ty, &n, &ty);
+                let js = self.contravariant_read_check(js, receiver_expr, &recv_ty, &n, &ty, false);
                 let ty = if *null_aware {
                     ty.with_nullable(true)
                 } else {
@@ -875,8 +875,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                                     && let ExprKind::Property { target: r, .. } =
                                         &self.expr(node).kind
                                 {
-                                    getter = self
-                                        .contravariant_read_check(getter, *r, recv_ty, name, &mty);
+                                    getter = self.contravariant_read_check(
+                                        getter, *r, recv_ty, name, &mty, false,
+                                    );
                                 }
                                 let call = if typed_call {
                                     let mut all = targs;
@@ -903,7 +904,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             && let ExprKind::Property { target: r, .. } = &self.expr(node).kind
                             && !matches!(self.expr(*r).kind, ExprKind::Super)
                         {
-                            getter = self.contravariant_read_check(getter, *r, recv_ty, name, &mty);
+                            getter = self
+                                .contravariant_read_check(getter, *r, recv_ty, name, &mty, false);
                         }
                         self.emit_fn_value_call(&getter, &mty, arguments, expected)
                     }

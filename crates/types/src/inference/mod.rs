@@ -412,6 +412,19 @@ pub struct BodyInferrer<'a> {
     /// How many times [`Self::provisional_inheritance`] was set: an interface
     /// built while it did not change has no provisional member type.
     pub(crate) provisional_events: u64,
+    /// The part of [`Self::provisional_events`] that comes from the fields of
+    /// [`Self::declared_untyped`] (the rest is another kind of provisional
+    /// type: a field in progress, a lookup during top-level inference, a cycle).
+    pub(crate) untyped_events: u64,
+    /// The interfaces built for the override inference of the previous
+    /// untyped field of a class, provisional only in that class's own fields:
+    /// they serve the class's next field while no other provisional type
+    /// appeared (a class with many untyped fields stays linear).
+    pub(crate) overlay_cache: Option<(
+        dartforge_elements::model::ClassId,
+        u64,
+        crate::inheritance::InheritanceManager,
+    )>,
     /// The results shared with the other passes over the program.
     pub(crate) shared: Option<&'a SharedInference>,
     /// The interfaces may be read from and written to [`Self::shared`]:
@@ -595,6 +608,8 @@ impl<'a> BodyInferrer<'a> {
             declared_untyped: None,
             provisional_inheritance: false,
             provisional_events: 0,
+            untyped_events: 0,
+            overlay_cache: None,
             shared: None,
             share_interfaces: false,
             lookup_name: None,

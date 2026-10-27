@@ -71,6 +71,7 @@ impl<'a> crate::inheritance::Provider<'a> for BodyInferrer<'a> {
             {
                 self.provisional_inheritance = true;
                 self.provisional_events += 1;
+                self.untyped_events += 1;
                 self.core.dynamic_
             }
             // The field being inferred (`late final a = m();` looks up `m` in the

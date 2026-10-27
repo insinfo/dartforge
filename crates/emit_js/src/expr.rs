@@ -3566,7 +3566,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 let member = self.access_member(Some(e), &recv_ty, &n, false);
                 let (js, ty) = self.emit_member_get(&recv, &recv_ty, &n, member);
-                let js = self.contravariant_read_check(js, *target, &recv_ty, &n, &ty);
+                let js = self.contravariant_read_check(js, *target, &recv_ty, &n, &ty, true);
                 let ty = if *null_aware {
                     ty.with_nullable(true)
                 } else {
@@ -3690,6 +3690,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         recv_ty: &Ty,
         name: &str,
         result: &Ty,
+        tear_off: bool,
     ) -> Js {
         if matches!(self.expr(recv_expr).kind, ExprKind::This | ExprKind::Super)
             || self.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
@@ -3704,6 +3705,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return js;
         }
         let declared = match m.kind {
+            // The tear-off of a method has the method's whole type.
+            MemberKind::Method(fid) if tear_off => self.ctx.fn_ty(fid),
             MemberKind::Method(fid) | MemberKind::Getter(fid) => match self.ctx.fn_ty(fid) {
                 Ty::Fn { ret, .. } => *ret,
                 t => t,
