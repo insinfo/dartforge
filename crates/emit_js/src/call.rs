@@ -461,9 +461,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let bound = p.bound.subst(&subst);
                     let mut params = Vec::new();
                     bound.collect_params(&mut params);
-                    if params.iter().any(|id| free.contains(id)) {
-                        Ty::Dynamic
-                    } else if crate::own_sdk::is_top(self.ctx, &bound) {
+                    if params.iter().any(|id| free.contains(id))
+                        || crate::own_sdk::is_top(self.ctx, &bound)
+                    {
                         Ty::Dynamic
                     } else {
                         bound
