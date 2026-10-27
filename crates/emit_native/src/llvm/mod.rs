@@ -1582,7 +1582,9 @@ impl<'a> LlvmEmitter<'a> {
                 if has_landing_pad && !self.has_frame {
                     writeln!(self.out, "  %topo0 = load ptr, ptr %ctxtopo, align 8").unwrap();
                 }
-                self.emit_stack_check(func);
+                if self.tab.is_some() || crate::target::is_wasm() || Self::deepens_stack(func) {
+                    self.emit_stack_check(func);
+                }
             }
             if block.id.0 == 0 && self.has_frame {
                 // The roots frame on the stack of the function (the shadow stack,
@@ -6059,6 +6061,38 @@ impl<'a> LlvmEmitter<'a> {
     fn emit_barrier_label(&mut self, v: u32) {
         writeln!(self.out, "  br label %wb{v}.fim\nwb{v}.fim:").unwrap();
         self.current_label = format!("wb{v}.fim");
+    }
+
+    /// Some call of `func` can run Dart code, so a recursion may pass through
+    /// it: only then does it need the stack check. A function that only calls
+    /// the runtime functions that never run Dart adds one frame, which the
+    /// slack under the limit covers (`STACK_SLACK`, `runtime/src/gc_roots.rs`),
+    /// and no cycle of calls can come back to it. A function that stores a
+    /// global (an initializer, a constant cache) keeps it too: it runs a
+    /// handful of times, and its failure exit is the one that keeps a partial
+    /// publication out (`lower/constants`).
+    fn deepens_stack(func: &Function) -> bool {
+        func.blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .any(|(_, i, _)| match i {
+                Instruction::CallRuntime { name, .. }
+                | Instruction::DeclaredFieldCall { name, .. } => {
+                    externs::effects_of(name).calls_dart
+                }
+                Instruction::StoreGlobal { .. }
+                | Instruction::CallStatic { .. }
+                | Instruction::CallInterface { .. }
+                | Instruction::CallDynamic { .. }
+                | Instruction::CallClosure { .. }
+                | Instruction::CallSelector { .. }
+                | Instruction::CallClosureForward { .. }
+                | Instruction::CallSelectorForward { .. }
+                | Instruction::TypedCall { .. }
+                | Instruction::NativeCall { .. }
+                | Instruction::CompositeNativeCall { .. } => true,
+                _ => false,
+            })
     }
 
     /// Context required by the body or by the tables, before deciding the

@@ -113,7 +113,8 @@ mod tests {
             m.functions.push(f);
             let ir = LlvmEmitter::new(&m).emit_all();
             assert_eq!(ir.contains("%gcq = alloca"), t == Type::Ref);
-            assert_eq!(ir.contains("pilha.estouro:"), t == Type::Ref);
+            // No call can run Dart: no stack check (`LlvmEmitter::deepens_stack`).
+            assert!(!ir.contains("pilha.estouro:"));
         }
     }
 }

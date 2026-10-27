@@ -718,10 +718,12 @@ fn roots_frame_on_every_ret() {
         vec![
             BasicBlock {
                 id: BlockId(0),
+                // A runtime call that may run Dart: the function also gets the
+                // stack check (`LlvmEmitter::deepens_stack`).
                 instructions: vec![(
                     v1,
                     Instruction::CallRuntime {
-                        name: "dartforge_string_concat".to_string(),
+                        name: "dartforge_argument_error_new".to_string(),
                         args: vec![(Operand::Val(v0), Type::Ref), (Operand::Val(v0), Type::Ref)],
                         ret_ty: Type::Ref,
                     },
@@ -1751,6 +1753,33 @@ fn maps_rti_evaluation_keeps_the_source_operation_effects() {
     );
 }
 
+/// A function whose calls cannot run Dart cannot be part of a recursion: no
+/// stack check, although it has the context for its roots frame.
+#[test]
+fn no_stack_check_without_calls_that_run_dart() {
+    let v0 = ValueId(0);
+    let f = function(
+        "folha",
+        vec![(v0, "s".to_string(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(ValueId(1), concat(v0, v0), Type::Ref)],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+        }],
+    );
+    let ir = emit(f);
+    let body = body_of(&ir, "folha");
+    assert!(
+        body.contains("%ctx = call ptr @dartforge_context()"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("pilha.estouro:") && !body.contains("%pilhal"),
+        "{body}"
+    );
+}
+
 /// The stack check compares the stack pointer of the entry
 /// (`llvm.read_register`) with `Context::stack_limit`: no marker `alloca` in
 /// the frame.
@@ -1763,7 +1792,16 @@ fn stack_check_reads_the_stack_pointer_register() {
         Type::Ref,
         vec![BasicBlock {
             id: BlockId(0),
-            instructions: vec![(ValueId(1), concat(v0, v0), Type::Ref)],
+            // A call that may run Dart: only those deepen the stack.
+            instructions: vec![(
+                ValueId(1),
+                Instruction::CallRuntime {
+                    name: "dartforge_argument_error_new".to_string(),
+                    args: vec![(Operand::Val(v0), Type::Ref), (Operand::Val(v0), Type::Ref)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )],
             terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
         }],
     );
