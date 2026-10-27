@@ -34,13 +34,6 @@ pub extern "C" fn dartforge_native_DartForge_string_codeUnitAt(this: i64, ix: i6
     }
 }
 
-thread_local! {
-    /// The one-character Latin-1 strings already returned by `String_charAt` in
-    /// this isolate: the canonical literals (`Heap::string_literal`, permanent),
-    /// 0 = not requested yet.
-    static ONE_CHAR: std::cell::RefCell<[i64; 256]> = const { std::cell::RefCell::new([0; 256]) };
-}
-
 /// `String_charAt` (`s[i]`): the one-unit string; out of bounds,
 /// `RangeError.range(i, 0, length - 1, "index")` (`StringValueAt`).
 #[unsafe(no_mangle)]
@@ -57,12 +50,14 @@ pub extern "C" fn dartforge_native_String_charAt(this: i64, ix: i64) -> i64 {
         // A Latin-1 unit comes back as the canonical one-character string, without
         // allocating: the VM returns the predefined symbol (`Symbols::FromCharCode`,
         // `String_charAt`), so `identical(s[0], 'a')` holds here too.
-        let cache = ONE_CHAR.with(|c| c.borrow()[u as usize]);
+        // The cache is the thread context's (`Context::one_char`), which the
+        // generated `String.[]` reads inline.
+        let cache = crate::heap::CONTEXT.with(|c| c.one_char[u as usize].get());
         if cache != 0 {
             return cache;
         }
         let h = HEAP.with(|heap| heap.borrow_mut().string_literal(crate::text::TextRef::OneByte(&[u as u8])));
-        ONE_CHAR.with(|c| c.borrow_mut()[u as usize] = h);
+        crate::heap::CONTEXT.with(|c| c.one_char[u as usize].set(h));
         return h;
     }
     HEAP.with(|heap| heap.borrow_mut().allocate_string(crate::text::TextRef::TwoByte(&[u])))

@@ -35,6 +35,9 @@ use std::fmt::Write;
 ///   through `@df.allocate` up to 16 words, otherwise `@dartforge_string_allocate`;
 /// * `@df.string_write(s, i, u)`: the `writeInto*String` (writes without a barrier: the
 ///   string is `RAW` and has not been published yet);
+/// * `@df.string_one_char(u)`: the canonical one-character string of the Latin-1
+///   unit `u` from the thread context (`layout::context::ONE_CHAR`), or 0 before
+///   the runtime's `String_charAt` has returned it once;
 /// * `@df.string_hash(s)`: the hash in the header, or `@dartforge_string_hash` on the
 ///   first query;
 /// * `@df.string_equals(a, b)`: `==` between two strings (identity; different lengths and
@@ -109,6 +112,14 @@ dois:
   %t2 = trunc i64 %x to i16
   store i16 %t2, ptr %a2, align 2
   ret void
+}
+define internal i64 @df.string_one_char(i64 %u) alwaysinline nounwind {
+  %ctx = call ptr @dartforge_context()
+  %o = shl i64 %u, 3
+  %a = add i64 %o, 33152
+  %p = getelementptr inbounds i8, ptr %ctx, i64 %a
+  %r = load i64, ptr %p, align 8
+  ret i64 %r
 }
 define internal i64 @df.string_hash(i64 %s) alwaysinline nounwind {
 entrada:
@@ -191,6 +202,7 @@ pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.string_code_unit", false, false),
     ("df.string_allocate", true, false),
     ("df.string_write", false, false),
+    ("df.string_one_char", false, false),
     ("df.string_hash", false, false),
     ("df.string_equals", false, false),
     ("df.string_equals_object", false, false),
@@ -426,6 +438,8 @@ mod tests {
             // The helper's computation of `w`: 1 + ((len << two) + 7) >> 3.
             assert_eq!(1 + (((len << u32::from(two)) + 7) >> 3), w);
         }
+        // The table of `@df.string_one_char`.
+        assert!(HELPERS.contains(&format!("%a = add i64 %o, {}", layout::context::ONE_CHAR)));
         for (name, _, _) in HELPER_EFFECTS {
             assert!(
                 HELPERS.contains(&format!("@{name}(")),

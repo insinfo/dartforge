@@ -1423,6 +1423,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let repr = self.expression_repr(expr_id).unwrap_or(Type::Ref);
                     return self.coerce(r, repr);
                 }
+                // The `operator []` of an SDK class that only its library can
+                // override and that has one implementation (`String`'s, which
+                // is `_StringBase`'s): a direct call, as for a named method
+                // (`call_source_member`), instead of the selector and the
+                // uniform entry. The header parsing of `dart:_http` reads
+                // strings by index dozens of times per request.
+                if let Some(cid) = self.user_class_of(*target)
+                    && self
+                        .ctx
+                        .program
+                        .library(self.ctx.program.classes[cid.0 as usize].library)
+                        .is_sdk
+                    && let Some(fid) = self.member_in_class(cid, "[]")
+                    && let Some(r) =
+                        self.call_source_member(target_op.clone(), fid, &[(None, idx_op.clone())])
+                {
+                    let repr = self.expression_repr(expr_id).unwrap_or(Type::Ref);
+                    return self.coerce(r, repr);
+                }
                 // SDK `[]` through the dynamic class.
                 let r = self.call_by_name_typed(
                     target_op,

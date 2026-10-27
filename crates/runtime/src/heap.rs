@@ -547,6 +547,12 @@ pub struct Context {
     /// generated code when its per-site cache misses. Zeroed with the
     /// runtime's memos.
     pub rti_memo: [[std::cell::Cell<i64>; 4]; crate::layout::rti_memo::N],
+    /// The one-character Latin-1 strings already returned by `String_charAt` on
+    /// this thread (`layout::context::ONE_CHAR`): the canonical literals
+    /// (`Heap::string_literal`, permanent), 0 = not requested yet. The generated
+    /// `String.[]` reads them inline (`@df.string_one_char`) and only calls the
+    /// native for an empty entry, a non-Latin-1 unit or an index out of range.
+    pub one_char: [std::cell::Cell<i64>; 256],
 }
 
 impl Context {
@@ -601,6 +607,7 @@ const _: () = {
     assert!(std::mem::offset_of!(Context, false_value) == c::FALSE);
     assert!(std::mem::offset_of!(Context, stack_limit) == c::STACK_LIMIT);
     assert!(std::mem::offset_of!(Context, rti_memo) == c::RTI_MEMO);
+    assert!(std::mem::offset_of!(Context, one_char) == c::ONE_CHAR);
     assert!(
         std::mem::size_of::<[[std::cell::Cell<i64>; 4]; crate::layout::rti_memo::N]>()
             == crate::layout::rti_memo::N * crate::layout::rti_memo::ENTRY
@@ -626,6 +633,7 @@ thread_local! {
             false_value: Slot::new((&raw const dartforge_false).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize)),
             stack_limit: Slot::new(std::cell::Cell::new(0)),
             rti_memo: [const { [const { std::cell::Cell::new(0) }; 4] }; crate::layout::rti_memo::N],
+            one_char: [const { std::cell::Cell::new(0) }; 256],
         }
     };
 }

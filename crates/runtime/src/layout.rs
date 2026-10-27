@@ -383,6 +383,9 @@ pub mod context {
     /// The thread's type-check memo (`Context::rti_memo`): [`super::rti_memo::SETS`]
     /// sets of [`super::rti_memo::WAYS`] entries of four words.
     pub const RTI_MEMO: usize = 384;
+    /// The canonical one-character Latin-1 strings (`Context::one_char`): 256
+    /// handles, 0 = not requested yet.
+    pub const ONE_CHAR: usize = RTI_MEMO + super::rti_memo::N * super::rti_memo::ENTRY;
 
     /// The cursor of the TLAB of `w` words.
     pub const fn tlab_cursor(w: usize) -> usize {

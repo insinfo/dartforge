@@ -39,6 +39,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let i = self.coerce(args[0].clone(), Type::I64);
                 Some(self.inline_unit(s.clone(), i))
             }
+            (_, Some("String_charAt"), Some(s))
+                if args.len() == 1 && self.is_ref(s) && !self.ctx.arc_memory =>
+            {
+                let i = self.coerce(args[0].clone(), Type::I64);
+                Some(self.inline_char_at(s.clone(), i))
+            }
             (_, Some("String_getLength"), Some(s)) if args.is_empty() && self.is_ref(s) => {
                 Some(self.helper("df.string_len", vec![(s.clone(), Type::Ref)], Type::I64))
             }
@@ -111,6 +117,83 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ret_ty: ret,
             },
             ret,
+        )
+    }
+
+    /// `s[i]` (`String_charAt`): for a Latin-1 unit at `0 <= i < length`, the
+    /// canonical one-character string from the thread context
+    /// (`@df.string_one_char`), as the VM's intrinsic returns the predefined
+    /// symbol. The native answers the rest — the first request of each unit,
+    /// which fills the context's entry, a unit above 255 (a new string) and an
+    /// index out of range (the `RangeError`). Only in tracing memory: under ARC the
+    /// result of a helper has no ownership contract.
+    fn inline_char_at(&mut self, s: Operand, i: Operand) -> Operand {
+        let n = self.helper("df.string_len", vec![(s.clone(), Type::Ref)], Type::I64);
+        let inside = self.emit(Instruction::ICmp(ICmpOp::Ult, i.clone(), n), Type::I1);
+        let unit = self.new_block();
+        let table = self.new_block();
+        let found = self.new_block();
+        let slow = self.new_block();
+        let end = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: inside,
+            then_block: unit,
+            else_block: slow,
+        });
+
+        self.set_block(unit);
+        let u = self.helper(
+            "df.string_code_unit",
+            vec![(s.clone(), Type::Ref), (i.clone(), Type::I64)],
+            Type::I64,
+        );
+        let latin = self.emit(
+            Instruction::ICmp(
+                ICmpOp::Ult,
+                u.clone(),
+                Operand::Constant(Constant::Int(256)),
+            ),
+            Type::I1,
+        );
+        self.terminate(Terminator::CondBranch {
+            cond: latin,
+            then_block: table,
+            else_block: slow,
+        });
+
+        self.set_block(table);
+        let c = self.helper("df.string_one_char", vec![(u, Type::I64)], Type::Ref);
+        let cached = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, c.clone(), Operand::Constant(Constant::Null)),
+            Type::I1,
+        );
+        self.terminate(Terminator::CondBranch {
+            cond: cached,
+            then_block: found,
+            else_block: slow,
+        });
+
+        self.set_block(found);
+        self.terminate(Terminator::Branch(end));
+
+        self.set_block(slow);
+        let r = self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: crate::natives::symbol("String_charAt"),
+                args: vec![(s, Type::Ref), (i, Type::I64)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        let slow_end = self.current_block;
+        self.terminate(Terminator::Branch(end));
+        self.set_block(end);
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(found, c), (slow_end, r)],
+                ty: Type::Ref,
+            },
+            Type::Ref,
         )
     }
 
