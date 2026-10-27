@@ -410,24 +410,262 @@ pub fn group_metadata(source: &str) -> Result<String, String> {
             moved.push((span.start, span.end));
         }
     }
-    if moved.is_empty() {
+    // The extension aliases after the moved metadata, in one call
+    // (`extension_batch`).
+    let (extensions, batch) =
+        if std::env::var("DARTFORGE_JSPROD_BATCH_EXTENSIONS").map_or(true, |v| v != "0") {
+            extension_batch(source, &parsed.program, &outer.statements)
+        } else {
+            (Vec::new(), String::new())
+        };
+    if moved.is_empty() && extensions.is_empty() {
         return Ok(source.to_string());
     }
+    let mut removed: Vec<(u32, u32, bool)> = moved.iter().map(|&(a, b)| (a, b, true)).collect();
+    removed.extend(extensions.iter().map(|&(a, b)| (a, b, false)));
+    removed.sort_unstable();
     let at = last.span().start as usize;
     let mut out = String::with_capacity(source.len() + moved.len());
     let mut pos = 0usize;
     let mut group = String::new();
-    for &(a, b) in &moved {
+    for &(a, b, keep) in &removed {
         let (a, b) = (a as usize, b as usize);
         out.push_str(&source[pos..a]);
-        group.push_str(&source[a..b]);
-        group.push('\n');
+        if keep {
+            group.push_str(&source[a..b]);
+            group.push('\n');
+        }
         pos = b;
     }
     out.push_str(&source[pos..at]);
     out.push_str(&group);
+    out.push_str(&batch);
     out.push_str(&source[at..]);
     Ok(out)
+}
+
+/// Name of the helper of [`extension_batch`].
+const EXTENSIONS_HELPER: &str = "t$X";
+
+/// The top-level `dart.defineExtensionMethods(C, ["m", …])` and
+/// `…Accessors(C, ["a", …])` statements that can wait for the end of the
+/// load, and the call that replaces them: a flat list `C, ["m", …], ["a",
+/// …]` (`0` for a missing list) handed to a helper that makes the same calls
+/// in the same order. The aliases are first read when a method is called
+/// through its `dartx` symbol, which loading a library does not do, except
+/// in the load-time copies: `applyMixin` and `registerExtension` copy the
+/// symbol-keyed members of their classes (a native type's whole Dart chain),
+/// so those classes, their superclasses and the classes with a
+/// `[dart.mixinOn]` keep their statements. The call goes after the moved
+/// metadata, so every late accessor already exists. Without a readable
+/// superclass for a copied class nothing moves.
+/// `DARTFORGE_JSPROD_BATCH_EXTENSIONS=0` turns it off.
+fn extension_batch(
+    source: &str,
+    program: &oxc_ast::ast::Program<'_>,
+    statements: &[Statement<'_>],
+) -> (Vec<(u32, u32)>, String) {
+    let none = (Vec::new(), String::new());
+    if source.contains(EXTENSIONS_HELPER) {
+        return none;
+    }
+    let text = |e: &Expression<'_>| -> Option<&str> {
+        match e {
+            Expression::Identifier(_) | Expression::StaticMemberExpression(_) => {
+                let span = e.span();
+                Some(&source[span.start as usize..span.end as usize])
+            }
+            _ => None,
+        }
+    };
+    // Superclass of each class defined at the top level (`None`: no
+    // `extends`).
+    let mut supers: HashMap<&str, Option<&str>> = HashMap::new();
+    let class_of = |e: &Expression<'_>| -> Option<Option<&str>> {
+        let class = match e {
+            Expression::ClassExpression(c) => c,
+            Expression::CallExpression(c) => match c.arguments.first()?.as_expression()? {
+                Expression::ClassExpression(c) => c,
+                _ => return None,
+            },
+            _ => return None,
+        };
+        Some(match &class.heritage {
+            None => None,
+            Some(h) => Some(text(&h.expression)?),
+        })
+    };
+    for s in statements {
+        match s {
+            Statement::VariableDeclaration(v) => {
+                for d in &v.declarations {
+                    if let (Some(id), Some(init)) = (d.id.get_binding_identifier(), &d.init)
+                        && let Some(sup) = class_of(init)
+                    {
+                        let span = id.span;
+                        supers.insert(&source[span.start as usize..span.end as usize], sup);
+                    }
+                }
+            }
+            Statement::ExpressionStatement(e) => {
+                if let Expression::AssignmentExpression(a) = &e.expression
+                    && let Some(sup) = class_of(&a.right)
+                {
+                    let span = a.left.span();
+                    supers.insert(&source[span.start as usize..span.end as usize], sup);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut copies = CopiedClasses {
+        source,
+        classes: Vec::new(),
+    };
+    copies.visit_program(program);
+    let mut pinned: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut queue = copies.classes;
+    while let Some(c) = queue.pop() {
+        if !pinned.insert(c) {
+            continue;
+        }
+        match supers.get(c) {
+            Some(Some(s)) => queue.push(s),
+            Some(None) => {}
+            None => return none,
+        }
+    }
+    // (class, methods, accessors) in order of first statement.
+    let mut found: Vec<(u32, u32)> = Vec::new();
+    let mut entries: Vec<(&str, Option<&str>, Option<&str>)> = Vec::new();
+    let mut callees: (Option<&str>, Option<&str>) = (None, None);
+    for s in statements {
+        let Statement::ExpressionStatement(e) = s else {
+            continue;
+        };
+        let Expression::CallExpression(c) = &e.expression else {
+            continue;
+        };
+        let accessors = match dart_member(&c.callee) {
+            Some("defineExtensionMethods") => false,
+            Some("defineExtensionAccessors") => true,
+            _ => continue,
+        };
+        let [class, list] = &c.arguments[..] else {
+            continue;
+        };
+        let (Some(class), Some(Expression::ArrayExpression(items))) =
+            (class.as_expression().and_then(text), list.as_expression())
+        else {
+            continue;
+        };
+        if pinned.contains(class)
+            || !items
+                .elements
+                .iter()
+                .all(|x| matches!(x, oxc_ast::ast::ArrayExpressionElement::StringLiteral(_)))
+        {
+            continue;
+        }
+        let callee = text(&c.callee);
+        let slot = if accessors {
+            &mut callees.1
+        } else {
+            &mut callees.0
+        };
+        if slot.is_some_and(|x| Some(x) != callee) {
+            continue;
+        }
+        *slot = callee;
+        let span = items.span;
+        let list = &source[span.start as usize..span.end as usize];
+        match entries.last_mut() {
+            Some((c, m, a))
+                if *c == class && (if accessors { a.is_none() } else { m.is_none() }) =>
+            {
+                if accessors {
+                    *a = Some(list);
+                } else {
+                    *m = Some(list);
+                }
+            }
+            _ => entries.push(if accessors {
+                (class, None, Some(list))
+            } else {
+                (class, Some(list), None)
+            }),
+        }
+        let span = s.span();
+        found.push((span.start, span.end));
+    }
+    // The helper costs about as much as twenty statements save (measured on
+    // the corpus).
+    if found.len() < 28 {
+        return none;
+    }
+    let call = |f: Option<&str>, k: usize| {
+        f.map(|f| format!("a[i + {k}] && {f}(a[i], a[i + {k}]); "))
+            .unwrap_or_default()
+    };
+    let mut flat: Vec<String> = Vec::new();
+    for (c, m, a) in &entries {
+        flat.push(c.to_string());
+        flat.push(m.unwrap_or("0").to_string());
+        flat.push(a.unwrap_or("0").to_string());
+    }
+    let batch = format!(
+        "var {EXTENSIONS_HELPER} = function(a) {{ for (let i = 0; i < a.length; i += 3) {{ {}{}}} }};\n{EXTENSIONS_HELPER}([{}]);\n",
+        call(callees.0, 1),
+        call(callees.1, 2),
+        flat.join(", ")
+    );
+    (found, batch)
+}
+
+/// Source texts of the classes a runtime call copies at load: the
+/// arguments of `applyMixin` and `registerExtension` and the classes with a
+/// `[dart.mixinOn]` (as [`LoadTimeCopies`], without the extension calls).
+struct CopiedClasses<'s> {
+    source: &'s str,
+    classes: Vec<&'s str>,
+}
+
+impl<'a> Visit<'a> for CopiedClasses<'_> {
+    fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
+        if matches!(
+            dart_member(&it.callee),
+            Some("applyMixin" | "registerExtension")
+        ) {
+            for a in &it.arguments {
+                if let Some(e) = a.as_expression()
+                    && matches!(
+                        e,
+                        Expression::Identifier(_) | Expression::StaticMemberExpression(_)
+                    )
+                {
+                    let span = e.span();
+                    self.classes
+                        .push(&self.source[span.start as usize..span.end as usize]);
+                }
+            }
+        }
+        walk::walk_call_expression(self, it);
+    }
+    fn visit_assignment_expression(&mut self, it: &oxc_ast::ast::AssignmentExpression<'a>) {
+        if let AssignmentTarget::ComputedMemberExpression(m) = &it.left {
+            let mixin_on = match &m.expression {
+                Expression::Identifier(k) => k.name == "dart$$mixinOn",
+                Expression::StaticMemberExpression(k) => k.property.name == "mixinOn",
+                _ => false,
+            };
+            if mixin_on {
+                let span = m.object.span();
+                self.classes
+                    .push(&self.source[span.start as usize..span.end as usize]);
+            }
+        }
+        walk::walk_assignment_expression(self, it);
+    }
 }
 
 #[cfg(test)]
@@ -481,6 +719,44 @@ mod tests {
         let m = s.find("dart$$lateFields(M.prototype").unwrap();
         assert!(x < a && a < g && g < main, "{s}");
         assert!(m < x, "{s}");
+    }
+
+    #[test]
+    fn extension_aliases_batch_after_the_metadata_except_load_time_copies() {
+        let mut body = String::from(
+            "var N = class extends P {}, P = class extends core$$Object {}, core$$Object = class {};\ndart$$defineExtensionMethods(P, [\"p\"]);\ndart$$defineExtensionMethods(N, [\"n\"]);\ndart$$registerExtension(\"Array\", N);\n",
+        );
+        for i in 0..30 {
+            body.push_str(&format!(
+                "var C{i} = class extends core$$Object {{}};\ndart$$lateFields(C{i}.prototype, \"k\", \"\");\ndart$$defineExtensionMethods(C{i}, [\"m\", \"n\"]);\ndart$$defineExtensionAccessors(C{i}, [\"a\"]);\n"
+            ));
+        }
+        let s = group_metadata(&format!("(function () {{\n{body}L$$main();\n}})();\n")).unwrap();
+        // The native peer and its superclass keep theirs, in place.
+        let reg = s.find("dart$$registerExtension").unwrap();
+        assert!(
+            s.find("dart$$defineExtensionMethods(P, [\"p\"])").unwrap() < reg,
+            "{s}"
+        );
+        assert!(
+            s.find("dart$$defineExtensionMethods(N, [\"n\"])").unwrap() < reg,
+            "{s}"
+        );
+        // The others: one call after the moved late fields, before `main`.
+        assert!(!s.contains("dart$$defineExtensionMethods(C0"), "{s}");
+        let batch = s.find("t$X([C0, [\"m\", \"n\"], [\"a\"], C1").unwrap();
+        assert!(s.rfind("dart$$lateFields(").unwrap() < batch, "{s}");
+        assert!(batch < s.find("L$$main();").unwrap(), "{s}");
+        let allocator = oxc_allocator::Allocator::default();
+        let parsed = oxc_parser::Parser::new(&allocator, &s, oxc_span::SourceType::cjs()).parse();
+        assert!(parsed.diagnostics.is_empty(), "{s}");
+        // An unreadable superclass of a copied class keeps everything.
+        let s = group_metadata(&format!(
+            "(function () {{\n{}L$$main();\n}})();\n",
+            body.replace("class extends P", "class extends f()")
+        ))
+        .unwrap();
+        assert!(s.contains("dart$$defineExtensionMethods(C0"), "{s}");
     }
 
     #[test]

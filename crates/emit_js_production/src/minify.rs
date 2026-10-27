@@ -764,6 +764,9 @@ fn call_takes_names(callee: &oxc_ast::ast::Expression<'_>) -> bool {
         // The named-parameter prologue of `shapes.rs`: `t$O(o, "k", d)` reads
         // `o[k]`.
         Expression::Identifier(i) if i.name == "t$O" => true,
+        // The extension aliases batched by `unwrap::group_metadata`
+        // (`t$X([C, ["m", …], ["a", …], …])`) name members.
+        Expression::Identifier(i) if i.name == "t$X" => true,
         // The same ones, already flattened (`dart$$dsend`, `flatten.rs`).
         Expression::Identifier(i) => {
             if let Some(x) = crate::flatten::member(i.name.as_str(), "dart") {
