@@ -592,6 +592,10 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
         .filter(|symbol| inventory.entry(symbol))
         .cloned()
         .collect();
+    // `dart:mirrors` is no longer among them: since c29dfd3c its registration
+    // also hands the runtime the addresses of its method tear-offs
+    // (`dartforge_register_tearoff`, for the VM's closure `toString`), an
+    // obligation this inventory does not certify.
     let expected: Vec<_> = [
         "collection",
         "math",
@@ -600,7 +604,6 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
         "developer",
         "nativewrappers",
         "_http",
-        "mirrors",
     ]
     .iter()
     .map(|name| crate::sdk_module::registration_symbol(&format!("dart:{name}")))
