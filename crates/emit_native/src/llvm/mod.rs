@@ -7337,6 +7337,10 @@ fn body_helper(per_call: bool, production: bool, without_outside: bool) -> Strin
 /// their top bit flipped, so that a zeroed cache matches nothing. The key of
 /// `this` is the runtime's `value_key`: 0 without `this`, the header metadata, or
 /// `-16 - class`; a record or a non-object `this` is evaluated without the cache.
+/// A site miss probes the thread's memo (`layout::rti_memo`) with the flipped key,
+/// `model | tuple << 32` and the class as the kind, and fills it after an
+/// evaluation (only for ids below 2^31 and a class ≥ 0, so that no other kind of
+/// entry can match).
 fn rti_eval_site_helper() -> String {
     use layout::offsets;
     let d = |x: usize| x as i64 - layout::HANDLE_OFFSET;
@@ -7383,6 +7387,29 @@ found:\n\
   %r = load i64, ptr %d1, align 8\n\
   ret i64 %r\n\
 miss:\n\
+  %mt = or i64 %m, %t\n\
+  %small = icmp ult i64 %mt, 2147483648\n\
+  %kpos = icmp sge i64 %k, 0\n\
+  %memoable = and i1 %small, %kpos\n\
+  %bt = shl i64 %t, 32\n\
+  %bm = or i64 %m, %bt\n\
+  br i1 %memoable, label %mprobe, label %eval\n\
+mprobe:\n\
+{lookup}  br i1 %mfound, label %memo, label %fill\n\
+memo:\n\
+  store i64 %kh, ptr %c, align 8\n\
+  store i64 %kt, ptr %c1, align 8\n\
+  store i64 %m, ptr %d, align 8\n\
+  store i64 %manswer, ptr %d1, align 8\n\
+  ret i64 %manswer\n\
+fill:\n\
+  %f = call i64 @dartforge_rti_eval(i64 %m, i64 %h, i64 %k, i64 %t)\n\
+  store i64 %kh, ptr %c, align 8\n\
+  store i64 %kt, ptr %c1, align 8\n\
+  store i64 %m, ptr %d, align 8\n\
+  store i64 %f, ptr %d1, align 8\n\
+{insert}  ret i64 %f\n\
+eval:\n\
   %e = call i64 @dartforge_rti_eval(i64 %m, i64 %h, i64 %k, i64 %t)\n\
   store i64 %kh, ptr %c, align 8\n\
   store i64 %kt, ptr %c1, align 8\n\
@@ -7393,6 +7420,8 @@ plain:\n\
   %u = call i64 @dartforge_rti_eval(i64 %m, i64 %h, i64 %k, i64 %t)\n\
   ret i64 %u\n\
 }}\n",
+        lookup = rti_memo_lookup("%kh", "%bm", "%k"),
+        insert = rti_memo_insert("%kh", "%bm", "%k", "%f"),
         mask = OBJECT_MASK,
         metadata = d(offsets::METADATA),
         class = d(offsets::CLASS),
@@ -7514,6 +7543,34 @@ fn rti_memo_lookup(a: &str, b: &str, kind: &str) -> String {
     )
 }
 
+/// The insertion into the thread's type-check memo after [`rti_memo_lookup`]
+/// missed, in a block it dominates: way 0 moves to way 1 (its words were loaded by
+/// the lookup) and `[a, b, kind] -> answer` takes way 0, as the runtime's
+/// `Context::rti_memo_store` does.
+fn rti_memo_insert(a: &str, b: &str, kind: &str, answer: &str) -> String {
+    use dartforge_runtime::layout::rti_memo;
+    let e = rti_memo::ENTRY;
+    let mut o = String::new();
+    for (i, w) in ["%ma0", "%mb0", "%mk0", "%mr0"].iter().enumerate() {
+        writeln!(
+            o,
+            "  %mw1p{i} = getelementptr inbounds i8, ptr %me, i64 {}",
+            e + 8 * i
+        )
+        .unwrap();
+        writeln!(o, "  store i64 {w}, ptr %mw1p{i}, align 8").unwrap();
+    }
+    for (i, w) in [a, b, kind, answer].iter().enumerate() {
+        writeln!(
+            o,
+            "  %mw0p{i} = getelementptr inbounds i8, ptr %me, i64 {}",
+            8 * i
+        )
+        .unwrap();
+        writeln!(o, "  store i64 {w}, ptr %mw0p{i}, align 8").unwrap();
+    }
+    o
+}
 
 /// `@df.rti_is_probe(cache, key, v, t)`: the miss of the `is` cache of a use site
 /// with the value key `key` already computed ([`LlvmEmitter::emit_rti_test_cached`]).
