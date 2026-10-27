@@ -642,6 +642,7 @@ impl<'a> Computation<'a> {
             }
             m.object_selectors = object_selectors_enabled();
             if m.object_selectors && m.foreign_open {
+                m.interop_open = true;
                 m.open_object_members();
             }
         }
@@ -750,6 +751,11 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
         .iter()
         .enumerate()
         .any(|(i, v)| *v && opens_foreign(e.program, FunctionElementId(i as u32)));
+    m.interop_open |= world
+        .functions
+        .iter()
+        .enumerate()
+        .any(|(i, v)| *v && opens_interop(e.program, FunctionElementId(i as u32)));
     m.dom_open |= world.functions.iter().enumerate().any(|(i, v)| {
         *v && DOM_LIBRARIES.contains(
             &e.program
@@ -911,6 +917,13 @@ pub(crate) struct Engine<'a> {
     object_selectors: bool,
     /// [`Engine::static_access_selectors`].
     static_access: bool,
+    /// [`Engine::local_names_resolved`].
+    local_names: bool,
+    /// Whether JavaScript code can hold Dart objects: some function of an
+    /// interop library ([`FOREIGN_LIBRARIES`] without the typed data ones,
+    /// which only create natives) or a non-SDK `external` is live. Opens the
+    /// `Object` members ([`Engine::object_selectors`]).
+    interop_open: bool,
     /// Instantiated classes whose SDK protocol rule has already been applied.
     protocol_done: HashSet<ClassId>,
     cause: Cause,
@@ -1045,6 +1058,21 @@ fn object_selectors_enabled() -> bool {
     std::env::var("DARTFORGE_JSPROD_OBJECT_SELECTORS").map_or(true, |v| v != "0")
 }
 
+/// Whether the live function `f` lets JavaScript hold Dart objects
+/// ([`Engine::interop_open`]).
+fn opens_interop(p: &dartforge_elements::model::Program, f: FunctionElementId) -> bool {
+    let func = p.function(f);
+    let lib = p.library(func.library);
+    if lib.is_sdk {
+        let uri = lib.uri.as_str();
+        FOREIGN_LIBRARIES.contains(&uri)
+            && uri != "dart:typed_data"
+            && uri != "dart:_native_typed_data"
+    } else {
+        func.external
+    }
+}
+
 /// Whether the live function `f` opens the gate of [`Engine::foreign_open`].
 fn opens_foreign(p: &dartforge_elements::model::Program, f: FunctionElementId) -> bool {
     let func = p.function(f);
@@ -1104,8 +1132,10 @@ impl<'a> Engine<'a> {
             seen_types: HashSet::new(),
             universal_names: universal,
             object_selectors: false,
+            interop_open: false,
             static_access: std::env::var("DARTFORGE_JSPROD_STATIC_SELECTORS")
                 .map_or(true, |v| v != "0"),
+            local_names: std::env::var("DARTFORGE_JSPROD_LOCAL_NAMES").map_or(true, |v| v != "0"),
             protocol_done: HashSet::new(),
             cause: Cause::Root,
             cause_fn: vec![None; p.functions.len()],
@@ -1145,6 +1175,13 @@ impl<'a> Engine<'a> {
     /// an unrestricted one.
     pub(crate) fn static_access_selectors(&self) -> bool {
         self.static_access
+    }
+
+    /// An identifier resolved to a local or a parameter does not keep the
+    /// statics and top-level members of the same name live;
+    /// `DARTFORGE_JSPROD_LOCAL_NAMES=0` goes back to keeping them.
+    pub(crate) fn local_names_resolved(&self) -> bool {
+        self.local_names
     }
 
     /// Whether an instance member named `name` is live in every instantiated
@@ -1203,6 +1240,13 @@ impl<'a> Engine<'a> {
         if !self.foreign_open && opens_foreign(self.e.program, f) {
             self.open_foreign(f);
         }
+        if self.object_selectors && !self.interop_open && opens_interop(self.e.program, f) {
+            self.interop_open = true;
+            let saved = self.cause;
+            self.cause = Cause::Function(f);
+            self.open_object_members();
+            self.cause = saved;
+        }
         if !self.dom_open
             && DOM_LIBRARIES.contains(&self.e.program.library(func.library).uri.as_str())
         {
@@ -1224,9 +1268,6 @@ impl<'a> Engine<'a> {
         self.cause = Cause::Function(f);
         for c in std::mem::take(&mut self.held_natives) {
             self.instantiate(c);
-        }
-        if self.object_selectors {
-            self.open_object_members();
         }
         self.cause = saved;
     }

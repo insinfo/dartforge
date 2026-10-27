@@ -1603,7 +1603,18 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 }
                 NameTarget::Skip => {}
             }
-            m.use_name(ctx, n.sym);
+            // A local or a parameter shadows the statics and top-level
+            // members with its name (`int hash = …` in `Object.hashAll` is
+            // not `Object.hash`); the fallback by name is for the rest.
+            let local = m.local_names_resolved()
+                && e.bodies
+                    .units
+                    .get(ctx.unit.0 as usize)
+                    .and_then(|u| u.get_resolved(id))
+                    .is_some_and(|r| matches!(r, Resolved::Local(_) | Resolved::Parameter { .. }));
+            if !local {
+                m.use_name(ctx, n.sym);
+            }
         }
         ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => expr(m, ctx, *x),
         ExprKind::List {
