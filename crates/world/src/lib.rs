@@ -254,6 +254,10 @@ pub struct World {
     /// JavaScript properties, which reach every class but the
     /// [`World::dartx_classes`].
     template_selectors: HashSet<String>,
+    /// Names a `JS()` *template* only calls (`#.entries()`): they reach the
+    /// methods of every class but the [`World::dartx_classes`], never a
+    /// getter or a field.
+    template_calls: HashSet<String>,
     /// Native classes whose members the emitter keys by `dartx` (or private)
     /// symbols (`JSString`, `JSArray`…): a string-keyed property never
     /// reaches them.
@@ -332,7 +336,9 @@ impl World {
         self.variables.get(v.0 as usize).copied().unwrap_or(false)
     }
     pub fn selector(&self, name: &str) -> bool {
-        self.selectors.contains(name) || self.template_selectors.contains(name)
+        self.selectors.contains(name)
+            || self.template_selectors.contains(name)
+            || self.template_calls.contains(name)
     }
     /// The members of `class` are keyed by symbols (`dartx`, private): a
     /// `.name` in the text never reaches them.
@@ -350,7 +356,8 @@ impl World {
     /// the receiver's cone (the same rule as the fixed point, `reaches`).
     pub fn selector_live_for(&self, _program: &Program, name: &str, class: ClassId) -> bool {
         if self.selectors.contains(name)
-            || (self.template_selectors.contains(name) && !self.dartx_classes.contains(&class))
+            || ((self.template_selectors.contains(name) || self.template_calls.contains(name))
+                && !self.dartx_classes.contains(&class))
         {
             return true;
         }
@@ -810,6 +817,7 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
     m.tearoff = world.tearoffs.clone();
     m.sel = world.selectors.clone();
     m.template_sel = world.template_selectors.clone();
+    m.template_calls = world.template_calls.clone();
     m.inst_sub = world.inst_sub.clone();
     for (n, cs) in world.sel_cone.iter() {
         m.sel_cone.insert(n.clone(), cs.iter().copied().collect());
@@ -1011,6 +1019,8 @@ pub(crate) struct Engine<'a> {
     /// Names written in `JS()` *templates* that are not (yet) ordinary
     /// selectors ([`Engine::new_template_selector`]).
     template_sel: HashSet<String>,
+    /// [`World::template_calls`].
+    template_calls: HashSet<String>,
     /// [`World::dartx_classes`].
     dartx_classes: HashSet<ClassId>,
     /// With the SDK in the world, operators live by selector like any other
@@ -1197,6 +1207,7 @@ impl<'a> Engine<'a> {
             foreign_open: std::env::var("DARTFORGE_JSPROD_NATIVE_GATE").is_ok_and(|v| v == "0"),
             held_natives: Vec::new(),
             template_sel: HashSet::new(),
+            template_calls: HashSet::new(),
             dartx_classes: HashSet::new(),
             operator_selectors: std::env::var("DARTFORGE_JSPROD_OPERATOR_SELECTORS")
                 .map_or(true, |v| v != "0"),
@@ -1371,6 +1382,21 @@ impl<'a> Engine<'a> {
         self.records_seen = true;
     }
 
+    /// The class `name` of `dart:core`.
+    pub(crate) fn core_class(&self, name: &str) -> Option<ClassId> {
+        let p = self.e.program;
+        let sym = self.e.interner.lookup(name)?;
+        match p.library(p.core?).declared.get(&sym).and_then(|b| b.getter) {
+            Some(Element::Class(c)) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// `sub` is `sup` or one of its subtypes.
+    pub(crate) fn is_subclass_of(&self, sub: ClassId, sup: ClassId) -> bool {
+        self.hier.is_subtype(sub, sup)
+    }
+
     /// `dart:core`'s `Object`.
     fn object_class(&self) -> Option<ClassId> {
         let p = self.e.program;
@@ -1530,6 +1556,48 @@ impl<'a> Engine<'a> {
             for f in fs {
                 self.mark_fn_live(f);
             }
+        }
+    }
+
+    /// A member name a `JS()` *template* only calls (`#.name(…)`): like
+    /// [`Engine::new_template_selector`], but only methods answer a call (a
+    /// getter's value or a field would be called, not the member).
+    /// `DARTFORGE_JSPROD_TEMPLATE_CALLS=0` treats it as any use.
+    pub(crate) fn new_template_call(&mut self, name: &str) {
+        if std::env::var("DARTFORGE_JSPROD_TEMPLATE_CALLS").is_ok_and(|v| v == "0") {
+            self.new_template_selector(name);
+            return;
+        }
+        if self.sel.contains(name)
+            || self.template_sel.contains(name)
+            || !self.template_calls.insert(name.to_string())
+        {
+            return;
+        }
+        let Some(mut by_owner) = self.pending.remove(name) else {
+            return;
+        };
+        let p = self.e.program;
+        let mut fs: Vec<FunctionElementId> = Vec::new();
+        for (k, list) in by_owner.iter_mut() {
+            if *k != NO_OWNER && self.dartx_classes.contains(k) {
+                continue;
+            }
+            list.retain(|f| {
+                let method = p.function(*f).kind == FunctionKind::Function;
+                if method {
+                    fs.push(*f);
+                }
+                !method
+            });
+        }
+        by_owner.retain(|_, v| !v.is_empty());
+        if !by_owner.is_empty() {
+            self.pending.insert(name.to_string(), by_owner);
+        }
+        fs.sort();
+        for f in fs {
+            self.mark_fn_live(f);
         }
     }
 
@@ -2137,7 +2205,10 @@ impl<'a> Engine<'a> {
             let live = all
                 || (func.kind == FunctionKind::Operator && !self.operators_by_selector())
                 || self.always_live(name.as_str())
-                || self.selector_for(name.as_str(), k);
+                || self.selector_for(name.as_str(), k)
+                || (func.kind == FunctionKind::Function
+                    && self.template_calls.contains(&name)
+                    && !self.dartx_classes.contains(&k));
             if live && !only_pending {
                 self.mark_fn_live(f);
             } else if !live {
@@ -2319,6 +2390,7 @@ impl<'a> Engine<'a> {
             tearoffs: self.tearoff.clone(),
             selectors: self.sel.clone(),
             template_selectors: self.template_sel.clone(),
+            template_calls: self.template_calls.clone(),
             dartx_classes: self.dartx_classes.clone(),
             sel_cone,
             cause_fn: self.cause_fn.clone(),
@@ -2415,6 +2487,7 @@ impl<'a> Engine<'a> {
             tearoffs: self.tearoff,
             selectors: self.sel,
             template_selectors: self.template_sel,
+            template_calls: self.template_calls,
             dartx_classes: self.dartx_classes,
             sel_cone,
             cause_fn: self.cause_fn,

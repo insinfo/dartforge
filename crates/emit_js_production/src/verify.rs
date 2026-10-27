@@ -414,10 +414,17 @@ fn text_selectors(
     writes: &mut HashSet<String>,
     private: &mut HashSet<(String, String)>,
     symbolic: (&mut HashSet<String>, &mut HashSet<String>),
+    calls: &mut HashSet<String>,
 ) {
     let (sym_reads, sym_writes) = symbolic;
     let b = text.as_bytes();
     let mut i = 0usize;
+    // `x.name(` (a call) and the other reads of `x.name`: a name the text
+    // only calls never reads a getter or a field of a Dart class (the call
+    // would be of its value) — `#.entries()` of a `JS()` template on a JS
+    // `Map` is not `MapBase.entries`.
+    let mut called: HashSet<String> = HashSet::new();
+    let mut plain: HashSet<String> = HashSet::new();
     let record = |name: &str,
                   e: Access,
                   reads: &mut HashSet<String>,
@@ -507,6 +514,15 @@ fn text_selectors(
                 {
                     let e = access_after(b, f);
                     record(&text[i + 1..f], e, reads, writes);
+                    let mut g = f;
+                    while g < b.len() && b[g].is_ascii_whitespace() {
+                        g += 1;
+                    }
+                    if matches!(e, Access::Read) && b.get(g) == Some(&b'(') {
+                        called.insert(text[i + 1..f].to_string());
+                    } else {
+                        plain.insert(text[i + 1..f].to_string());
+                    }
                 }
                 i = f;
             }
@@ -566,6 +582,8 @@ fn text_selectors(
         }
     }
     let (dyn_reads, dyn_writes) = crate::sdk::dynamic_selectors_by_kind(text);
+    plain.extend(dyn_reads.iter().cloned());
+    calls.extend(called.into_iter().filter(|n| !plain.contains(n)));
     sym_reads.extend(dyn_reads.iter().cloned());
     sym_writes.extend(dyn_writes.iter().cloned());
     reads.extend(dyn_reads);
@@ -680,14 +698,34 @@ pub fn check(
     let mut private: HashSet<(String, String)> = HashSet::new();
     let (mut sym_r, mut sym_w): (HashSet<String>, HashSet<String>) =
         (HashSet::new(), HashSet::new());
+    // Per module: a name only called in one module and read in another is
+    // read.
+    let mut call_only: HashSet<String> = HashSet::new();
+    let mut read_somewhere: HashSet<String> = HashSet::new();
     for (_, t) in modules {
+        let mut calls = HashSet::new();
+        let before: HashSet<String> = sel_r.clone();
         text_selectors(
             t,
             &mut sel_r,
             &mut sel_w,
             &mut private,
             (&mut sym_r, &mut sym_w),
+            &mut calls,
         );
+        for n in sel_r.difference(&before) {
+            if !calls.contains(n) {
+                read_somewhere.insert(n.clone());
+            }
+        }
+        for n in before.iter() {
+            read_somewhere.insert(n.clone());
+        }
+        call_only.extend(calls);
+    }
+    call_only.retain(|n| !read_somewhere.contains(n));
+    if std::env::var("DARTFORGE_JSPROD_TEMPLATE_CALLS").is_ok_and(|v| v == "0") {
+        call_only.clear();
     }
     let mut new: HashSet<String> = HashSet::new();
     for (i, c) in program.classes.iter().enumerate() {
@@ -715,10 +753,18 @@ pub fn check(
             } else {
                 (&sel_r, &sel_w)
             };
+            // A getter or a field is not reached by a name the text only
+            // calls (on a plain class; `dartx` uses are symbolic).
+            let only_called = |n: &str| {
+                func.kind != dartforge_elements::model::FunctionKind::Function
+                    && !world.dartx_class(ClassId(i as u32))
+                    && call_only.contains(n)
+            };
             let used = if write {
                 w.contains(base) || w.contains(js.as_str())
             } else {
-                r.contains(base) || r.contains(js.as_str())
+                (r.contains(base) && !only_called(base))
+                    || (r.contains(js.as_str()) && !only_called(js.as_str()))
             };
             if !used {
                 continue;
@@ -990,6 +1036,7 @@ mod tests {
             &mut w,
             &mut HashSet::new(),
             (&mut HashSet::new(), &mut HashSet::new()),
+            &mut HashSet::new(),
         );
         assert!(
             r.contains("foo") && r.contains("bar") && r.contains("baz"),
@@ -998,6 +1045,28 @@ mod tests {
         assert!(!r.contains("qux") && w.contains("qux"), "{r:?} {w:?}");
         assert!(r.contains("cor") && w.contains("cor"), "{r:?} {w:?}");
         assert!(r.contains("ok") && !w.contains("ok"), "{r:?} {w:?}");
+    }
+
+    #[test]
+    fn names_only_called() {
+        let mut r = HashSet::new();
+        let mut calls = HashSet::new();
+        text_selectors(
+            "m.entries(); x.values; x.keys(); dart.dload(o, \"keys\");",
+            &mut r,
+            &mut HashSet::new(),
+            &mut HashSet::new(),
+            (&mut HashSet::new(), &mut HashSet::new()),
+            &mut calls,
+        );
+        assert!(
+            r.contains("entries") && calls.contains("entries"),
+            "{calls:?}"
+        );
+        assert!(
+            !calls.contains("values") && !calls.contains("keys"),
+            "{calls:?}"
+        );
     }
 
     #[test]
@@ -1010,6 +1079,7 @@ mod tests {
             &mut w,
             &mut HashSet::new(),
             (&mut HashSet::new(), &mut HashSet::new()),
+            &mut HashSet::new(),
         );
         assert!(
             r.contains("%") && r.contains("+") && r.contains("~/"),

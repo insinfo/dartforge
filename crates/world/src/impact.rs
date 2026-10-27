@@ -762,7 +762,7 @@ fn walk_variables(m: &mut Engine<'_>, ctx: &Context, l: &ast::VariableList) {
     }
 }
 
-fn for_in_target(m: &mut Engine<'_>, ctx: &Context, t: &ForInTarget) {
+fn for_in_target(m: &mut Engine<'_>, ctx: &Context, t: &ForInTarget, iterable: ExprId) {
     match t {
         ForInTarget::Declared { ty, .. } => {
             if let Some(t) = ty {
@@ -778,9 +778,33 @@ fn for_in_target(m: &mut Engine<'_>, ctx: &Context, t: &ForInTarget) {
     }
     // `for-in` calls the iteration protocol (`kernel_impact.dart:906-918`),
     // with calls the AST does not have.
+    iteration_protocol(m, ctx, Some(iterable));
+}
+
+/// The calls of the iteration protocol on `iterable`: `iterator` in the cone
+/// of its static type and `moveNext`/`current` in that of `Iterator` (with
+/// the SDK in the world; unrestricted for a `dynamic` or unknown iterable,
+/// or with `DARTFORGE_JSPROD_ITERATION_CONE=0`).
+fn iteration_protocol(m: &mut Engine<'_>, ctx: &Context, iterable: Option<ExprId>) {
+    let receiver = iterable.and_then(|x| receiver_class(m, ctx, x));
+    let iterator = m.core_class("Iterator");
     for s in ["iterator", "moveNext", "current"] {
         m.poison_name_str(s);
-        m.new_selector(s);
+    }
+    match (receiver, iterator) {
+        (Some(r), Some(i))
+            if m.include_sdk
+                && std::env::var("DARTFORGE_JSPROD_ITERATION_CONE").map_or(true, |v| v != "0") =>
+        {
+            m.new_selector_with_receiver("iterator", Some(r));
+            m.new_selector_with_receiver("moveNext", Some(i));
+            m.new_selector_with_receiver("current", Some(i));
+        }
+        _ => {
+            for s in ["iterator", "moveNext", "current"] {
+                m.new_selector(s);
+            }
+        }
     }
 }
 
@@ -1184,7 +1208,7 @@ fn stmt(m: &mut Engine<'_>, ctx: &Context, id: StmtId) {
                     m.new_external_selector(n);
                 }
             }
-            for_in_target(m, ctx, target);
+            for_in_target(m, ctx, target, *iterable);
             expr(m, ctx, *iterable);
             stmt(m, ctx, *body);
         }
@@ -1393,10 +1417,13 @@ fn walk_element(m: &mut Engine<'_>, ctx: &Context, el: &CollectionElement) {
         }
         CollectionElement::Spread { value, .. } => {
             expr(m, ctx, *value);
-            for s in ["iterator", "moveNext", "current"] {
-                m.poison_name_str(s);
-                m.new_selector(s);
-            }
+            // A spread of a map has no iterator: its own protocol stays
+            // unrestricted.
+            let iterable = m.core_class("Iterable");
+            let of_iterable = receiver_class(m, ctx, *value)
+                .zip(iterable)
+                .is_some_and(|(r, i)| m.is_subclass_of(r, i));
+            iteration_protocol(m, ctx, of_iterable.then_some(*value));
         }
         CollectionElement::If {
             condition,
@@ -1448,7 +1475,7 @@ fn walk_element(m: &mut Engine<'_>, ctx: &Context, el: &CollectionElement) {
                     m.new_external_selector(n);
                 }
             }
-            for_in_target(m, ctx, target);
+            for_in_target(m, ctx, target, *iterable);
             expr(m, ctx, *iterable);
             walk_element(m, ctx, body);
         }
@@ -1951,7 +1978,11 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                                 }
                                 _ => m.poison_name_str(&n),
                             }
-                            m.new_template_selector(&n);
+                            if arity.is_some() {
+                                m.new_template_call(&n);
+                            } else {
+                                m.new_template_selector(&n);
+                            }
                         }
                     }
                 }
