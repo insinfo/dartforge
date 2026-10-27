@@ -130,6 +130,13 @@ fn minified_estimate(text: &str) -> usize {
             }
             let property = s > 0 && b[s - 1] == b'.';
             n += (i - s).min(if property { 3 } else { 2 });
+        } else if c == b'(' || c == b')' {
+            // The inlining wraps in parentheses that the printer drops: a run
+            // of them counts once.
+            n += 1;
+            while i < b.len() && b[i] == c {
+                i += 1;
+            }
         } else {
             if !c.is_ascii_whitespace() {
                 n += 1;
@@ -302,10 +309,22 @@ impl Body<'_> {
 /// An argument whose value and effects cannot change when body evaluation
 /// moves before it: [`droppable`], or a name that is never assigned and is
 /// always declared with a value ([`Scan::stable`]).
-fn stable_argument(e: &Expression<'_>, stable: &HashSet<String>) -> bool {
+fn stable_argument(
+    e: &Expression<'_>,
+    stable: &HashSet<String>,
+    scoping: Option<&oxc_semantic::Scoping>,
+) -> bool {
     match e {
         Expression::Identifier(i) if stable.contains(i.name.as_str()) => true,
-        Expression::ParenthesizedExpression(p) => stable_argument(&p.expression, stable),
+        // A binding with no write anywhere (a parameter, a `let x = …` never
+        // assigned again): the same value before and after the body's reads.
+        Expression::Identifier(i) => scoping.is_some_and(|s| {
+            i.reference_id
+                .get()
+                .and_then(|r| s.get_reference(r).symbol_id())
+                .is_some_and(|sym| !s.get_resolved_references(sym).any(|r| r.is_write()))
+        }),
+        Expression::ParenthesizedExpression(p) => stable_argument(&p.expression, stable, scoping),
         e => literal_argument(e),
     }
 }
@@ -845,6 +864,8 @@ struct Sites<'s> {
     defs: &'s HashMap<String, Def>,
     /// [`Scan::stable`].
     stable: &'s HashSet<String>,
+    /// The file's bindings (`None` with `DARTFORGE_JSPROD_STABLE_NAMES=0`).
+    scoping: Option<&'s oxc_semantic::Scoping>,
     depth: usize,
     iife: Option<usize>,
     iifes: usize,
@@ -927,7 +948,11 @@ impl Sites<'_> {
             .iter()
             .map(|a| a.as_expression())
             .collect::<Option<_>>()?;
-        if d.simple_args && !args.iter().all(|a| stable_argument(a, self.stable)) {
+        if d.simple_args
+            && !args
+                .iter()
+                .all(|a| stable_argument(a, self.stable, self.scoping))
+        {
             return self.drop_unused_tail(it, d, &args);
         }
         // The arguments of unused parameters are dropped.
@@ -1097,10 +1122,16 @@ fn round(source: &str) -> Result<(String, usize, HashMap<String, Def>), String> 
         };
         calls * d.call_size + removed >= calls * d.body_size
     });
+    let semantic = names_on.then(|| {
+        oxc_semantic::SemanticBuilder::new()
+            .build(&parsed.program)
+            .semantic
+    });
     let mut sites = Sites {
         source,
         defs: &defs,
         stable: &stable,
+        scoping: semantic.as_ref().map(|s| s.scoping()),
         depth: 0,
         iife: None,
         iifes: 0,
@@ -1288,6 +1319,13 @@ mod tests {
         let out = apply(&src).unwrap();
         assert!(out.contains("return ((mm).get((kk)))"), "{out}");
         assert!(out.contains("return f(mm, jj)"), "{out}");
+        // By binding, not by name: `kk` is written in another function.
+        let src = wrap(
+            "f = function(m, k) { return m.get(k); };\nfunction q(mm, kk) { h(1); return f(mm, kk); }\nfunction w(mm) { let kk = 1; kk = 2; return f(mm, kk); }\nh(q, w);",
+        );
+        let out = apply(&src).unwrap();
+        assert!(out.contains("return ((mm).get((kk)))"), "{out}");
+        assert!(out.contains("return f(mm, kk)"), "{out}");
     }
 
     #[test]

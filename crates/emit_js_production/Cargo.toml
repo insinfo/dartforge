@@ -29,6 +29,8 @@ oxc_minifier = "0.152"
 oxc_ast = "0.152"
 oxc_ast_visit = "0.152"
 oxc_syntax = "0.152"
+# Bindings never written, for the inliner's argument order (`inline.rs`).
+oxc_semantic = "0.152"
 
 [lib]
 path = "src/lib.rs"

@@ -607,6 +607,7 @@ dependencies = [
  "oxc_mangler",
  "oxc_minifier",
  "oxc_parser",
+ "oxc_semantic",
  "oxc_span",
  "oxc_syntax",
  "postcard",
