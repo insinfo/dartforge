@@ -29,6 +29,15 @@ const INLINE_FIELDS: usize = layout::INLINE_FIELDS;
 const TLAB_N: i64 = layout::TLAB_N as i64;
 /// The mask of `e_objeto` (`h & (7 | i64::MIN) == 2`).
 const OBJECT_MASK: i64 = 7 | i64::MIN;
+
+/// `DARTFORGE_FRAME_POINTERS=1` at compile time: every generated function keeps
+/// the frame record chain (`"frame-pointer"="non-leaf"`), so a sampling profiler
+/// (`sample`, Instruments) walks the Dart frames. Profiling only: the object
+/// cache does not key on it, so use a separate `DARTFORGE_NATIVE_CACHE`.
+fn frame_pointers() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("DARTFORGE_FRAME_POINTERS").is_some_and(|v| v == "1"))
+}
 /// The stack pointer register the stack check reads (`llvm.read_register`,
 /// [`LlvmEmitter::emit_stack_check`]) on a native target. WebAssembly has no
 /// register to read: its stack pointer is the `__stack_pointer` global of the
@@ -1230,9 +1239,14 @@ impl<'a> LlvmEmitter<'a> {
         // Reading sp does not make a frame escape: without this attribute LLVM
         // can replace a recursive call with a loop and hoist its stack check.
         let attributes = format!(
-            "{}{} \"disable-tail-calls\"=\"true\"",
+            "{}{}{} \"disable-tail-calls\"=\"true\"",
             if self.optimize_size { " optsize" } else { "" },
-            inline_attribute
+            inline_attribute,
+            if frame_pointers() {
+                " \"frame-pointer\"=\"non-leaf\""
+            } else {
+                ""
+            }
         );
         // The `this` of a method is always an object of the space (never null or a
         // `Smi`: the class has the read field); without an outside body, the address
