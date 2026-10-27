@@ -2404,7 +2404,31 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     mut named,
                     nullable,
                 } => {
-                    for (param, _) in &stub.checks {
+                    // The parameters the implementation already checks
+                    // (`covariant` there) are `Object?` too.
+                    let mut positional = 0;
+                    let own: Vec<crate::own_sdk::StubParam> =
+                        crate::own_sdk::ast_params(ctx, stub.implementation)
+                            .iter()
+                            .filter_map(|p| {
+                                let named = p.kind == ast::ParameterKind::Named;
+                                let index = positional;
+                                if !named {
+                                    positional += 1;
+                                }
+                                if !p.covariant {
+                                    return None;
+                                }
+                                Some(if named {
+                                    crate::own_sdk::StubParam::Named(
+                                        ctx.name(p.name?.sym).to_string(),
+                                    )
+                                } else {
+                                    crate::own_sdk::StubParam::Positional(index)
+                                })
+                            })
+                            .collect();
+                    for param in stub.checks.iter().map(|(p, _)| p).chain(own.iter()) {
                         match param {
                             crate::own_sdk::StubParam::Positional(i) => {
                                 if *i < pos.len() {

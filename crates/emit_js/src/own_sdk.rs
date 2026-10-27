@@ -897,6 +897,27 @@ pub fn user_covariance_checks(
         .map(|p| p.id)
         .collect();
     let mut out = String::new();
+    // A type parameter whose bound mentions the class's type parameters is
+    // checked against the bound of the receiver's instantiation.
+    if !no_reify_generic_fn(ctx, fid) {
+        let overrides = overrides_class_bounded(ctx, c, fid);
+        for &tp in ctx.outline.functions[fid.0 as usize].type_params.iter() {
+            let param = ctx.ty_param_of(tp);
+            let mentions = overrides && !is_top(ctx, &param.bound)
+                || occurs_covariantly(&param.bound, &class_param_ids, true)
+                || occurs_covariantly(&param.bound, &class_param_ids, false);
+            let Some((_, js)) = e.fn_type_params.iter().find(|(id, _)| *id == param.id) else {
+                continue;
+            };
+            if mentions {
+                out.push_str(&format!(
+                    "dart.checkTypeBound({js}, {}, {});\n",
+                    e.rti(&param.bound),
+                    crate::js::string_literal(&param.name)
+                ));
+            }
+        }
+    }
     for (i, p) in params.iter().enumerate() {
         let Some(n) = p.name else { continue };
         let Some(l) = e.lookup_local(n.sym) else {
@@ -913,6 +934,52 @@ pub fn user_covariance_checks(
         }
     }
     out
+}
+
+/// Whether the generic method `fid` of `c` overrides a supertype method
+/// whose type parameter bounds mention that supertype's type parameters (the
+/// override keeps the CFE's bound check).
+fn overrides_class_bounded(
+    ctx: &Ctx,
+    c: ClassId,
+    fid: dartforge_elements::model::FunctionElementId,
+) -> bool {
+    let f = ctx.program.function(fid);
+    if ctx.outline.functions[fid.0 as usize].type_params.is_empty() {
+        return false;
+    }
+    let mut seen = HashSet::new();
+    let mut queue: Vec<ClassId> = ctx.class_supers[c.0 as usize]
+        .iter()
+        .filter_map(|s| s.class())
+        .collect();
+    while let Some(k) = queue.pop() {
+        if Some(k) == ctx.object || !seen.insert(k) {
+            continue;
+        }
+        if let Some(&g) = ctx.program.class(k).instance_members.get(&f.name) {
+            let ids: HashSet<u32> = ctx.class_params[k.0 as usize]
+                .iter()
+                .map(|p| p.id)
+                .collect();
+            if ctx.outline.functions[g.0 as usize]
+                .type_params
+                .iter()
+                .any(|&tp| {
+                    let b = ctx.ty_param_of(tp).bound;
+                    occurs_covariantly(&b, &ids, true) || occurs_covariantly(&b, &ids, false)
+                })
+            {
+                return true;
+            }
+        }
+        queue.extend(
+            ctx.class_supers[k.0 as usize]
+                .iter()
+                .filter_map(|s| s.class()),
+        );
+    }
+    false
 }
 
 /// A parameter checked by a covariance forwarding stub
@@ -935,7 +1002,7 @@ pub struct CovarianceStub {
     pub checks: Vec<(StubParam, Ty)>,
 }
 
-fn ast_params<'a>(ctx: &Ctx<'a>, fid: FunctionElementId) -> &'a [ast::Parameter] {
+pub(crate) fn ast_params<'a>(ctx: &Ctx<'a>, fid: FunctionElementId) -> &'a [ast::Parameter] {
     match ctx.program.function(fid).node {
         FunctionRef::Function { unit, function } => ctx
             .program
