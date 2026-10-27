@@ -197,6 +197,124 @@ Dois testes de ARC de `dartforge-emit-native`
 `ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards`) já
 falhavam em `28a109bc`, sem estas mudanças.
 
+## Rodada de 2026-10-27 (continuação): testes de ARC, ARC e vazão HTTP
+
+Medido no `main`, de `88e5457a` (início) a `f1b9b043` (fim), no mesmo Mac mini M4, com
+carga de 3 a 5 nas medições finais. O início foi recompilado de uma cópia exportada
+(`git archive 88e5457a`) e medido lado a lado com o fim e com o Dart AOT 3.6.2:
+processos alternados, mediana de 3 rodadas de 5 s (servidor) ou de 5 execuções, com os
+contadores do `time -l` de todo o processo.
+
+| medida | início | fim | Dart AOT 3.6.2 |
+|---|---:|---:|---:|
+| servidor `/json` com keep-alive (`load_keepalive`, 4 × 8), pedidos/s | 51,0 mil | 53,8 mil | 71,7 mil |
+| instruções / ciclos por pedido | 293 mil / 86,1 mil | 280 mil / 80,8 mil | 212 mil / 69,7 mil |
+| CPU do servidor por pedido (user + sys) | 23,7 µs | 22,3 µs | 18,9 µs |
+| RSS do servidor depois da carga | 17,3 MB | 17,0 MB | 17,3 MB |
+| `async` (`async_await.dart`), ms por rodada | 253 | 254 | 249 |
+| `async`, ciclos / instruções | 5,26 G / 30,5 G | 5,22 G / 30,5 G | 5,30 G / 14,1 G |
+| árvores (só o núcleo, 20 rodadas), ms por rodada | 13 | 13 | 11 |
+| árvores, ciclos / instruções | 1,153 G / 5,51 G | 1,139 G / 5,51 G | 1,049 G / 5,02 G |
+| `bench.dart` inteiro, ciclos | 3,97 G | 3,95 G | 4,20 G |
+
+O servidor passou de 71% para 75% do Dart. `async` continua abaixo do Dart em ciclos
+(com o dobro de instruções) e as árvores continuam 8% acima em ciclos; nada desta
+rodada mexeu nelas.
+
+**Testes de ARC.** `ordinary_nullable_coalesce_with_throwing_inline_fallback_certifies` e
+`ordinary_late_generic_notifier_dispatch_prepares_without_erasing_field_guards` falhavam
+por uma regressão real, não por expectativa velha: `0e8cf6c7` (25/10) fez a entrada
+uniforme de todo método chamar `dartforge_nsm_mismatch(recv, nome, código, args, desc)`
+quando a aridade não bate, e os verificadores de vetores e de portas do ARC recusavam
+esse uso do descritor. Com isso nenhum módulo com método preparava sob ARC. Os demais
+testes dados como falhos na nota anterior (`trivial_phis`, `class_cases`) são estes
+mesmos dois. Com o LLVM 22.1.8 no `PATH` (`ld64.lld`), os 1.038 testes não ignorados de
+`dartforge-emit-native` passam, e também os de `dartforge-runtime`.
+
+**O que entrou** (cada um validado com os testes de `dartforge-emit-native` e
+`dartforge-runtime`, `cargo clippy -D warnings` e o corpus nativo: 160/160 em
+`--optimize` com `DARTFORGE_CHECK_SHADOW=1`, em `--optimize --gc-stress` e em
+desenvolvimento; o último também no corpus em Wasm, 160/160):
+
+- `1818759f`: os verificadores de ARC aceitam exatamente a forma de
+  `dartforge_nsm_mismatch` (lê o vetor e o descritor declarados e empresta os `Ref`, como
+  um adaptador de encaminhamento); o resultado passa pelo thunk Owned genérico.
+- `2d870798`: a preparação ARC publicada (`DARTFORGE_ARC_PREPARED=1`) não compilava
+  nenhum programa: a preparação do SDK parava na primeira função do runtime sem contrato
+  de posse acrescentada desde a última vez. Contratos auditados para
+  `dartforge_rti_tuple_len`, `dartforge_rti_bound`, `dartforge_args_set_tuple` (com o novo
+  tipo `mut:native`, endereço que o runtime escreve) e `dartforge_canonical_tearoff`. Dos
+  152 programas `.dart` do corpus nativo, comparados com `dart run` por um script (o
+  harness não tem modo ARC), 150 dão a mesma saída em ARC simples e em preparado (60
+  deles conferidos também sob `DARTFORGE_GC_STRESS=1`); os outros dois diferem do mesmo
+  jeito no tracing de desenvolvimento pelo mesmo script e passam no harness (`158` liga
+  asserts; `33` depende de tempo).
+- `45327774`: a fusão de caixas de inteiros anuláveis (`a?.m() ?? 0`) agora também roda
+  em código ARC antes da preparação. Árvores em ARC preparado: 371 → 351 ms (−7% de
+  ciclos); em ARC simples, −1,5%.
+- `7a574e3e`: cada mensagem postada a um isolado (cada prontidão de soquete da thread de
+  E/S) sinalizava a `Condvar` e fazia um `kevent(EVFILT_USER)` segurando o mutex da fila,
+  que o laço de eventos toma várias vezes entre eventos: a thread principal do servidor
+  ficava 2% bloqueada nesse mutex. Agora a fila sabe se a thread está esperando em
+  `wait_message` e só então a acorda, depois de soltar o mutex (a bomba nativa continua
+  sempre avisada). Servidor +4% de pedidos/s, −4,7% de ciclos por pedido.
+- `0490da9f`: a entrada uniforme de um método genérico resolvia a tupla de argumentos de
+  tipo com `dartforge_rti_tuple_join(0, 0, própria, limites)`, que copiava e reinternava a
+  tupla já internada, e chamava `dartforge_rti_tuple_len` mesmo sem tupla. Agora usa a
+  tupla passada como está e só monta os limites quando a chamada não passou nenhuma; a
+  entrada tipada (`tc:`) nem confere a aridade, que o tipo estático garante
+  (`Future.then` e o resto da maquinaria de streams e futures). Servidor +2,5%, −2,3% de
+  ciclos por pedido.
+- `f1b9b043`: `actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup`
+  (ignorado, pesado) falhava desde `c29dfd3c` — também em `88e5457a`: o registro de
+  `dart:mirrors` passou a entregar ao runtime os endereços dos tear-offs dos seus
+  métodos, obrigação que o inventário corretamente não certifica.
+
+**Testado e descartado: entrada direta por aridade para chamadas por seletor.** Feita por
+inteiro: entrada `$dc` (`i64 (this, a0…an-1, cache)`, só as conferências da entrada
+tipada) para métodos com até quatro parâmetros posicionais obrigatórios e sem
+parâmetros de tipo, registrada sob o seletor `dtc:m`; o sítio tipado posicional procura
+esse seletor num cache de quatro palavras e, quando a classe não tem a entrada, recebe a
+ponte da aridade (`@df.dbridge.<n>`), que monta o vetor e chama a entrada uniforme
+guardada no cache; a poda e o runtime conhecem a cadeia `dtc:m` → `tc:m` → `c:m`. Medido:
+no laço de `CodeUnits.[]` −0,9% de instruções e +3,9% de ciclos; no servidor 50,2 contra
+50,9 mil pedidos/s (sem ganho) e +260 KB de executável (4,42 → 4,68 MB). O vetor não é o
+custo: em `CodeUnits.[]$tc`, de ~45 instruções no caminho rápido, cerca de 20 são o
+contexto da thread por TLS, a verificação de pilha, o quadro de raízes empurrado na
+entrada e as conferências de exceção pendente, e o resto é desencaixotar o índice,
+encaixotar o resultado e o corpo, que a entrada direta mantém. Não entrou no repositório.
+
+**ARC continua longe do tracing**: árvores em 250 ms (ARC simples) e 351 ms (preparado)
+contra 14 ms. O tempo está no runtime — contagens numa tabela à parte
+(`Table::get_mut`, `discard_located`, `drain_zeros`), escrita de campo por chamada
+(`dartforge_object_set`), `retain_code_owner`/`release_code_owner` —, não em pares
+retain/release do código gerado. O próximo passo de ARC é a contagem no cabeçalho do
+objeto com retain/release em linha, um redesenho do runtime.
+
+**Onde vai o tempo do servidor agora** (thread principal, com registros de quadro):
+`write` 18%, `read` 7%, `ioctl` (`FIONREAD`) 2,3%, `memset` 2,3% (as duas `Uint8List` de
+8 KiB por pedido); RTI ~6,5%, quase todo em faltas dos caches por sítio no código
+genérico de streams e futures (`_StreamController.add`, `_FutureListener.handleValue`,
+`Future.then`, `Completer`), cujas instanciações se alternam no mesmo sítio;
+`_CopyingBytesBuilder.add` com `CodeUnits.[]` ~3%. O mutex da fila sumiu do perfil.
+
+**Próximos passos, em ordem:**
+
+1. O prólogo das funções: contexto da thread em registrador e o quadro de raízes só nos
+   caminhos lentos (com as raízes gravadas antes de cada ponto de coleta). É o que pesa
+   em cada chamada pequena; só depois disso a entrada direta por aridade pode compensar.
+2. O laço de `_CopyingBytesBuilder.add`: o teste de "lista do núcleo" de `bytes` é refeito
+   a cada iteração (desmembrar o laço) e `CodeUnits` pode entrar no caminho rápido das
+   listas do núcleo.
+3. RTI nos sítios genéricos de streams e futures.
+4. O laço de eventos toma o mutex da fila quatro vezes por evento (`serve_safepoints`,
+   `next_control`, `next_arrival`, `dispatch_next`): uma basta.
+
+Testes ignorados de `dartforge-emit-native`: os 13 de `tests/contract.rs` passam com
+`DARTFORGE_TEST_SDK_LIB` apontando o `lib/` do SDK; os demais pedem os executáveis
+gravados da matriz de desktop (`target/desktop-matrix`) e um sysroot Linux
+(`DARTFORGE_TEST_LINUX_SYSROOT`), que esta máquina não tem.
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
@@ -215,11 +333,12 @@ falhavam em `28a109bc`, sem estas mudanças.
    nulo e elimina `boolean_selector`, `source_span`, `string_scanner` e `stream_channel`, que
    aqui somam cerca de 160 KB sem minificação. No hello o piso vem dos membros de `Object`
    tratados como universais (`universal_names`): `toString` puxa o RTI inteiro.
-2. **Vazão HTTP ~70% do Dart** (49,7 contra 69,7 mil pedidos/s em 2026-10-27).
-   Perfil achatado; os ganhos estruturais são o modelo `async`
-   da VM, o contexto da thread em registrador e menos chamadas ao runtime em Rust.
-3. **`async` 1,3× o Dart** (em 2026-10-27: 259 contra 253 ms, no nível do Dart em
-   ciclos, com o dobro de instruções). O que sobra é a própria máquina de estados no
+2. **Vazão HTTP ~75% do Dart** (53,8 contra 71,7 mil pedidos/s no fim de 2026-10-27).
+   Perfil achatado; os ganhos estruturais são o prólogo das funções (contexto da thread
+   em registrador, quadro de raízes só nos caminhos lentos), o modelo `async` da VM e
+   menos chamadas ao runtime em Rust.
+3. **`async` no nível do Dart** (no fim de 2026-10-27: 254 contra 249 ms, 5,22 contra
+   5,30 G ciclos, com o dobro de instruções). O que sobra é a própria máquina de estados no
    estilo do dart2js (`_wrapBody` e o `guarded` por chamada, o corpo chamado pela
    entrada uniforme). A saída é o modelo da VM.
 4. **Enums e constantes como objetos da imagem.** Hoje cada `T.a` lê uma flag de
