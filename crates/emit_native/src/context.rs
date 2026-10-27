@@ -64,6 +64,9 @@ pub struct Context<'a> {
     pub(crate) enum_pattern_identity_enabled: bool,
     /// Produces ownership facts only for the --memory=arc policy.
     pub arc_memory: bool,
+    /// ARC whose stores into young objects come out inline
+    /// ([`crate::hir::Module::arc_nursery_writes`]).
+    pub arc_nursery_writes: bool,
     /// The `assert`s are compiled (`DartFlags::enable_asserts`,
     /// `lower/statements.rs`); off, they emit nothing.
     pub enable_asserts: bool,
@@ -401,6 +404,7 @@ impl<'a> Context<'a> {
                 .as_deref()
                 != Ok("1"),
             arc_memory: false,
+            arc_nursery_writes: false,
             enable_asserts: true,
             product: false,
             library_support: std::collections::HashMap::new(),

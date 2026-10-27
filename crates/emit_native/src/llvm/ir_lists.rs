@@ -171,10 +171,15 @@ const _: () = {
 /// and the storage replacement of the `_GrowableList` go through the
 /// runtime, which counts the replacement and applies the barrier: the element through the word
 /// of the `REFS` body (`dartforge_arc_write_ref`), the storage through field
-/// 1 of the `INSTANCE` (`dartforge_object_set`).
-pub(super) fn helpers(arc: bool) -> std::borrow::Cow<'static, str> {
+/// 1 of the `INSTANCE` (`dartforge_object_set`). Under the nursery
+/// (`Module::arc_nursery_writes`) only when the list or storage is not young: a
+/// young one is written inline, without barrier or count ([`nursery_helpers`]).
+pub(super) fn helpers(arc: bool, nursery: bool) -> std::borrow::Cow<'static, str> {
     if !arc {
         return std::borrow::Cow::Borrowed(HELPERS);
+    }
+    if nursery {
+        return std::borrow::Cow::Owned(nursery_helpers());
     }
     let element = "%e = call ptr @df.list_element(i64 %a, i64 %i)\nstore i64 %v, ptr %e, align 8\ncall void @df.element_barrier(i64 %a, i64 %i, i64 %v)\n";
     let arc_element =
@@ -187,6 +192,44 @@ pub(super) fn helpers(arc: bool) -> std::borrow::Cow<'static, str> {
             .replace(element, arc_element)
             .replace(data, arc_data),
     )
+}
+
+/// The tracing helpers with the stores of the ARC nursery: the element of a
+/// storage, the storage of a `_GrowableList` (also the one `@df.list_grow`
+/// installs) come out inline when the owner is young (state `YOUNG`, never
+/// remembered); otherwise through the runtime, as in [`helpers`] under ARC.
+fn nursery_helpers() -> String {
+    let young = |o: &str, k: &str| {
+        format!(
+            "%{k}p = inttoptr i64 %{o} to ptr\n%{k}s = getelementptr inbounds i8, ptr %{k}p, i64 {}\n%{k}e = load i8, ptr %{k}s, align 1\n%{k}y = icmp eq i8 %{k}e, {}\nbr i1 %{k}y, label %{k}.young, label %{k}.old\n",
+            layout::offsets::STATE as i64 - layout::HANDLE_OFFSET,
+            layout::state::YOUNG
+        )
+    };
+    let element = "%e = call ptr @df.list_element(i64 %a, i64 %i)\nstore i64 %v, ptr %e, align 8\ncall void @df.element_barrier(i64 %a, i64 %i, i64 %v)\n";
+    let nursery_element = format!(
+        "{}ny.old:\n%p = add i64 %i, 1\ncall void @dartforge_arc_write_ref(i64 %a, i64 %p, i64 %v)\nret void\nny.young:\n%e = call ptr @df.list_element(i64 %a, i64 %i)\nstore i64 %v, ptr %e, align 8\n",
+        young("a", "ny")
+    );
+    let data = "%p = inttoptr i64 %l to ptr\n%q = getelementptr inbounds i8, ptr %p, i64 22\nstore i64 %d, ptr %q, align 8\ncall void @df.barrier(i64 %l, i64 %d)\nbr label %fim\nfim:\n%r = phi i64 [ 1, %grava ], [ 0, %entrada ]\n";
+    let nursery_data = format!(
+        "{}ny.old:\ncall void @dartforge_object_set(i64 %l, i64 1, i64 %d, i8 1)\nbr label %fim\nny.young:\n%q = getelementptr inbounds i8, ptr %nyp, i64 22\nstore i64 %d, ptr %q, align 8\nbr label %fim\nfim:\n%r = phi i64 [ 1, %ny.old ], [ 1, %ny.young ], [ 0, %entrada ]\n",
+        young("l", "ny")
+    );
+    let grown = "%lp = inttoptr i64 %l to ptr\n%q = getelementptr inbounds i8, ptr %lp, i64 22\nstore i64 %n, ptr %q, align 8\ncall void @df.barrier(i64 %l, i64 %n)\n";
+    let nursery_grown = format!(
+        "{}ny.old:\ncall void @dartforge_object_set(i64 %l, i64 1, i64 %n, i8 1)\nret i64 %n\nny.young:\n%q = getelementptr inbounds i8, ptr %nyp, i64 22\nstore i64 %n, ptr %q, align 8\n",
+        young("l", "ny")
+    );
+    assert!(
+        HELPERS.matches(element).count() == 1
+            && HELPERS.matches(data).count() == 1
+            && HELPERS.matches(grown).count() == 1
+    );
+    HELPERS
+        .replace(element, &nursery_element)
+        .replace(data, &nursery_data)
+        .replace(grown, &nursery_grown)
 }
 
 /// The effects of each `@df.*` helper of this file called by

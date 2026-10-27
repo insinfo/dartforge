@@ -94,6 +94,7 @@ fn prune_constant_cfg(module: &mut Module) {
 /// tracing gets no Owned factories, ARC retains or releases.
 pub(crate) fn prepare_for_emission(module: &mut Module, arc_memory: bool, by_tables: bool) {
     module.arc_memory = arc_memory;
+    module.arc_nursery_writes &= arc_memory;
     optimize(module);
     if by_tables {
         let plan = tables::prepare(module);

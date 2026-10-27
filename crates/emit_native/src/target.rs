@@ -265,6 +265,15 @@ pub fn arc_nursery() -> bool {
     !std::env::var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "0")
 }
 
+/// Under the nursery, the unprepared code writes into a young object inline, as
+/// in tracing memory, and only a write into an older object goes through the
+/// runtime, which counts the replacement ([`crate::hir::Module::arc_nursery_writes`]).
+/// The prepared code keeps every write in the runtime (its proofs count the
+/// owners of each one).
+pub fn arc_nursery_writes() -> bool {
+    arc_nursery() && !arc_prepared().unwrap_or(true)
+}
+
 /// The published ARC preparation (owners in the HIR, `optimize::arc`), through the
 /// variable `DARTFORGE_ARC_PREPARED=1`: only with ARC memory. Absent,
 /// ARC follows the legacy regime of the CLI (no tokens in the code).

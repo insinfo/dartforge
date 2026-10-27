@@ -1043,8 +1043,10 @@ impl<'a> LlvmEmitter<'a> {
         if self.arc_tag_guards {
             self.out.push_str(arc_tag_guards::HELPERS);
         }
-        self.out
-            .push_str(&ir_lists::helpers(self.module.arc_memory));
+        self.out.push_str(&ir_lists::helpers(
+            self.module.arc_memory,
+            self.module.arc_nursery_writes,
+        ));
         self.out.push_str(if crate::target::is_wasm() {
             ir_typed::HELPERS_WASM
         } else {
@@ -1982,7 +1984,7 @@ impl<'a> LlvmEmitter<'a> {
                             self.emit_field_addresses_of(
                                 v,
                                 &format!("%v{v}"),
-                                !self.module.arc_memory,
+                                self.writes_inline(),
                             );
                         }
                         for (idx, field) in fields.iter().enumerate() {
@@ -1997,7 +1999,7 @@ impl<'a> LlvmEmitter<'a> {
                                 &is_ref,
                                 FieldWriteFacts {
                                     known_map: map,
-                                    fresh: !self.module.arc_memory,
+                                    fresh: self.writes_inline(),
                                 },
                             );
                         }
@@ -2040,13 +2042,17 @@ impl<'a> LlvmEmitter<'a> {
                         object,
                         index,
                         value,
-                    } if *index < INLINE_FIELDS && !self.module.arc_memory => {
+                    } if *index < INLINE_FIELDS && self.writes_inline() => {
                         let is_ref = u8::from(self.type_of(value) == Type::Ref);
                         let only = self.coerce(object, Type::I64);
                         let sv = self.coerce(value, Type::I64);
                         let fresh = self.fresh(object);
                         let known = self.fresh_map(object);
                         let direct = self.direct_body(object);
+                        let nursery = self.module.arc_memory && !fresh;
+                        if nursery {
+                            self.emit_nursery_split(v, &only, *index, &sv, &is_ref.to_string());
+                        }
                         self.emit_field_addresses_of(v, &only, direct);
                         self.emit_field_write(
                             v,
@@ -2060,7 +2066,8 @@ impl<'a> LlvmEmitter<'a> {
                             },
                         );
                         if self.inline_barrier(inst) {
-                            if fresh {
+                            // The young owner of the nursery is never remembered.
+                            if fresh || self.module.arc_memory {
                                 self.emit_barrier_label(v);
                             } else {
                                 self.emit_barrier(v, &only, &sv, None);
@@ -2137,7 +2144,7 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::CallRuntime { name, args, .. }
                     | Instruction::DeclaredFieldCall { name, args, .. }
                         if name == "dartforge_object_set"
-                            && !self.module.arc_memory
+                            && self.writes_inline()
                             && args.len() == 4
                             && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
                     {
@@ -2160,6 +2167,9 @@ impl<'a> LlvmEmitter<'a> {
                         let fresh = self.fresh(&args[0].0);
                         let known = self.fresh_map(&args[0].0);
                         let direct = self.direct_body(&args[0].0);
+                        if self.module.arc_memory && !fresh {
+                            self.emit_nursery_split(v, &only, *i as usize, &sv, &is_ref);
+                        }
                         self.emit_field_addresses_of(v, &only, direct);
                         self.emit_field_write(
                             v,
@@ -2173,7 +2183,8 @@ impl<'a> LlvmEmitter<'a> {
                             },
                         );
                         if self.inline_barrier(inst) {
-                            if fresh {
+                            // The young owner of the nursery is never remembered.
+                            if fresh || self.module.arc_memory {
                                 self.emit_barrier_label(v);
                             } else {
                                 let dynamic = is_ref.starts_with('%').then_some(is_ref.as_str());
@@ -2788,7 +2799,7 @@ impl<'a> LlvmEmitter<'a> {
                 {
                     self.attach_deopt(instruction_start, &live_set);
                 }
-                if !self.module.arc_memory
+                if self.writes_inline()
                     && (matches!(inst, Instruction::AllocObject { .. })
                         || Self::inline_allocation(inst).is_some()
                         || matches!(inst, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_new"))
@@ -5573,7 +5584,47 @@ impl<'a> LlvmEmitter<'a> {
     /// The operand is an object freshly allocated in this block, without a collection
     /// point since the allocation (`fresh_set`).
     fn fresh(&self, op: &Operand) -> bool {
-        !self.module.arc_memory && matches!(op, Operand::Val(x) if self.fresh_set.contains(&x.0))
+        self.writes_inline() && matches!(op, Operand::Val(x) if self.fresh_set.contains(&x.0))
+    }
+
+    /// The field stores come out inline: tracing memory, or the ARC nursery's
+    /// unprepared code ([`Module::arc_nursery_writes`]), whose store into an
+    /// object that is not young goes to the runtime ([`Self::emit_nursery_split`]).
+    fn writes_inline(&self) -> bool {
+        !self.module.arc_memory || self.module.arc_nursery_writes
+    }
+
+    /// The ARC nursery's store into an object that may be old: a young owner
+    /// (state `YOUNG`) takes the inline store that follows, without
+    /// barrier or count; any other goes to `dartforge_object_set`, which counts the
+    /// replacement and remembers the owner, and then to `wb{v}.fim`. Leaves the
+    /// emission in the young block.
+    fn emit_nursery_split(&mut self, v: u32, only: &str, index: usize, sv: &str, is_ref: &str) {
+        let o = &mut self.out;
+        writeln!(o, "  %nyp{v} = inttoptr i64 {only} to ptr").unwrap();
+        writeln!(
+            o,
+            "  %nys{v} = getelementptr inbounds i8, ptr %nyp{v}, i64 {}",
+            layout::offsets::STATE as i64 - layout::HANDLE_OFFSET
+        )
+        .unwrap();
+        writeln!(o, "  %nye{v} = load i8, ptr %nys{v}, align 1").unwrap();
+        writeln!(
+            o,
+            "  %nyy{v} = icmp eq i8 %nye{v}, {}",
+            layout::state::YOUNG
+        )
+        .unwrap();
+        writeln!(o, "  br i1 %nyy{v}, label %ny{v}.young, label %ny{v}.old").unwrap();
+        writeln!(o, "ny{v}.old:").unwrap();
+        writeln!(
+            o,
+            "  call void @dartforge_object_set(i64 {only}, i64 {index}, i64 {sv}, i8 {is_ref})"
+        )
+        .unwrap();
+        writeln!(o, "  br label %wb{v}.fim").unwrap();
+        writeln!(o, "ny{v}.young:").unwrap();
+        self.current_label = format!("ny{v}.young");
     }
 
     /// The body of the object `op` is the block itself: the freshly allocated one, or
@@ -6012,9 +6063,11 @@ impl<'a> LlvmEmitter<'a> {
     /// write barrier ([`LlvmEmitter::emit_barrier`]). A scalar constant
     /// or null does not need it.
     fn inline_barrier(&self, inst: &Instruction) -> bool {
-        // Under ARC the store goes to the runtime, with the barrier inside.
+        // Under ARC the store goes to the runtime, with the barrier inside; under
+        // the nursery, that of an object that is not young (the block always splits,
+        // [`Self::emit_nursery_split`]).
         if self.module.arc_memory {
-            return false;
+            return self.module.arc_nursery_writes && Self::inline_field_store(inst);
         }
         let may_be_ref = |op: &Operand| {
             !matches!(
@@ -6039,6 +6092,21 @@ impl<'a> LlvmEmitter<'a> {
                     Operand::Constant(Constant::Int(0)) | Operand::Constant(Constant::Bool(false))
                 );
                 !scalar && may_be_ref(&args[2].0)
+            }
+            _ => false,
+        }
+    }
+
+    /// A field store with a constant inline index: `SetField` or
+    /// `dartforge_object_set` (the stores that come out inline).
+    fn inline_field_store(inst: &Instruction) -> bool {
+        match inst {
+            Instruction::SetField { index, .. } => *index < INLINE_FIELDS,
+            Instruction::CallRuntime { name, args, .. }
+            | Instruction::DeclaredFieldCall { name, args, .. } => {
+                name == "dartforge_object_set"
+                    && args.len() == 4
+                    && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i))
             }
             _ => false,
         }
@@ -6239,7 +6307,7 @@ impl<'a> LlvmEmitter<'a> {
             // body, no barrier — and no root is kept across them.
             Instruction::CallRuntime { name, args, .. }
             | Instruction::DeclaredFieldCall { name, args, .. }
-                if !self.module.arc_memory
+                if self.writes_inline()
                     && (name == "dartforge_object_get"
                         || (name == "dartforge_object_set" && args.len() == 4))
                     && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>

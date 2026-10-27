@@ -477,7 +477,8 @@ impl LlvmEmitter<'_> {
     /// `%v<v>` start counting (`dartforge_arc_initial`): the generated code does not
     /// go through the runtime for these writes.
     pub(super) fn count_initial_in_arc(&mut self, v: u32) {
-        if self.module.arc_memory {
+        // The nursery counts a young object's references at promotion.
+        if self.module.arc_memory && !self.module.arc_nursery_writes {
             writeln!(self.out, "  call void @dartforge_arc_initial(i64 %v{v})").unwrap();
         }
     }

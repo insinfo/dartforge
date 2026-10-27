@@ -6892,16 +6892,18 @@ impl Heap {
     /// that gains its first occurrence). In nursery mode it only counts with an
     /// old owner (the young object's edges enter at promotion).
     fn arc_swapped(&mut self, b: *mut Header, h: Ref, old: Ref, new: Ref) {
-        let new_in_space = self.space_block(new).is_some();
-        let Some(arc) = self.arc.as_deref_mut() else {
+        let Some(arc) = self.arc.as_ref() else {
             return;
         };
         // SAFETY: live block of the space.
         let e = unsafe { (*b).state };
-        if old == new
-            || arc.snapshots.contains_key(&h)
-            || (!arc.pure && e != OLD && e != REMEMBERED)
-        {
+        // The nursery's young owner (the common case) first, without lookups.
+        if old == new || (!arc.pure && e != OLD && e != REMEMBERED) {
+            return;
+        }
+        let new_in_space = arc.pure && self.space_block(new).is_some();
+        let arc = self.arc.as_deref_mut().expect("ARC on");
+        if arc.snapshots.contains_key(&h) {
             return;
         }
         if !arc.pure {
@@ -7020,21 +7022,19 @@ impl Heap {
         self.enable_arc_mode(false);
     }
 
-    /// [`Self::enable_arc`] choosing the young objects' treatment: `nursery` (the
-    /// unprepared program) leaves them uncounted until promotion; otherwise every
-    /// write counts on the spot (the pure ARC, which the prepared code requires).
-    /// `DARTFORGE_ARC_NURSERY=0` or `=1` overrides the choice (measurement). A heap
-    /// whose ARC is already on keeps its mode: switching after objects were
-    /// counted would break the counts.
+    /// [`Self::enable_arc`] choosing the young objects' treatment: `nursery`
+    /// leaves them uncounted until promotion; otherwise every write counts on the
+    /// spot (the pure ARC). `DARTFORGE_ARC_NURSERY=1` forces the nursery on a
+    /// program compiled for the pure ARC (measurement); the reverse is a
+    /// compile-time choice, since nursery code writes young objects inline,
+    /// without counting. A heap whose ARC is already on keeps its mode: switching
+    /// after objects were counted would break the counts.
     pub fn enable_arc_mode(&mut self, nursery: bool) {
         if self.arc.is_some() {
             return;
         }
-        let nursery = match crate::console::env_var("DARTFORGE_ARC_NURSERY").as_deref() {
-            Ok("1") => true,
-            Ok("0") => false,
-            _ => nursery,
-        };
+        let nursery =
+            nursery || crate::console::env_var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "1");
         self.run_collection(false);
         let mut arc = Box::new(HeapArc {
             state: crate::arc::ArcHeapState::new(),
@@ -7283,16 +7283,21 @@ impl Heap {
                 arc.snapshots.keys().collect::<Vec<_>>()
             );
         }
-        let new_ones: crate::hash::HashSet<Ref> = promoted.iter().copied().collect();
+        // The promoted ones are those registered from here on (a generation at
+        // least `first`), without a set of their own.
+        let first = arc.state.next_generation();
         for &h in &promoted {
             arc.state
                 .register_live_at(h, arc_geometry(&self.objects, h));
         }
+        let promoted_now = |state: &crate::arc::ArcHeapState, h: Ref| {
+            state.meta(h).is_some_and(|m| m.generation >= first)
+        };
         // Promotion rebuilt RC; restores each owning occurrence,
         // without retaining again the owners of objects that were already old.
         for h in self.owning_roots() {
-            if new_ones.contains(&h) {
-                self.arc_retain_registering(&mut arc, h);
+            if smi::e_handle(h) && promoted_now(&arc.state, h) {
+                arc.state.retain_ref(h).unwrap_or_else(|e| arc_failure(e));
             }
         }
         let mut value_list = Vec::new();
@@ -7306,9 +7311,11 @@ impl Heap {
         }
         // The references the remembered old objects have to promoted ones, as the
         // minor collection's card scan found them (a snapshotted owner counts all
-        // its current references below).
+        // its current references below). Each target was young and reached through
+        // its remembered owner: promoted now.
         for (x, v) in std::mem::take(&mut arc.old_to_young) {
-            if new_ones.contains(&v) && !arc.snapshots.contains_key(&x) && arc.state.alive(x) {
+            if !arc.snapshots.contains_key(&x) && arc.state.alive(x) {
+                debug_assert!(promoted_now(&arc.state, v));
                 arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
             }
         }
@@ -7363,13 +7370,14 @@ impl Heap {
         }
         // All roots protect the zeros they see; the owning slots
         // already had their occurrences included in RC.
+        // A sorted vector: built on every minor collection, consulted only for the
+        // zeros (cheaper than hashing every root).
         let mut root_list = Vec::new();
         self.root_list(&mut root_list);
-        let root_list: crate::hash::HashSet<Ref> = root_list
-            .into_iter()
-            .filter(|&h| smi::e_handle(h))
-            .collect();
-        let protected = |h: Ref| root_list.contains(&h);
+        root_list.retain(|&h| smi::e_handle(h));
+        root_list.sort_unstable();
+        root_list.dedup();
+        let protected = |h: Ref| root_list.binary_search(&h).is_ok();
         for &h in &root_list {
             arc.state.add_candidate(h);
         }

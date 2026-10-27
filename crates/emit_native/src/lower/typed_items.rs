@@ -661,7 +661,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The class id of `CodeUnits` (`dart:_internal`) and the position of its
     /// `_string` field, when the program has the class with a fixed layout.
     fn code_units_layout(&self) -> Option<(u32, usize)> {
-        if self.ctx.arc_memory {
+        if self.arc_lists() {
             return None;
         }
         *self.ctx.code_units.get_or_init(|| {
@@ -982,7 +982,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::I1,
                 )
             }
-            _ if self.ctx.arc_memory => self.emit(
+            _ if self.arc_lists() => self.emit(
                 Instruction::CallRuntime {
                     name: arc_list_ref_read().into(),
                     args: vec![(list.clone(), Type::Ref), (index.clone(), Type::I64)],

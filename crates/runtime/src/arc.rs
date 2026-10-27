@@ -429,6 +429,12 @@ impl ArcHeapState {
         self.objects.get(&h)
     }
 
+    /// The generation the next registration receives: an object registered after
+    /// this call has a [`MetaArc::generation`] at least this one.
+    pub fn next_generation(&self) -> u64 {
+        self.next_generation
+    }
+
     /// How many objects have metadata (alive, under construction or dead and not yet
     /// reclaimed).
     pub fn registered_set(&self) -> usize {

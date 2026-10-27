@@ -210,6 +210,7 @@ pub fn late_field_getter_symbol(ctx: &Context, vid: VariableId) -> String {
 pub fn lower_program(ctx: &Context) -> Module {
     let mut module = Module::new();
     module.arc_memory = ctx.arc_memory;
+    module.arc_nursery_writes = ctx.arc_memory && ctx.arc_nursery_writes;
     module.checked_double_identity = double_identity::certified(ctx);
 
     // 1. Registers known classes

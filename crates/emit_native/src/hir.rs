@@ -1154,6 +1154,12 @@ pub struct Module {
     /// entry turns ARC on in the runtime and the reference stores into an object
     /// that may be old go through the runtime (docs/ARC-IMPLEMENTACAO.md).
     pub arc_memory: bool,
+    /// ARC with the nursery and without the published preparation
+    /// (`target::arc_nursery_writes`): young objects are not counted, so a store
+    /// into a young object comes out inline, as in tracing memory (no barrier: a
+    /// young owner is never remembered), and only a store into an older object
+    /// goes through the runtime. The runtime cannot then run the pure ARC.
+    pub arc_nursery_writes: bool,
     /// With [`Module::table_exceptions`], the decision of the pass for each
     /// function, in the order of [`Module::functions`].
     pub tables: Vec<FunctionTables>,

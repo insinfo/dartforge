@@ -30,6 +30,14 @@ fn c(n: i64) -> Operand {
 const SHAPE_GENERAL: i64 = flags::REFS as i64;
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
+    /// The core lists go through the audited ARC entry points (ARC memory,
+    /// except the nursery's unprepared code, whose `@df.list_*` helpers write a
+    /// young list inline and count an older one through the runtime,
+    /// `llvm/ir_lists.rs`).
+    pub(super) fn arc_lists(&self) -> bool {
+        self.ctx.arc_memory && !self.ctx.arc_nursery_writes
+    }
+
     /// The external core-list member done inline, or `None` (the usual
     /// call). `member` is `Class.name`; `native`, the name of the native, if any.
     pub(super) fn inline_list(
@@ -83,7 +91,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         args: Vec<(Operand, Type)>,
         ret: Type,
     ) -> Operand {
-        let name_str = if self.ctx.arc_memory {
+        let name_str = if self.arc_lists() {
             match name_str {
                 "df.list_storage" => "dartforge_arc_list_storage_ref_v1",
                 "df.list_capacity" => "dartforge_arc_list_capacity_v1",
@@ -114,7 +122,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The storage: a borrowed Ref in ARC; an I64 address in tracing,
     /// kept alive by the list and used without a collection between access and use.
     pub(super) fn list_storage_inline(&mut self, l: Operand) -> Operand {
-        let ty = if self.ctx.arc_memory {
+        let ty = if self.arc_lists() {
             Type::Ref
         } else {
             Type::I64
@@ -124,7 +132,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// The `FORMAT`/`ELEMENT` bits of storage `a` (`@df.list_shape`), in `I64`.
     pub(super) fn list_shape_inline(&mut self, a: Operand) -> Operand {
-        if self.ctx.arc_memory {
+        if self.arc_lists() {
             return self.list_helper(
                 "dartforge_arc_list_shape_v1",
                 vec![(a, Type::Ref)],
@@ -336,7 +344,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // Full under tracing memory: the growth in generated code
         // (`@df.list_grow`, `llvm/ir_lists.rs`), which gives 0 for a storage too
         // large for it; only then the caller's `full` (the runtime).
-        let b_grow = if self.ctx.arc_memory {
+        let b_grow = if self.arc_lists() {
             full
         } else {
             self.new_block()
@@ -347,7 +355,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             else_block: b_grow,
         });
         let mut grown: Option<BlockId> = None;
-        if !self.ctx.arc_memory {
+        if !self.arc_lists() {
             self.set_block(b_grow);
             let header =
                 layout::header_word(layout::state::YOUNG, shape, 0, layout::cid::LIST) as i64;
@@ -390,7 +398,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
 
         self.set_block(b_write);
-        if self.ctx.arc_memory {
+        if self.arc_lists() {
             let bits = if ty == CType::F64 {
                 self.emit(
                     Instruction::Bitcast {

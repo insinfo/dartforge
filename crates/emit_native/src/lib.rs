@@ -609,6 +609,7 @@ fn emit_ir_internal(
     let te = erasure::compute(&program, &outline, &mut table);
     let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
     ctx.arc_memory = arc_memory;
+    ctx.arc_nursery_writes = arc_memory && target::arc_nursery_writes();
     ctx.enable_asserts = flags.enable_asserts;
     ctx.product = flags.product;
     ctx.library_support = sdk_module::library_support(&sdk);

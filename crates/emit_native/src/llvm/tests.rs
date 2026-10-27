@@ -942,6 +942,64 @@ fn ref_field_carries_is_ref() {
     assert!(!body.contains("@dartforge_object_set("), "{body}");
 }
 
+/// The ARC nursery's unprepared code: a store into an object that may be old
+/// tests the owner's state; the young one is written inline (no barrier, no
+/// count) and any other goes to `dartforge_object_set`, which counts the
+/// replacement. Without the nursery, every ARC store goes to the runtime.
+#[test]
+fn arc_nursery_store_is_inline_only_for_a_young_owner() {
+    let (v0, v1) = (ValueId(0), ValueId(1));
+    for nursery in [false, true] {
+        let f = function(
+            "k",
+            vec![
+                (v0, "o".to_string(), Type::Ref),
+                (v1, "s".to_string(), Type::Ref),
+            ],
+            Type::Void,
+            vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(2),
+                    Instruction::SetField {
+                        object: Operand::Val(v0),
+                        index: 0,
+                        value: Operand::Val(v1),
+                    },
+                    Type::Void,
+                )],
+                terminator: Terminator::Return(None),
+            }],
+        );
+        let mut m = Module::new();
+        m.arc_memory = true;
+        m.arc_nursery_writes = nursery;
+        m.functions.push(f);
+        let ir = LlvmEmitter::new(&m).emit_all();
+        let body = body_of(&ir, "k");
+        assert!(
+            body.contains("call void @dartforge_object_set(i64 %v0, i64 0, i64 %v1, i8 1)"),
+            "{body}"
+        );
+        assert_eq!(body.contains("store i64 %v1, ptr %fg2"), nursery, "{body}");
+        if nursery {
+            let state = dartforge_runtime::layout::offsets::STATE as i64
+                - dartforge_runtime::layout::HANDLE_OFFSET;
+            assert!(
+                body.contains(&format!(
+                    "%nys2 = getelementptr inbounds i8, ptr %nyp2, i64 {state}"
+                )),
+                "{body}"
+            );
+            assert!(
+                body.contains("br i1 %nyy2, label %ny2.young, label %ny2.old"),
+                "{body}"
+            );
+            assert!(!body.contains("@df.barrier("), "{body}");
+        }
+    }
+}
+
 /// E3: the verifier rejects an integer constant in a `Ref` position and a tag
 /// inconsistent with the representation (the flat `(bits, tag)` ABI of
 /// throwing).

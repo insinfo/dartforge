@@ -465,6 +465,7 @@ fn emit_sdk_modules(
                 .only_the_library(lib);
         ctx.te = te.clone();
         ctx.arc_memory = arc_memory;
+        ctx.arc_nursery_writes = arc_memory && crate::target::arc_nursery_writes();
         ctx.enable_asserts = flags.enable_asserts;
         ctx.product = flags.product;
         ctx.library_support = support.clone();
