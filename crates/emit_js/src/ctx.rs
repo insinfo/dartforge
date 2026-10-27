@@ -339,13 +339,18 @@ impl<'a> Ctx<'a> {
         let mut fn_js = HashMap::new();
         let mut var_js = HashMap::new();
         for (li, lib) in self.program.libraries.iter().enumerate() {
-            if self.libs[li].is_sdk {
+            // In the SDK, only the `@JS('…')` names of the unpatched `external`
+            // extension members of `dart:js_interop` (`callAsFunction`, which
+            // the CFE lowers to `f.call(…)` at each call site:
+            // `interop_extension_member`).
+            let sdk_extensions_only = self.libs[li].is_sdk;
+            if sdk_extensions_only && lib.uri != "dart:js_interop" {
                 continue;
             }
             let lib_id = LibraryId(li as u32);
             for (ui, &uid) in lib.units.iter().enumerate() {
                 let unit = self.program.unit(uid);
-                if ui == 0 {
+                if ui == 0 && !sdk_extensions_only {
                     for d in &unit.unit.directives {
                         if let ast::DirectiveKind::Library { .. } = d.kind {
                             for a in &d.metadata {
@@ -358,6 +363,9 @@ impl<'a> Ctx<'a> {
                 }
                 for &did in &unit.unit.declarations {
                     let d = unit.ast.decl(did);
+                    if sdk_extensions_only && !matches!(d.kind, DeclKindRef::Extension(_)) {
+                        continue;
+                    }
                     let members: &[ast::MemberId] = match &d.kind {
                         DeclKindRef::Class(cd) => &cd.members,
                         DeclKindRef::Mixin(md) => &md.members,
@@ -684,12 +692,18 @@ impl<'a> Ctx<'a> {
     /// no `Ext|get#m` function for them.
     pub fn interop_extension_member(&self, fid: FunctionElementId) -> Option<String> {
         let f = self.program.function(fid);
-        if !f.external
-            || f.static_
-            || f.extension.is_none()
-            || self.libs[f.library.0 as usize].is_sdk
-        {
+        if !f.external || f.static_ || f.extension.is_none() {
             return None;
+        }
+        if self.libs[f.library.0 as usize].is_sdk {
+            // `dart:js_interop`'s `@JS('call') external callAsFunction(…)` has
+            // no patch: like the CFE, every call becomes `f.call(…)`.
+            return self
+                .fn_js
+                .get(&fid)
+                .cloned()
+                .flatten()
+                .filter(|n| !n.is_empty());
         }
         let explicit = self
             .fn_js
