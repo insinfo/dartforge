@@ -1184,6 +1184,14 @@ impl<'a> Engine<'a> {
         self.local_names
     }
 
+    /// `late` instance field initializers are walked with the field's getter
+    /// (with the SDK in the world, where the emitter puts them there);
+    /// `DARTFORGE_JSPROD_LATE_INITIALIZERS=0` walks them with the class.
+    pub(crate) fn lazy_late_initializers(&self) -> bool {
+        self.include_sdk
+            && std::env::var("DARTFORGE_JSPROD_LATE_INITIALIZERS").map_or(true, |v| v != "0")
+    }
+
     /// Whether an instance member named `name` is live in every instantiated
     /// class, whatever the selectors say ([`Engine::universal_names`],
     /// narrowed by [`Engine::object_selectors`]).

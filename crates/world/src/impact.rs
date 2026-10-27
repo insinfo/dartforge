@@ -159,6 +159,7 @@ pub(crate) fn of_function(m: &mut Engine<'_>, f: FunctionElementId) {
             walk_body(m, &ctx, &c.body);
         }
         FunctionRef::None => {
+            late_initializer(m, f);
             // The synthetic `values` of an enum lists every constant.
             if func.static_
                 && func.kind == FunctionKind::Getter
@@ -421,6 +422,11 @@ pub(crate) fn of_fields(m: &mut Engine<'_>, c: ClassId) {
         {
             m.visit_type(t);
         }
+        // A `late` initializer runs at the first read, in the field's getter
+        // ([`late_initializer`]), not at construction.
+        if var.late && m.lazy_late_initializers() {
+            continue;
+        }
         if let Some((unit, Some(init))) = m.variable_node(vid) {
             let ctx = Context {
                 unit,
@@ -435,6 +441,33 @@ pub(crate) fn of_fields(m: &mut Engine<'_>, c: ClassId) {
     // The constants of an enum live one by one: each one read (or all of
     // them, through `values`) is created by [`enum_constant`], and the
     // emitter leaves out the others (`docs/JS-PRODUCAO-TAMANHO.md` §12).
+}
+
+/// The initializer of a `late` instance field, walked when the field's
+/// implicit getter becomes live (the emitter computes it there, on the
+/// first read) instead of when the class is instantiated ([`of_fields`]).
+fn late_initializer(m: &mut Engine<'_>, f: FunctionElementId) {
+    let p = m.e.program;
+    let func = p.function(f);
+    if func.kind != FunctionKind::ImplicitAccessor || !m.lazy_late_initializers() {
+        return;
+    }
+    let Some(vid) = func.variable else { return };
+    let var = p.variable(vid);
+    if !var.late || var.static_ || var.getter != Some(f) {
+        return;
+    }
+    let Some(c) = var.class else { return };
+    if let Some((unit, Some(init))) = m.variable_node(vid) {
+        let ctx = Context {
+            unit,
+            library: var.library,
+            class: Some(c),
+            extension: None,
+            no_this: false,
+        };
+        expr(m, &ctx, init);
+    }
 }
 
 /// An enum constant that has become live: its constructor and arguments.
