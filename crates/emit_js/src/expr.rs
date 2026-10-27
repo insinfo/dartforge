@@ -2959,20 +2959,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let member = member.or_else(|| self.ctx.lookup_member(recv_ty, name, false));
         // Object members with helpers.
         let recv_nn = recv_ty.non_null();
+        // A nullable receiver may be `null`: the helpers handle it.
+        let helper = !self.is_user_class_recv(&recv_nn) || recv_ty.is_nullable();
         match name {
-            "hashCode" if !self.is_user_class_recv(&recv_nn) => {
+            "hashCode" if helper => {
                 return (
                     Js::prim(format!("dart.hashCode({})", recv.code)),
                     self.ctx.t_int(),
                 );
             }
-            "runtimeType" if !self.is_user_class_recv(&recv_nn) => {
+            "runtimeType" if helper => {
                 return (
                     Js::prim(format!("dart.runtimeType({})", recv.code)),
                     self.ctx.t_type(),
                 );
             }
-            "toString" | "noSuchMethod" if !self.is_user_class_recv(&recv_nn) => {
+            "toString" | "noSuchMethod" if helper => {
                 let ty = member
                     .as_ref()
                     .map(|m| self.ctx.member_ty(m))
@@ -6129,6 +6131,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         if ctor_name == "hasEnvironment" && Some(class) == self.ctx.bool_ {
+            // Outside a constant it is unsupported on the web, as in the SDK.
+            if !is_const && !self.in_const {
+                self.m.use_sdk("core");
+                return (
+                    Js::prim(
+                        "dart.throw(new core.UnsupportedError.new(\"bool.hasEnvironment can only be used as a const constructor\"))",
+                    ),
+                    self.ctx.t_bool(),
+                );
+            }
             // Without `-D` on the command line, no variable is declared.
             return (Js::prim("false"), self.ctx.t_bool());
         }
@@ -6272,6 +6284,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             return None;
         };
+        // `dart.library.x` is declared (`"true"`) for every library the
+        // platform supports.
+        if (Some(class) == self.ctx.bool_ || Some(class) == self.ctx.string_)
+            && let Some(first) = arguments.args.iter().find(|a| a.name.is_none())
+            && let ExprKind::String(lit) = &self.expr(first.value).kind
+            && let Some(text) = lit.constant_value()
+            && let Some(library) = text.as_str().and_then(|t| t.strip_prefix("dart.library."))
+            && crate::SUPPORTED_DART_LIBRARIES
+                .get()
+                .is_some_and(|s| s.contains(library))
+        {
+            let value = if Some(class) == self.ctx.bool_ {
+                "true"
+            } else {
+                "\"true\""
+            };
+            return Some((Js::prim(value.to_string()), ty));
+        }
         let default_arg = arguments
             .args
             .iter()

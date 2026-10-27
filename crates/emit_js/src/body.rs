@@ -1918,7 +1918,17 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         | StmtKind::While { .. }
                         | StmtKind::DoWhile { .. }
                 );
-                if is_loop || matches!(body_stmt.kind, StmtKind::Switch { .. }) {
+                // A labeled declaration stays in the enclosing scope (no JS
+                // block): nothing can break to its label.
+                let declaration = matches!(
+                    body_stmt.kind,
+                    StmtKind::Variables(_)
+                        | StmtKind::PatternVariables { .. }
+                        | StmtKind::Function(_)
+                );
+                if declaration {
+                    self.emit_stmt(*body);
+                } else if is_loop || matches!(body_stmt.kind, StmtKind::Switch { .. }) {
                     crate::emit_line!(self.w, "{first}:");
                     self.emit_stmt(*body);
                 } else {
@@ -2260,6 +2270,10 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                                 crate::emit_line!(self.w, "case {}:", cv);
                             }
                         }
+                    }
+                    // An empty case shares the next case's body.
+                    if c.body.is_empty() {
+                        continue;
                     }
                     self.w.open("{");
                     self.push_scope();

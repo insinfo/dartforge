@@ -690,7 +690,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let implicit_this = std::mem::take(&mut self.implicit_this_call);
         let recv_nn = recv_ty.non_null();
         // Object members with helpers.
-        let user = self.is_user_class_ty(&recv_nn) || is_super;
+        // A nullable receiver may be `null`: the helpers handle it.
+        let user = (self.is_user_class_ty(&recv_nn) && !recv_ty.is_nullable()) || is_super;
         match name {
             "toString" if !user && arguments.args.is_empty() => {
                 return (

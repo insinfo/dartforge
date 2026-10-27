@@ -225,6 +225,12 @@ pub struct Emitted {
 
 /// The analyzed program (elements, outline, bodies), handed to callers compiling
 /// in the production profile so they can compute the closed world before emitting.
+/// The `dart:` libraries the `dartdevc` profile of the loaded SDK supports:
+/// the `dart.library.*` environment declarations (`bool.fromEnvironment`),
+/// consistent with the conditional imports the loader selected.
+pub static SUPPORTED_DART_LIBRARIES: std::sync::OnceLock<std::collections::HashSet<String>> =
+    std::sync::OnceLock::new();
+
 pub struct Analysis<'a> {
     pub program: &'a Program,
     pub interner: &'a Interner,
@@ -635,6 +641,13 @@ pub fn compile_with_options<R>(
     };
     let mut sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
     language.apply(&mut sdk);
+    let _ = SUPPORTED_DART_LIBRARIES.set(
+        sdk.libraries
+            .iter()
+            .filter(|(_, l)| l.supported)
+            .map(|(name, _)| name.clone())
+            .collect(),
+    );
     // The production profile compiles the SDK too: the patches that drop
     // dynamic dispatch from the runtime (`sdk_patches`).
     if infer_sdk && std::env::var("DARTFORGE_JSPROD_SDK_PATCHES").map_or(true, |v| v != "0") {
