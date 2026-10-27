@@ -451,10 +451,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         let mut targs = Vec::new();
         for p in type_params {
-            let t = subst
-                .get(&p.id)
-                .cloned()
-                .unwrap_or_else(|| self.default_type_arg(&p.bound));
+            let t = match subst.get(&p.id).cloned() {
+                Some(t) => t,
+                // Instantiate to bounds: the bound with the parameters solved
+                // so far; one that still mentions this function's own
+                // unsolved parameters is `dynamic` (the enclosing class's and
+                // functions' parameters are in scope).
+                None => {
+                    let bound = p.bound.subst(&subst);
+                    let mut params = Vec::new();
+                    bound.collect_params(&mut params);
+                    if params.iter().any(|id| free.contains(id)) {
+                        Ty::Dynamic
+                    } else if crate::own_sdk::is_top(self.ctx, &bound) {
+                        Ty::Dynamic
+                    } else {
+                        bound
+                    }
+                }
+            };
             subst.insert(p.id, t.clone());
             targs.push(self.rti(&t));
         }
@@ -1789,10 +1804,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if tps.is_empty() {
             (Js::prim(format!("dart.fn({text}, {rti})")), fn_ty)
         } else {
-            let defaults: Vec<String> = tps
-                .iter()
-                .map(|p| self.rti(&self.default_type_arg(&p.bound)))
-                .collect();
+            // Instantiate to bounds; enclosing parameters are in scope where
+            // the closure is created, its own unsolved ones are `dynamic`.
+            let own: Vec<u32> = tps.iter().map(|p| p.id).collect();
+            let mut solved: HashMap<u32, Ty> = HashMap::new();
+            let mut defaults: Vec<String> = Vec::new();
+            for p in tps.iter() {
+                let bound = p.bound.subst(&solved);
+                let mut params = Vec::new();
+                bound.collect_params(&mut params);
+                let d = if params.iter().any(|id| own.contains(id))
+                    || crate::own_sdk::is_top(self.ctx, &bound)
+                {
+                    Ty::Dynamic
+                } else {
+                    bound
+                };
+                defaults.push(self.rti(&d));
+                solved.insert(p.id, d);
+            }
             (
                 Js::prim(format!(
                     "dart.gFn({text}, {rti}, dart.constList(dart_rti._Universe.eval(dart_rti._theUniverse(), \"@\", true), [{}]))",

@@ -2113,20 +2113,44 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                                 crate::own_sdk::reified_method_type(ctx, c, feid, fty.clone()),
                             ));
                             if is_generic {
-                                let defaults: Vec<Ty> = data
+                                // Instantiate to bounds: a bound over the
+                                // class's parameters is read from the
+                                // receiver's instantiation (`_ti`); the
+                                // method's own parameters in a bound take
+                                // their own defaults.
+                                let own: Vec<crate::ty::TyParam> = data
                                     .type_params
                                     .iter()
-                                    .map(|p| {
-                                        let tp = ctx.ty_param_of(*p);
-                                        if tp.bound.mentions_params()
-                                            || crate::own_sdk::is_top(ctx, &tp.bound)
-                                        {
-                                            Ty::Dynamic
-                                        } else {
-                                            (*tp.bound).clone()
-                                        }
-                                    })
+                                    .map(|p| ctx.ty_param_of(*p))
                                     .collect();
+                                let class_ids: Vec<u32> = ctx.class_params[c.0 as usize]
+                                    .iter()
+                                    .map(|p| p.id)
+                                    .collect();
+                                let mut defaults: Vec<Ty> = Vec::new();
+                                for tp in &own {
+                                    let map: HashMap<u32, Ty> = own
+                                        .iter()
+                                        .zip(
+                                            defaults
+                                                .iter()
+                                                .cloned()
+                                                .chain(std::iter::repeat(Ty::Dynamic)),
+                                        )
+                                        .map(|(q, d)| (q.id, d))
+                                        .collect();
+                                    let bound = tp.bound.subst(&map);
+                                    let mut free = Vec::new();
+                                    bound.collect_params(&mut free);
+                                    let d = if crate::own_sdk::is_top(ctx, &bound)
+                                        || free.iter().any(|id| !class_ids.contains(id))
+                                    {
+                                        Ty::Dynamic
+                                    } else {
+                                        bound
+                                    };
+                                    defaults.push(d);
+                                }
                                 generic_methods.push((jsname.clone(), defaults));
                             }
                             if natives.contains(&name) || (name == "==" && !native_class) {

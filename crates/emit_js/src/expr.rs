@@ -908,10 +908,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let mut rtis = Vec::new();
                 let mut constant = true;
                 for p in type_params {
-                    let t = subst
-                        .get(&p.id)
-                        .cloned()
-                        .unwrap_or_else(|| self.default_type_arg(&p.bound));
+                    // Unconstrained: instantiate to the bound (with the
+                    // parameters solved so far; `dynamic` if it still
+                    // mentions this function's own parameters).
+                    let t = subst.get(&p.id).cloned().unwrap_or_else(|| {
+                        let bound = p.bound.subst(&subst);
+                        let mut params = Vec::new();
+                        bound.collect_params(&mut params);
+                        if params.iter().any(|id| free.contains(id))
+                            || crate::own_sdk::is_top(self.ctx, &bound)
+                        {
+                            Ty::Dynamic
+                        } else {
+                            bound
+                        }
+                    });
                     constant &= !t.mentions_params();
                     subst.insert(p.id, t.clone());
                     rtis.push(self.rti(&t));
