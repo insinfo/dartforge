@@ -1164,9 +1164,9 @@ fn nsm_forwarder(
                     let jsn = format!("n{i}");
                     let key = ctx.named_key(n);
                     prologue.push_str(&format!(
-                        "let {jsn} = opts && {} in opts ? opts{} : null;
+                        "let {jsn} = opts && {} ? opts{} : null;
 ",
-                        js::string_literal(&key),
+                        js::has_named("opts", &key),
                         js::prop_access(&key)
                     ));
                     names.push((ast::ParameterKind::Named, n.clone(), jsn));
@@ -2374,6 +2374,22 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let _ = &mut se;
     }
 
+    // Setter forwarding stubs: a mixin's setter under a covariant supertype
+    // setter checks the value; the getter keeps forwarding.
+    if !is_mixin {
+        let se = FnEmitter::new(ctx, m, unit, Some(c), false);
+        for (name, ty) in crate::own_sdk::setter_covariance_stubs(ctx, c) {
+            let key = sig_key(&name, &se, c);
+            let access = se.member_access(&ctx.this_ty(c), &name, true);
+            cw.line(&format!(
+                "set {key}(v) {{ {}[_as](v); super{access} = v; }}",
+                se.rti(&ty)
+            ));
+            let getter = se.member_access(&ctx.this_ty(c), &name, false);
+            cw.line(&format!("get {key}() {{ return super{getter}; }}"));
+        }
+    }
+
     // Covariance forwarding stubs: an inherited implementation that does not
     // check a parameter this class's interface makes covariant.
     if !is_mixin {
@@ -3244,6 +3260,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     }
     // Static fields and enum constants (lazy).
     let mut lazy: Vec<String> = Vec::new();
+    let mut clashes: Vec<String> = Vec::new();
     if is_enum {
         let mut e = FnEmitter::new(ctx, m, unit, Some(c), true);
         e.in_const = true;
@@ -3375,21 +3392,51 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     indent(&set)
                 ))
             ));
-        } else if let Some(lit) = eager_literal(ctx, &init, &name) {
+        } else if let Some(lit) = eager_literal(ctx, &init, &name)
+            .filter(|_| !static_setter_clash(ctx, c, &name, v.final_ || v.const_))
+        {
             w.line(&format!("{cref}{} = {lit};", js::prop_access(&name)));
         } else {
             let mut entry = format!("get {}() {{\n{}\n}}", js::prop_key(&name), indent(&init));
             if !v.final_ && !v.const_ {
                 entry.push_str(&format!(",\nset {}(value) {{}}", js::prop_key(&name)));
+            } else if static_setter_clash(ctx, c, &name, true) {
+                clashes.push(name.clone());
             }
             lazy.push(entry);
         }
+    }
+    // A final static field with a same-named static setter
+    // (`static const f = 0; static set f(v)`): the lazy getter and the
+    // declared setter share the property.
+    for name in &clashes {
+        let key = js::string_literal(name);
+        crate::emit_line!(
+            w,
+            "const {cname}$set${name} = Object.getOwnPropertyDescriptor({cref}, {key}).set;"
+        );
     }
     if !lazy.is_empty() {
         crate::emit_line!(w, "dart.defineLazy({cref}, {{");
         w.push_raw(&indent(&lazy.join(",\n")));
         w.push_raw("\n});\n");
     }
+    for name in &clashes {
+        let key = js::string_literal(name);
+        crate::emit_line!(
+            w,
+            "Object.defineProperty({cref}, {key}, {{get: Object.getOwnPropertyDescriptor({cref}, {key}).get, set: {cname}$set${name}, configurable: true}});"
+        );
+    }
+}
+
+/// Whether the final (or const) static field `name` of `c` shares its name
+/// with a static setter of `c`.
+fn static_setter_clash(ctx: &Ctx, c: ClassId, name: &str, final_: bool) -> bool {
+    final_
+        && ctx
+            .sym(&format!("{name}_="))
+            .is_some_and(|s| ctx.program.class(c).static_members.contains_key(&s))
 }
 
 /// `@JS` class (`_emitJSInteropClassNonExternalMembers`): only the non-`external`
@@ -3499,9 +3546,9 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 .map(|n| {
                     let c = ctx.named_key(n);
                     format!(
-                        "{}: opts && {} in opts ? opts{} : null",
+                        "{}: opts && {} ? opts{} : null",
                         js::prop_key(n),
-                        js::string_literal(&c),
+                        js::has_named("opts", &c),
                         js::prop_access(&c)
                     )
                 })
@@ -4241,8 +4288,8 @@ fn emit_constructor(
                         let key = js::prop_key(&named_key);
                         if p.default_value.is_none() && !p.required {
                             super_named.push(format!(
-                                "...(opts && {} in opts ? {{{key}: {jsn}}} : {{}})",
-                                js::string_literal(&named_key)
+                                "...(opts && {} ? {{{key}: {jsn}}} : {{}})",
+                                js::has_named("opts", &named_key)
                             ));
                         } else {
                             super_named.push(format!("{key}: {jsn}"));

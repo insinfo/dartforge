@@ -1377,8 +1377,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     names.push((p.kind, key.to_string(), jsn.clone()));
                     let named_key = self.ctx.named_key(key);
                     prologue.push_str(&format!(
-                        "let {jsn} = opts && {} in opts ? opts{} : {def};\n",
-                        js::string_literal(&named_key),
+                        "let {jsn} = opts && {} ? opts{} : {def};\n",
+                        js::has_named("opts", &named_key),
                         js::prop_access(&named_key)
                     ));
                 }

@@ -1218,6 +1218,102 @@ pub fn covariance_stubs(ctx: &Ctx, c: ClassId) -> Vec<CovarianceStub> {
     out
 }
 
+/// The setters a program class `c` takes from an applied mixin that do not
+/// check their value although a supertype's same-named setter is covariant
+/// (`class Class = Super<int> with Mixin`, `Super<T>.field` of type `T?`,
+/// `Mixin.field` of type `int?`): the CFE's forwarding stub checks the value
+/// against the mixin's type. Returns `(name, value type in c)`.
+pub fn setter_covariance_stubs(ctx: &Ctx, c: ClassId) -> Vec<(String, Ty)> {
+    let class = ctx.program.class(c);
+    if ctx.libs[class.library.0 as usize].is_sdk
+        || ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+        || class.mixin_classes.is_empty()
+    {
+        return Vec::new();
+    }
+    // The value type of a setter `g` declared in `k`, and whether `k`
+    // checks it (covariant by `k`'s type parameters or written `covariant`).
+    let setter_value =
+        |k: ClassId, g: dartforge_elements::model::FunctionElementId| -> (Ty, bool) {
+            let ids: HashSet<u32> = ctx.class_params[k.0 as usize]
+                .iter()
+                .map(|p| p.id)
+                .collect();
+            let f = ctx.program.function(g);
+            let (ty, written) = match f.variable {
+                Some(v) => (ctx.var_ty(v), false),
+                None => {
+                    let ty = ctx.outline.functions[g.0 as usize]
+                        .parameters
+                        .first()
+                        .map_or(Ty::Dynamic, |p| ctx.ty_of(p.ty));
+                    (ty, ast_params(ctx, g).first().is_some_and(|p| p.covariant))
+                }
+            };
+            let covariant = written || occurs_covariantly(&ty, &ids, true);
+            (ty, covariant)
+        };
+    let mut out: Vec<(String, Ty)> = Vec::new();
+    for &mx in class.mixin_classes.iter().rev() {
+        for (&sym, &g) in &ctx.program.class(mx).instance_members {
+            let key = ctx.interner.resolve(sym);
+            let Some(name) = key.strip_suffix("_=") else {
+                continue;
+            };
+            if ctx.program.function(g).abstract_
+                || class.instance_members.contains_key(&sym)
+                || out.iter().any(|(n, _)| n == name)
+            {
+                continue;
+            }
+            let (_, checked) = setter_value(mx, g);
+            if checked {
+                continue;
+            }
+            // A covariant same-named setter among the other supertypes.
+            let mut seen = HashSet::new();
+            let mut queue: Vec<ClassId> = ctx.class_supers[c.0 as usize]
+                .iter()
+                .filter_map(|s| s.class())
+                .collect();
+            let mut needed = false;
+            while let Some(k) = queue.pop() {
+                if Some(k) == ctx.object || k == mx || !seen.insert(k) {
+                    continue;
+                }
+                if let Some(&h) = ctx.program.class(k).instance_members.get(&sym)
+                    && setter_value(k, h).1
+                {
+                    needed = true;
+                    break;
+                }
+                queue.extend(
+                    ctx.class_supers[k.0 as usize]
+                        .iter()
+                        .filter_map(|s| s.class()),
+                );
+            }
+            if !needed {
+                continue;
+            }
+            let Some(sup) = ctx.as_super(&ctx.this_ty(c), mx) else {
+                continue;
+            };
+            let subst: HashMap<u32, Ty> = ctx.class_params[mx.0 as usize]
+                .iter()
+                .map(|q| q.id)
+                .zip(sup.args().iter().cloned())
+                .collect();
+            let ty = setter_value(mx, g).0.subst(&subst);
+            if !is_top(ctx, &ty) {
+                out.push((name.to_string(), ty));
+            }
+        }
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
 /// The reified type of the method `fid` of a program class `c` (its
 /// signature for tear-offs and dynamic calls): a covariant parameter is
 /// `Object?`, as the VM and the DDC reify it — the method checks it on entry

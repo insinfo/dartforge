@@ -406,3 +406,28 @@ pub fn prop_key(name: &str) -> String {
         format!("[{}]", string_literal(name))
     }
 }
+
+/// The test that `opts` carries the named argument `key`: `"key" in opts`,
+/// or the own-property test for a name `Object.prototype` has
+/// (`constructor`, `toString`…), which `in` would find inherited.
+pub fn has_named(opts: &str, key: &str) -> String {
+    const PROTOTYPE: &[&str] = &[
+        "constructor",
+        "hasOwnProperty",
+        "isPrototypeOf",
+        "propertyIsEnumerable",
+        "toLocaleString",
+        "toString",
+        "valueOf",
+        "__proto__",
+        "__defineGetter__",
+        "__defineSetter__",
+        "__lookupGetter__",
+        "__lookupSetter__",
+    ];
+    if PROTOTYPE.contains(&key) {
+        format!("dart.hOP.call({opts}, {})", string_literal(key))
+    } else {
+        format!("{} in {opts}", string_literal(key))
+    }
+}

@@ -348,16 +348,36 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut pos = Vec::new();
         let mut named = Vec::new();
         let mut tys = Vec::new();
-        for a in arguments.args.iter() {
+        // Named arguments before a positional one keep the source order
+        // through temporaries (as in `emit_args_infer`).
+        let last_positional = arguments.args.iter().rposition(|a| a.name.is_none());
+        let mut pending: Vec<String> = Vec::new();
+        for (i, a) in arguments.args.iter().enumerate() {
             let (js, ty) = self.emit_expr(a.value, None);
             tys.push(ty);
             match a.name {
-                Some(n) => named.push(format!(
-                    "{}: {}",
-                    js::prop_key(&self.ctx.named_key(self.name(n.sym))),
-                    js.at(P_ASSIGN)
-                )),
-                None => pos.push(js.into_at(P_ASSIGN)),
+                Some(n) => {
+                    let value = if last_positional.is_some_and(|l| i < l)
+                        && !crate::expr::is_simple(&js.code)
+                    {
+                        let t = self.temp();
+                        pending.push(format!("{t} = {}", js.at(P_ASSIGN)));
+                        t
+                    } else {
+                        js.into_at(P_ASSIGN)
+                    };
+                    named.push(format!(
+                        "{}: {}",
+                        js::prop_key(&self.ctx.named_key(self.name(n.sym))),
+                        value
+                    ))
+                }
+                None if pending.is_empty() => pos.push(js.into_at(P_ASSIGN)),
+                None => {
+                    pending.push(js.into_at(P_ASSIGN));
+                    pos.push(format!("({})", pending.join(", ")));
+                    pending.clear();
+                }
             }
         }
         let named_obj = if named.is_empty() {
@@ -645,17 +665,37 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         // Build the list: positionals in order, named ones in the final object.
+        // A named argument written before a positional one is evaluated into
+        // a temporary ahead of that positional (`f(a(), n: b(), c())` keeps
+        // the order a, b, c).
+        let last_positional = arguments.args.iter().rposition(|a| a.name.is_none());
         let mut pos_js = Vec::new();
         let mut named_js = Vec::new();
+        let mut pending: Vec<String> = Vec::new();
         for (i, a) in arguments.args.iter().enumerate() {
             let js = out[i].clone().unwrap_or_else(|| "null".into());
             match a.name {
-                Some(nm) => named_js.push(format!(
-                    "{}: {}",
-                    js::prop_key(&self.ctx.named_key(self.name(nm.sym))),
-                    js
-                )),
-                None => pos_js.push(js),
+                Some(nm) => {
+                    let value =
+                        if last_positional.is_some_and(|l| i < l) && !crate::expr::is_simple(&js) {
+                            let t = self.temp();
+                            pending.push(format!("{t} = {js}"));
+                            t
+                        } else {
+                            js
+                        };
+                    named_js.push(format!(
+                        "{}: {}",
+                        js::prop_key(&self.ctx.named_key(self.name(nm.sym))),
+                        value
+                    ))
+                }
+                None if pending.is_empty() => pos_js.push(js),
+                None => {
+                    pending.push(js);
+                    pos_js.push(format!("({})", pending.join(", ")));
+                    pending.clear();
+                }
             }
         }
         if !named_js.is_empty() {
