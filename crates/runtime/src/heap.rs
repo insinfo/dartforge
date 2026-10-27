@@ -207,10 +207,13 @@ use crate::space::{
 
 /// The minor collection comes every `YOUNG_LIMIT` allocated bytes (the size of the
 /// *new space*; the VM's semispace starts smaller and grows up to 8 MiB on 64
-/// bits — fixed here, between the cost per collection and the memory peak; 2 MiB
-/// fit the cache better than 4: measured in `objetos_escapam`, less time and
-/// less memory)…
-const YOUNG_LIMIT: usize = 2 * 1024 * 1024;
+/// bits — fixed here, between the cost per collection and the memory peak). 4 MiB
+/// since 2026-10-27 (macOS arm64, cycles against 2 MiB): binary trees −4%,
+/// `objects_in_collections` −4%, `fresh_list_append` −14%, JSON and strings −1 to −2%,
+/// the keep-alive HTTP server −3% instructions per request, for about 2 MiB more of
+/// resident memory; `temporary_objects` +1%. In 2026-09 the same test had chosen 2 MiB
+/// because small JSON decoding lost, which no longer holds…
+const YOUNG_LIMIT: usize = 4 * 1024 * 1024;
 /// How much the heap grows until the next full collection, in % of what
 /// survived the last one: 150 (double, 200, cost ~15 MB more peak in
 /// `objetos_escapam` with no time gain, since the sweep only reads the mark

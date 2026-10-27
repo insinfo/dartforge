@@ -655,10 +655,10 @@ struct PageReserve {
 const PAGES_PER_CHUNK: usize = 32;
 
 /// How many dirty pages the reserve keeps from one full collection to the next: those
-/// that fit in the young semispace (`YOUNG_LIMIT`, 2 MiB), what the next
+/// that fit in the young semispace (`YOUNG_LIMIT`, 4 MiB), what the next
 /// minor collection may ask for. Julia keeps the collection interval
 /// (`gc_free_pages`, `default_collect_interval`).
-const HOT_PAGES: usize = 32;
+const HOT_PAGES: usize = 64;
 
 /// Ceiling of the bytes of the cache of freed large regions ([`LargeRegions`]).
 const LARGE_CACHE_CEILING: usize = 4 * 1024 * 1024;
