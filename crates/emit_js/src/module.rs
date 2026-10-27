@@ -2755,7 +2755,15 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let text = emit_constructor(ctx, m, c, mu, ctor, &fields, generic, is_enum);
         w.line(&constructor_assignment(ctx, c, &cref, &jsname, &text));
     }
-    if is_mixin || class.modifiers.mixin {
+    // A plain class extending `Object` can be mixed in by a library before
+    // 3.0; its field initializers then run through the application too. With
+    // the whole program known (production), only the classes actually mixed in.
+    let legacy_mixin = class.kind == ClassKind::Class
+        && class.supertype_class == ctx.object
+        && class.mixin_classes.is_empty()
+        && !fields.is_empty()
+        && (ctx.filter.is_none() || ctx.is_mixed_in(c));
+    if is_mixin || class.modifiers.mixin || legacy_mixin {
         let mut body = Writer {
             indent: 1,
             ..Writer::default()

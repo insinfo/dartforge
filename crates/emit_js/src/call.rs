@@ -1154,7 +1154,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             self.ctx.sym(cname)
         })
-        .is_some_and(|k| self.ctx.program.class(c).constructors.contains_key(&k));
+        .is_some_and(|k| self.ctx.has_constructor(c, k));
         let mut cur = self.ctx.superclass_of(c).filter(|_| !own_constructor);
         while let Some(k) = cur {
             if let Some(mk) = self.ctx.declared_static(k, name, false) {
@@ -1185,7 +1185,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             self.ctx.sym(cname)
         };
-        if key.is_some_and(|k| self.ctx.program.class(c).constructors.contains_key(&k)) {
+        if key.is_some_and(|k| self.ctx.has_constructor(c, k)) {
             let is_const = self.in_const;
             return Some(self.emit_constructor_call(
                 c,

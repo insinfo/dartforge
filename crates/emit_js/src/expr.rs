@@ -5767,6 +5767,87 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
+    /// The type of the constructor `name` that the named mixin application
+    /// `class` forwards to its superclass (`class C<T> = B<T> with M;`), in
+    /// terms of the parameters of `class`, so that the arguments are checked
+    /// against the superclass constructor's parameters like in the CFE.
+    fn forwarded_constructor_ty(
+        &self,
+        class: ClassId,
+        name: dartforge_intern::SymbolId,
+    ) -> Option<Ty> {
+        let params = &self.ctx.class_params[class.0 as usize];
+        let mut current = Ty::Iface {
+            class,
+            args: params
+                .iter()
+                .map(|p| Ty::Param {
+                    id: p.id,
+                    name: p.name.clone(),
+                    nullable: false,
+                })
+                .collect(),
+            nullable: false,
+        };
+        let own = current.clone();
+        for _ in 0..64 {
+            let Ty::Iface { class: c, args, .. } = &current else {
+                return None;
+            };
+            let cls = self.ctx.program.class(*c);
+            if let Some(&f) = cls.constructors.get(&name) {
+                let Ty::Fn {
+                    ret,
+                    pos,
+                    opt,
+                    named,
+                    nullable,
+                    ..
+                } = self.ctx.fn_ty(f)
+                else {
+                    return None;
+                };
+                let map: HashMap<u32, Ty> = self.ctx.class_params[c.0 as usize]
+                    .iter()
+                    .zip(args.iter())
+                    .map(|(p, a)| (p.id, a.clone()))
+                    .collect();
+                let inner = Ty::Fn {
+                    type_params: vec![],
+                    ret,
+                    pos,
+                    opt,
+                    named,
+                    nullable,
+                }
+                .subst(&map);
+                let Ty::Fn {
+                    pos,
+                    opt,
+                    named,
+                    nullable,
+                    ..
+                } = inner
+                else {
+                    return None;
+                };
+                return Some(Ty::Fn {
+                    type_params: params.clone(),
+                    ret: Box::new(own),
+                    pos,
+                    opt,
+                    named,
+                    nullable,
+                });
+            }
+            if cls.mixin_classes.is_empty() || !cls.constructors.is_empty() {
+                return None;
+            }
+            current = self.ctx.as_super(&current, cls.supertype_class?)?;
+        }
+        None
+    }
+
     /// Constructor call `C<args>.name(...)`; infers type arguments when they are missing.
     pub fn emit_constructor_call(
         &mut self,
@@ -5811,8 +5892,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let fid = key.and_then(|k| cls.constructors.get(&k).copied());
         let params = &self.ctx.class_params[class.0 as usize];
         // Function type of the constructor with the class's parameters as generics.
-        let ctor_fn = match fid {
-            Some(f) => self.ctx.fn_ty(f),
+        let ctor_fn = match fid
+            .map(|f| self.ctx.fn_ty(f))
+            .or_else(|| key.and_then(|k| self.forwarded_constructor_ty(class, k)))
+        {
+            Some(t) => t,
             None => Ty::Fn {
                 type_params: vec![],
                 ret: Box::new(Ty::Dynamic),

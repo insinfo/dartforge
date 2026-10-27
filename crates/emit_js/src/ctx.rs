@@ -136,6 +136,8 @@ pub struct Ctx<'a> {
     /// The short ids of the classes in SDK-mode recipes
     /// ([`crate::recipe_ids`]), computed on first use.
     recipe_ids: std::cell::OnceCell<Vec<String>>,
+    /// The classes some class of the program mixes in, computed on first use.
+    mixed_in: std::cell::OnceCell<HashSet<ClassId>>,
     /// `DARTFORGE_JSPROD_SHORT_RECIPE=0` keeps the library in every recipe.
     short_recipe: bool,
     /// Per unit, the nodes that are the target of a compound assignment or of
@@ -255,6 +257,7 @@ impl<'a> Ctx<'a> {
             extension_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
             recipe_ids: std::cell::OnceCell::new(),
+            mixed_in: std::cell::OnceCell::new(),
             short_recipe: std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0"),
             write_targets: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
@@ -1736,6 +1739,36 @@ impl<'a> Ctx<'a> {
             out = self.program.class(c).mixin_classes.clone();
         }
         out
+    }
+
+    /// Whether `c` has the constructor `name`: declared, or forwarded to the
+    /// superclass by a named mixin application (`class D = B with M;`).
+    pub fn has_constructor(&self, mut c: ClassId, name: SymbolId) -> bool {
+        for _ in 0..64 {
+            let class = self.program.class(c);
+            if class.constructors.contains_key(&name) {
+                return true;
+            }
+            if class.mixin_classes.is_empty() || !class.constructors.is_empty() {
+                return false;
+            }
+            match class.supertype_class {
+                Some(s) => c = s,
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// Whether some class of the program mixes `c` in.
+    pub fn is_mixed_in(&self, c: ClassId) -> bool {
+        self.mixed_in
+            .get_or_init(|| {
+                (0..self.program.classes.len() as u32)
+                    .flat_map(|i| self.mixins_of(ClassId(i)))
+                    .collect()
+            })
+            .contains(&c)
     }
 
     /// Interfaces of the class from the outline.
