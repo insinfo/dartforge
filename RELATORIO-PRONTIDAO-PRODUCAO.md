@@ -383,6 +383,47 @@ médios (8 KiB) pela TLAB em vez de `allocate_block_outside_tlab`; `String.[]` L
 em linha (a tabela de strings de um caractere no contexto); o laço de
 `_CopyingBytesBuilder.add` desmembrado; RTI nos sítios genéricos de streams e futures.
 
+## ARC: o plano de quatro passos, medido antes de executar
+
+O plano de quatro passos registrado na seção anterior (contagem no cabeçalho, `retain`/
+`release` e barreira em linha, mapa de referências em cache, medir) foi conferido com o
+perfil das árvores em ARC simples (`sample`, símbolos mantidos, 3.014 amostras da thread
+principal, tempo inclusivo) antes de mudar o layout. O resultado mudou a conclusão:
+
+| onde vai o tempo (ARC simples, árvores) | inclusivo |
+|---|---:|
+| coleta disparada pela alocação (`allocate_slow` → `run_collection` → `drain_arc`) | 59% |
+| ↳ morte dos objetos (`drain_zeros` → `discard_located`, `take_edges`, `release` dos filhos, `release_range`) | 36% |
+| ↳ decisão do jovem e sincronização das raízes (`decide_young`, `sync_arcs`, `register_live_at`, `transfer_dead`) | ~16% |
+| escrita de campo com contagem (`dartforge_object_set` → `set_field`, `arc_swapped`) | 20% |
+| alocação fora da TLAB (`dartforge_object_new`, sem a coleta) | 11% |
+| código Dart gerado (`tree`, `Node.count`) | ~6% |
+| consultas à tabela lateral (`Table::get_mut`, `in_local_mut`, `get`), espalhadas acima | 14% |
+| `ref_positions` (o mapa de referências) | 3% próprio |
+
+- **Passo 1 (contagem no cabeçalho):** tira no máximo as consultas à tabela, 14%, e
+  exige um cabeçalho de 24 bytes ou liberar `map`/`metadata` em compilador, runtime,
+  coletor e objetos estáticos, com risco em todos os modos de memória. Com o resto
+  intacto, as árvores iriam de ~250 para ~215 ms contra 14 ms no tracing.
+- **Passo 2 (barreira em linha):** a escrita de campo pesa 20%, mas o que custa ali é o
+  registro do objeto jovem na primeira ocorrência e a consulta a `snapshots`, que um
+  caminho rápido em linha não evita sem o passo 1.
+- **Passo 3 (mapa de referências em cache):** sem objeto. `ref_positions` já lê o mapa
+  de bits do cabeçalho (`map`); seu tempo próprio é 3%. O plano estava errado neste
+  ponto.
+- **O que domina** é o desenho de contagem diferida: a pilha não é contada, então cada
+  coleta jovem varre as raízes, decide os mortos e solta cada objeto morto
+  individualmente, filho a filho. Isso é 59% e não muda com a contagem no cabeçalho.
+  Chegar a um fator pequeno do tracing pede outro desenho (por exemplo, liberar em lote
+  as faixas jovens mortas, como a varredura do tracing, e só contar o que sobrevive à
+  primeira coleta), não a mudança de layout.
+
+Por isso o passo 1 não foi executado: o ganho medido possível (≤14%) não paga uma
+mudança de layout com risco em todos os modos, e os passos 2 e 3 dependem dele ou não
+têm alvo. Nada de ARC mudou nesta rodada além do que entrou antes
+(`1818759f`, `2d870798`, `45327774`). Árvores em ARC continuam em ~250 ms (simples) e
+~351 ms (preparado), JSON ~325 e ~685 ms, contra 14 e ~75 ms no tracing.
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
