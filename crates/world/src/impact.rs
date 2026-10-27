@@ -1667,9 +1667,15 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             // setter's key in `instance_members`); otherwise, a read or a
             // call. The receiver is still a read, and the `Resolved` (which
             // already tells the getter from the setter) still applies. The
-            // cone is the receiver's (`receiver`, above); a static access
-            // (`C.name`) already returned `None` there.
-            if m.write_target == Some(id) {
+            // cone is the receiver's (`receiver`, above). A static access
+            // (`C.name`, `prefix.name`) is no dispatch: it records no
+            // selector (`static_member`, below, keeps the target live).
+            let is_static = m.static_access_selectors() && static_target(m, ctx, *target).is_some();
+            if is_static {
+                if m.write_target == Some(id) {
+                    m.write_target = None;
+                }
+            } else if m.write_target == Some(id) {
                 m.write_target = None;
                 let s = e.interner.resolve(name.sym);
                 m.new_selector_with_receiver(&format!("{s}_="), receiver);
@@ -1757,6 +1763,16 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                     ExprKind::Property { name, .. } => Some(name.sym),
                     _ => None,
                 };
+                // `extensionSymbol('toString')`: the runtime calls that
+                // `Object` member on an unknown receiver.
+                if m.include_sdk
+                    && callee.is_some_and(|s| m.e.interner.resolve(s) == "extensionSymbol")
+                    && let Some(a) = arguments.args.first()
+                    && let ExprKind::String(lit) = &ast.expr(a.value).kind
+                    && let Some(v) = lit.constant_value()
+                {
+                    m.runtime_object_selector(&v.to_string_lossy());
+                }
                 // `JS('', '#.moveNext()', it)`: the member name written in the
                 // *template* is called on an untyped receiver — an
                 // unrestricted selector, of both kinds.
@@ -1793,6 +1809,9 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                             }
                         }
                         for (n, arity) in names {
+                            if crate::is_js_function_method(&n) {
+                                continue;
+                            }
                             // `#.name(a, b)` calls the member with that many
                             // positional arguments of unknown value; any other
                             // use may tear it off.

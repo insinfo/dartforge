@@ -640,6 +640,10 @@ impl<'a> Computation<'a> {
             if std::env::var("DARTFORGE_JSPROD_NULL_PARAMS").map_or(true, |v| v != "0") {
                 m.params = Some(params::ParamFlow::new(e, &m.universal_names));
             }
+            m.object_selectors = object_selectors_enabled();
+            if m.object_selectors && m.foreign_open {
+                m.open_object_members();
+            }
         }
         Computation { engine: m }
     }
@@ -737,6 +741,7 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
         m.int_num = int_num(&e);
         m.natives_by_interface = natives_by_interface(&e, &m.natives);
         m.dartx_classes = dartx_classes(&e, &m.natives);
+        m.object_selectors = object_selectors_enabled();
     }
     m.classes = world.classes.clone();
     m.fn_live = world.functions.clone();
@@ -894,6 +899,18 @@ pub(crate) struct Engine<'a> {
     seen_types: HashSet<dartforge_types::table::TypeId>,
     /// Names the runtime calls on any object: `Object` members and `call`.
     universal_names: HashSet<String>,
+    /// With the SDK in the world, the `Object` members are selectors like any
+    /// other: the runtime reaches them through `extensionSymbol('toString')`
+    /// (`dart.str`, `dart.hashCode`, `dart.equals`, `dart.runtimeType`,
+    /// `dart.noSuchMethod`), which records them when the runtime function is
+    /// live, and JavaScript code may call them on any Dart object once a
+    /// foreign library is live ([`Engine::foreign_open`]), which records them
+    /// all. `core.Object` itself is instantiated only by `Object()` or by the
+    /// foreign gate (a plain JavaScript object is an `Object`).
+    /// `DARTFORGE_JSPROD_OBJECT_SELECTORS=0` goes back to "always live".
+    object_selectors: bool,
+    /// [`Engine::static_access_selectors`].
+    static_access: bool,
     /// Instantiated classes whose SDK protocol rule has already been applied.
     protocol_done: HashSet<ClassId>,
     cause: Cause,
@@ -978,6 +995,16 @@ pub const FOREIGN_LIBRARIES: &[&str] = &[
     "dart:_js_annotations",
 ];
 
+/// Members of JavaScript functions that `JS()` *templates* and the
+/// runtime's own text call on JavaScript functions only (`#.bind(#)` in
+/// `dart.bind` and the `async` patch): they never dispatch to the Dart
+/// member with the same name (`Converter.bind`, `StreamTransformer.bind`),
+/// which a Dart call reaches through its own selector.
+/// `DARTFORGE_JSPROD_FUNCTION_METHODS=0` counts them as selectors again.
+pub fn is_js_function_method(name: &str) -> bool {
+    name == "bind" && std::env::var("DARTFORGE_JSPROD_FUNCTION_METHODS").map_or(true, |v| v != "0")
+}
+
 /// The libraries of `dart:html` and its family: the DOM classes that the
 /// runtime's `polyfill` prepares (`NodeList.prototype.get`, the
 /// `AudioContext`/`FontFaceSet`… constructors the native classes register
@@ -1011,6 +1038,11 @@ fn is_builtin_native(p: &dartforge_elements::model::Program, c: ClassId) -> bool
         p.library(p.class(c).library).uri.as_str(),
         "dart:_interceptors" | "dart:_js_helper" | "dart:core"
     )
+}
+
+/// [`Engine::object_selectors`], on unless `DARTFORGE_JSPROD_OBJECT_SELECTORS=0`.
+fn object_selectors_enabled() -> bool {
+    std::env::var("DARTFORGE_JSPROD_OBJECT_SELECTORS").map_or(true, |v| v != "0")
 }
 
 /// Whether the live function `f` opens the gate of [`Engine::foreign_open`].
@@ -1071,6 +1103,9 @@ impl<'a> Engine<'a> {
             queue: VecDeque::new(),
             seen_types: HashSet::new(),
             universal_names: universal,
+            object_selectors: false,
+            static_access: std::env::var("DARTFORGE_JSPROD_STATIC_SELECTORS")
+                .map_or(true, |v| v != "0"),
             protocol_done: HashSet::new(),
             cause: Cause::Root,
             cause_fn: vec![None; p.functions.len()],
@@ -1103,6 +1138,35 @@ impl<'a> Engine<'a> {
     /// it.
     pub(crate) fn operators_by_selector(&self) -> bool {
         self.include_sdk && self.operator_selectors
+    }
+
+    /// `C.name` and `prefix.name` record no instance selector (the access is
+    /// static); `DARTFORGE_JSPROD_STATIC_SELECTORS=0` goes back to recording
+    /// an unrestricted one.
+    pub(crate) fn static_access_selectors(&self) -> bool {
+        self.static_access
+    }
+
+    /// Whether an instance member named `name` is live in every instantiated
+    /// class, whatever the selectors say ([`Engine::universal_names`],
+    /// narrowed by [`Engine::object_selectors`]).
+    fn always_live(&self, name: &str) -> bool {
+        if self.object_selectors {
+            name == "call"
+        } else {
+            self.universal_names.contains(name)
+        }
+    }
+
+    /// `extensionSymbol('x')` in the runtime: the runtime calls the `Object`
+    /// member `x` (`_equals` is `==`) on a receiver it does not know
+    /// ([`Engine::object_selectors`]).
+    pub(crate) fn runtime_object_selector(&mut self, js_name: &str) {
+        if !self.object_selectors {
+            return;
+        }
+        let name = if js_name == "_equals" { "==" } else { js_name };
+        self.new_external_selector(name);
     }
 
     fn is_user_lib(&self, l: LibraryId) -> bool {
@@ -1161,7 +1225,39 @@ impl<'a> Engine<'a> {
         for c in std::mem::take(&mut self.held_natives) {
             self.instantiate(c);
         }
+        if self.object_selectors {
+            self.open_object_members();
+        }
         self.cause = saved;
+    }
+
+    /// JavaScript code may hold any Dart object and a plain JavaScript object
+    /// is an `Object` ([`Engine::object_selectors`]): every `Object` member is
+    /// a live selector and `core.Object` is instantiated.
+    fn open_object_members(&mut self) {
+        let mut names: Vec<String> = self
+            .universal_names
+            .iter()
+            .filter(|n| n.as_str() != "call")
+            .cloned()
+            .collect();
+        names.sort();
+        for n in names {
+            self.new_external_selector(&n);
+        }
+        if let Some(obj) = self.object_class() {
+            self.instantiate(obj);
+        }
+    }
+
+    /// `dart:core`'s `Object`.
+    fn object_class(&self) -> Option<ClassId> {
+        let p = self.e.program;
+        let sym = self.e.interner.lookup("Object")?;
+        match p.library(p.core?).declared.get(&sym).and_then(|b| b.getter) {
+            Some(Element::Class(c)) => Some(c),
+            _ => None,
+        }
     }
 
     pub(crate) fn use_variable(&mut self, v: VariableId) {
@@ -1885,7 +1981,7 @@ impl<'a> Engine<'a> {
             let name = self.name(key).to_string();
             let live = all
                 || (func.kind == FunctionKind::Operator && !self.operators_by_selector())
-                || self.universal_names.contains(name.as_str())
+                || self.always_live(name.as_str())
                 || self.selector_for(name.as_str(), k);
             if live && !only_pending {
                 self.mark_fn_live(f);

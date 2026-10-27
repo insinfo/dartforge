@@ -502,7 +502,9 @@ fn text_selectors(
                 let f = ident_end(b, i + 1);
                 // `opts.name` is the read of a named parameter in the emitted
                 // function's prologue, not a member access.
-                if !(i >= 4 && &b[i - 4..i] == b"opts" && (i == 4 || !is_ident(b[i - 5]))) {
+                if !(i >= 4 && &b[i - 4..i] == b"opts" && (i == 4 || !is_ident(b[i - 5])))
+                    && !dartforge_world::is_js_function_method(&text[i + 1..f])
+                {
                     let e = access_after(b, f);
                     record(&text[i + 1..f], e, reads, writes);
                 }

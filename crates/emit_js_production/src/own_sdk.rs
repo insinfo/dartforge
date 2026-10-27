@@ -51,7 +51,12 @@ fn roots(
     {
         r.functions.push(f);
     }
-    if let (Some(core), Some(sym)) = (a.program.core, a.interner.lookup("Object"))
+    // With the `Object` members as selectors (`dartforge_world`'s
+    // `object_selectors`), `core.Object` is instantiated by `Object()` or by
+    // the foreign gate, not as a root.
+    let object_root = std::env::var("DARTFORGE_JSPROD_OBJECT_SELECTORS").is_ok_and(|v| v == "0");
+    if object_root
+        && let (Some(core), Some(sym)) = (a.program.core, a.interner.lookup("Object"))
         && let Some(Element::Class(c)) = a
             .program
             .library(core)
