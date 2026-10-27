@@ -7,10 +7,11 @@ use super::{
 use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
-/// Removes closed integer box/null merges in tracing code, including SDK bodies.
+/// Removes closed integer box/null merges, including SDK bodies, in tracing
+/// code and in ARC code before its preparation (an already prepared module
+/// carries owners for the boxes and is left alone).
 pub(super) fn rewrite(module: &mut Module) -> usize {
-    if module.arc_memory
-        || module.arc_prepared
+    if module.arc_prepared
         || module.arc_aot_ports.is_some()
         || std::env::var("DARTFORGE_NO_SCALAR_COALESCE").as_deref() == Ok("1")
         || module.functions.iter().any(|f| {

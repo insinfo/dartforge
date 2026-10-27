@@ -216,19 +216,24 @@ fn refuses_shared_values_loops_wrong_types_and_unavailable_definitions() {
 }
 
 #[test]
-fn local_proof_allows_sdk_and_refuses_arc_and_runtime_homonyms() {
+fn local_proof_allows_sdk_and_arc_memory_and_refuses_prepared_and_runtime_homonyms() {
     let mut module = Module::new();
     module.sdk_library = true;
     module.functions.push(sample());
     assert_eq!(rewrite(&mut module), 1);
-    for variant in 0..4 {
+    // Before ARC preparation the merged box is an ordinary fresh object that
+    // never escapes: removing it leaves fewer owners for the preparation.
+    let mut module = Module::new();
+    module.arc_memory = true;
+    module.functions.push(sample());
+    assert_eq!(rewrite(&mut module), 1);
+    for variant in 0..3 {
         let mut module = Module::new();
         module.functions.push(sample());
         match variant {
-            0 => module.arc_memory = true,
-            1 => module.arc_prepared = true,
-            2 => module.functions[0].symbol = "dartforge_unbox_int".into(),
-            3 => module.functions[0].symbol = "df.allocate".into(),
+            0 => module.arc_prepared = true,
+            1 => module.functions[0].symbol = "dartforge_unbox_int".into(),
+            2 => module.functions[0].symbol = "df.allocate".into(),
             _ => unreachable!(),
         }
         assert_eq!(rewrite(&mut module), 0);
