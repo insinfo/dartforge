@@ -30,6 +30,10 @@ pub struct Context<'a> {
     /// `JSValue` of `dart:_js_helper` and its members, found once (the
     /// WebAssembly target's JavaScript interop, `lower/js_interop.rs`).
     pub(crate) js_value: std::sync::OnceLock<Option<crate::lower::js_interop::JsHelpers>>,
+    /// `CodeUnits` of `dart:_internal` (what `String.codeUnits` returns): its
+    /// class id and the position of its `_string` field, found once
+    /// (`lower/typed_items.rs`, the inline `[]` of an `int` list).
+    pub(crate) code_units: std::sync::OnceLock<Option<(u32, usize)>>,
     /// Identity of the SDK marker, never of a same-named user class.
     finalizable_class: Option<dartforge_elements::model::ClassId>,
     pub entry_lib: Option<LibraryId>,
@@ -379,6 +383,7 @@ impl<'a> Context<'a> {
             bodies,
             constant_strings: std::sync::OnceLock::new(),
             js_value: std::sync::OnceLock::new(),
+            code_units: std::sync::OnceLock::new(),
             finalizable_class: program.classes.iter().enumerate().find_map(|(i, c)| {
                 (program.library(c.library).uri == "dart:ffi"
                     && interner.resolve(c.name) == "Finalizable")

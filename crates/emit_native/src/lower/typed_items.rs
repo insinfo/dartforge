@@ -629,6 +629,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         };
         let mut slow = |s: &mut Self| {
+            // `String.codeUnits` (the header and body bytes of `dart:_http`):
+            // the code unit read inline, before the dispatch.
+            if repr == Type::I64
+                && matches!(ix, Indexable::Core { .. })
+                && let Some(layout) = s.code_units_layout()
+            {
+                return s.read_code_units_or(layout, &list2, &index2, |s| {
+                    s.call_by_name_with_typed_receiver(
+                        list2.clone(),
+                        true,
+                        super::sdk_source::AccessKind::Call,
+                        "[]",
+                        &[(None, index2.clone())],
+                    )
+                });
+            }
             // The receiver has a static type (the indexable list): the typed
             // selector (`typed_entry.rs`).
             s.call_by_name_with_typed_receiver(
@@ -640,6 +656,119 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             )
         };
         Some(self.branch_indexed(&list, &index, ix, false, repr, &mut fast, &mut slow))
+    }
+
+    /// The class id of `CodeUnits` (`dart:_internal`) and the position of its
+    /// `_string` field, when the program has the class with a fixed layout.
+    fn code_units_layout(&self) -> Option<(u32, usize)> {
+        if self.ctx.arc_memory {
+            return None;
+        }
+        *self.ctx.code_units.get_or_init(|| {
+            let (k, class) = self.ctx.program.classes.iter().enumerate().find(|(_, c)| {
+                self.ctx.symbol_name(c.name) == "CodeUnits"
+                    && self.ctx.program.library(c.library).uri == "dart:_internal"
+            })?;
+            let id = self
+                .ctx
+                .class_id_of(dartforge_elements::model::ClassId(k as u32))?;
+            let field = class.fields.iter().copied().find(|v| {
+                let var = &self.ctx.program.variables[v.0 as usize];
+                !var.static_ && self.ctx.symbol_name(var.name) == "_string"
+            })?;
+            Some((id, self.field_index(field)?))
+        })
+    }
+
+    /// `list[index]` of an `int` list that may be a `CodeUnits`: when it is
+    /// one and the index is within its string, the string's code unit;
+    /// otherwise `other` (the dispatch), whose result comes as `I64`.
+    fn read_code_units_or(
+        &mut self,
+        (class_id, field): (u32, usize),
+        list: &Operand,
+        index: &Operand,
+        other: impl FnOnce(&mut Self) -> Operand,
+    ) -> Operand {
+        let class = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(list.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let is = self.emit(
+            Instruction::ICmp(
+                ICmpOp::Eq,
+                class,
+                Operand::Constant(Constant::Int(i64::from(class_id))),
+            ),
+            Type::I1,
+        );
+        let units = self.new_block();
+        let read = self.new_block();
+        let dispatch = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: is,
+            then_block: units,
+            else_block: dispatch,
+        });
+        self.set_block(units);
+        let string = self.emit(
+            Instruction::GetField {
+                object: list.clone(),
+                index: field,
+            },
+            Type::Ref,
+        );
+        let length = self.emit(
+            Instruction::CallRuntime {
+                name: "df.string_len".to_string(),
+                args: vec![(string.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let inside = self.emit(
+            Instruction::ICmp(ICmpOp::Ult, index.clone(), length),
+            Type::I1,
+        );
+        self.terminate(Terminator::CondBranch {
+            cond: inside,
+            then_block: read,
+            else_block: dispatch,
+        });
+        self.set_block(read);
+        let unit = self.emit(
+            Instruction::CallRuntime {
+                name: "df.string_code_unit".to_string(),
+                args: vec![(string, Type::Ref), (index.clone(), Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        self.terminate(Terminator::Branch(join));
+        self.set_block(dispatch);
+        let r = other(self);
+        let r = self.coerce(r, Type::I64);
+        let dispatch_end = self.current_block;
+        let arrives = !self.is_terminated();
+        if arrives {
+            self.terminate(Terminator::Branch(join));
+        }
+        self.set_block(join);
+        if !arrives {
+            return unit;
+        }
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(read, unit), (dispatch_end, r)],
+                ty: Type::I64,
+            },
+            Type::I64,
+        )
     }
 
     /// `list[index] = value`. `false` when there is no fast path (the
