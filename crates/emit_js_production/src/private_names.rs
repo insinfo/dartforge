@@ -244,6 +244,185 @@ fn declaration(d: &VariableDeclarator<'_>) -> Option<Declaration> {
     })
 }
 
+/// Name of the helper of [`group_extension_symbols`].
+const SYMBOLS_HELPER: &str = "t$Y";
+
+/// The bootstrap's `for (const n of [...]) dartx[n] = Symbol("dartx." + n)`
+/// and the top-level aliases `$n = dartx.n` (`own_sdk::hoist_preludes`)
+/// become one destructuring at the loop's place:
+/// `var [$a, , $c] = t$Y(dartx, "a b c")`, with `t$Y` creating each symbol in
+/// the same order and returning them. The aliases are `var`s of the same
+/// scope, now initialized earlier — and never read before the loop, which
+/// precedes every class. A name with a second alias keeps that one as it
+/// was. Runs with [`group`], on the compressed tree; the names stay
+/// reserved because their literals were seen before. Returns whether it
+/// changed anything.
+pub fn group_extension_symbols<'a>(allocator: &'a Allocator, program: &mut Program<'a>) -> bool {
+    let Some(body) = outer_body(program) else {
+        return false;
+    };
+    if mentions(body, SYMBOLS_HELPER) {
+        return false;
+    }
+    // The loop: its index, the names and the `dartx` object's name.
+    let mut found: Option<(usize, Vec<String>, String)> = None;
+    for (i, s) in body.iter().enumerate() {
+        if let Some((names, g)) = symbol_loop(s) {
+            if found.is_some() {
+                return false;
+            }
+            found = Some((i, names, g));
+        }
+    }
+    let Some((at, names, g)) = found else {
+        return false;
+    };
+    if names
+        .iter()
+        .any(|n| n.is_empty() || n.contains([' ', '"', '\\']))
+    {
+        return false;
+    }
+    // The aliases: `var` declarators `X = g.n` / `X = g["n"]` at the top
+    // level, the first one per name.
+    let mut alias: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for s in body.iter() {
+        let Statement::VariableDeclaration(v) = s else {
+            continue;
+        };
+        if v.kind != oxc_ast::ast::VariableDeclarationKind::Var {
+            continue;
+        }
+        for d in &v.declarations {
+            if let Some((x, n)) = alias_of(d, &g)
+                && names.contains(&n)
+                && !alias.contains_key(&n)
+            {
+                alias.insert(n, x);
+            }
+        }
+    }
+    if alias.is_empty() {
+        return false;
+    }
+    let chosen: std::collections::HashSet<String> = alias.values().cloned().collect();
+    for s in body.iter_mut() {
+        let Statement::VariableDeclaration(v) = s else {
+            continue;
+        };
+        if v.kind != oxc_ast::ast::VariableDeclarationKind::Var {
+            continue;
+        }
+        let old = std::mem::replace(&mut v.declarations, oxc_allocator::Vec::new_in(&allocator));
+        for d in old {
+            let drop = alias_of(&d, &g)
+                .is_some_and(|(x, n)| chosen.contains(&x) && alias.get(&n) == Some(&x));
+            if !drop {
+                v.declarations.push(d);
+            }
+        }
+    }
+    // Every name with its alias (a hole when it has none): the trailing
+    // holes are left out.
+    let mut pattern: Vec<&str> = names
+        .iter()
+        .map(|n| alias.get(n).map_or("", String::as_str))
+        .collect();
+    while pattern.last() == Some(&"") {
+        pattern.pop();
+    }
+    let snippet = format!(
+        "{SYMBOLS_HELPER} = (g, s) => s.split(\" \").map(n => g[n] = Symbol(\"dartx.\" + n)), [{}] = {SYMBOLS_HELPER}({g}, {})",
+        pattern.join(", "),
+        dartforge_emit_js::js::string_literal(&names.join(" "))
+    );
+    let text = allocator.alloc_str(&format!("var {snippet};"));
+    let parsed = oxc_parser::Parser::new(allocator, text, oxc_span::SourceType::cjs()).parse();
+    let Some(statement) = parsed.program.body.into_iter().next() else {
+        return false;
+    };
+    body[at] = statement;
+    // A declaration left without declarators is not valid JS.
+    body.retain(|s| !matches!(s, Statement::VariableDeclaration(v) if v.declarations.is_empty()));
+    true
+}
+
+/// `for (const n of <names>) g[n] = Symbol("dartx." + n)`, with `<names>` an
+/// array of strings or `"a.b".split(".")` (compression's form): the names and
+/// `g`.
+fn symbol_loop(s: &Statement<'_>) -> Option<(Vec<String>, String)> {
+    let Statement::ForOfStatement(f) = s else {
+        return None;
+    };
+    let names: Vec<String> = match &f.right {
+        Expression::ArrayExpression(a) => a
+            .elements
+            .iter()
+            .map(|e| match e {
+                oxc_ast::ast::ArrayExpressionElement::StringLiteral(l) => Some(l.value.to_string()),
+                _ => None,
+            })
+            .collect::<Option<_>>()?,
+        Expression::CallExpression(c) => {
+            let Expression::StaticMemberExpression(m) = &c.callee else {
+                return None;
+            };
+            let (Expression::StringLiteral(text), [Argument::StringLiteral(sep)]) =
+                (&m.object, &c.arguments[..])
+            else {
+                return None;
+            };
+            if m.property.name != "split" || sep.value.is_empty() {
+                return None;
+            }
+            text.value
+                .split(sep.value.as_str())
+                .map(str::to_string)
+                .collect()
+        }
+        _ => return None,
+    };
+    let Statement::ExpressionStatement(e) = &f.body else {
+        return None;
+    };
+    let Expression::AssignmentExpression(a) = &e.expression else {
+        return None;
+    };
+    let oxc_ast::ast::AssignmentTarget::ComputedMemberExpression(m) = &a.left else {
+        return None;
+    };
+    let Expression::Identifier(g) = &m.object else {
+        return None;
+    };
+    let Expression::CallExpression(sym) = &a.right else {
+        return None;
+    };
+    if !matches!(&sym.callee, Expression::Identifier(i) if i.name == "Symbol") {
+        return None;
+    }
+    Some((names, g.name.to_string()))
+}
+
+/// `X = g.n` or `X = g["n"]`: `(X, n)`.
+fn alias_of(d: &VariableDeclarator<'_>, g: &str) -> Option<(String, String)> {
+    let BindingPattern::BindingIdentifier(id) = &d.id else {
+        return None;
+    };
+    let n = match d.init.as_ref()? {
+        Expression::StaticMemberExpression(m) if matches!(&m.object, Expression::Identifier(o) if o.name == g) => {
+            m.property.name.to_string()
+        }
+        Expression::ComputedMemberExpression(m) if matches!(&m.object, Expression::Identifier(o) if o.name == g) => {
+            match &m.expression {
+                Expression::StringLiteral(l) => l.value.to_string(),
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    Some((id.name.to_string(), n))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,6 +469,26 @@ mod tests {
         let allocator = Allocator::default();
         let parsed = oxc_parser::Parser::new(&allocator, &out, oxc_span::SourceType::cjs()).parse();
         assert!(parsed.diagnostics.is_empty(), "{out}");
+    }
+
+    #[test]
+    fn extension_symbols_and_their_aliases_become_one_destructuring() {
+        let src = "(function () {\nvar dartx = {};\nfor (const n of \"a.b.c.d\".split(\".\")) dartx[n] = Symbol(\"dartx.\" + n);\nvar x = 1, $a = dartx.a, $c = dartx[\"c\"], $a2 = dartx.a;\nvar $d = dartx.d;\nuse($a, $c, $a2, $d);\n})();\n";
+        let allocator = Allocator::default();
+        let parsed = oxc_parser::Parser::new(&allocator, src, oxc_span::SourceType::cjs()).parse();
+        let mut program = parsed.program;
+        assert!(group_extension_symbols(&allocator, &mut program));
+        let out = oxc_codegen::Codegen::new().build(&program).code;
+        assert!(
+            out.contains("[$a, , $c, $d] = t$Y(dartx, \"a b c d\")"),
+            "{out}"
+        );
+        let allocator2 = Allocator::default();
+        let reparsed =
+            oxc_parser::Parser::new(&allocator2, &out, oxc_span::SourceType::cjs()).parse();
+        assert!(reparsed.diagnostics.is_empty(), "{out}");
+        assert!(!out.contains("for ("), "{out}");
+        assert!(out.contains("var x = 1, $a2 = dartx.a;"), "{out}");
     }
 
     #[test]

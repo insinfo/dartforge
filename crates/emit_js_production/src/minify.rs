@@ -1181,6 +1181,12 @@ pub fn minify_with_properties(
             strings.record(&n);
         }
     }
+    // The extension symbols and their aliases in one destructuring
+    // (`private_names::group_extension_symbols`);
+    // `DARTFORGE_JSPROD_GROUP_EXTENSION_SYMBOLS=0` turns it off.
+    if std::env::var("DARTFORGE_JSPROD_GROUP_EXTENSION_SYMBOLS").map_or(true, |v| v != "0") {
+        crate::private_names::group_extension_symbols(&allocator, &mut program);
+    }
     let mut free: Vec<&str> = names
         .renamable
         .iter()
