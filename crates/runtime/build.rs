@@ -343,6 +343,8 @@ fn ownership_table(manifest: &std::path::Path, names: &[String], present: &[Stri
             ("i64:native", false) => ("i64", "ParamMode::Native"),
             ("usize:native", false) => ("usize", "ParamMode::Native"),
             ("ptr:native", false) => ("*const i64", "ParamMode::NativeAddress"),
+            // A native address the callee writes (the reserved slot of a vector).
+            ("mut:native", false) => ("*mut i64", "ParamMode::NativeAddress"),
             // Constant module bytes (a UTF-8 name), the same native address.
             ("bytes:native", false) => ("*const u8", "ParamMode::NativeAddress"),
             ("vector:native", false) => ("*const i64", "ParamMode::StaticVector"),

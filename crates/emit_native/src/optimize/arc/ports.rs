@@ -228,6 +228,7 @@ fn check_vectors(m: &Module) -> Result<(), String> {
                     Instruction::CallRuntime { name, args, .. } => {
                         super::vectors::checked_read(i, roles)
                             || super::vectors::mismatch_forward(i, roles)
+                            || super::vectors::tuple_store(i, roles)
                             || (*role == DartEntryVector::Descriptor
                                 && matches!(
                                     name.as_str(),

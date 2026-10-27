@@ -26,6 +26,9 @@ dartforge_ffi_callback_sync	ptr:native,ptr:native,i64:scalar	i64:scalar	0	0	norm
 dartforge_ffi_pointer_address	ref:borrow	i64:scalar	0	1	pending-dart
 dartforge_ffi_native_symbol	bytes:native,i64:scalar	i64:scalar	0	1	pending-dart
 dartforge_rti_tuple_join	i64:scalar,i64:scalar,i64:scalar,i64:scalar	i64:scalar	0	0	normal
+dartforge_rti_tuple_len	i64:scalar	i64:scalar	0	0	normal
+dartforge_rti_bound	i64:scalar,i64:scalar,ref:borrow	void:scalar	0	1	pending
+dartforge_args_set_tuple	mut:native,ptr:native,i64:scalar	void:scalar	0	0	normal
 dartforge_ffi_compound_address	ref:borrow	i64:scalar	0	1	pending-dart
 dartforge_ffi_handles_open	-	i64:scalar	0	0	normal
 dartforge_ffi_handle_new	ref:borrow	i64:scalar	1	0	normal

@@ -327,6 +327,7 @@ fn generic_owned(name_str: &str) -> bool {
                 | "dartforge_canonical_constant"
                 | "dartforge_forward_nsm"
                 | "dartforge_nsm_mismatch"
+                | "dartforge_canonical_tearoff"
                 | "dartforge_ffi_compound"
                 | "dartforge_ffi_compound_copy"
                 | "dartforge_ffi_compound_new"

@@ -70,6 +70,23 @@ pub(super) fn mismatch_forward(
                     && role(d) == Some(DartEntryVector::Descriptor))
 }
 
+/// The entry of an instantiation closure writes its type-argument tuple into
+/// the slot after the arguments of the incoming vector
+/// (`dartforge_args_set_tuple(args, desc, tuple)`) before forwarding the call:
+/// a scalar word in the slot every call reserves, never a `Ref` slot.
+pub(super) fn tuple_store(inst: &Instruction, roles: &HashMap<ValueId, DartEntryVector>) -> bool {
+    let role = |o: &Operand| match o {
+        Operand::Val(v) => roles.get(v).copied(),
+        _ => None,
+    };
+    matches!(inst, Instruction::CallRuntime { name, args, ret_ty: Type::Void }
+        if name == "dartforge_args_set_tuple" && matches!(args.as_slice(),
+            [(a, Type::Ptr), (d, Type::Ptr), (tuple, Type::I64)]
+                if role(a) == Some(DartEntryVector::Arguments)
+                    && role(d) == Some(DartEntryVector::Descriptor)
+                    && role(tuple).is_none()))
+}
+
 pub(super) fn checked_read(inst: &Instruction, roles: &HashMap<ValueId, DartEntryVector>) -> bool {
     matches!(inst, Instruction::CallRuntime { name, args, ret_ty: Type::Ref }
         if name == READ_ARGUMENT && matches!(args.as_slice(),
@@ -286,7 +303,8 @@ pub(super) fn produce(
                     ..
                 } if descriptor(desc) && !descriptor(recv) && !descriptor(args) => {}
                 // The receiver's `noSuchMethod` on an arity mismatch.
-                Instruction::CallRuntime { .. } if mismatch_forward(inst, roles) => {}
+                Instruction::CallRuntime { .. }
+                    if mismatch_forward(inst, roles) || tuple_store(inst, roles) => {}
                 // Read-only native queries of the ABI; their call/representation
                 // contracts are still checked by the catalog.
                 Instruction::CallRuntime { name, args, .. }
@@ -659,5 +677,17 @@ mod tests {
             &call("dartforge_forward_nsm", 1, 2, 0),
             &roles
         ));
+        let store = |args: u32, desc: u32, tuple: u32| Instruction::CallRuntime {
+            name: "dartforge_args_set_tuple".into(),
+            args: vec![
+                (Operand::Val(ValueId(args)), Type::Ptr),
+                (Operand::Val(ValueId(desc)), Type::Ptr),
+                (Operand::Val(ValueId(tuple)), Type::I64),
+            ],
+            ret_ty: Type::Void,
+        };
+        assert!(tuple_store(&store(1, 2, 4), &roles));
+        assert!(!tuple_store(&store(2, 1, 4), &roles));
+        assert!(!tuple_store(&store(1, 2, 1), &roles));
     }
 }
