@@ -127,6 +127,34 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         "  @override\n  String toString() => _toString(false);\n",
         "  @override\n  String toString() => _toString(false);\n\n  /// The rti of this record, for `getReifiedType`.\n  Object get _reifiedRti => getRtiForRecord(this);\n",
     ),
+    // `trackCall` (behind every `dload`/`dput`/`dsend`) samples dynamic
+    // calls for the DDC debugger only when `dart.__trackProfile` is set, which
+    // only the development loader's settings do: in the single production
+    // file it is never set, and the sampler kept `_CallMethodRecord`, a list
+    // and `getReifiedType` alive.
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/profile.dart",
+        "trackCall(obj) {\n  if (JS<bool>('!', '!#', _trackProfile)) return;\n",
+        "trackCall(obj) {\n  return;\n",
+    ),
+    // `InvocationImpl` (every failed dynamic call) built its named arguments
+    // with `Map.unmodifiable(Map.fromIterable(…))`: both go through the
+    // `LinkedHashMap` factory, which keeps `CustomHashMap`, `IdentityMap` and
+    // the `fromIterable` filling alive. A literal map wrapped in the same
+    // `UnmodifiableMapView` has the same keys, order and type.
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "    return Map.unmodifiable(Map.fromIterable(getOwnPropertyNames(namedArgs),\n        key: _dartSymbol, value: (k) => JS('', '#[#]', namedArgs, k)));",
+        "    var map = <Symbol, dynamic>{};\n    for (var k in getOwnPropertyNames(namedArgs)) {\n      map[_dartSymbol(k)] = JS('', '#[#]', namedArgs, k);\n    }\n    return UnmodifiableMapView<Symbol, dynamic>(map);",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/runtime.dart",
+        "import 'dart:async';\n",
+        "import 'dart:async';\nimport 'dart:collection' show UnmodifiableMapView;\n",
+    ),
 ];
 
 /// Applies `PATCHES` to `sdk` as overlay replacements. The patched files
