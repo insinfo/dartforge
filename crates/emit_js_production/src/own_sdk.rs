@@ -715,6 +715,103 @@ fn drop_unused_private_names(js: &str) -> String {
     out
 }
 
+/// The aliases of a module prelude that mean the same in every module:
+/// `var $x = dartx.x;`, `var $x = dartx["+"];` and `var n = dart.privateName(L,
+/// "n");` of an SDK library (declared by the *bootstrap*). The generated
+/// name is a function of the value, but two modules may still give one name
+/// two values (`bundle.rs` explains why each module is an IIFE).
+fn prelude_alias(line: &str) -> Option<(&str, &str)> {
+    let (name, value) = line
+        .strip_prefix("var ")?
+        .strip_suffix(';')?
+        .split_once(" = ")?;
+    let ident = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'$')
+    };
+    if !ident(name) {
+        return None;
+    }
+    let ok = if let Some(x) = value.strip_prefix("dartx.") {
+        ident(x)
+    } else if let Some(x) = value.strip_prefix("dartx[\"") {
+        x.strip_suffix("\"]")
+            .is_some_and(|k| !k.contains(['"', '\\']))
+    } else if let Some(args) = value
+        .strip_prefix("dart.privateName(")
+        .and_then(|r| r.strip_suffix(')'))
+    {
+        args.split_once(", \"").is_some_and(|(lib, n)| {
+            ident(lib)
+                && !lib.starts_with("L$")
+                && n.strip_suffix('"')
+                    .is_some_and(|n| !n.contains(['"', '\\']))
+        })
+    } else {
+        false
+    };
+    ok.then_some((name, value))
+}
+
+/// Hoists the prelude aliases ([`prelude_alias`]) of the SDK body and of
+/// each module out of their IIFEs into one declaration, placed after the
+/// *bootstrap* (which creates `dartx`, `dart.privateName` and the SDK
+/// namespaces). Every library then spells `dartx.add` with the same
+/// variable, the 474 copies of `var _is = …` of a large program become one,
+/// and gzip sees the same name in every library. An alias whose name has two
+/// values in two modules stays local everywhere. Returns the declaration
+/// (empty when nothing is hoisted); `DARTFORGE_JSPROD_HOIST_PRELUDES=0`
+/// leaves the preludes alone.
+fn hoist_preludes(bodies: &mut [&mut String]) -> String {
+    use std::collections::BTreeMap;
+    // name → value, or `None` when two modules disagree.
+    let mut values: BTreeMap<String, Option<String>> = BTreeMap::new();
+    for body in bodies.iter() {
+        for line in body.lines() {
+            if !line.starts_with("var ") {
+                break;
+            }
+            if let Some((name, value)) = prelude_alias(line) {
+                match values.get(name) {
+                    None => {
+                        values.insert(name.to_string(), Some(value.to_string()));
+                    }
+                    Some(Some(v)) if v != value => {
+                        values.insert(name.to_string(), None);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let hoist = |line: &str| {
+        prelude_alias(line)
+            .is_some_and(|(n, v)| values.get(n).is_some_and(|x| x.as_deref() == Some(v)))
+    };
+    for body in bodies.iter_mut() {
+        let mut out = String::with_capacity(body.len());
+        let mut prelude = true;
+        for line in body.split_inclusive('\n') {
+            if prelude && !line.starts_with("var ") {
+                prelude = false;
+            }
+            if prelude && hoist(line.trim_end()) {
+                continue;
+            }
+            out.push_str(line);
+        }
+        **body = out;
+    }
+    let mut decl = String::new();
+    for (name, value) in &values {
+        if let Some(v) = value {
+            decl.push_str(&format!("var {name} = {v};\n"));
+        }
+    }
+    decl
+}
+
 /// Assembles the single file.
 pub fn assemble(
     e: &EmittedWithSdk,
@@ -729,7 +826,15 @@ pub fn assemble(
         .filter(|(p, _)| p != "preambulo.js")
         .map(|(p, t)| bundle::split(p, t))
         .collect();
-    let (modules, cycles) = bundle::order(modules);
+    let (mut modules, cycles) = bundle::order(modules);
+    let mut sdk_body = e.sdk.clone();
+    let hoisted = if std::env::var("DARTFORGE_JSPROD_HOIST_PRELUDES").map_or(true, |v| v != "0") {
+        let mut bodies: Vec<&mut String> = vec![&mut sdk_body];
+        bodies.extend(modules.iter_mut().map(|m| &mut m.body));
+        hoist_preludes(&mut bodies)
+    } else {
+        String::new()
+    };
     let entry =
         bundle::entry_from_mjs(&e.emitted.entry, &modules).unwrap_or_else(|| "L$main".to_string());
     // The SDK module in an IIFE, like the program's: the `var`s of its
@@ -746,8 +851,8 @@ pub fn assemble(
         String::new()
     };
     let sdk = format!(
-        "{}const t$R = r => {RTI_PREFIX}r, true);\n(function () {{\n{}}})();\n{marker}",
-        e.bootstrap, e.sdk
+        "{}const t$R = r => {RTI_PREFIX}r, true);\n{hoisted}(function () {{\n{}}})();\n{marker}",
+        e.bootstrap, sdk_body
     );
     let user = modules
         .iter()
