@@ -127,6 +127,17 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         "  @override\n  String toString() => _toString(false);\n",
         "  @override\n  String toString() => _toString(false);\n\n  /// The rti of this record, for `getReifiedType`.\n  Object get _reifiedRti => getRtiForRecord(this);\n",
     ),
+    // `_rtiToString` (behind `Object.toString` and every type error) cut the
+    // library prefix of an interface name with `String.indexOf`, whose
+    // `Pattern` path kept `JSSyntaxRegExp`, `matchAsPrefix` and `StringMatch`
+    // alive. The separator is a `String`: `_Utils.stringIndexOf` is the same
+    // JavaScript `indexOf`.
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_shared/lib/rti.dart",
+        "      name = name.substring(name.indexOf(Recipe.librarySeparatorString) + 1);",
+        "      name = name.substring(\n          _Utils.stringIndexOf(name, Recipe.librarySeparatorString, 0) + 1);",
+    ),
     // `trackCall` (behind every `dload`/`dput`/`dsend`) samples dynamic
     // calls for the DDC debugger only when `dart.__trackProfile` is set, which
     // only the development loader's settings do: in the single production
