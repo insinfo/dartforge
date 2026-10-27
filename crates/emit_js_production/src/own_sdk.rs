@@ -344,6 +344,23 @@ fn fixed_point(
     };
     let constants = dartforge_world::Constants::new(input, !op.asserts);
     constants.set_without_records(opm.without_records);
+    let runtime_equals = a
+        .program
+        .libraries
+        .iter()
+        .position(|l| l.uri == "dart:_runtime")
+        .and_then(|l| {
+            match a
+                .program
+                .library(LibraryId(l as u32))
+                .declared
+                .get(&a.interner.lookup("equals")?)?
+                .getter?
+            {
+                Element::Function(f) => Some(f),
+                _ => None,
+            }
+        });
     let identity_hash = a.program.core.and_then(|core| {
         match a
             .program
@@ -407,6 +424,7 @@ fn fixed_point(
             named_args: named_args.as_ref(),
             omit_checks: op.omit_checks,
             identity_hash,
+            runtime_equals,
         };
         let t = Instant::now();
         let mut e = a.emit_with_sdk(Some(&ad))?;

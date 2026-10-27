@@ -2190,7 +2190,10 @@ pub fn class_epilogue(ctx: &Ctx, c: ClassId, cref: &str) -> String {
     };
     let mut out = String::new();
     if Some(c) == ctx.object {
-        out.push_str("dart._installIdentityEquals();\n");
+        // Only `dart.equals` reads what it installs.
+        if ctx.filter.is_none_or(|f| f.runtime_equals()) {
+            out.push_str("dart._installIdentityEquals();\n");
+        }
         return out;
     }
     if let Some(tags) = s.peers.get(&c) {

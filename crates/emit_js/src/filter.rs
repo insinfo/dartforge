@@ -61,6 +61,12 @@ pub trait Liveness {
     fn identity_hash_code(&self) -> bool {
         true
     }
+    /// `dart.equals` of the runtime may run: `Object` installs the identity
+    /// `==` it compares against (`dart._installIdentityEquals`). Without a
+    /// filter, always.
+    fn runtime_equals(&self) -> bool {
+        true
+    }
     /// The program's `assert`s are emitted (the production profile turns them
     /// off by default, like `dart2js`).
     fn keep_asserts(&self) -> bool {

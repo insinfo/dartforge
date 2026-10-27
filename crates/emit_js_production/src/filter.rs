@@ -22,6 +22,8 @@ pub struct Adapter<'m> {
     pub omit_checks: bool,
     /// `identityHashCode` of `dart:core` (`None`: unknown, assumed live).
     pub identity_hash: Option<FunctionElementId>,
+    /// `equals` of `dart:_runtime` (`None`: unknown, assumed live).
+    pub runtime_equals: Option<FunctionElementId>,
 }
 
 impl Liveness for Adapter<'_> {
@@ -94,6 +96,13 @@ impl Liveness for Adapter<'_> {
             || std::env::var("DARTFORGE_JSPROD_PRIMITIVE_HASH").is_ok_and(|v| v == "0")
             || self
                 .identity_hash
+                .is_none_or(|f| self.world.is_live_function(f))
+    }
+    fn runtime_equals(&self) -> bool {
+        self.stub
+            || std::env::var("DARTFORGE_JSPROD_PRIMITIVE_EQUALS").is_ok_and(|v| v == "0")
+            || self
+                .runtime_equals
                 .is_none_or(|f| self.world.is_live_function(f))
     }
     fn keep_asserts(&self) -> bool {

@@ -1011,6 +1011,19 @@ fn static_interface(m: &Engine<'_>, ctx: &Context, x: ExprId) -> Option<(ClassId
     }
 }
 
+/// Whether a value of class `c` is a JavaScript string, number or boolean
+/// (`emit_js::ctx::Ctx::is_js_primitive`): `int`, `double`, `num`, `String`,
+/// `bool` and their interceptors.
+fn primitive_class(m: &Engine<'_>, c: ClassId) -> bool {
+    let p = m.e.program;
+    let name = m.e.interner.resolve(p.class(c).name);
+    match p.library(p.class(c).library).uri.as_str() {
+        "dart:core" => matches!(name, "int" | "double" | "num" | "String" | "bool"),
+        "dart:_interceptors" => matches!(name, "JSNumber" | "JSString" | "JSBool"),
+        _ => false,
+    }
+}
+
 /// Whether `c` is `String` of `dart:core`.
 fn string_like(m: &Engine<'_>, c: Option<ClassId>) -> bool {
     let p = m.e.program;
@@ -1315,7 +1328,20 @@ fn walk_pattern(m: &mut Engine<'_>, ctx: &Context, id: PatternId) {
         }
         PatternKind::Constant(x) => {
             expr(m, ctx, *x);
-            m.new_selector("==");
+            // `const == value` calls the constant's `==`: identity for a
+            // string, number, `bool`, `null` or enum constant (none can
+            // override it), which the emitter writes as `===`.
+            let identity = m.include_sdk
+                && std::env::var("DARTFORGE_JSPROD_PRIMITIVE_EQUALS").map_or(true, |v| v != "0")
+                && (matches!(m.e.program.unit(ctx.unit).ast.expr(*x).kind, ExprKind::Null)
+                    || static_interface(m, ctx, *x).is_some_and(|(c, nullable)| {
+                        !nullable
+                            && (primitive_class(m, c)
+                                || m.e.program.class(c).kind == ClassKind::Enum)
+                    }));
+            if !identity {
+                m.new_selector("==");
+            }
         }
         PatternKind::Relational { op, value } => {
             // The matched value's type is not at hand: unrestricted.
@@ -1487,7 +1513,13 @@ fn walk_element(m: &mut Engine<'_>, ctx: &Context, el: &CollectionElement) {
 /// with the receiver's cone (or not at all, when the emitter writes a
 /// JavaScript operator), so the resolution must not record it again without
 /// a cone. `DARTFORGE_JSPROD_OPERATOR_RESOLVED=0` records it anyway.
-fn operator_member(m: &Engine<'_>, ast: &ast::Ast, id: ExprId, r: &Resolved) -> bool {
+fn operator_member(
+    m: &Engine<'_>,
+    ctx: &Context,
+    ast: &ast::Ast,
+    id: ExprId,
+    r: &Resolved,
+) -> bool {
     let Resolved::Member {
         member: MemberRef::Function(f),
         ..
@@ -1509,6 +1541,33 @@ fn operator_member(m: &Engine<'_>, ast: &ast::Ast, id: ExprId, r: &Resolved) -> 
         return false;
     }
     match &ast.expr(id).kind {
+        // `x == null` is the JavaScript `== null`, and a non-nullable string,
+        // number or `bool` on the left is compared by identity
+        // (`emit_js::expr::Emitter::emit_equals`): no `==` is called.
+        ExprKind::Binary {
+            op: ast::BinaryOp::Eq | ast::BinaryOp::NotEq,
+            left,
+            right,
+        } => {
+            if std::env::var("DARTFORGE_JSPROD_PRIMITIVE_EQUALS").is_ok_and(|v| v == "0") {
+                return false;
+            }
+            let ty = |x: ExprId| {
+                m.e.bodies
+                    .units
+                    .get(ctx.unit.0 as usize)
+                    .and_then(|u| u.get_type(x))
+                    .map(|t| m.e.table.get(t))
+            };
+            let null = |x: ExprId| {
+                matches!(ast.expr(x).kind, ExprKind::Null)
+                    || matches!(ty(x), Some(dartforge_types::table::Type::Null))
+            };
+            null(*left)
+                || null(*right)
+                || static_interface(m, ctx, *left)
+                    .is_some_and(|(c, nullable)| !nullable && primitive_class(m, c))
+        }
         ExprKind::Binary { op, .. } => binary_operator_name(*op).is_some(),
         ExprKind::Unary { op, .. } => matches!(
             op,
@@ -1696,7 +1755,7 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             m.visit_type(t);
         }
         if let Some(r) = u.get_resolved(id)
-            && !operator_member(m, ast, id, r)
+            && !operator_member(m, ctx, ast, id, r)
         {
             let r = r.clone();
             apply_resolved(m, &r, receiver);

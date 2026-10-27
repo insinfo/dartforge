@@ -5114,6 +5114,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         {
             return Js::new(format!("{} == {}", l.at(P_EQ), r.at(P_EQ + 1)), P_EQ);
         }
+        // Production: a non-nullable `String`, number or `bool` on the left
+        // is the receiver, and its `==` is identity whatever the other side
+        // is (`JSString`/`JSNumber`/`JSBool`). `DARTFORGE_JSPROD_PRIMITIVE_EQUALS=0`
+        // keeps `dart.equals`.
+        if ctx.production()
+            && !lt.is_nullable()
+            && ctx.is_js_primitive(lt)
+            && !matches!(lt, Ty::Null)
+            && std::env::var("DARTFORGE_JSPROD_PRIMITIVE_EQUALS").map_or(true, |v| v != "0")
+        {
+            return Js::new(format!("{} === {}", l.at(P_EQ), r.at(P_EQ + 1)), P_EQ);
+        }
         let prim = ctx.is_js_primitive(&lt.non_null())
             && (ctx.is_js_primitive(&rt.non_null()) || rt.is_dynamic());
         let is_enum = lt.class().is_some_and(|c| ctx.is_enum_class(c));
