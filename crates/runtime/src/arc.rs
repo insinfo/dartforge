@@ -357,6 +357,7 @@ impl Table {
     fn iter(&self) -> impl Iterator<Item = (Ref, &MetaArc)> + '_ {
         self.pages
             .iter()
+            .filter(|pg| pg.occupied > 0)
             .flat_map(|pg| {
                 let g = pg.geometry;
                 pg.metas.iter().enumerate().filter_map(move |(i, m)| {

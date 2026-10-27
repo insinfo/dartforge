@@ -2735,6 +2735,12 @@ impl Heap {
     }
 
     /// Retains before releasing, with no collection nor Dart call between the operations.
+    ///
+    /// In nursery mode a young target is not registered: a young object has no
+    /// count until promotion, which counts the owning occurrences that still hold it
+    /// ([`Heap::sync_arc`]). Registering it here would give it a count that misses
+    /// the occurrences of young owners, and its death by RC before promotion would
+    /// release children it never counted.
     fn arc_swap_owning_root(&mut self, new: Ref, old: Ref) {
         if new == old {
             return;
@@ -2742,7 +2748,11 @@ impl Heap {
         let Some(mut arc) = self.arc.take() else {
             return;
         };
-        self.arc_retain_registering(&mut arc, new);
+        if arc.pure {
+            self.arc_retain_registering(&mut arc, new);
+        } else {
+            arc.state.retain_ref(new).unwrap_or_else(|e| arc_failure(e));
+        }
         arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
         self.arc.set(arc);
     }
@@ -4212,14 +4222,33 @@ impl Heap {
             }
             self.objects.remembered = kept;
         } else if minor {
-            // The remembered old objects: their references may be young.
+            // The remembered old objects: their references may be young. Under the
+            // ARC nursery, each strong reference from one of them to a young object
+            // is an occurrence that promotion counts (`sync_arc`): it is recorded
+            // here, where the card scan already reads only the dirty cards, instead
+            // of walking every remembered object again (a large list per collection).
+            let mut old_to_young = self
+                .arc
+                .as_mut()
+                .map(|a| std::mem::take(&mut a.old_to_young));
             for &b in &self.objects.remembered {
+                let start = pending_list.len();
                 // SAFETY: remembered block, live.
                 #[allow(unsafe_code)]
                 let work = unsafe { self.objects.push_remembered(b, &mut pending_list) };
                 self.marking_work += work;
                 let owner = b as i64 + HANDLE_OFFSET;
                 self.visit_attachment_edges(owner, &mut |action| pending_list.push(action));
+                if let Some(edges) = old_to_young.as_mut() {
+                    for &v in &pending_list[start..] {
+                        if self.young_child(v) {
+                            edges.push((owner, v));
+                        }
+                    }
+                }
+            }
+            if let (Some(arc), Some(edges)) = (self.arc.as_mut(), old_to_young) {
+                arc.old_to_young = edges;
             }
         }
         self.pending = pending_list;
@@ -6642,6 +6671,10 @@ pub struct HeapArc {
     /// `DARTFORGE_ARC_NURSERY=1`, the first-stage mode: the nursery through the
     /// traced minor collection and the young object's edges counted at promotion.
     pure: bool,
+    /// Nursery mode: the strong references from remembered old objects to young
+    /// ones that the minor collection in progress found (owner, young target),
+    /// counted by promotion ([`Heap::sync_arc`]).
+    old_to_young: Vec<(Ref, Ref)>,
 }
 
 impl std::fmt::Debug for HeapArc {
@@ -6998,6 +7031,7 @@ impl Heap {
                 _ => None,
             },
             pure: !crate::console::env_var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "1"),
+            old_to_young: Vec::new(),
         });
         arc.state.trace_log =
             crate::console::env_var("DARTFORGE_ARC_TRACE").is_ok_and(|v| v == "1");
@@ -7080,6 +7114,58 @@ impl Heap {
         out
     }
 
+    /// [`Self::reachable_by_tracing`] through the mark bitmap instead of a hash set:
+    /// clears every mark and leaves marked exactly the space objects reachable from
+    /// the roots (with the ephemeron rule). Only for the nursery's full
+    /// synchronization, whose reclamation ([`Self::reclaim_arc`]) rebuilds the marks
+    /// right after; the pure ARC reads the marks of its young objects. The edges it
+    /// walked count as marking work (the spacing of full collections under
+    /// `--gc-stress`, as in the tracing collector).
+    fn mark_reachable(&mut self) -> usize {
+        self.objects.clear_marks();
+        let mut stack = Vec::new();
+        self.root_list(&mut stack);
+        let mut reached = 0;
+        let mut work = 0;
+        loop {
+            while let Some(h) = stack.pop() {
+                work += 1;
+                if !smi::e_handle(h) {
+                    continue;
+                }
+                let Some(b) = self.space_block(h) else {
+                    continue;
+                };
+                // SAFETY: block of the space.
+                if unsafe { marked(b) } {
+                    continue;
+                }
+                // SAFETY: block of the space.
+                unsafe { mark_block(b) };
+                reached += 1;
+                // SAFETY: the positions are body words of a live block.
+                self.visit_strong_references(h, &mut |v| stack.push(v));
+            }
+            let reached_by = |h: &Ref| {
+                !smi::e_handle(*h)
+                    || self
+                        .space_block(*h)
+                        // SAFETY: block of the space.
+                        .is_none_or(|b| unsafe { marked(b) })
+            };
+            for (p, (k, v)) in &self.ephemerons {
+                if reached_by(p) && reached_by(k) && !reached_by(v) {
+                    stack.push(*v);
+                }
+            }
+            if stack.is_empty() {
+                break;
+            }
+        }
+        self.marking_work += work;
+        reached
+    }
+
     /// The fixed point and the global discard transaction of the full collection (§22.3):
     /// `L` is the reachability from the actual roots through the strong edges, with the
     /// conditional ephemeron rule (the value enters when the holder and the key
@@ -7093,13 +7179,27 @@ impl Heap {
     /// before the batch, and the value that survives loses the occurrence. One whose key is
     /// outside `L` leaves through the discard itself (breaking the key zeroes the
     /// entry and releases the value).
+    ///
+    /// Under the nursery, `L` is the mark bitmap ([`Self::mark_reachable`]); under pure
+    /// ARC, whose drain reads the marks of the young objects, a hash set.
     fn arc_fixpoint(&mut self, arc: &mut HeapArc) {
-        let l: crate::hash::HashSet<Ref> = self.reachable_by_tracing().into_iter().collect();
+        let (l, reached) = if arc.pure {
+            let l: crate::hash::HashSet<Ref> = self.reachable_by_tracing().into_iter().collect();
+            let n = l.len();
+            (Some(l), n)
+        } else {
+            (None, self.mark_reachable())
+        };
+        let in_l = |h: Ref| match &l {
+            Some(l) => l.contains(&h),
+            // SAFETY: block of the space.
+            None => self.space_block(h).is_some_and(|b| unsafe { marked(b) }),
+        };
         let d: Vec<Ref> = arc
             .state
             .live_set()
             .filter(|h| {
-                !l.contains(h)
+                !in_l(*h)
                     && arc
                         .state
                         .meta(*h)
@@ -7108,8 +7208,7 @@ impl Heap {
             .collect();
         if arc.state.trace_log {
             eprintln!(
-                "[arc-trace] fixed point: {} reached, {} dead",
-                l.len(),
+                "[arc-trace] fixed point: {reached} reached, {} dead",
                 d.len()
             );
         }
@@ -7189,16 +7288,12 @@ impl Heap {
                 arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
             }
         }
-        for &x in &remembered {
-            if new_ones.contains(&x) || arc.snapshots.contains_key(&x) || !arc.state.alive(x) {
-                continue;
-            }
-            // SAFETY: the positions are body words of a live block.
-            self.visit_strong_references(x, &mut |v| value_list.push(v));
-            for v in value_list.drain(..) {
-                if new_ones.contains(&v) {
-                    arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
-                }
+        // The references the remembered old objects have to promoted ones, as the
+        // minor collection's card scan found them (a snapshotted owner counts all
+        // its current references below).
+        for (x, v) in std::mem::take(&mut arc.old_to_young) {
+            if new_ones.contains(&v) && !arc.snapshots.contains_key(&x) && arc.state.alive(x) {
+                arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
             }
         }
         for (x, snapshot) in std::mem::take(&mut arc.snapshots) {
@@ -7821,7 +7916,7 @@ impl Heap {
         self.stats.reclaimed += dead_set as u64;
         self.set_estimated_bytes((object_bytes as u128).saturating_add(self.external));
         self.minors_since_full = 0;
-        self.work_in_full = live_set;
+        self.work_in_full = live_set + self.marking_work;
         self.recompute_triggers(live_set);
     }
 
@@ -7915,6 +8010,46 @@ mod arc_no_heap {
         heap.enable_arc();
         heap.arc.as_mut().unwrap().check = true;
         heap
+    }
+
+    /// Nursery mode: a young object held for a while by an owning slot has no
+    /// count. Before, the slot registered it, its edge to an old child (written
+    /// while the owner was young) was never counted, and its death by RC before
+    /// promotion released the child once more than retained (`RcZero`).
+    #[test]
+    fn nursery_owning_slot_leaves_young_object_uncounted() {
+        for promote in [false, true] {
+            let mut heap = heap_arc();
+            heap.arc.as_mut().unwrap().pure = false;
+            let observer = heap.push_frame_with_slots(1);
+            let child = heap.allocate_str("old child, seen only by an observer");
+            heap.set_root(observer, 0, child);
+            heap.run_collection(true);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(child).unwrap().rc, 0);
+            let owning = heap.push_owning_frame(1);
+            let young = list(&mut heap, 1);
+            heap.set_root(owning, 0, young);
+            assert!(
+                heap.arc.as_ref().unwrap().state.meta(young).is_none(),
+                "the owning slot does not register a young object"
+            );
+            heap.write_refs(young, 1, &[child]);
+            if !promote {
+                heap.set_root(owning, 0, 0);
+            }
+            heap.run_collection(true);
+            assert_eq!(heap.is_live_object(young), promote);
+            let rc = heap.arc.as_ref().unwrap().state.meta(child).unwrap().rc;
+            assert_eq!(rc, u64::from(promote));
+            if promote {
+                assert_eq!(heap.arc.as_ref().unwrap().state.meta(young).unwrap().rc, 1);
+            }
+            heap.pop_frame(owning);
+            heap.collect();
+            assert!(!heap.is_live_object(young));
+            assert!(heap.is_live_object(child));
+            heap.pop_frame(observer);
+        }
     }
 
     #[test]
@@ -8404,6 +8539,12 @@ mod arc_no_heap {
         heap.arc.as_ref().unwrap().state.alive(h)
     }
 
+    /// The count of `h`, if registered: under pure ARC a young object counts each
+    /// owning occurrence at once; in nursery mode it has no count until promotion.
+    fn rc(heap: &Heap, h: Ref) -> Option<u64> {
+        heap.arc.as_ref().unwrap().state.meta(h).map(|m| m.rc)
+    }
+
     #[test]
     fn owning_frames_count_copies_swaps_and_promotion() {
         for pure in [true, false] {
@@ -8415,7 +8556,7 @@ mod arc_no_heap {
             heap.set_root(owner, 0, a);
             heap.set_root(owner, 1, a);
             heap.set_root(observer, 0, a);
-            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 2);
+            assert_eq!(rc(&heap, a), pure.then_some(2));
             heap.set_root(owner, 0, a);
             for _ in 0..2 {
                 heap.run_collection(true);
@@ -8423,8 +8564,8 @@ mod arc_no_heap {
             }
             let b = list(&mut heap, 0);
             heap.set_root(owner, 0, b);
-            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 1);
-            assert_eq!(heap.arc.as_ref().unwrap().state.meta(b).unwrap().rc, 1);
+            assert_eq!(rc(&heap, a), Some(1));
+            assert_eq!(rc(&heap, b), pure.then_some(1));
             heap.set_root(owner, 1, 0);
             heap.run_collection(true);
             assert!(
@@ -8475,7 +8616,7 @@ mod arc_no_heap {
             heap.set_root(caller, 0, a);
             heap.move_root(callee, 0, caller, 0);
             assert_eq!(heap.frames.last().unwrap().1[0], 0);
-            assert_eq!(heap.arc.as_ref().unwrap().state.meta(a).unwrap().rc, 1);
+            assert_eq!(rc(&heap, a), pure.then_some(1));
             heap.pop_frame(callee);
             heap.collect();
             assert!(alive(&heap, a));
@@ -8675,16 +8816,7 @@ mod arc_no_heap {
                 heap.arc.as_ref().unwrap().state.meta(tearoff).unwrap().rc,
                 0
             );
-            assert_eq!(
-                heap.arc
-                    .as_ref()
-                    .unwrap()
-                    .state
-                    .meta(replacement)
-                    .unwrap()
-                    .rc,
-                1
-            );
+            assert_eq!(rc(&heap, replacement), pure.then_some(1));
             heap.collect();
             assert_eq!(heap.registered_tearoff(123), Some(replacement));
             assert!(!alive(&heap, tearoff), "the identity index is not an owner");
