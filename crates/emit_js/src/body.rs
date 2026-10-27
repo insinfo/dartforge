@@ -1104,6 +1104,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// JS expression that evaluates to the rti of `t` in the current environment.
     pub fn rti(&self, t: &Ty) -> String {
+        // A constant cannot depend on type parameters: in a constant context
+        // they denote their least closure, `Never` (`const C(f)` in
+        // `getC<T>()` is a `C<Never>`).
+        if self.in_const && !t.has_no_params() {
+            let mut ids = Vec::new();
+            t.collect_params(&mut ids);
+            if !ids.is_empty() {
+                let map: std::collections::HashMap<u32, Ty> =
+                    ids.into_iter().map(|id| (id, Ty::Never)).collect();
+                return self.rti_unconst(&t.subst(&map));
+            }
+        }
+        self.rti_unconst(t)
+    }
+
+    fn rti_unconst(&self, t: &Ty) -> String {
         // Closed type (no `Ty::Param`): the recipe does not mention the
         // environment (`used_fn`/`used_class` are only set in the `Ty::Param`
         // branch), so the expression is the same anywhere in the program and is

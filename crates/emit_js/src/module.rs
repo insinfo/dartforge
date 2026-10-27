@@ -4178,6 +4178,12 @@ fn emit_constructor(
             }
         }
     }
+    // A `const` constructor stores every field in declaration order first:
+    // the runtime canonicalizes constants by their properties in insertion
+    // order, which must not depend on the constructor that made them.
+    if ctor.const_ {
+        skip.clear();
+    }
     if is_primary_constructor(ctx, c, ctor) {
         // Primary constructor (3.13): the non-`late` field initializers are in
         // the scope of its parameters ("primary initializer scope"). Emitted by
