@@ -1122,6 +1122,14 @@ pub fn minify_with_properties(
     } else {
         source
     };
+    // The classes' metadata statements grouped before `main`
+    // (`unwrap::group_metadata`); `DARTFORGE_JSPROD_GROUP_METADATA=0` turns
+    // it off.
+    let source = if std::env::var("DARTFORGE_JSPROD_GROUP_METADATA").map_or(true, |v| v != "0") {
+        crate::unwrap::group_metadata(&source)?
+    } else {
+        source
+    };
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, &source, SourceType::cjs()).parse();
     if let Some(e) = parsed.diagnostics.first() {

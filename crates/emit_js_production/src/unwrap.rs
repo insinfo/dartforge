@@ -289,6 +289,145 @@ fn unwrappable_any<'b, 'a>(s: &'b Statement<'a>) -> Option<&'b oxc_ast::ast::Fun
     f.body.as_deref()
 }
 
+/// The `dart` runtime function a callee names (`dart.x` or, flattened,
+/// `dart$$x`).
+fn dart_member<'a>(callee: &'a Expression<'_>) -> Option<&'a str> {
+    match callee {
+        Expression::StaticMemberExpression(m) if matches!(&m.object, Expression::Identifier(o) if o.name == "dart") => {
+            Some(m.property.name.as_str())
+        }
+        Expression::Identifier(i) => crate::flatten::member(i.name.as_str(), "dart"),
+        _ => None,
+    }
+}
+
+/// The class a metadata statement registers, as source text: the class of
+/// `dart.lateFields(C.prototype, …)`, of `dart.setXSignature(C, …)` and of
+/// the compact `t$G(S, G, C, …)` (`shapes.rs`).
+fn metadata_class<'s>(source: &'s str, s: &Statement<'_>) -> Option<&'s str> {
+    let Statement::ExpressionStatement(e) = s else {
+        return None;
+    };
+    let Expression::CallExpression(c) = &e.expression else {
+        return None;
+    };
+    let arg = match (&c.callee, dart_member(&c.callee)) {
+        (_, Some("lateFields")) => c.arguments.first()?,
+        (_, Some(m)) if m.starts_with("set") && m.ends_with("Signature") => c.arguments.first()?,
+        (Expression::Identifier(i), _) if i.name == "t$G" => c.arguments.get(2)?,
+        _ => return None,
+    };
+    let span = arg.span();
+    let text = &source[span.start as usize..span.end as usize];
+    Some(text.strip_suffix(".prototype").unwrap_or(text))
+}
+
+/// Source texts of the arguments of the runtime calls that copy a class's
+/// members or signatures when the library loads (`applyMixin`,
+/// `registerExtension`, `defineExtensionMethods`/`Accessors`) and of the
+/// classes with a `[dart.mixinOn]`: their metadata must stay where it is.
+struct LoadTimeCopies<'s> {
+    source: &'s str,
+    classes: std::collections::HashSet<&'s str>,
+}
+
+impl<'a> Visit<'a> for LoadTimeCopies<'_> {
+    fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
+        if matches!(
+            dart_member(&it.callee),
+            Some(
+                "applyMixin"
+                    | "registerExtension"
+                    | "defineExtensionMethods"
+                    | "defineExtensionAccessors"
+            )
+        ) {
+            for a in &it.arguments {
+                let span = a.span();
+                self.classes
+                    .insert(&self.source[span.start as usize..span.end as usize]);
+            }
+        }
+        walk::walk_call_expression(self, it);
+    }
+    fn visit_assignment_expression(&mut self, it: &oxc_ast::ast::AssignmentExpression<'a>) {
+        if let AssignmentTarget::ComputedMemberExpression(m) = &it.left
+            && let Expression::Identifier(k) = &m.expression
+            && (k.name == "dart$$mixinOn")
+        {
+            let span = m.object.span();
+            self.classes
+                .insert(&self.source[span.start as usize..span.end as usize]);
+        }
+        if let AssignmentTarget::ComputedMemberExpression(m) = &it.left
+            && let Expression::StaticMemberExpression(k) = &m.expression
+            && k.property.name == "mixinOn"
+        {
+            let span = m.object.span();
+            self.classes
+                .insert(&self.source[span.start as usize..span.end as usize]);
+        }
+        walk::walk_assignment_expression(self, it);
+    }
+}
+
+/// Moves the file-scope metadata statements of the classes (`lateFields`
+/// and the signatures) to just before the last statement (the call of
+/// `main`), in their order: alike statements next to each other compress
+/// far better than scattered between class bodies (limitless_ui: the late
+/// field lists alone, -6.8 KB gzip). Nothing reads them while the libraries
+/// load (the signatures are lazy, the late accessors serve instances,
+/// created from `main` on), except the load-time copies of
+/// [`LoadTimeCopies`], whose classes keep their statements in place.
+/// `DARTFORGE_JSPROD_GROUP_METADATA=0` turns it off.
+///
+/// # Errors
+///
+/// The text is not valid JS for the parser.
+pub fn group_metadata(source: &str) -> Result<String, String> {
+    let allocator = oxc_allocator::Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, source, oxc_span::SourceType::cjs()).parse();
+    if let Some(e) = parsed.diagnostics.first() {
+        return Err(format!("oxc could not parse the production file: {e}"));
+    }
+    let Some(outer) = parsed.program.body.first().and_then(unwrappable_any) else {
+        return Ok(source.to_string());
+    };
+    let Some(last) = outer.statements.last() else {
+        return Ok(source.to_string());
+    };
+    let mut copies = LoadTimeCopies {
+        source,
+        classes: std::collections::HashSet::new(),
+    };
+    copies.visit_program(&parsed.program);
+    let mut moved: Vec<(u32, u32)> = Vec::new();
+    for s in &outer.statements[..outer.statements.len() - 1] {
+        if metadata_class(source, s).is_some_and(|c| !copies.classes.contains(c)) {
+            let span = s.span();
+            moved.push((span.start, span.end));
+        }
+    }
+    if moved.is_empty() {
+        return Ok(source.to_string());
+    }
+    let at = last.span().start as usize;
+    let mut out = String::with_capacity(source.len() + moved.len());
+    let mut pos = 0usize;
+    let mut group = String::new();
+    for &(a, b) in &moved {
+        let (a, b) = (a as usize, b as usize);
+        out.push_str(&source[pos..a]);
+        group.push_str(&source[a..b]);
+        group.push('\n');
+        pos = b;
+    }
+    out.push_str(&source[pos..at]);
+    out.push_str(&group);
+    out.push_str(&source[at..]);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +464,21 @@ mod tests {
     fn leading_parenthesis_is_guarded() {
         let s = run("var a;\nx();\n(function () {\n(a = 1);\n})();");
         assert!(s.contains(";(a = 1)"), "{s}");
+    }
+
+    #[test]
+    fn metadata_moves_before_main_except_load_time_copies() {
+        let s = group_metadata(
+            "(function () {\nvar A = class {}, M = class {}, B = class {};\ndart$$lateFields(A.prototype, \"a\", \"\");\nt$G(S, G, A, () => ({m: T}));\ndart$$lateFields(M.prototype, \"m\", \"\");\ndart$$applyMixin(B, M);\nx();\nL$$main();\n})();\n",
+        )
+        .unwrap();
+        let main = s.find("L$$main()").unwrap();
+        let x = s.find("x();").unwrap();
+        let a = s.find("dart$$lateFields(A.prototype").unwrap();
+        let g = s.find("t$G(S, G, A").unwrap();
+        let m = s.find("dart$$lateFields(M.prototype").unwrap();
+        assert!(x < a && a < g && g < main, "{s}");
+        assert!(m < x, "{s}");
     }
 
     #[test]
