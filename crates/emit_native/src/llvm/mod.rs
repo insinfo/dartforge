@@ -1937,7 +1937,20 @@ impl<'a> LlvmEmitter<'a> {
                                 }
                             })
                         });
+                        // The `async` frame of every call of an `async` function
+                        // (`lower/async_sm.rs`) is bump-allocated from the TLAB
+                        // like an instance of a class, with the runtime only
+                        // when the range is exhausted.
+                        let inline_frame = *class_id == crate::lower::async_sm::ASYNC_FRAME_ID
+                            && count as i64 <= TLAB_N
+                            && !self.module.arc_memory;
                         match map {
+                            Some(m) if inline_frame => self.emit_inline_allocation_with_map(
+                                v,
+                                i64::from(*class_id),
+                                count as i64,
+                                Some(m),
+                            ),
                             Some(m) if m != 0 => writeln!(
                                 self.out,
                                 "  %v{v} = call i64 @dartforge_object_new_m(i64 {class_id}, i64 {count}, i64 {m})"
@@ -5821,12 +5834,20 @@ impl<'a> LlvmEmitter<'a> {
     /// `_mt`). The HIR block ends at the label `ao{v}.fim`
     /// ([`LlvmEmitter::exit_labels`]).
     fn emit_inline_allocation(&mut self, v: u32, c: i64, n: i64) {
+        self.emit_inline_allocation_with_map(v, c, n, None);
+    }
+
+    /// [`Self::emit_inline_allocation`] with the reference map given by the
+    /// caller (`explicit`) instead of the declared layout of the class: the
+    /// `AllocObject` of an `async` frame, whose map comes from the representation
+    /// of each initial field.
+    fn emit_inline_allocation_with_map(&mut self, v: u32, c: i64, n: i64, explicit: Option<u32>) {
         let table = self.module.table_functions.get(&(c as u32)).cloned();
         if let Some(f) = &table {
             self.annotate_external(f, Type::Ptr, &[]);
         }
         let test_registration = table.is_some() && !self.registered_at_startup(c);
-        let map = self.static_map(c, n);
+        let map = explicit.or_else(|| self.static_map(c, n));
         if let Some(m) = map {
             self.fresh_maps.insert(v, m);
         }
