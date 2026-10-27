@@ -2020,6 +2020,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         if let Some(l) = self.scopes.last_mut().and_then(|s| s.get_mut(&v.name.sym))
                         {
                             l.lazy_init = Some(js.into_at(crate::js::P_ASSIGN + 1));
+                            l.late_final = list.final_;
                         }
                     } else {
                         crate::emit_line!(self.w, "let {jsn} = {};", js.code);

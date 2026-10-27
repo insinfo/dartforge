@@ -2676,6 +2676,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     _ => ty,
                 };
                 if let Some(l) = self.lookup_local(sym).cloned() {
+                    if let Some(init) = &l.lazy_init
+                        && l.late_final
+                    {
+                        // A `late final` local assigned while its initializer
+                        // runs is an error (`LateError.localADI`).
+                        self.m.use_sdk("_internal");
+                        let t = self.temp();
+                        let name = js::string_literal(self.ctx.late_name(&n));
+                        return (
+                            Js::new(
+                                format!(
+                                    "{js} === void 0 ? ({t} = {init}, {js} === void 0 ? {js} = {t} : dart.throw(new _internal.LateError.localADI({name}))) : {js}"
+                                ),
+                                P_COND,
+                            )
+                            .paren(),
+                            ty,
+                        );
+                    }
                     if let Some(init) = &l.lazy_init {
                         return (
                             Js::new(format!("{js} === void 0 ? {js} = {init} : {js}",), P_COND)

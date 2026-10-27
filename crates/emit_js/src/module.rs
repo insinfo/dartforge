@@ -2312,6 +2312,25 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     let text = nsm_forwarder(ctx, m, c, unit, fid, &sym);
                     cw.line(&format!("{}{text}", sig_key(&jsname, &se, c)));
                     method_sigs.push((jsname.clone(), ctx.fn_ty(fid)));
+                    // A generic forwarder's default type arguments (`dart.bind`
+                    // and dynamic calls read them).
+                    let data = &ctx.outline.functions[fid.0 as usize];
+                    if !data.type_params.is_empty() {
+                        let defaults = data
+                            .type_params
+                            .iter()
+                            .map(|p| {
+                                // An unbounded parameter defaults to `dynamic`.
+                                let bound = *ctx.ty_param_of(*p).bound;
+                                if bound.mentions_params() || crate::own_sdk::is_top(ctx, &bound) {
+                                    Ty::Dynamic
+                                } else {
+                                    bound
+                                }
+                            })
+                            .collect();
+                        generic_methods.push((jsname.clone(), defaults));
+                    }
                     if natives.contains(&name) {
                         ext_methods.push(jsname);
                     }
@@ -2329,12 +2348,25 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                         ext_accessors.push(name.clone());
                     }
                 }
-                crate::ctx::MemberKind::Setter(_) => {
+                crate::ctx::MemberKind::Setter(fid) => {
                     let ssym = format!(
                         "dart.const(new _internal.Symbol.new({}))",
                         js::string_literal(&format!("{name}="))
                     );
                     cw.line(&format!("set {}(v) {{ dart.noSuchMethod(this, new core._Invocation.setter({ssym}, v)); }}", sig_key(&name, &se, c)));
+                    // Signed, so that a dynamic write checks the value.
+                    // An implicit setter (a field of the interface) has the
+                    // field's type.
+                    let value = match ctx.program.function(fid).variable {
+                        Some(v) => ctx.var_ty(v),
+                        None => ctx.outline.functions[fid.0 as usize]
+                            .parameters
+                            .first()
+                            .map_or(Ty::Dynamic, |p| ctx.ty_of(p.ty)),
+                    };
+                    if !value.mentions_params() {
+                        setter_sigs.push((name.clone(), value));
+                    }
                 }
                 crate::ctx::MemberKind::Field(_) => {}
             }
