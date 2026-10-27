@@ -1,0 +1,11 @@
+# Everything is excluded except what the packaged extension needs at runtime:
+# the bundled client (out/extension.js, built by `npm run bundle`), an optional
+# server binary in server/, the grammar, the language configuration, the README
+# and the LICENSE. package.json is always included by vsce.
+**
+!out/extension.js
+!server/**
+!syntaxes/dart.tmLanguage.json
+!language-configuration.json
+!README.md
+!LICENSE

@@ -1,61 +1,327 @@
 {
     "name": "dartforge",
     "displayName": "DartForge",
-    "description": "Dart language support through the DartForge server (incremental diagnostics, low memory use).",
+    "description": "Dart language support backed by the DartForge language server (diagnostics, completion, navigation, refactoring, formatting, low memory use).",
     "version": "0.1.0",
     "publisher": "dartforge",
     "license": "MIT",
     "repository": {
-        "url": "https://github.com/anomalyco/opencode",
-        "type": "git"
+        "type": "git",
+        "url": "https://github.com/insinfo/dartforge.git",
+        "directory": "editors/vscode"
+    },
+    "bugs": {
+        "url": "https://github.com/insinfo/dartforge/issues"
     },
     "engines": {
         "vscode": "^1.93.0"
     },
     "categories": [
-        "Programming Languages"
+        "Programming Languages",
+        "Formatters",
+        "Linters"
+    ],
+    "keywords": [
+        "dart",
+        "lsp",
+        "language server"
     ],
     "activationEvents": [
-        "onLanguage:dart"
+        "onLanguage:dart",
+        "workspaceContains:pubspec.yaml"
     ],
-    "main": "./out/extension",
+    "main": "./out/extension.js",
+    "capabilities": {
+        "virtualWorkspaces": false,
+        "untrustedWorkspaces": {
+            "supported": "limited",
+            "description": "In untrusted workspaces the server path, SDK path and server environment can only be set in user settings.",
+            "restrictedConfigurations": [
+                "dartforge.serverPath",
+                "dartforge.sdkPath",
+                "dartforge.server.extraEnv"
+            ]
+        }
+    },
     "contributes": {
+        "languages": [
+            {
+                "id": "dart",
+                "aliases": [
+                    "Dart",
+                    "dart"
+                ],
+                "extensions": [
+                    ".dart"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "dart",
+                "scopeName": "source.dart",
+                "path": "./syntaxes/dart.tmLanguage.json"
+            }
+        ],
+        "semanticTokenTypes": [
+            {
+                "id": "annotation",
+                "superType": "decorator",
+                "description": "A Dart annotation (`@override`, `@Deprecated(...)`)."
+            },
+            {
+                "id": "boolean",
+                "superType": "keyword",
+                "description": "The `true` and `false` literals."
+            },
+            {
+                "id": "source",
+                "description": "Embedded source code, such as a `${...}` string interpolation."
+            }
+        ],
+        "semanticTokenModifiers": [
+            {
+                "id": "constructor",
+                "description": "A constructor or a constructor invocation."
+            },
+            {
+                "id": "importPrefix",
+                "description": "The prefix of an `import ... as prefix` directive."
+            },
+            {
+                "id": "instance",
+                "description": "An instance member."
+            },
+            {
+                "id": "escape",
+                "description": "An escape sequence inside a string."
+            },
+            {
+                "id": "annotation",
+                "description": "A name inside an annotation."
+            },
+            {
+                "id": "control",
+                "description": "A control flow keyword (`if`, `for`, `return`, `await`, ...)."
+            },
+            {
+                "id": "label",
+                "description": "The name of a named argument or a statement label."
+            },
+            {
+                "id": "interpolation",
+                "description": "A string interpolation."
+            },
+            {
+                "id": "void",
+                "description": "The `void` type."
+            },
+            {
+                "id": "wildcard",
+                "description": "A wildcard variable (`_`)."
+            }
+        ],
+        "semanticTokenScopes": [
+            {
+                "language": "dart",
+                "scopes": {
+                    "annotation": [
+                        "storage.type.annotation.dart"
+                    ],
+                    "boolean": [
+                        "constant.language.boolean.dart"
+                    ],
+                    "keyword.control": [
+                        "keyword.control.dart"
+                    ],
+                    "keyword.void": [
+                        "storage.type.primitive.dart"
+                    ],
+                    "string.escape": [
+                        "constant.character.escape.dart"
+                    ],
+                    "source.interpolation": [
+                        "punctuation.definition.template-expression.dart"
+                    ],
+                    "variable.importPrefix": [
+                        "entity.name.namespace.dart"
+                    ],
+                    "parameter.label": [
+                        "entity.name.label.dart"
+                    ]
+                }
+            }
+        ],
+        "commands": [
+            {
+                "command": "dartforge.restartServer",
+                "title": "Restart Server",
+                "category": "DartForge"
+            },
+            {
+                "command": "dartforge.showOutput",
+                "title": "Show Output",
+                "category": "DartForge"
+            }
+        ],
         "configuration": {
             "title": "DartForge",
             "properties": {
+                "dartforge.enable": {
+                    "type": "boolean",
+                    "default": true,
+                    "scope": "window",
+                    "markdownDescription": "Starts the DartForge language server for Dart files. Set to `false` to keep only the syntax highlighting of this extension (for example when the Dart extension, `Dart-Code.dart-code`, provides the language server instead)."
+                },
                 "dartforge.serverPath": {
                     "type": [
                         "null",
                         "string"
                     ],
-                    "scope": "machine-overridable",
                     "default": null,
-                    "markdownDescription": "Path of the `dartforge-lsp` binary. When empty, the extension looks for `dartforge-lsp` on the `PATH`."
+                    "scope": "machine-overridable",
+                    "markdownDescription": "Path of the `dartforge-lsp` binary. When empty, the extension uses the binary bundled in its `server/` folder, then `dartforge-lsp` on the `PATH`. `~` and `${workspaceFolder}` are expanded; a relative path is resolved against the first workspace folder."
+                },
+                "dartforge.sdkPath": {
+                    "type": [
+                        "null",
+                        "string"
+                    ],
+                    "default": null,
+                    "scope": "machine-overridable",
+                    "markdownDescription": "Root of the Dart SDK the server analyzes against (the folder that contains `lib/libraries.json`). When empty, the server uses `DARTFORGE_SDK_LIB`, the SDK of the DartForge distribution, `DART_SDK`, or the `dart` on the `PATH`, in that order. Changing it restarts the server."
+                },
+                "dartforge.server.extraEnv": {
+                    "type": "object",
+                    "default": {},
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "scope": "machine-overridable",
+                    "markdownDescription": "Extra environment variables for the server process, for example `{\"DARTFORGE_LSP_DEBUG\": \"1\"}` to log to the output channel. Changing it restarts the server."
                 },
                 "dartforge.trace.server": {
                     "type": "string",
-                    "scope": "window",
                     "enum": [
                         "off",
                         "messages",
                         "verbose"
                     ],
                     "default": "off",
-                    "description": "Traces the messages between the client and the server (verbose; for debugging only)."
+                    "scope": "window",
+                    "description": "Traces the messages between the client and the server in the DartForge output channel (for debugging only)."
+                },
+                "dartforge.suggestFromUnimportedLibraries": {
+                    "type": "boolean",
+                    "default": true,
+                    "scope": "window",
+                    "markdownDescription": "Offers completions from libraries that are not imported yet, adding the import when the item is accepted. Sent at startup: changing it restarts the server."
+                },
+                "dartforge.lineLength": {
+                    "type": [
+                        "null",
+                        "integer"
+                    ],
+                    "default": null,
+                    "minimum": 1,
+                    "scope": "resource",
+                    "markdownDescription": "Maximum line length used by the formatter. When empty, `dart.lineLength` is used if set, otherwise 80."
+                },
+                "dartforge.enableSdkFormatter": {
+                    "type": "boolean",
+                    "default": true,
+                    "scope": "resource",
+                    "markdownDescription": "Enables document, range and on-type formatting by the server. Disable it to use another formatter."
+                },
+                "dartforge.completeFunctionCalls": {
+                    "type": "boolean",
+                    "default": true,
+                    "scope": "window",
+                    "markdownDescription": "Completes functions and methods with their parentheses and placeholders for the required arguments."
+                },
+                "dartforge.enableSnippets": {
+                    "type": "boolean",
+                    "default": true,
+                    "scope": "resource",
+                    "markdownDescription": "Offers the server's code snippets (`for`, `if`, `main`, `stful`, ...) in completion."
+                },
+                "dartforge.showTodos": {
+                    "type": [
+                        "boolean",
+                        "array"
+                    ],
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": false,
+                    "scope": "window",
+                    "markdownDescription": "Reports `TODO` comments as diagnostics: `true` for all kinds, or a list of kinds such as `[\"TODO\", \"FIXME\"]`."
+                },
+                "dartforge.documentation": {
+                    "type": "string",
+                    "enum": [
+                        "full",
+                        "summary",
+                        "none"
+                    ],
+                    "default": "full",
+                    "scope": "window",
+                    "description": "How much of the documentation comments completion items show."
+                },
+                "dartforge.updateImportsOnRename": {
+                    "type": "boolean",
+                    "default": true,
+                    "scope": "resource",
+                    "description": "Updates the imports of other files when a Dart file is renamed or moved in the explorer."
+                },
+                "dartforge.renameFilesWithClasses": {
+                    "type": "string",
+                    "enum": [
+                        "never",
+                        "always"
+                    ],
+                    "default": "never",
+                    "scope": "resource",
+                    "description": "Renames the file when a class whose name matches the file name is renamed."
+                },
+                "dartforge.analysisExcludedFolders": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "scope": "window",
+                    "description": "Folders (absolute, or relative to the workspace folder) the server does not analyze."
+                },
+                "dartforge.maxCompletionItems": {
+                    "type": [
+                        "null",
+                        "integer"
+                    ],
+                    "default": null,
+                    "minimum": 1,
+                    "scope": "resource",
+                    "description": "Maximum number of completion items the server returns (empty for the server default)."
                 }
             }
         }
     },
     "scripts": {
+        "vscode:prepublish": "npm run bundle",
         "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./"
+        "watch": "tsc -watch -p ./",
+        "bundle": "tsc -p ./ --noEmit && esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --target=node20 --minify --sourcemap=external",
+        "package": "vsce package --no-dependencies"
     },
     "dependencies": {
         "vscode-languageclient": "^9.0.1"
     },
     "devDependencies": {
-        "@types/node": "~22.13.4",
+        "@types/node": "~20.19.0",
         "@types/vscode": "~1.93.0",
-        "typescript": "^5.6.3"
+        "@vscode/vsce": "^3.9.2",
+        "esbuild": "^0.25.12",
+        "typescript": "^5.9.3"
     }
 }

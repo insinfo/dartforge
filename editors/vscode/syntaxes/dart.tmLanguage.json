@@ -1,0 +1,725 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Dart",
+    "scopeName": "source.dart",
+    "fileTypes": [
+        "dart"
+    ],
+    "patterns": [
+        {
+            "include": "#shebang"
+        },
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#directives"
+        },
+        {
+            "include": "#annotations"
+        },
+        {
+            "include": "#declarations"
+        },
+        {
+            "include": "#code"
+        }
+    ],
+    "repository": {
+        "shebang": {
+            "match": "\\A#!.*$",
+            "name": "comment.line.shebang.dart"
+        },
+        "comments": {
+            "patterns": [
+                {
+                    "include": "#comment-doc-line"
+                },
+                {
+                    "include": "#comment-line"
+                },
+                {
+                    "include": "#comment-doc-block"
+                },
+                {
+                    "include": "#comment-block"
+                }
+            ]
+        },
+        "comment-doc-line": {
+            "begin": "///(?!/)",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.definition.comment.dart"
+                }
+            },
+            "end": "$",
+            "name": "comment.line.triple-slash.documentation.dart",
+            "patterns": [
+                {
+                    "include": "#doc-content"
+                }
+            ]
+        },
+        "comment-line": {
+            "begin": "//",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.definition.comment.dart"
+                }
+            },
+            "end": "$",
+            "name": "comment.line.double-slash.dart",
+            "patterns": [
+                {
+                    "include": "#comment-tags"
+                }
+            ]
+        },
+        "comment-doc-block": {
+            "begin": "/\\*\\*(?!/)",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.definition.comment.begin.dart"
+                }
+            },
+            "end": "\\*/",
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.definition.comment.end.dart"
+                }
+            },
+            "name": "comment.block.documentation.dart",
+            "patterns": [
+                {
+                    "include": "#comment-block-nested"
+                },
+                {
+                    "include": "#doc-content"
+                }
+            ]
+        },
+        "comment-block": {
+            "begin": "/\\*",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.definition.comment.begin.dart"
+                }
+            },
+            "end": "\\*/",
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.definition.comment.end.dart"
+                }
+            },
+            "name": "comment.block.dart",
+            "patterns": [
+                {
+                    "include": "#comment-block-nested"
+                },
+                {
+                    "include": "#comment-tags"
+                }
+            ]
+        },
+        "comment-block-nested": {
+            "begin": "/\\*",
+            "end": "\\*/",
+            "patterns": [
+                {
+                    "include": "#comment-block-nested"
+                }
+            ]
+        },
+        "comment-tags": {
+            "match": "\\b(?:TODO|FIXME|HACK|XXX|UNDONE)\\b",
+            "name": "keyword.other.todo.dart"
+        },
+        "doc-content": {
+            "patterns": [
+                {
+                    "match": "```\\w*",
+                    "name": "markup.fenced_code.block.dart"
+                },
+                {
+                    "match": "`[^`\\n]+`",
+                    "name": "markup.inline.raw.string.dart"
+                },
+                {
+                    "match": "(\\[)((?:new\\s+)?[A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)*(?:<[^\\]]*>)?)(\\])(?![\\[(:])",
+                    "captures": {
+                        "1": {
+                            "name": "punctuation.definition.reference.begin.dart"
+                        },
+                        "2": {
+                            "name": "variable.other.reference.dart"
+                        },
+                        "3": {
+                            "name": "punctuation.definition.reference.end.dart"
+                        }
+                    }
+                },
+                {
+                    "include": "#comment-tags"
+                }
+            ]
+        },
+        "directives": {
+            "begin": "^\\s*\\b(import|export|part|library)\\b(?!\\s*[.(=,:<])",
+            "beginCaptures": {
+                "1": {
+                    "name": "keyword.other.import.dart"
+                }
+            },
+            "end": ";",
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.terminator.dart"
+                }
+            },
+            "name": "meta.declaration.directive.dart",
+            "patterns": [
+                {
+                    "include": "#comments"
+                },
+                {
+                    "include": "#strings"
+                },
+                {
+                    "match": "\\b(?:as|show|hide|deferred|of|if|augment)\\b",
+                    "name": "keyword.other.import.dart"
+                },
+                {
+                    "match": "==",
+                    "name": "keyword.operator.comparison.dart"
+                },
+                {
+                    "match": ",",
+                    "name": "punctuation.separator.comma.dart"
+                },
+                {
+                    "match": "\\.",
+                    "name": "punctuation.accessor.dart"
+                },
+                {
+                    "match": "[()]",
+                    "name": "punctuation.section.parens.dart"
+                },
+                {
+                    "match": "[A-Za-z_$][\\w$]*",
+                    "name": "entity.name.namespace.dart"
+                }
+            ]
+        },
+        "annotations": {
+            "match": "(@)([A-Za-z_$][\\w$]*(?:\\s*\\.\\s*[A-Za-z_$][\\w$]*)*)",
+            "captures": {
+                "0": {
+                    "name": "storage.type.annotation.dart"
+                },
+                "1": {
+                    "name": "punctuation.definition.annotation.dart"
+                }
+            }
+        },
+        "declarations": {
+            "patterns": [
+                {
+                    "match": "\\b(extension)\\s+(type)\\b(?:\\s+(const)\\b)?(?:\\s+([A-Za-z_$][\\w$]*))?",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.extension.dart"
+                        },
+                        "2": {
+                            "name": "keyword.declaration.type.dart"
+                        },
+                        "3": {
+                            "name": "storage.modifier.dart"
+                        },
+                        "4": {
+                            "name": "entity.name.type.class.dart"
+                        }
+                    }
+                },
+                {
+                    "match": "^\\s*(extension)(?:\\s+(?!on\\b)([A-Za-z_$][\\w$]*))?(?=\\s*(?:<[^{]*>)?\\s+on\\b)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.extension.dart"
+                        },
+                        "2": {
+                            "name": "entity.name.type.extension.dart"
+                        }
+                    }
+                },
+                {
+                    "match": "\\b(?:abstract|sealed|base|interface|final|mixin)\\b(?=(?:\\s+(?:abstract|sealed|base|interface|final|mixin))*\\s+(?:class|mixin)\\b)",
+                    "name": "storage.modifier.dart"
+                },
+                {
+                    "match": "\\b(class|enum|mixin|typedef)\\s+([A-Za-z_$][\\w$]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.dart"
+                        },
+                        "2": {
+                            "name": "entity.name.type.class.dart"
+                        }
+                    }
+                },
+                {
+                    "match": "\\b(?:class|enum|mixin|typedef)\\b",
+                    "name": "keyword.declaration.dart"
+                }
+            ]
+        },
+        "code": {
+            "patterns": [
+                {
+                    "include": "#comments"
+                },
+                {
+                    "include": "#strings"
+                },
+                {
+                    "include": "#symbols"
+                },
+                {
+                    "include": "#numbers"
+                },
+                {
+                    "include": "#annotations"
+                },
+                {
+                    "include": "#keywords"
+                },
+                {
+                    "include": "#types"
+                },
+                {
+                    "include": "#functions"
+                },
+                {
+                    "include": "#operators"
+                },
+                {
+                    "include": "#punctuation"
+                },
+                {
+                    "include": "#blocks"
+                }
+            ]
+        },
+        "blocks": {
+            "begin": "\\{",
+            "beginCaptures": {
+                "0": {
+                    "name": "punctuation.section.block.begin.dart"
+                }
+            },
+            "end": "\\}",
+            "endCaptures": {
+                "0": {
+                    "name": "punctuation.section.block.end.dart"
+                }
+            },
+            "patterns": [
+                {
+                    "include": "$self"
+                }
+            ]
+        },
+        "symbols": {
+            "match": "#(?:[A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*)*|\\[\\]=?|~/|>>>|<<|>>|[-+*/%<>=&|^~]=?|unary-)",
+            "name": "constant.other.symbol.dart"
+        },
+        "numbers": {
+            "patterns": [
+                {
+                    "match": "(?<![\\w$])0[xX][0-9A-Fa-f]+(?:_+[0-9A-Fa-f]+)*(?![\\w$])",
+                    "name": "constant.numeric.hex.dart"
+                },
+                {
+                    "match": "(?<![\\w$.])(?:\\d+(?:_+\\d+)*(?:\\.\\d+(?:_+\\d+)*)?|\\.\\d+(?:_+\\d+)*)(?:[eE][+-]?\\d+(?:_+\\d+)*)?(?![\\w$])",
+                    "name": "constant.numeric.decimal.dart"
+                }
+            ]
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "match": "\\b(?:async|sync)\\b\\s*\\*|\\byield\\b\\s*\\*",
+                    "name": "keyword.control.dart"
+                },
+                {
+                    "match": "\\b(?:if|else|for|while|do|switch|case|default|break|continue|return|try|catch|finally|throw|rethrow|assert|await|yield|in|when)\\b",
+                    "name": "keyword.control.dart"
+                },
+                {
+                    "match": "\\b(?:async|sync)\\b(?=\\s*(?:\\{|=>))",
+                    "name": "keyword.control.dart"
+                },
+                {
+                    "match": "\\bon\\b(?=\\s+[A-Za-z_$])",
+                    "name": "keyword.control.catch-exception.dart"
+                },
+                {
+                    "match": "\\b(?:new)\\b",
+                    "name": "keyword.operator.new.dart"
+                },
+                {
+                    "match": "\\bis!|\\b(?:is|as)\\b",
+                    "name": "keyword.operator.type.dart"
+                },
+                {
+                    "match": "\\b(?:true|false)\\b",
+                    "name": "constant.language.boolean.dart"
+                },
+                {
+                    "match": "\\bnull\\b",
+                    "name": "constant.language.null.dart"
+                },
+                {
+                    "match": "\\b(?:this|super)\\b",
+                    "name": "variable.language.this.dart"
+                },
+                {
+                    "match": "\\b(?:extends|implements|with)\\b",
+                    "name": "storage.modifier.inheritance.dart"
+                },
+                {
+                    "match": "\\b(?:abstract|static|final|const|late|external|factory|covariant|required|augment)\\b",
+                    "name": "storage.modifier.dart"
+                },
+                {
+                    "match": "\\bvar\\b",
+                    "name": "storage.type.dart"
+                },
+                {
+                    "match": "\\b(?:void|dynamic|Never)\\b",
+                    "name": "storage.type.primitive.dart"
+                },
+                {
+                    "match": "\\b(?:int|double|num|bool)\\b(?![\\w$]|\\s*\\()",
+                    "name": "support.type.primitive.dart"
+                },
+                {
+                    "match": "\\b(get|set)\\b(?=\\s+[A-Za-z_$][\\w$]*\\s*(?:=>|\\{|\\(|;|async\\b))",
+                    "name": "keyword.declaration.accessor.dart"
+                },
+                {
+                    "match": "\\b(operator)\\b\\s*(\\[\\]=?|~/|>>>|>>|<<|==|<=|>=|[-+*/%<>&|^~])(?=\\s*\\()",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.operator.dart"
+                        },
+                        "2": {
+                            "name": "entity.name.function.operator.dart"
+                        }
+                    }
+                }
+            ]
+        },
+        "types": {
+            "patterns": [
+                {
+                    "match": "(?<![\\w$])_*[A-Z][\\w$]*(?![\\w$])",
+                    "name": "support.class.dart"
+                }
+            ]
+        },
+        "functions": {
+            "patterns": [
+                {
+                    "match": "(?<![\\w$])(_*[a-z$][\\w$]*|_+[0-9][\\w$]*)(?=\\s*(?:<(?:[^<>;{}()]|<(?:[^<>;{}()]|<[^<>;{}()]*>)*>)*>)?\\s*\\()",
+                    "captures": {
+                        "1": {
+                            "name": "entity.name.function.dart"
+                        }
+                    }
+                }
+            ]
+        },
+        "operators": {
+            "patterns": [
+                {
+                    "match": "\\.\\.\\.\\??",
+                    "name": "keyword.operator.spread.dart"
+                },
+                {
+                    "match": "\\?\\.\\.|\\.\\.(?!\\.)",
+                    "name": "keyword.operator.cascade.dart"
+                },
+                {
+                    "match": "\\?\\.|\\?\\[",
+                    "name": "keyword.operator.null-aware.dart"
+                },
+                {
+                    "match": "=>",
+                    "name": "keyword.operator.arrow.dart"
+                },
+                {
+                    "match": "\\?\\?=|~/=|>>>=|<<=|>>=|[-+*/%&|^]=",
+                    "name": "keyword.operator.assignment.compound.dart"
+                },
+                {
+                    "match": "==|!=",
+                    "name": "keyword.operator.comparison.dart"
+                },
+                {
+                    "match": "=",
+                    "name": "keyword.operator.assignment.dart"
+                },
+                {
+                    "match": "\\?\\?",
+                    "name": "keyword.operator.null-coalescing.dart"
+                },
+                {
+                    "match": "&&|\\|\\|",
+                    "name": "keyword.operator.logical.dart"
+                },
+                {
+                    "match": "\\+\\+|--",
+                    "name": "keyword.operator.increment-decrement.dart"
+                },
+                {
+                    "match": "~/|[-+*/%]",
+                    "name": "keyword.operator.arithmetic.dart"
+                },
+                {
+                    "match": "(?<=\\s)(?:>>>|<<|>>|<=|>=|<|>)(?=\\s)",
+                    "name": "keyword.operator.comparison.dart"
+                },
+                {
+                    "match": "[<>]",
+                    "name": "punctuation.definition.typeparameters.dart"
+                },
+                {
+                    "match": "!",
+                    "name": "keyword.operator.logical.dart"
+                },
+                {
+                    "match": "[&|^~]",
+                    "name": "keyword.operator.bitwise.dart"
+                },
+                {
+                    "match": "\\?",
+                    "name": "keyword.operator.ternary.dart"
+                },
+                {
+                    "match": ":",
+                    "name": "punctuation.separator.colon.dart"
+                }
+            ]
+        },
+        "punctuation": {
+            "patterns": [
+                {
+                    "match": ";",
+                    "name": "punctuation.terminator.dart"
+                },
+                {
+                    "match": ",",
+                    "name": "punctuation.separator.comma.dart"
+                },
+                {
+                    "match": "\\.",
+                    "name": "punctuation.accessor.dart"
+                },
+                {
+                    "match": "[()]",
+                    "name": "punctuation.section.parens.dart"
+                },
+                {
+                    "match": "[\\[\\]]",
+                    "name": "punctuation.section.brackets.dart"
+                }
+            ]
+        },
+        "strings": {
+            "patterns": [
+                {
+                    "begin": "(?<![\\w$])r'''",
+                    "end": "'''",
+                    "name": "string.quoted.triple.single.raw.dart",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.dart"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.dart"
+                        }
+                    }
+                },
+                {
+                    "begin": "(?<![\\w$])r\"\"\"",
+                    "end": "\"\"\"",
+                    "name": "string.quoted.triple.double.raw.dart",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.dart"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.dart"
+                        }
+                    }
+                },
+                {
+                    "begin": "(?<![\\w$])r'",
+                    "end": "'|$",
+                    "name": "string.quoted.single.raw.dart",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.dart"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.dart"
+                        }
+                    }
+                },
+                {
+                    "begin": "(?<![\\w$])r\"",
+                    "end": "\"|$",
+                    "name": "string.quoted.double.raw.dart",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.dart"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.dart"
+                        }
+                    }
+                },
+                {
+                    "begin": "'''",
+                    "end": "'''",
+                    "name": "string.quoted.triple.single.dart",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.dart"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.dart"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#string-content"
+                        }
+                    ]
+                },
+                {
+                    "begin": "\"\"\"",
+                    "end": "\"\"\"",
+                    "name": "string.quoted.triple.double.dart",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.dart"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.dart"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#string-content"
+                        }
+                    ]
+                },
+                {
+                    "begin": "'",
+                    "end": "'|$",
+                    "name": "string.quoted.single.dart",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.dart"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.dart"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#string-content"
+                        }
+                    ]
+                },
+                {
+                    "begin": "\"",
+                    "end": "\"|$",
+                    "name": "string.quoted.double.dart",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.begin.dart"
+                        }
+                    },
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.end.dart"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#string-content"
+                        }
+                    ]
+                }
+            ]
+        },
+        "string-content": {
+            "patterns": [
+                {
+                    "match": "\\\\(?:u\\{[0-9A-Fa-f]{1,6}\\}|u[0-9A-Fa-f]{4}|x[0-9A-Fa-f]{2}|.)",
+                    "name": "constant.character.escape.dart"
+                },
+                {
+                    "match": "(\\$)([A-Za-z_][A-Za-z0-9_]*)",
+                    "captures": {
+                        "1": {
+                            "name": "punctuation.definition.template-expression.dart"
+                        },
+                        "2": {
+                            "name": "variable.other.readwrite.interpolated.dart"
+                        }
+                    },
+                    "name": "meta.interpolation.simple.dart"
+                },
+                {
+                    "begin": "\\$\\{",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.template-expression.begin.dart"
+                        }
+                    },
+                    "end": "\\}",
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.template-expression.end.dart"
+                        }
+                    },
+                    "name": "meta.embedded.expression.dart",
+                    "contentName": "source.dart",
+                    "patterns": [
+                        {
+                            "include": "#code"
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+}

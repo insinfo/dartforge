@@ -17,7 +17,6 @@
 # Extensões e ferramentas de desenvolvimento
 editors/vscode/node_modules/
 editors/vscode/out/
-editors/vscode/package-lock.json
 
 # SDK compilado pelo DDC: gerado por scripts/generate-dart-sdk.ps1
 runtime/ddc/dart_sdk.js
