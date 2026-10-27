@@ -25,6 +25,17 @@
 //! the ngdart views, which only compares the first two in production, becomes
 //! the comparison.
 //!
+//! Two more bodies count as trivial: `let v = A; return B;`, where `B` reads
+//! `v` once and before anything else (the getters of `dart:_rti`: `let s =
+//! rti[_canonicalRecipe]; return asString(s);`), becomes `B` with `(A)` in
+//! place of `v`; and a single expression statement (`rti[_kind] = kind;`,
+//! `stack.push(v);`) is inlined only at a call whose value is dropped. A name
+//! that is never assigned and always declared with a value is stable: as an
+//! argument it may be evaluated after the body's first reads, and a body read
+//! of it before a parameter does not force simple arguments.
+//! `DARTFORGE_JSPROD_INLINE_FORMS=0` keeps only `return E;`, and
+//! `DARTFORGE_JSPROD_STABLE_NAMES=0` treats no name as stable.
+//!
 //! The free names of `E` must mean the same at the call: a name declared
 //! inside any function other than the top-level ones (or by a class) is
 //! refused, and a name declared at the top of a module's IIFE is only valid
@@ -51,14 +62,21 @@ const MAX_BODY: usize = 400;
 /// A trivial function: `key` is the callee text (`C.m` or `f`).
 #[derive(Debug, Clone)]
 struct Def {
-    /// Span of the returned expression.
-    expr: (u32, u32),
+    /// The inlined expression's text (the returned expression, or the
+    /// fusion of `let v = A; return B;`).
+    text: String,
+    /// Only at calls whose value is discarded (a body that is one
+    /// expression statement, which returns `undefined`).
+    void_only: bool,
+    /// Free names read before the last parameter: the order only holds when
+    /// none of them is ever assigned ([`Scan::stable`]).
+    early_names: Vec<String>,
     /// Number of parameters.
     arity: usize,
     /// Which parameters the body uses. A call may leave out trailing unused
     /// parameters, and the argument of an unused one must be [`droppable`].
     used: Vec<bool>,
-    /// Spans of the parameter uses inside `expr`, with the parameter index.
+    /// Offsets of the parameter uses inside `text`, with the parameter index.
     uses: Vec<(u32, u32, usize)>,
     /// Free names of `expr`.
     free: Vec<String>,
@@ -125,10 +143,19 @@ fn minified_estimate(text: &str) -> usize {
 /// What the analysis of the returned expression gathers.
 struct Body<'p> {
     params: &'p [String],
+    /// Offset of the analyzed text: the recorded uses are relative to it.
+    base: u32,
     uses: Vec<(u32, u32, usize)>,
     free: Vec<String>,
-    /// Something other than a parameter was evaluated.
+    /// Something other than a parameter or a free name was evaluated (a
+    /// property read, a call, an operator).
     evaluated: bool,
+    /// Free names read so far.
+    read_names: Vec<String>,
+    /// Free names read before some parameter.
+    early_names: Vec<String>,
+    /// A body that is one statement may assign a member (`r[k] = v`).
+    assign: bool,
     /// Under `?:`, `&&`, `||`, `??`.
     conditional: usize,
     simple_args: bool,
@@ -149,13 +176,38 @@ impl Body<'_> {
                         || self.last_param.is_some_and(|l| l > k)
                     {
                         self.simple_args = true;
+                    } else {
+                        self.early_names.extend(self.read_names.iter().cloned());
                     }
                     self.last_param = Some(k);
-                    self.uses.push((i.span.start, i.span.end, k));
+                    self.uses
+                        .push((i.span.start - self.base, i.span.end - self.base, k));
                 } else {
                     self.free.push(i.name.to_string());
-                    self.evaluated = true;
+                    self.read_names.push(i.name.to_string());
                 }
+                true
+            }
+            // `r[k] = v` / `r.k = v` as the whole body of a statement-bodied
+            // function: the target's parts, then the value, then the write.
+            Expression::AssignmentExpression(a)
+                if self.assign
+                    && a.operator == oxc_syntax::operator::AssignmentOperator::Assign =>
+            {
+                self.assign = false;
+                let target = match &a.left {
+                    AssignmentTarget::StaticMemberExpression(m) if !m.optional => {
+                        self.expr(&m.object)
+                    }
+                    AssignmentTarget::ComputedMemberExpression(m) if !m.optional => {
+                        self.expr(&m.object) && self.expr(&m.expression)
+                    }
+                    _ => false,
+                };
+                if !target || !self.expr(&a.right) {
+                    return false;
+                }
+                self.evaluated = true;
                 true
             }
             Expression::StringLiteral(_)
@@ -248,15 +300,26 @@ impl Body<'_> {
 }
 
 /// An argument whose value and effects cannot change when body evaluation
-/// moves before it. Mutable names and property reads require a separate proof.
-fn stable_argument(e: &Expression<'_>) -> bool {
+/// moves before it: [`droppable`], or a name that is never assigned and is
+/// always declared with a value ([`Scan::stable`]).
+fn stable_argument(e: &Expression<'_>, stable: &HashSet<String>) -> bool {
+    match e {
+        Expression::Identifier(i) if stable.contains(i.name.as_str()) => true,
+        Expression::ParenthesizedExpression(p) => stable_argument(&p.expression, stable),
+        e => literal_argument(e),
+    }
+}
+
+/// A literal, `this` or a deduplicated *string*: evaluating it has no effect
+/// and cannot throw.
+fn literal_argument(e: &Expression<'_>) -> bool {
     match e {
         Expression::StringLiteral(_)
         | Expression::NumericLiteral(_)
         | Expression::BooleanLiteral(_)
         | Expression::NullLiteral(_)
         | Expression::ThisExpression(_) => true,
-        Expression::ParenthesizedExpression(p) => stable_argument(&p.expression),
+        Expression::ParenthesizedExpression(p) => literal_argument(&p.expression),
         // A deduplicated *string* (`minify::dedup_strings`): a `var` with a
         // literal value, declared and initialized first thing in the file.
         Expression::Identifier(i) => i
@@ -287,7 +350,7 @@ fn plain_params(p: &FormalParameters<'_>) -> Option<Vec<(String, bool)>> {
 /// An unused argument can disappear only when evaluation cannot throw or
 /// invoke an accessor. A bare name needs a separate initialization proof.
 fn droppable(e: &Expression<'_>) -> bool {
-    stable_argument(e)
+    literal_argument(e)
 }
 
 /// The returned expression of a body that is a single `return E;`.
@@ -298,6 +361,125 @@ fn single_return<'b, 'a>(body: &'b FunctionBody<'a>) -> Option<&'b Expression<'a
     match &body.statements[0] {
         Statement::ReturnStatement(r) => r.argument.as_ref(),
         _ => None,
+    }
+}
+
+/// The expression of a body that is a single expression statement (the
+/// function returns `undefined`: inlined only where the value is dropped).
+fn single_statement<'b, 'a>(body: &'b FunctionBody<'a>) -> Option<&'b Expression<'a>> {
+    if !body.directives.is_empty() || body.statements.len() != 1 {
+        return None;
+    }
+    match &body.statements[0] {
+        Statement::ExpressionStatement(e) => Some(&e.expression),
+        _ => None,
+    }
+}
+
+/// `let v = A; return B;` where `B` reads `v` once and evaluates it before
+/// anything else: the text of `B` with `(A)` in place of `v` (the same
+/// evaluation order).
+fn fused_return(source: &str, body: &FunctionBody<'_>) -> Option<String> {
+    if !body.directives.is_empty() || body.statements.len() != 2 {
+        return None;
+    }
+    let Statement::VariableDeclaration(d) = &body.statements[0] else {
+        return None;
+    };
+    let Statement::ReturnStatement(r) = &body.statements[1] else {
+        return None;
+    };
+    let ([v], Some(b)) = (&d.declarations[..], r.argument.as_ref()) else {
+        return None;
+    };
+    let (BindingPattern::BindingIdentifier(name), Some(a)) = (&v.id, v.init.as_ref()) else {
+        return None;
+    };
+    let name = name.name.as_str();
+    let first = first_evaluated(b)?;
+    if first.name.as_str() != name {
+        return None;
+    }
+    let mut count = NameCount {
+        name,
+        count: 0,
+        nested: false,
+    };
+    count.visit_expression(b);
+    if count.count != 1 || count.nested {
+        return None;
+    }
+    let bs = b.span();
+    let at = |x: u32| x as usize;
+    let a = &source[at(a.span().start)..at(a.span().end)];
+    Some(format!(
+        "{}({a}){}",
+        &source[at(bs.start)..at(first.span.start)],
+        &source[at(first.span.end)..at(bs.end)]
+    ))
+}
+
+/// The leftmost leaf `e` evaluates first, when it is a name.
+fn first_evaluated<'b>(e: &'b Expression<'_>) -> Option<&'b oxc_ast::ast::IdentifierReference<'b>> {
+    match e {
+        Expression::Identifier(i) => Some(i),
+        Expression::ParenthesizedExpression(p) => first_evaluated(&p.expression),
+        Expression::StaticMemberExpression(m) => first_evaluated(&m.object),
+        Expression::ComputedMemberExpression(m) => first_evaluated(&m.object),
+        Expression::CallExpression(c) => first_evaluated(&c.callee),
+        Expression::BinaryExpression(b) => first_evaluated(&b.left),
+        Expression::LogicalExpression(l) => first_evaluated(&l.left),
+        Expression::ConditionalExpression(c) => first_evaluated(&c.test),
+        Expression::UnaryExpression(u) if u.operator != UnaryOperator::Delete => {
+            first_evaluated(&u.argument)
+        }
+        _ => None,
+    }
+}
+
+/// How many times an expression reads `name` (and whether some function
+/// inside it could).
+struct NameCount<'n> {
+    name: &'n str,
+    count: usize,
+    nested: bool,
+}
+
+impl<'a> Visit<'a> for NameCount<'_> {
+    fn visit_identifier_reference(&mut self, it: &oxc_ast::ast::IdentifierReference<'a>) {
+        if it.name.as_str() == self.name {
+            self.count += 1;
+        }
+    }
+    fn visit_function(&mut self, _: &Function<'a>, _: ScopeFlags) {
+        self.nested = true;
+    }
+    fn visit_arrow_function_expression(&mut self, _: &oxc_ast::ast::ArrowFunctionExpression<'a>) {
+        self.nested = true;
+    }
+}
+
+/// The names a binding pattern declares.
+fn binding_names(p: &BindingPattern<'_>, out: &mut Vec<String>) {
+    match p {
+        BindingPattern::BindingIdentifier(b) => out.push(b.name.to_string()),
+        BindingPattern::ObjectPattern(o) => {
+            for x in o.properties.iter() {
+                binding_names(&x.value, out);
+            }
+            if let Some(r) = &o.rest {
+                binding_names(&r.argument, out);
+            }
+        }
+        BindingPattern::ArrayPattern(a) => {
+            for x in a.elements.iter().flatten() {
+                binding_names(x, out);
+            }
+            if let Some(r) = &a.rest {
+                binding_names(&r.argument, out);
+            }
+        }
+        BindingPattern::AssignmentPattern(a) => binding_names(&a.left, out),
     }
 }
 
@@ -325,11 +507,34 @@ struct Scan<'s> {
     top_bindings: HashSet<u32>,
     /// Top-level `var` declarators per name.
     top_decls: HashMap<String, usize>,
+    /// Names some declarator leaves without a value (`var x;`, the `for-of`
+    /// heads), or that some `var` declares twice.
+    unset: HashSet<String>,
+    /// `var` declarators with a value, per name.
+    var_inits: HashMap<String, usize>,
+    /// Every declared name.
+    declared: HashSet<String>,
 }
 
 impl<'s> Scan<'s> {
     fn text(&self, s: oxc_span::Span) -> &'s str {
         &self.source[s.start as usize..s.end as usize]
+    }
+
+    /// Names whose every binding is declared with a value and never assigned:
+    /// reading one has no effect and always gives the same value, so a call
+    /// argument or a body read of it can move across other evaluation.
+    fn stable(&self) -> HashSet<String> {
+        let mut out = HashSet::new();
+        for n in self.declared.iter() {
+            if !self.unset.contains(n)
+                && !self.assigned.contains_key(n)
+                && self.var_inits.get(n).is_none_or(|&k| k < 2)
+            {
+                out.insert(n.clone());
+            }
+        }
+        out
     }
 
     fn define(
@@ -350,21 +555,60 @@ impl<'s> Scan<'s> {
             self.refused.insert(key);
             return;
         };
-        let Some(e) = single_return(body) else {
-            self.refused.insert(key);
-            return;
+        // The three trivial forms: `return E;`, `let v = A; return B;` (the
+        // fused text is parsed on its own) and `E;` (`DARTFORGE_JSPROD_INLINE_FORMS=0`
+        // keeps only the first).
+        let forms = std::env::var("DARTFORGE_JSPROD_INLINE_FORMS").map_or(true, |v| v != "0");
+        let fused = if forms && single_return(body).is_none() {
+            fused_return(self.source, body)
+        } else {
+            None
         };
+        let allocator = oxc_allocator::Allocator::default();
+        let parsed_fused = fused.as_ref().map(|t| {
+            let wrapped = format!("({t});");
+            let text = allocator.alloc_str(&wrapped);
+            oxc_parser::Parser::new(&allocator, text, oxc_span::SourceType::cjs()).parse()
+        });
+        let (e, void_only, text_of): (&Expression<'_>, bool, Option<&str>) =
+            if let Some(e) = single_return(body) {
+                (e, false, None)
+            } else if let Some(p) = parsed_fused.as_ref() {
+                let e = match p.program.body.first() {
+                    Some(Statement::ExpressionStatement(x)) if p.diagnostics.is_empty() => {
+                        &x.expression
+                    }
+                    _ => {
+                        self.refused.insert(key);
+                        return;
+                    }
+                };
+                (e, false, Some(p.program.source_text))
+            } else if let Some(e) = single_statement(body).filter(|_| forms) {
+                (e, true, None)
+            } else {
+                self.refused.insert(key);
+                return;
+            };
         let span = e.span();
         if (span.end - span.start) as usize > MAX_BODY {
             self.refused.insert(key);
             return;
         }
+        let text = match text_of {
+            Some(t) => t[span.start as usize..span.end as usize].to_string(),
+            None => self.source[span.start as usize..span.end as usize].to_string(),
+        };
         let (params, defaults): (Vec<String>, Vec<bool>) = params.into_iter().unzip();
         let mut b = Body {
             params: &params,
+            base: span.start,
             uses: Vec::new(),
             free: Vec::new(),
             evaluated: false,
+            read_names: Vec::new(),
+            early_names: Vec::new(),
+            assign: void_only,
             conditional: 0,
             simple_args: false,
             last_param: None,
@@ -382,11 +626,12 @@ impl<'s> Scan<'s> {
             self.refused.insert(key);
             return;
         }
-        let body_size = minified_estimate(&self.source[span.start as usize..span.end as usize])
-            .saturating_sub(2 * b.uses.len());
+        let body_size = minified_estimate(&text).saturating_sub(2 * b.uses.len());
         let call_size = minified_estimate(&key) + 2 + params.len().saturating_sub(1);
         let def = Def {
-            expr: (span.start, span.end),
+            text,
+            void_only,
+            early_names: b.early_names,
             arity: params.len(),
             used,
             uses: b.uses,
@@ -560,6 +805,21 @@ impl<'a> Visit<'a> for Scan<'_> {
         if !self.top_bindings.contains(&it.span.start) {
             self.locals.insert(it.name.to_string());
         }
+        self.declared.insert(it.name.to_string());
+    }
+    fn visit_variable_declaration(&mut self, it: &oxc_ast::ast::VariableDeclaration<'a>) {
+        for d in it.declarations.iter() {
+            let mut names = Vec::new();
+            binding_names(&d.id, &mut names);
+            for n in names {
+                if d.init.is_none() {
+                    self.unset.insert(n);
+                } else if it.kind == oxc_ast::ast::VariableDeclarationKind::Var {
+                    *self.var_inits.entry(n).or_default() += 1;
+                }
+            }
+        }
+        walk::walk_variable_declaration(self, it);
     }
     fn visit_assignment_expression(&mut self, it: &oxc_ast::ast::AssignmentExpression<'a>) {
         let target = match &it.left {
@@ -583,6 +843,8 @@ impl<'a> Visit<'a> for Scan<'_> {
 struct Sites<'s> {
     source: &'s str,
     defs: &'s HashMap<String, Def>,
+    /// [`Scan::stable`].
+    stable: &'s HashSet<String>,
     depth: usize,
     iife: Option<usize>,
     iifes: usize,
@@ -604,9 +866,24 @@ impl<'a> Visit<'a> for Sites<'_> {
         self.iife = saved;
         self.depth -= 1;
     }
+    fn visit_expression_statement(&mut self, it: &oxc_ast::ast::ExpressionStatement<'a>) {
+        let mut e = &it.expression;
+        while let Expression::ParenthesizedExpression(p) = e {
+            e = &p.expression;
+        }
+        if let Expression::CallExpression(c) = e
+            && c.span.start >= self.covered
+            && let Some(new) = self.inline(c, true)
+        {
+            self.edits.push((c.span.start, c.span.end, new));
+            self.covered = c.span.end;
+            return;
+        }
+        walk::walk_expression_statement(self, it);
+    }
     fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
         if it.span.start >= self.covered
-            && let Some(new) = self.inline(it)
+            && let Some(new) = self.inline(it, false)
         {
             self.edits.push((it.span.start, it.span.end, new));
             self.covered = it.span.end;
@@ -617,7 +894,7 @@ impl<'a> Visit<'a> for Sites<'_> {
 }
 
 impl Sites<'_> {
-    fn inline(&self, it: &oxc_ast::ast::CallExpression<'_>) -> Option<String> {
+    fn inline(&self, it: &oxc_ast::ast::CallExpression<'_>, statement: bool) -> Option<String> {
         if it.optional {
             return None;
         }
@@ -631,6 +908,9 @@ impl Sites<'_> {
             _ => return None,
         };
         let d = self.defs.get(key)?;
+        if d.void_only && !statement {
+            return None;
+        }
         // Fewer arguments: the parameters left out must be unused.
         if it.arguments.len() > d.arity
             || d.used[it.arguments.len()..].iter().any(|&u| u)
@@ -647,7 +927,7 @@ impl Sites<'_> {
             .iter()
             .map(|a| a.as_expression())
             .collect::<Option<_>>()?;
-        if d.simple_args && !args.iter().all(|a| stable_argument(a)) {
+        if d.simple_args && !args.iter().all(|a| stable_argument(a, self.stable)) {
             return self.drop_unused_tail(it, d, &args);
         }
         // The arguments of unused parameters are dropped.
@@ -655,16 +935,16 @@ impl Sites<'_> {
             return None;
         }
         let mut out = String::from("(");
-        let mut pos = d.expr.0;
+        let mut pos = 0u32;
         for &(s, e, k) in &d.uses {
-            out.push_str(&self.source[pos as usize..s as usize]);
+            out.push_str(&d.text[pos as usize..s as usize]);
             let a = args[k].span();
             out.push('(');
             out.push_str(&self.source[a.start as usize..a.end as usize]);
             out.push(')');
             pos = e;
         }
-        out.push_str(&self.source[pos as usize..d.expr.1 as usize]);
+        out.push_str(&d.text[pos as usize..]);
         out.push(')');
         Some(out)
     }
@@ -745,8 +1025,27 @@ fn round(source: &str) -> Result<(String, usize, HashMap<String, Def>), String> 
         refused: HashSet::new(),
         top_bindings: HashSet::new(),
         top_decls: HashMap::new(),
+        unset: HashSet::new(),
+        var_inits: HashMap::new(),
+        declared: HashSet::new(),
     };
     scan.visit_program(&parsed.program);
+    // Free names that are not declared at all are globals (`Array`, `Object`):
+    // the file never assigns them either.
+    // `DARTFORGE_JSPROD_STABLE_NAMES=0`: no name is stable.
+    let names_on = std::env::var("DARTFORGE_JSPROD_STABLE_NAMES").map_or(true, |v| v != "0");
+    let mut stable = if names_on {
+        scan.stable()
+    } else {
+        HashSet::new()
+    };
+    for d in scan.defs.values().filter(|_| names_on) {
+        for n in d.free.iter() {
+            if !scan.declared.contains(n) && !scan.assigned.contains_key(n) {
+                stable.insert(n.clone());
+            }
+        }
+    }
     let mut defs = std::mem::take(&mut scan.defs);
     defs.retain(|key, d| {
         // Assigned again somewhere (`C.m = …`, a second `f = …`).
@@ -762,6 +1061,11 @@ fn round(source: &str) -> Result<(String, usize, HashMap<String, Def>), String> 
         })
     });
     for (key, d) in defs.iter_mut() {
+        // A free name read before a parameter keeps the order only when it
+        // cannot change in between.
+        if d.early_names.iter().any(|n| !stable.contains(n)) {
+            d.simple_args = true;
+        }
         // A definition whose free names are all global or of the file's top
         // can be inlined anywhere.
         if d.free
@@ -796,6 +1100,7 @@ fn round(source: &str) -> Result<(String, usize, HashMap<String, Def>), String> 
     let mut sites = Sites {
         source,
         defs: &defs,
+        stable: &stable,
         depth: 0,
         iife: None,
         iifes: 0,
@@ -951,6 +1256,38 @@ mod tests {
         let src = wrap("f = function(a, b = 1) { return a + b; };\nh(f(x));");
         let out = apply(&src).unwrap();
         assert!(out.contains("h(f(x))"), "{out}");
+    }
+
+    #[test]
+    fn fuses_a_local_returned_right_away() {
+        let src = wrap("C = class C0 { static k(r) { let s = r.kind; return (s); } };\nh(C.k(x));");
+        let out = apply(&src).unwrap();
+        assert!(out.contains("(x).kind") && !out.contains("C.k("), "{out}");
+        // A body that evaluates something before the local keeps the call.
+        let src =
+            wrap("C = class C0 { static k(r) { let s = r.kind; return g(s); } };\nh(C.k(x));");
+        let out = apply(&src).unwrap();
+        assert!(out.contains("h(C.k(x))"), "{out}");
+    }
+
+    #[test]
+    fn inlines_a_statement_body_only_where_the_value_is_dropped() {
+        let src =
+            wrap("C = class C0 { static set(r, v) { r.k = v; } };\nC.set(a, 1);\nh(C.set(a, 2));");
+        let out = apply(&src).unwrap();
+        assert!(out.contains("((a).k = (1));"), "{out}");
+        assert!(out.contains("h(C.set(a, 2))"), "{out}");
+    }
+
+    #[test]
+    fn moves_a_body_read_only_across_names_never_assigned() {
+        // `m.get` is read before `k`: the argument must not change in between.
+        let src = wrap(
+            "f = function(m, k) { return m.get(k); };\nfunction q(mm) { let kk = 1; return f(mm, kk); }\nfunction w(mm) { let jj; jj = 2; return f(mm, jj); }",
+        );
+        let out = apply(&src).unwrap();
+        assert!(out.contains("return ((mm).get((kk)))"), "{out}");
+        assert!(out.contains("return f(mm, jj)"), "{out}");
     }
 
     #[test]
