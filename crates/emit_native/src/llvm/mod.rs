@@ -1082,7 +1082,9 @@ impl<'a> LlvmEmitter<'a> {
         }
         if !self.maps {
             self.out.push_str(&rti_eval_site_helper());
+            self.out.push_str(&rti_eval_probe_helper());
         }
+        self.out.push_str(&rti_is_probe_helper());
         if self.compact_selector {
             self.out.push_str(SELECTOR_BY_DESCRIPTOR);
         }
@@ -4047,12 +4049,20 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %rt{v}ok = and i1 %rt{v}ok1, %rt{v}ok2").unwrap();
         writeln!(
             o,
-            "  br i1 %rt{v}ok, label %rt{v}.acerto, label %rt{v}.lenta"
+            "  br i1 %rt{v}ok, label %rt{v}.acerto, label %rt{v}.sonda"
         )
         .unwrap();
         writeln!(o, "rt{v}.acerto:").unwrap();
         writeln!(o, "  %rt{v}b = and i64 %rt{v}w, 1").unwrap();
         writeln!(o, "  %rt{v}r1 = trunc i64 %rt{v}b to i8").unwrap();
+        writeln!(o, "  br label %rt{v}.fim").unwrap();
+        // Another key: the thread's memo (`rti_is_probe_helper`) before the runtime.
+        writeln!(o, "rt{v}.sonda:").unwrap();
+        writeln!(
+            o,
+            "  %rt{v}r3 = call i8 @df.rti_is_probe(ptr %rt{v}c, i64 %rt{v}k, i64 {value}, i64 {t})"
+        )
+        .unwrap();
         writeln!(o, "  br label %rt{v}.fim").unwrap();
         writeln!(o, "rt{v}.lenta:").unwrap();
         writeln!(
@@ -4064,7 +4074,7 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "rt{v}.fim:").unwrap();
         writeln!(
             o,
-            "  %v{v} = phi i8 [ %rt{v}r1, %rt{v}.acerto ], [ %rt{v}r2, %rt{v}.lenta ]"
+            "  %v{v} = phi i8 [ %rt{v}r1, %rt{v}.acerto ], [ %rt{v}r2, %rt{v}.lenta ], [ %rt{v}r3, %rt{v}.sonda ]"
         )
         .unwrap();
         self.current_label = format!("rt{v}.fim");
@@ -4117,7 +4127,7 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %ra{v}ok = icmp eq i64 %ra{v}k0, %ra{v}k").unwrap();
         writeln!(
             o,
-            "  br i1 %ra{v}ok, label %ra{v}.acerto, label %ra{v}.lenta"
+            "  br i1 %ra{v}ok, label %ra{v}.acerto, label %ra{v}.sonda"
         )
         .unwrap();
         writeln!(o, "ra{v}.acerto:").unwrap();
@@ -4128,13 +4138,17 @@ impl<'a> LlvmEmitter<'a> {
         .unwrap();
         writeln!(o, "  %ra{v}r1 = load i64, ptr %ra{v}rp, align 8").unwrap();
         writeln!(o, "  br label %ra{v}.fim").unwrap();
+        // Another key: the thread's memo (`rti_eval_probe_helper`) before the runtime.
+        writeln!(o, "ra{v}.sonda:").unwrap();
+        writeln!(o, "  %ra{v}r3 = call i64 @df.rti_eval_probe(ptr %ra{v}c, i64 %ra{v}k, i64 {model}, i64 {this}, i64 {class})").unwrap();
+        writeln!(o, "  br label %ra{v}.fim").unwrap();
         writeln!(o, "ra{v}.lenta:").unwrap();
         writeln!(o, "  %ra{v}r2 = call i64 @dartforge_rti_eval_cache(ptr %ra{v}c, i64 {model}, i64 {this}, i64 {class})").unwrap();
         writeln!(o, "  br label %ra{v}.fim").unwrap();
         writeln!(o, "ra{v}.fim:").unwrap();
         writeln!(
             o,
-            "  %v{v} = phi i64 [ %ra{v}r1, %ra{v}.acerto ], [ %ra{v}r2, %ra{v}.lenta ]"
+            "  %v{v} = phi i64 [ %ra{v}r1, %ra{v}.acerto ], [ %ra{v}r2, %ra{v}.lenta ], [ %ra{v}r3, %ra{v}.sonda ]"
         )
         .unwrap();
         self.current_label = format!("ra{v}.fim");
@@ -7416,6 +7430,18 @@ hit:\n\
   store i32 %rt, ptr %mp, align 4\n\
   br label %done\n\
 slow:\n\
+  br i1 %np, label %probe, label %runtime\n\
+probe:\n\
+{lookup}  br i1 %mfound, label %memo, label %runtime\n\
+memo:\n\
+  %mt = trunc i64 %manswer to i32\n\
+  %mq = getelementptr inbounds i8, ptr %p, i64 {metadata_h}\n\
+  store i32 %mt, ptr %mq, align 4\n\
+  store i64 %k, ptr %c, align 8\n\
+  %rq = getelementptr inbounds i64, ptr %c, i64 1\n\
+  store i64 %manswer, ptr %rq, align 8\n\
+  br label %done\n\
+runtime:\n\
   call void @dartforge_rti_set_cache(ptr %c, i64 %o, i64 %t)\n\
   br label %done\n\
 done:\n\
@@ -7426,6 +7452,120 @@ done:\n\
         class_h = d(offsets::CLASS),
         metadata_h = d(offsets::METADATA),
         permanent = state::PERMANENT,
+        lookup = rti_memo_lookup(
+            "%cz",
+            "%t",
+            &dartforge_runtime::layout::rti_memo::SET.to_string()
+        ),
+    )
+}
+
+/// The probe of the thread's type-check memo (`layout::rti_memo`) for
+/// `[a, b, kind]`, as instructions of a helper body: `%mfound` (an `i1`) and,
+/// when it is set, `%manswer`. The set hash is the runtime's
+/// (`rti_memo::set`); both ways are read without branches. `kind` may be a
+/// constant or a value.
+fn rti_memo_lookup(a: &str, b: &str, kind: &str) -> String {
+    use dartforge_runtime::layout::{context, rti_memo};
+    const _: () = assert!(rti_memo::WAYS == 2);
+    let way = |w: usize| {
+        let o = w * rti_memo::ENTRY;
+        format!(
+            "  %ma{w}p = getelementptr inbounds i8, ptr %me, i64 {o0}\n\
+  %ma{w} = load i64, ptr %ma{w}p, align 8\n\
+  %mb{w}p = getelementptr inbounds i8, ptr %me, i64 {o1}\n\
+  %mb{w} = load i64, ptr %mb{w}p, align 8\n\
+  %mk{w}p = getelementptr inbounds i8, ptr %me, i64 {o2}\n\
+  %mk{w} = load i64, ptr %mk{w}p, align 8\n\
+  %mr{w}p = getelementptr inbounds i8, ptr %me, i64 {o3}\n\
+  %mr{w} = load i64, ptr %mr{w}p, align 8\n\
+  %mea{w} = icmp eq i64 %ma{w}, {a}\n\
+  %meb{w} = icmp eq i64 %mb{w}, {b}\n\
+  %mek{w} = icmp eq i64 %mk{w}, {kind}\n\
+  %meab{w} = and i1 %mea{w}, %meb{w}\n\
+  %mfound{w} = and i1 %meab{w}, %mek{w}\n",
+            o0 = o,
+            o1 = o + 8,
+            o2 = o + 16,
+            o3 = o + 24,
+        )
+    };
+    format!(
+        "  %mctx = call ptr @dartforge_context()\n\
+  %mh1 = mul i64 {a}, {k1}\n\
+  %mh2 = mul i64 {b}, {k2}\n\
+  %mh3 = mul i64 {kind}, {k3}\n\
+  %mh12 = xor i64 %mh1, %mh2\n\
+  %mh = xor i64 %mh12, %mh3\n\
+  %mix = lshr i64 %mh, {shift}\n\
+  %moff = shl i64 %mix, {set_shift}\n\
+  %mo = add i64 %moff, {base}\n\
+  %me = getelementptr inbounds i8, ptr %mctx, i64 %mo\n\
+{way0}{way1}  %mfound = or i1 %mfound0, %mfound1\n\
+  %manswer = select i1 %mfound0, i64 %mr0, i64 %mr1\n",
+        k1 = rti_memo::K1 as i64,
+        k2 = rti_memo::K2 as i64,
+        k3 = rti_memo::K3 as i64,
+        shift = rti_memo::SHIFT,
+        set_shift = (rti_memo::ENTRY * rti_memo::WAYS).trailing_zeros(),
+        base = context::RTI_MEMO,
+        way0 = way(0),
+        way1 = way(1),
+    )
+}
+
+
+/// `@df.rti_is_probe(cache, key, v, t)`: the miss of the `is` cache of a use site
+/// with the value key `key` already computed ([`LlvmEmitter::emit_rti_test_cached`]).
+/// The thread's memo answers and refills the site; otherwise
+/// `dartforge_rti_e_cache` answers and fills both.
+fn rti_is_probe_helper() -> String {
+    format!(
+        "define internal i8 @df.rti_is_probe(ptr %c, i64 %key, i64 %v, i64 %t) noinline {{\n\
+entry:\n\
+{lookup}  br i1 %mfound, label %memo, label %runtime\n\
+memo:\n\
+  store i64 %key, ptr %c, align 8\n\
+  %w0 = shl i64 %t, 1\n\
+  %w = or i64 %w0, %manswer\n\
+  %wp = getelementptr inbounds i64, ptr %c, i64 1\n\
+  store i64 %w, ptr %wp, align 8\n\
+  %r = trunc i64 %manswer to i8\n\
+  ret i8 %r\n\
+runtime:\n\
+  %x = call i8 @dartforge_rti_e_cache(ptr %c, i64 %v, i64 %t)\n\
+  ret i8 %x\n\
+}}\n",
+        lookup = rti_memo_lookup(
+            "%key",
+            "%t",
+            &dartforge_runtime::layout::rti_memo::IS.to_string()
+        ),
+    )
+}
+
+/// `@df.rti_eval_probe(cache, key, model, this, class)`: the miss of the `P<i>`
+/// cache of a use site with the key of `this` already computed
+/// ([`LlvmEmitter::emit_rti_evaluate_cached`]). The memo kind of `P<i>` is the
+/// class, so a negative class (no memo entry) always goes to the runtime.
+fn rti_eval_probe_helper() -> String {
+    format!(
+        "define internal i64 @df.rti_eval_probe(ptr %c, i64 %key, i64 %m, i64 %h, i64 %cl) noinline {{\n\
+entry:\n\
+  %valid = icmp sge i64 %cl, 0\n\
+  br i1 %valid, label %probe, label %runtime\n\
+probe:\n\
+{lookup}  br i1 %mfound, label %memo, label %runtime\n\
+memo:\n\
+  store i64 %key, ptr %c, align 8\n\
+  %rp = getelementptr inbounds i64, ptr %c, i64 1\n\
+  store i64 %manswer, ptr %rp, align 8\n\
+  ret i64 %manswer\n\
+runtime:\n\
+  %x = call i64 @dartforge_rti_eval_cache(ptr %c, i64 %m, i64 %h, i64 %cl)\n\
+  ret i64 %x\n\
+}}\n",
+        lookup = rti_memo_lookup("%key", "%m", "%cl"),
     )
 }
 

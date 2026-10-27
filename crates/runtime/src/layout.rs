@@ -380,6 +380,9 @@ pub mod context {
     pub const FALSE: usize = 368;
     /// The thread's native stack limit (`Context::stack_limit`).
     pub const STACK_LIMIT: usize = 376;
+    /// The thread's type-check memo (`Context::rti_memo`): [`super::rti_memo::SETS`]
+    /// sets of [`super::rti_memo::WAYS`] entries of four words.
+    pub const RTI_MEMO: usize = 384;
 
     /// The cursor of the TLAB of `w` words.
     pub const fn tlab_cursor(w: usize) -> usize {
@@ -392,6 +395,52 @@ pub mod context {
     }
 
     const _: () = assert!(tlab_end(super::TLAB_N) + 8 == SUBTYPES);
+}
+
+/// The thread's type-check memo (`Context::rti_memo`), shared by every use site
+/// of `is T`, of `P<i>` and of the reified type of a new object: two-way sets of
+/// entries `[a, b, kind, answer]`, the set a hash of the first three words (a
+/// new entry takes way 0 and moves the old one to way 1). The
+/// per-site caches of the generated code (two words each) hold one key, and the
+/// generic code of `dart:async` sees several instantiations at the same site
+/// (`_StreamController.add` of each stream of a request): there a site miss
+/// probes this memo inline (`llvm/mod.rs`, `@df.rti_*_probe`) before entering
+/// the runtime, which fills both. An all-zero entry never matches: `a` is a
+/// value key (never 0) or a class id (positive).
+///
+/// * `is`: `a` the value key, `b` `T`, kind [`IS`], answer 0 or 1;
+/// * `P<i>`: `a` the key of `this`, `b` the model, kind the class (≥ 0), answer
+///   the type;
+/// * the stored type: `a` the class id, `b` the requested type, kind [`SET`],
+///   answer the header metadata.
+pub mod rti_memo {
+    /// Sets (a power of two).
+    pub const SETS: usize = 512;
+    /// Entries per set.
+    pub const WAYS: usize = 2;
+    /// Entries.
+    pub const N: usize = SETS * WAYS;
+    /// Bytes of an entry.
+    pub const ENTRY: usize = 32;
+    /// The kind of an `is` entry.
+    pub const IS: i64 = -1;
+    /// The kind of a stored-type entry.
+    pub const SET: i64 = -2;
+    pub const K1: u64 = 0x9E37_79B9_7F4A_7C15;
+    pub const K2: u64 = 0xC2B2_AE3D_27D4_EB4F;
+    pub const K3: u64 = 0x1656_67B1_9E37_79F9;
+    /// The shift that leaves the set in the top bits of the hash.
+    pub const SHIFT: u32 = 64 - SETS.trailing_zeros();
+
+    /// The set of `[a, b, kind]` (its first entry is `set * WAYS`); the
+    /// generated code computes the same.
+    #[inline(always)]
+    pub fn set(a: i64, b: i64, kind: i64) -> usize {
+        let h = (a as u64).wrapping_mul(K1)
+            ^ (b as u64).wrapping_mul(K2)
+            ^ (kind as u64).wrapping_mul(K3);
+        (h >> SHIFT) as usize
+    }
 }
 
 /// A `Ref` with a tagged `Smi` (R10, docs/NATIVO-PLANO.md §6.2 and §7.1).

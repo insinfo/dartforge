@@ -358,6 +358,7 @@ impl Universe {
     /// can change a stored answer).
     fn forget_memos(&mut self) {
         fast_memo_forget();
+        crate::heap::CONTEXT.with(crate::heap::Context::rti_memo_clear);
         list_shape_memo_forget();
         self.memo_and.clear();
         self.memo_eval.clear();
@@ -1563,6 +1564,9 @@ pub unsafe extern "C" fn dartforge_rti_eval_cache(
             *cache = key;
             *cache.add(1) = r;
         }
+        if class >= 0 {
+            crate::heap::CONTEXT.with(|c| c.rti_memo_store(key, model, class, r));
+        }
     }
     r
 }
@@ -1595,6 +1599,14 @@ pub unsafe extern "C" fn dartforge_rti_set_cache(cache: *mut i64, obj: i64, ty: 
         *cache = (i64::from(cid) << 32) | ty;
         *cache.add(1) = i64::from(metadata);
     }
+    crate::heap::CONTEXT.with(|c| {
+        c.rti_memo_store(
+            i64::from(cid),
+            ty,
+            crate::layout::rti_memo::SET,
+            i64::from(metadata),
+        );
+    });
 }
 
 /// Stores the type of a generic object (in the header `metadata`).
@@ -1844,6 +1856,8 @@ pub unsafe extern "C" fn dartforge_rti_e_cache(cache: *mut i64, v: i64, t: i64) 
             *cache = key;
             *cache.add(1) = (t << 1) | i64::from(r);
         }
+        crate::heap::CONTEXT
+            .with(|c| c.rti_memo_store(key, t, crate::layout::rti_memo::IS, i64::from(r)));
     }
     r
 }

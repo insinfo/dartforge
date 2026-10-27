@@ -542,6 +542,37 @@ pub struct Context {
     /// stack (the VM's `stack_overflow_check`). 0 = not computed yet
     /// (fragment `gc_roots.rs`, `dartforge_context`); 1 = no known limit.
     pub stack_limit: Slot<std::cell::Cell<usize>>,
+    /// The type-check memo (offset 384, `layout::rti_memo`): written by the
+    /// runtime's cached `is`, `P<i>` and stored-type paths, read by the
+    /// generated code when its per-site cache misses. Zeroed with the
+    /// runtime's memos.
+    pub rti_memo: [[std::cell::Cell<i64>; 4]; crate::layout::rti_memo::N],
+}
+
+impl Context {
+    /// Stores `[a, b, kind] -> answer` in [`Context::rti_memo`].
+    #[inline]
+    pub(crate) fn rti_memo_store(&self, a: i64, b: i64, kind: i64, answer: i64) {
+        use crate::layout::rti_memo::{WAYS, set};
+        const _: () = assert!(WAYS == 2);
+        let first = set(a, b, kind) * WAYS;
+        let (way0, way1) = (&self.rti_memo[first], &self.rti_memo[first + 1]);
+        for (old, new) in way1.iter().zip(way0) {
+            old.set(new.get());
+        }
+        for (w, v) in way0.iter().zip([a, b, kind, answer]) {
+            w.set(v);
+        }
+    }
+
+    /// Empties [`Context::rti_memo`].
+    pub(crate) fn rti_memo_clear(&self) {
+        for e in &self.rti_memo {
+            for w in e {
+                w.set(0);
+            }
+        }
+    }
 }
 
 /// The `is C` read inline by the generated code ([`Context::subtypes`]). To
@@ -569,6 +600,11 @@ const _: () = {
     assert!(std::mem::offset_of!(Context, true_value) == c::TRUE);
     assert!(std::mem::offset_of!(Context, false_value) == c::FALSE);
     assert!(std::mem::offset_of!(Context, stack_limit) == c::STACK_LIMIT);
+    assert!(std::mem::offset_of!(Context, rti_memo) == c::RTI_MEMO);
+    assert!(
+        std::mem::size_of::<[[std::cell::Cell<i64>; 4]; crate::layout::rti_memo::N]>()
+            == crate::layout::rti_memo::N * crate::layout::rti_memo::ENTRY
+    );
 };
 
 thread_local! {
@@ -589,6 +625,7 @@ thread_local! {
             true_value: Slot::new((&raw const dartforge_true).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize)),
             false_value: Slot::new((&raw const dartforge_false).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize)),
             stack_limit: Slot::new(std::cell::Cell::new(0)),
+            rti_memo: [const { [const { std::cell::Cell::new(0) }; 4] }; crate::layout::rti_memo::N],
         }
     };
 }
