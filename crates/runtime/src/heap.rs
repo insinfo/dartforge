@@ -2740,16 +2740,34 @@ impl Heap {
         if new == old {
             return;
         }
-        let Some(mut arc) = self.arc.take() else {
+        let Some(arc) = self.arc.as_ref() else {
             return;
         };
         if arc.pure {
+            let mut arc = self.arc.take().expect("ARC on");
             self.arc_retain_registering(&mut arc, new);
-        } else {
+            arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
+            self.arc.set(arc);
+            return;
+        }
+        // The nursery: a young object (the usual target of the prepared code's
+        // tokens) has no metadata, and its header says so without a table lookup.
+        let (new, old) = (self.arc_counted(new), self.arc_counted(old));
+        let arc = self.arc.as_deref_mut().expect("ARC on");
+        if let Some(new) = new {
             arc.state.retain_ref(new).unwrap_or_else(|e| arc_failure(e));
         }
-        arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
-        self.arc.set(arc);
+        if let Some(old) = old {
+            arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
+        }
+    }
+
+    /// Under the nursery, `h` if its count may exist (a handle that is not a young
+    /// object of the space); `None` for a scalar, null or young object, whose
+    /// retain and release do nothing.
+    #[inline]
+    fn arc_counted(&self, h: Ref) -> Option<Ref> {
+        (smi::e_handle(h) && !self.young_child(h)).then_some(h)
     }
 
     /// Copies the root into the slot; zero removes the previous reference.
@@ -6925,13 +6943,25 @@ impl Heap {
         if old == new || (!arc.pure && e != OLD && e != REMEMBERED) {
             return;
         }
-        let new_in_space = arc.pure && self.space_block(new).is_some();
+        let pure = arc.pure;
+        let new_in_space = pure && self.space_block(new).is_some();
+        let (counted_new, counted_old) = if pure {
+            (Some(new), Some(old))
+        } else {
+            (self.arc_counted(new), self.arc_counted(old))
+        };
         let arc = self.arc.as_deref_mut().expect("ARC on");
-        if arc.snapshots.contains_key(&h) {
+        if (counted_new.is_none() && counted_old.is_none()) || arc.snapshots.contains_key(&h) {
             return;
         }
-        if !arc.pure {
-            arc.state.retain_ref(new).unwrap_or_else(|e| arc_failure(e));
+        if !pure {
+            if let Some(new) = counted_new {
+                arc.state.retain_ref(new).unwrap_or_else(|e| arc_failure(e));
+            }
+            if let Some(old) = counted_old {
+                arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
+            }
+            return;
         } else if !arc
             .state
             .retain_if_registered(new)
@@ -7484,33 +7514,37 @@ impl Heap {
             if dead_set.is_empty() {
                 break;
             }
-            let dead: crate::hash::HashSet<Ref> = dead_set.into_iter().collect();
+            // Dead: an object of the space, not young, without metadata (what
+            // `take_dead` returned now or before; the dead ones' blocks wait for the
+            // reclamation). Asking the table costs less than hashing every dead
+            // object when the side tables are small.
+            let validate = self.validate_handles;
+            let objects = &self.objects;
+            let state = &arc.state;
+            let dead = |h: &Ref| {
+                smi::e_handle(*h)
+                    && died_in_drain(objects, validate, state, *h)
+                    && !crate::layout::state::is_young(
+                        // SAFETY: an object of the space (`died_in_drain`).
+                        unsafe { (*((*h - HANDLE_OFFSET) as *const Header)).state },
+                    )
+            };
+            drop(dead_set);
             self.weak_refs.retain(|holder, target| {
-                if dead.contains(target) {
+                if dead(target) {
                     *target = 0;
                 }
-                !dead.contains(holder)
+                !dead(holder)
             });
-            let holders: Vec<Ref> = self
-                .ephemerons
-                .keys()
-                .copied()
-                .filter(|p| dead.contains(p))
-                .collect();
-            for p in holders {
-                self.ephemerons.remove(&p);
-                if let Some((_, v)) = arc.ephemerons.remove_it(p) {
-                    arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
-                }
-            }
+            let holders: Vec<Ref> = self.ephemerons.keys().copied().filter(dead).collect();
             self.attachments.retain_mut(|a| {
-                if matches!(a.action, FinalizerAction::Native(_, _, _)) && dead.contains(&a.owner) {
+                if matches!(a.action, FinalizerAction::Native(_, _, _)) && dead(&a.owner) {
                     a.owner = 0;
                 }
-                if dead.contains(&a.detach) {
+                if dead(&a.detach) {
                     a.detach = 0;
                 }
-                if !dead.contains(&a.value) {
+                if !dead(&a.value) {
                     return true;
                 }
                 match a.action {
@@ -7523,23 +7557,32 @@ impl Heap {
                 false
             });
             Self::reindex_attachment_list(&self.attachments, &mut self.attachments_by_owner);
-            self.late_fields_initialized
-                .retain(|(h, _)| !dead.contains(h));
-            self.new_lates.retain(|(h, _)| !dead.contains(h));
-            self.permanents.retain(|h| !dead.contains(h));
-            self.constants.retain(|h, _| !dead.contains(h));
-            self.tearoff_code.retain(|h, _| !dead.contains(h));
+            self.late_fields_initialized.retain(|(h, _)| !dead(h));
+            self.new_lates.retain(|(h, _)| !dead(h));
+            self.permanents.retain(|h| !dead(h));
+            self.constants.retain(|h, _| !dead(h));
+            self.tearoff_code.retain(|h, _| !dead(h));
             self.finalizable.retain(|h, &mut pair| {
-                let stays = !dead.contains(h);
+                let stays = !dead(h);
                 if !stays {
                     finalize.push(pair);
                 }
                 stays
             });
+            for p in holders {
+                self.ephemerons.remove(&p);
+                if let Some((_, v)) = arc.ephemerons.remove_it(p) {
+                    arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
+                }
+            }
         }
         self.reindex_attachments();
+        // A young survivor (aging) is not registered: its promotion counts the
+        // queue's occurrence.
         for &action in &ready {
-            self.arc_retain_registering(&mut arc, action);
+            arc.state
+                .retain_ref(action)
+                .unwrap_or_else(|e| arc_failure(e));
         }
         for (_, action) in attachment_edges {
             arc.state.release(action).unwrap_or_else(|e| arc_failure(e));
