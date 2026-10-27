@@ -6289,6 +6289,26 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::IntToDouble(a)
             | Instruction::DoubleToInt(a) => !scalar(a),
             Instruction::Alloca(_) | Instruction::Load { .. } | Instruction::Phi { .. } => false,
+            // A global is a word of the isolate area (`global_address`): the read
+            // is one load. The write is one store as well, unless the slot is a
+            // root the collector does not read itself (`dartforge_gc_global_root`)
+            // or the value needs a conversion. Before, every lazy type getter
+            // (`df.rti.*`, a flag read) made each generic function a collection
+            // point that rooted everything live across it.
+            Instruction::LoadGlobal { .. } => false,
+            Instruction::StoreGlobal { val, ty, root, .. } => {
+                (root.is_some() && !self.slots_are_roots()) || !exact(val, *ty)
+            }
+            // The read of a captured variable or of a cell is a load of the
+            // body (`emit_env_get`, `emit_cell_get`) in tracing memory, and the
+            // boxed `bool` is one of the two statics of the context.
+            Instruction::EnvGet { env, .. } | Instruction::CellGet { cell: env } => {
+                self.module.arc_memory || !exact(env, Type::Ref)
+            }
+            Instruction::Box {
+                op,
+                from: from @ (Type::I1 | Type::I8),
+            } => self.module.arc_memory || !exact(op, *from),
             // Vector arithmetic and unboxing (a direct load): they do not allocate.
             Instruction::Simd { .. } => false,
             Instruction::Unbox { to, .. } if to.is_vector() => false,
