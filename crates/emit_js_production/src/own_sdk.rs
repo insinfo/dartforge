@@ -66,13 +66,23 @@ fn roots(
     {
         r.instantiated_classes.push(c);
     }
+    // The interceptors of JavaScript's errors wait until an exception can
+    // reach Dart code (`dartforge_world::Roots::js_error_classes`).
+    let errors_gate = std::env::var("DARTFORGE_JSPROD_JS_ERRORS_GATE").map_or(true, |v| v != "0");
     for (c, tags) in dartforge_world::native_tags(e) {
         if tags.iter().any(|t| BUILTIN_TAGS.contains(&t.as_str())) {
-            r.instantiated_classes.push(c);
+            if errors_gate && tags.iter().all(|t| JS_ERROR_TAGS.contains(&t.as_str())) {
+                r.js_error_classes.push(c);
+            } else {
+                r.instantiated_classes.push(c);
+            }
         }
     }
     r
 }
+
+/// The [`BUILTIN_TAGS`] of JavaScript's errors.
+const JS_ERROR_TAGS: &[&str] = &["Error", "TypeError", "RangeError"];
 
 /// JS namespace → library, for the verifier: the program's (`L$…`) and the
 /// SDK's (`core`, `dart`, `dart_rti`…).

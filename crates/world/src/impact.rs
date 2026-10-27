@@ -1024,6 +1024,50 @@ fn primitive_class(m: &Engine<'_>, c: ClassId) -> bool {
     }
 }
 
+/// Whether a `JS()` *template* catches an exception and does anything with
+/// it but rethrow (`catch (e) { …; throw e; }` keeps it in JavaScript).
+fn catch_keeps_exception(t: &str) -> bool {
+    let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+    for (p, _) in t.match_indices("catch") {
+        let rest = &t[p + 5..];
+        let Some(open) = rest.find('(') else {
+            return true;
+        };
+        let Some(close) = rest.find(')') else {
+            return true;
+        };
+        let var = rest[open + 1..close].trim();
+        let Some(body_start) = rest[close..].find('{') else {
+            return true;
+        };
+        let body = &rest[close + body_start + 1..];
+        let mut depth = 1;
+        let mut end = body.len();
+        for (i, c) in body.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let body = body[..end].replace(&format!("throw {var}"), "");
+        let b = body.as_bytes();
+        let used = body.match_indices(var).any(|(i, _)| {
+            (i == 0 || !word(b[i - 1])) && b.get(i + var.len()).is_none_or(|c| !word(*c))
+        });
+        if var.is_empty() || used {
+            return true;
+        }
+    }
+    false
+}
+
 /// Whether `c` is `String` of `dart:core`.
 fn string_like(m: &Engine<'_>, c: Option<ClassId>) -> bool {
     let p = m.e.program;
@@ -2004,6 +2048,11 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                                 // Every word of the *template* is a JS name (property, object
                                 // key, global): property renaming does not touch it.
                                 m.record_js_words(&t);
+                                // A template's own `catch` that does more than
+                                // rethrow hands its exception to Dart code.
+                                if catch_keeps_exception(&t) {
+                                    m.open_js_errors();
+                                }
                                 let b = t.as_bytes();
                                 for (i, _) in t.match_indices('.') {
                                     let start = i + 1;
@@ -2244,7 +2293,18 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
 
 #[cfg(test)]
 mod tests {
-    use super::template_arity;
+    use super::{catch_keeps_exception, template_arity};
+
+    #[test]
+    fn template_catches() {
+        assert!(!catch_keeps_exception(
+            "try { value = init(); } catch (e) { initialized = false; throw e; }"
+        ));
+        assert!(catch_keeps_exception(
+            "(function() {try {return new RegExp(#);} catch (e) {return e;}})()"
+        ));
+        assert!(!catch_keeps_exception("#.split(#)"));
+    }
 
     #[test]
     fn template_call_arity() {

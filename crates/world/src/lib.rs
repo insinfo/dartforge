@@ -209,6 +209,10 @@ pub struct Roots {
     pub selectors: Vec<String>,
     /// Constructors whose static tearoff is referenced from outside.
     pub tearoffs: Vec<FunctionElementId>,
+    /// The interceptors of JavaScript's own errors (`Error`, `TypeError`,
+    /// `RangeError` tags): instantiated once a JavaScript exception can
+    /// reach Dart code ([`Engine::open_js_errors`]).
+    pub js_error_classes: Vec<ClassId>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -738,6 +742,15 @@ fn seed(m: &mut Engine<'_>, r: &Roots) {
     for c in cs {
         m.instantiate(c);
     }
+    let mut es = r.js_error_classes.clone();
+    es.sort();
+    for c in es {
+        if m.js_errors_open {
+            m.instantiate(c);
+        } else if !m.held_js_errors.contains(&c) {
+            m.held_js_errors.push(c);
+        }
+    }
     let mut ts = r.type_classes.clone();
     ts.sort();
     for c in ts {
@@ -1035,6 +1048,10 @@ pub(crate) struct Engine<'a> {
     held_polyfill: Option<FunctionElementId>,
     /// A record type or a record literal reached the world.
     records_seen: bool,
+    /// [`Engine::open_js_errors`] happened.
+    js_errors_open: bool,
+    /// [`Roots::js_error_classes`] waiting for it.
+    held_js_errors: Vec<ClassId>,
 }
 
 /// Libraries whose code creates or receives objects of the native classes
@@ -1214,6 +1231,9 @@ impl<'a> Engine<'a> {
             dom_open: std::env::var("DARTFORGE_JSPROD_DOM_POLYFILL").is_ok_and(|v| v == "0"),
             held_polyfill: None,
             records_seen: false,
+            js_errors_open: std::env::var("DARTFORGE_JSPROD_JS_ERRORS_GATE")
+                .is_ok_and(|v| v == "0"),
+            held_js_errors: Vec::new(),
         }
     }
 
@@ -1299,6 +1319,16 @@ impl<'a> Engine<'a> {
         }
         self.fn_live[i] = true;
         self.cause_fn[i] = Some(self.cause);
+        if !self.js_errors_open
+            && self.include_sdk
+            && self.name(func.name) == "getThrown"
+            && self.e.program.library(func.library).uri == "dart:_runtime"
+        {
+            let saved = self.cause;
+            self.cause = Cause::Function(f);
+            self.open_js_errors();
+            self.cause = saved;
+        }
         self.params_live(f);
         self.queue.push_back(Item::Function(f));
         if !self.foreign_open && opens_foreign(self.e.program, f) {
@@ -1334,6 +1364,22 @@ impl<'a> Engine<'a> {
             self.instantiate(c);
         }
         self.cause = saved;
+        // Foreign code may hand Dart a JavaScript error (a rejected
+        // promise, a callback argument).
+        self.open_js_errors();
+    }
+
+    /// A JavaScript exception can become a Dart value: a `catch` (through
+    /// `dart.getThrown`), a `JS()` *template* with its own `catch`, or
+    /// foreign code. The held error interceptors are instantiated.
+    pub(crate) fn open_js_errors(&mut self) {
+        if self.js_errors_open {
+            return;
+        }
+        self.js_errors_open = true;
+        for c in std::mem::take(&mut self.held_js_errors) {
+            self.instantiate(c);
+        }
     }
 
     /// JavaScript code may hold any Dart object and a plain JavaScript object
