@@ -755,11 +755,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Ty::Iface {
                     class, nullable, ..
                 } => !(Some(*class) == self.ctx.object && *nullable),
-                Ty::Fn { .. } | Ty::Record { .. } | Ty::FutureOr { .. } => true,
+                Ty::Fn { .. } | Ty::Record { .. } | Ty::FutureOr { .. } | Ty::Param { .. } => true,
                 _ => false,
             };
             if needs_cast
-                && !expected.mentions_params()
                 && js.code != "null"
                 && !self.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
             {
@@ -1005,7 +1004,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             } => {
                 let saved = self.in_const;
                 self.in_const |= *const_;
-                let record = self.emit_record(positional, named);
+                let record = self.emit_record(e, positional, named, expected);
                 self.in_const = saved;
                 record
             }
@@ -2253,18 +2252,42 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    fn emit_record(&mut self, positional: &[ExprId], named: &[(ast::Name, ExprId)]) -> (Js, Ty) {
+    fn emit_record(
+        &mut self,
+        record: ExprId,
+        positional: &[ExprId],
+        named: &[(ast::Name, ExprId)],
+        expected: Option<&Ty>,
+    ) -> (Js, Ty) {
+        // Field contexts: those of the record context or, when it does not
+        // have the literal's shape (a pattern's schema), the field types the
+        // common inference gave the literal, so that implicit `call`
+        // tear-offs and downcasts happen per field like in the CFE.
+        let same_shape = |t: &Ty| {
+            matches!(t, Ty::Record { pos, named: n, .. }
+                if pos.len() == positional.len() && n.len() == named.len())
+        };
+        let context = expected
+            .filter(|t| same_shape(t))
+            .cloned()
+            .or_else(|| self.common_type(record).filter(|t| same_shape(t)));
+        let (ctx_pos, ctx_named) = match context {
+            Some(Ty::Record { pos, named, .. }) => (pos, named),
+            _ => (Vec::new(), Vec::new()),
+        };
         let mut pos_js = Vec::new();
         let mut pos_ty = Vec::new();
-        for e in positional {
-            let (j, t) = self.emit_expr(*e, None);
+        for (i, e) in positional.iter().enumerate() {
+            let (j, t) = self.emit_expr(*e, ctx_pos.get(i));
             pos_js.push(j.into_at(P_ASSIGN));
             pos_ty.push(t);
         }
         let mut named_items: Vec<(String, String, Ty)> = Vec::new();
         for (n, e) in named {
-            let (j, t) = self.emit_expr(*e, None);
-            named_items.push((self.name(n.sym).to_string(), j.into_at(P_ASSIGN), t));
+            let name = self.name(n.sym).to_string();
+            let field = ctx_named.iter().find(|(m, _)| *m == name).map(|(_, t)| t);
+            let (j, t) = self.emit_expr(*e, field);
+            named_items.push((name, j.into_at(P_ASSIGN), t));
         }
         // Evaluation order preserved through temps when named fields are out of order.
         let mut sorted = named_items.clone();
