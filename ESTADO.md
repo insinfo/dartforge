@@ -1,4 +1,119 @@
-# Estado do DartForge — 2026-10-26
+# Estado do DartForge — 2026-10-27
+
+## Atualização de 26–27/10/2026: JS, analisador, LSP e extensão VS Code
+
+Foco: compilador JavaScript pronto para produção, analisador e LSP com a
+extensão do VS Code. Onze commits, de `784bd199` a `7c965006`, validados
+localmente no macOS arm64 e enviados.
+
+### Suíte `tests/language` (JS dev)
+
+O runner da rodada anterior se perdeu junto com o scratchpad; agora está
+versionado em `scripts/run-language-suite.py` (`setup --checkout <sdk> --tag
+3.6.2`, depois `vm`, `ddc`, `forge`, `compare`). O conjunto que ele monta tem
+**2863 programas** (os `*_test.dart` sem expectativas de erro estático, fora
+de `vm/`, sem `dart:io`/`isolate`/`mirrors`/`ffi`/`html`/`js`/`dart:_`). Não é
+o mesmo recorte dos 2266 das medições anteriores, então os números não se
+comparam diretamente com os de 25/10.
+
+| Ferramenta | Iguais à VM 3.6.2 |
+|---|---:|
+| DartForge JS dev, início da rodada (`f994cb83`) | 2526 |
+| DartForge JS dev, agora (`7c965006`) | **2703** |
+| DDC 3.6.2 oficial (`dartdevc` + Node) | 2744 |
+
+Das 160 falhas restantes, **53 são só nossas** (o DDC acerta), 107 o DDC
+também erra (divergências de plataforma web: inteiros, `identical` de
+números, mensagens) e há 12 programas em que nós acertamos e o DDC não.
+Nenhuma regressão entre as medições intermediárias. Corpus JS: **259/259**
+em dev e em produção (eram 252).
+
+O que entrou no emissor JS (e no mundo fechado de produção):
+
+- Downcasts implícitos de `dynamic` para tipos com parâmetros de tipo
+  (`List<T>`, `T`, `T Function(T)`), que antes passavam sem verificação; o
+  maior grupo de falhas (100 programas de `function_type/`).
+- Contexto por campo em literais de record (tear-off implícito de `call`).
+- Mixins: inicializadores de campo de classe usada como mixin antes da 3.0;
+  construtores encaminhados por aplicações nomeadas (`class D = B with M`),
+  chamados e com argumentos verificados.
+- `main` exportado por outra biblioteca (dev e raízes do mundo de produção).
+- Ordem de avaliação da VM ao chamar o valor de um getter (argumentos antes
+  da leitura, com receptor explícito ou `this` implícito).
+- Tear-off implícito de `call` aplicado ao todo em cascata, condicional e
+  `??`, e nos setters estáticos, de topo e de extensão e em `[]=`.
+- `p.loadLibrary` como tear-off; `p.lista[i] = v` verifica o prefixo diferido.
+- Acesso dinâmico a nomes privados com o símbolo da biblioteca; encaminhadores
+  de `noSuchMethod` para privados da própria biblioteca e *throwers* para os
+  de outra; campo privado que sobrescreve membro herdado vira par de acessores.
+- Campos privados promovidos (`inference_update_2`, 39/39): como alvo de
+  chamada e como receptor (o crate `types` passou a registrar o tipo
+  promovido de `c._f(x)`).
+- `await for` dentro de literais de coleção.
+- `dynamic` em spread e `for`-in: cast para `Iterable`/`Map` e de cada
+  elemento; `async =>` e `return` verificados contra `FutureOr<T>`; `await`
+  com `awaitWithTypeCheck` quando o tipo estático não é futuro.
+- `bool/String.fromEnvironment('dart.library.x')` coerente com os imports
+  condicionais; declaração rotulada; casos vazios agrupados em `switch` com
+  `continue` para rótulo; `toString`/`hashCode`/`runtimeType` de tipo anulável.
+- Tear-off de método genérico cujo limite menciona o parâmetro da classe é
+  verificado contra o tipo estático.
+- **Dois problemas de robustez do compilador:** estouro de pilha na receita
+  de tipo com parâmetro F-limitado fora de escopo (o processo abortava) e
+  inferência de override quadrática: uma classe com 20 000 campos sem tipo
+  levava **137 s** de inferência de corpos, agora **24 ms**.
+
+Falhas só nossas que restam, por tema: setter de campo de mixin sobre setter
+covariante (`forwarding_stub_set`), variável de tipo promovida a interseção
+em `await`, setter estático com o nome de um `static const`, enums com mixins
+genéricos, `generic/local_functions`, tear-offs de construtores por alias,
+instanciação explícita de literais de tipo, `records/regress54375`,
+`is/object_test`, `loop/for_variable_capture` e casos isolados de
+`nosuchmethod_forwarding`, `covariant`, `patterns/exhaustiveness/*cast*`.
+
+### Analisador
+
+Commit `fdb0b494` (agente): 28 falsos positivos a menos e 3 diagnósticos
+que faltavam, comparando com `dart analyze` 3.6.2 em 137 diretórios de
+`tests/language` e 4032 variantes de multitestes, sem nenhuma divergência
+nova. Corrigidos: `type_argument_not_matching_bounds` com tipos de função
+genéricos (tear-off de construtor por alias, limites de parâmetros de
+função antigos, tipos padrão de tipos crus com `Never` nas posições
+contravariantes), `return_of_invalid_type`/`undefined_getter` em `x.call`
+com `T extends Function`, tear-off implícito em atribuição a local promovido
+e membro abstrato não implementado quando há conflito getter/método. Os
+itens "implementação herdada que não conforma" e "`_` duplicado antes da
+3.7" já estavam corretos; o segundo só diverge num arquivo com `pubspec.yaml`
+sem `package_config.json`, onde usamos a versão corrente (3.13) por decisão
+de projeto. Commit `47393676`: entrada de mapa dentro de literal de lista ou
+conjunto (`{1, 'a': 3}`) derrubava a inferência (pânico ao digitar).
+
+### LSP e extensão do VS Code
+
+- `784bd199`: a extensão em `editors/vscode` funciona sem o Dart-Code:
+  registra a linguagem `dart`, gramática TextMate própria, configuração de
+  linguagem, descoberta do servidor (`dartforge.serverPath`, binário
+  embutido em `server/`, `PATH`), comandos *Restart Server* e *Show Output*,
+  convivência com o Dart-Code (`dartforge.enable`), configurações que o
+  servidor lê de fato e empacotamento `.vsix` (95,7 KB sem o binário,
+  5,85 MB com ele). Testada num VS Code 1.143.1 real (ativação,
+  diagnósticos, *semantic tokens*, hover, formatação, reinício).
+- `d566cc2e`: descoberta da SDK do Dart em oito etapas, comum ao compilador,
+  ao `analyze` e ao LSP (`initializationOptions.sdkPath`, `DARTFORGE_SDK_LIB`
+  — que a extensão preenche com `dartforge.sdkPath` —, SDK ao lado do
+  executável/`pack`, `DART_SDK`, `FLUTTER_ROOT`, `dart`/`flutter` no `PATH`
+  seguindo symlinks, locais conhecidos). Sem SDK, um aviso único; a SDK
+  escolhida vai para o log. `$/setTrace` tratado. Robustez: despacho numa
+  thread com pilha de 1 GiB (expressões muito aninhadas abortavam o
+  servidor), mudança de `package_config.json` chega aos documentos abertos,
+  pânico em notificação mostra um único aviso. Sessões reais:
+  `postgres_fork` (25 arquivos, ~93 MB) e `new_sali/backend` (120 arquivos,
+  ~245 MB, memória estável). Testes de sessão de editor em
+  `crates/lsp/tests/editor_session.rs`.
+- Pendências do LSP: formatação quadrática em cadeias binárias muito longas
+  (80 000 termos, 13 s; bloqueia o despacho); hover de `var x = [1, 'a': 3]`
+  no topo mostra `List<Object>` em vez de `List<dynamic>`; uma SDK que existe
+  mas falha ao carregar não faz tentar o próximo candidato.
 
 ## Balanço das últimas 48 horas — corte em 20/10/2026 às 14:33:15
 
