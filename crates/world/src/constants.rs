@@ -135,7 +135,11 @@ impl<'a> Constants<'a> {
         };
         let name = lit.constant_value()?.to_string_lossy();
         match name.as_str() {
-            "DEV_COMPILER" | "SOUND_NULL_SAFETY" | "VARIANCE" => Some(Value::Bool(true)),
+            // The production emitter records no variance (`emit_js::own_sdk`).
+            "VARIANCE" => Some(Value::Bool(
+                std::env::var("DARTFORGE_JSPROD_VARIANCE").is_ok_and(|v| v == "1"),
+            )),
+            "DEV_COMPILER" | "SOUND_NULL_SAFETY" => Some(Value::Bool(true)),
             "MINIFIED" | "LEGACY" | "EXTRA_NULL_SAFETY_CHECKS" | "PRINT_LEGACY_STARS" => {
                 Some(Value::Bool(false))
             }

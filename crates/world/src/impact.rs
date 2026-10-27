@@ -791,6 +791,18 @@ fn iteration_protocol(m: &mut Engine<'_>, ctx: &Context, iterable: Option<ExprId
     for s in ["iterator", "moveNext", "current"] {
         m.poison_name_str(s);
     }
+    // A `JSArray` is iterated by the JavaScript `for-of` (the emitter's
+    // form): its own `Symbol.iterator`, no Dart member.
+    if m.include_sdk
+        && receiver.is_some_and(|r| {
+            let p = m.e.program;
+            p.library(p.class(r).library).uri == "dart:_interceptors"
+                && m.e.interner.resolve(p.class(r).name) == "JSArray"
+        })
+        && std::env::var("DARTFORGE_JSPROD_ITERATION_CONE").map_or(true, |v| v != "0")
+    {
+        return;
+    }
     match (receiver, iterator) {
         (Some(r), Some(i))
             if m.include_sdk

@@ -136,7 +136,30 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
         "_internal/js_shared/lib/rti.dart",
         "      name = name.substring(name.indexOf(Recipe.librarySeparatorString) + 1);",
-        "      name = name.substring(\n          _Utils.stringIndexOf(name, Recipe.librarySeparatorString, 0) + 1);",
+        "      name = _Utils.substring(name,\n          _Utils.stringIndexOf(name, Recipe.librarySeparatorString, 0) + 1, name.length);",
+    ),
+    // `_rtiToString` grows and reads the generic context, a `List<String>`
+    // it owns, with the checked list operations: `add` kept `checkGrowable`
+    // and `UnsupportedError`, `[]` kept `diagnoseIndexError` and
+    // `IndexError` in every program. The indices are in range by
+    // construction; the JavaScript `push` and index are the same operations.
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_shared/lib/rti.dart",
+        "      genericContext.add('T${offset + i}');",
+        "      JS('', '#.push(#)', genericContext, 'T${offset + i}');",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_shared/lib/rti.dart",
+        "      typeParametersText += genericContext[genericContext.length - 1 - i];",
+        "      typeParametersText += JS<String>(\n          'String', '#[#]', genericContext, genericContext.length - 1 - i);",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_shared/lib/rti.dart",
+        "    return context[context.length - 1 - index];",
+        "    return JS<String>('String', '#[#]', context, context.length - 1 - index);",
     ),
     // `trackCall` (behind every `dload`/`dput`/`dsend`) samples dynamic
     // calls for the DDC debugger only when `dart.__trackProfile` is set, which
@@ -165,6 +188,68 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         "_internal/js_dev_runtime/private/ddc_runtime/runtime.dart",
         "import 'dart:async';\n",
         "import 'dart:async';\nimport 'dart:collection' show UnmodifiableMapView;\n",
+    ),
+    // Hot restart (`dart.hotRestart`, the development loader's) resets the
+    // lazy fields through closures each field records on first use, and the
+    // debugger settings (`ddcSettings`) only turn on `trackProfile`: the
+    // single production file never restarts nor profiles.
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        r##"  // Tracks if these local variables have been saved so they can be restored
+  // after a hot restart.
+  let savedLocals = false;
+  $desc.get = function() {
+    if (init == null) return value;
+    if (final && initialized) $throwLateInitializationError($name);
+    if (!savedLocals) {
+      // Record the field on first execution so we can reset it later if
+      // needed (hot restart).
+      $resetFields.push(() => {
+        init = initializer;
+        value = null;
+        savedLocals = false;
+        initialized = false;
+      });
+      savedLocals = true;
+    }
+"##,
+        r##"  $desc.get = function() {
+    if (init == null) return value;
+    if (final && initialized) $throwLateInitializationError($name);
+"##,
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        r##"  if (setter != null) {
+    $desc.set = function(x) {
+      if (!savedLocals) {
+        $resetFields.push(() => {
+          init = initializer;
+          value = null;
+          savedLocals = false;
+          initialized = false;
+        });
+        savedLocals = true;
+      }
+      init = null;"##,
+        r##"  if (setter != null) {
+    $desc.set = function(x) {
+      init = null;"##,
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/runtime.dart",
+        r##"    // These settings must be configured before the application starts so that
+    // user code runs with the correct configuration.
+    let settings = 'ddcSettings' in globalState ? globalState.ddcSettings : {};
+
+    $trackProfile(
+        'trackProfile' in settings ? settings.trackProfile : false);
+
+"##,
+        r##""##,
     ),
     // `bind` takes the tear-off's type from the class's signature table. A
     // tear-off whose type is the same for every method of that name gets it

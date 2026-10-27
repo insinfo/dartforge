@@ -1964,7 +1964,18 @@ pub fn emit_intrinsic(
         }
         Intrinsic::GetFlag => {
             let name = constant_string(e, *pos.first()?)?;
-            let v = SdkMode::flag(&name)?;
+            // Production: no type parameter declares a variance (the
+            // emitter records none), so `VARIANCE`'s paths reduce to the
+            // covariant one (`DARTFORGE_JSPROD_VARIANCE=1` keeps DDC's value;
+            // the world folds the same, `dartforge_world::Constants`).
+            let v = if name == "VARIANCE"
+                && e.ctx.production()
+                && std::env::var("DARTFORGE_JSPROD_VARIANCE").map_or(true, |v| v != "1")
+            {
+                false
+            } else {
+                SdkMode::flag(&name)?
+            };
             Some((Js::prim(if v { "true" } else { "false" }), e.ctx.t_bool()))
         }
         Intrinsic::GetName => {
