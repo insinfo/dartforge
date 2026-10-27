@@ -249,7 +249,11 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         'trackProfile' in settings ? settings.trackProfile : false);
 
 "##,
-        r##""##,
+        // Not empty: the fresh-list proof reverses each patch to recognize
+        // the canonical source (`original_if_current_patch`).
+        r##"    // Production: no ddcSettings (the development loader's).
+
+"##,
     ),
     // `bind` takes the tear-off's type from the class's signature table. A
     // tear-off whose type is the same for every method of that name gets it
