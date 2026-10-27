@@ -602,6 +602,11 @@ impl<'a> oxc_ast_visit::Visit<'a> for StringOccurrences {
         self.stack.push(false);
         self.visit_expression(&it.callee);
         self.stack.pop();
+        // The name lists of `dart.lateFields` are rewritten word by word
+        // after the renaming (`rewrite_late_fields`): never a variable.
+        if is_late_fields(&it.callee) {
+            return;
+        }
         self.stack.push(call_takes_names(&it.callee));
         for a in &it.arguments {
             self.visit_argument(a);
@@ -655,6 +660,58 @@ fn is_bind(callee: &oxc_ast::ast::Expression<'_>) -> bool {
         _ => None,
     };
     matches!(name, Some("bind" | "bindCall"))
+}
+
+/// `dart.lateFields` (or its flattened form): its *strings* are lists of
+/// property names (`"_a$1c _b$1c"`, `emit_js`'s `module.rs`).
+fn is_late_fields(callee: &oxc_ast::ast::Expression<'_>) -> bool {
+    use oxc_ast::ast::Expression;
+    let name = match callee {
+        Expression::StaticMemberExpression(m) if matches!(&m.object, Expression::Identifier(o) if o.name == "dart") => {
+            Some(m.property.name.as_str())
+        }
+        Expression::Identifier(i) => crate::flatten::member(i.name.as_str(), "dart"),
+        _ => None,
+    };
+    name == Some("lateFields")
+}
+
+/// After property renaming, each word of the *strings* of `dart.lateFields`
+/// becomes its property's new name, and the words are sorted: the late
+/// fields of every class are then runs of short names that gzip finds again
+/// in the next class. The order of the accessors defined is not observable.
+fn rewrite_late_fields<'a>(
+    program: &mut oxc_ast::ast::Program<'a>,
+    map: &std::collections::HashMap<String, String>,
+    allocator: &'a oxc_allocator::Allocator,
+) {
+    use oxc_ast_visit::VisitMut;
+    struct R<'m, 'a> {
+        map: &'m std::collections::HashMap<String, String>,
+        allocator: &'a oxc_allocator::Allocator,
+    }
+    impl<'a> VisitMut<'a> for R<'_, 'a> {
+        fn visit_call_expression(&mut self, it: &mut oxc_ast::ast::CallExpression<'a>) {
+            if is_late_fields(&it.callee) {
+                for a in it.arguments.iter_mut().skip(1) {
+                    if let oxc_ast::ast::Argument::StringLiteral(l) = a {
+                        let mut words: Vec<&str> = l
+                            .value
+                            .as_str()
+                            .split(' ')
+                            .filter(|w| !w.is_empty())
+                            .map(|w| self.map.get(w).map_or(w, String::as_str))
+                            .collect();
+                        words.sort_by(|x, y| x.len().cmp(&y.len()).then_with(|| x.cmp(y)));
+                        l.value = self.allocator.alloc_str(&words.join(" ")).into();
+                        l.raw = None;
+                    }
+                }
+            }
+            oxc_ast_visit::walk_mut::walk_call_expression(self, it);
+        }
+    }
+    R { map, allocator }.visit_program(program);
 }
 
 /// After property renaming, the name *string* in the program's `dart.bind(o,
@@ -1179,6 +1236,7 @@ pub fn minify_with_properties(
             .collect();
         pm.rewrite(&mut program);
         rewrite_binds(&mut program, &map, &allocator);
+        rewrite_late_fields(&mut program, &map, &allocator);
     }
     let options = MinifierOptions {
         mangle: Some(oxc_minifier::MangleOptions {

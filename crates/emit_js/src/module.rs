@@ -2764,7 +2764,34 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // with the key as a property of the object literal (`_x$1c: "_x"`, which
     // property renaming shortens together with the `this._x$1c` accesses) or
     // computed (`[sym]: "_x"`, in the SDK).
-    if !late_fields.is_empty() {
+    // Production without the names, every key a plain property: the keys as
+    // one *string* each, `"_a$1c _b$1c"` (`dart.lateFields` splits it; the
+    // minifier renames and sorts the words, `emit_js_production`'s
+    // `rewrite_late_fields`). `DARTFORGE_JSPROD_LATE_STRING=0` keeps the
+    // objects.
+    let as_strings = ctx.production()
+        && std::env::var("DARTFORGE_JSPROD_LATE_STRING").map_or(true, |v| v != "0")
+        && late_fields.iter().all(|(k, n, _)| {
+            ctx.late_name(n).is_empty()
+                && k.strip_prefix('"')
+                    .and_then(|x| x.strip_suffix('"'))
+                    .is_some_and(js::is_js_ident)
+        });
+    if !late_fields.is_empty() && as_strings {
+        let words = |fin: bool| -> String {
+            let items: Vec<&str> = late_fields
+                .iter()
+                .filter(|t| t.2 == fin)
+                .filter_map(|(k, _, _)| k.strip_prefix('"').and_then(|x| x.strip_suffix('"')))
+                .collect();
+            js::string_literal(&items.join(" "))
+        };
+        w.line(&format!(
+            "dart.lateFields({cref}.prototype, {}, {});",
+            words(true),
+            words(false)
+        ));
+    } else if !late_fields.is_empty() {
         let object = |fin: bool| -> String {
             let items: Vec<String> = late_fields
                 .iter()
