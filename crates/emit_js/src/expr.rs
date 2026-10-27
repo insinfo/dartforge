@@ -3258,6 +3258,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     js::string_literal(&js_member_name(name))
                 };
+                // Production: when every method with this name has the same
+                // closed type, the tear-off takes it here instead of from the
+                // class's signature table (`dart.tbind`, a production patch),
+                // and the name needs no signature entry.
+                if self.ctx.production()
+                    && std::env::var("DARTFORGE_JSPROD_TYPED_BIND").map_or(true, |v| v != "0")
+                    && std::env::var("DARTFORGE_JSPROD_SDK_PATCHES").map_or(true, |v| v != "0")
+                    && !self.ctx.is_ext_member(recv_ty, name, false)
+                    && let Some(sym) = self.ctx.sym(name)
+                    && let Some(t) = self.ctx.single_method_type(sym)
+                {
+                    let rti = self.rti(&t);
+                    return (
+                        Js::prim(format!("dart.tbind({}, {key}, {rti})", recv.code)),
+                        ty,
+                    );
+                }
                 (Js::prim(format!("dart.bind({}, {key})", recv.code)), ty)
             }
             _ => (Js::prim(js), ty),

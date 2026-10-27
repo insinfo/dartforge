@@ -1136,6 +1136,17 @@ pub fn dynamic_selectors(src: &str) -> Vec<String> {
 /// (`foo`, which the verifier matches with `foo_=`), the rest (`dsend`,
 /// `dload`, `bind`…) reads or calls.
 pub fn dynamic_selectors_by_kind(src: &str) -> (Vec<String>, Vec<String>) {
+    selectors_by_kind(src, false)
+}
+
+/// Like [`dynamic_selectors_by_kind`], without the typed tear-offs
+/// (`dart.tbind(o, "m", T)`, which carry their type): the names whose
+/// signature entries the runtime may read.
+pub fn signature_selectors_by_kind(src: &str) -> (Vec<String>, Vec<String>) {
+    selectors_by_kind(src, true)
+}
+
+fn selectors_by_kind(src: &str, skip_typed_binds: bool) -> (Vec<String>, Vec<String>) {
     let b = src.as_bytes();
     let mut reads: Vec<String> = Vec::new();
     let mut writes: Vec<String> = Vec::new();
@@ -1149,7 +1160,8 @@ pub fn dynamic_selectors_by_kind(src: &str) -> (Vec<String>, Vec<String>) {
         }
         let (arg_pos, write) = match &src[i..p] {
             "dput" | "dputRepl" => (1usize, true),
-            "dsend" | "dload" | "bind" | "dsendRepl" | "dloadRepl" => (1usize, false),
+            "tbind" if skip_typed_binds => continue,
+            "dsend" | "dload" | "bind" | "tbind" | "dsendRepl" | "dloadRepl" => (1usize, false),
             "dgsend" | "dgsendRepl" => (2, false),
             _ => continue,
         };

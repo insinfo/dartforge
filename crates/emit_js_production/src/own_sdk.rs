@@ -161,7 +161,7 @@ fn strip_polyfill(
 fn dynamic_names(texts: &[(String, String)]) -> HashSet<String> {
     let mut out: HashSet<String> = HashSet::new();
     for (_, t) in texts {
-        let (r, w) = crate::sdk::dynamic_selectors_by_kind(t);
+        let (r, w) = crate::sdk::signature_selectors_by_kind(t);
         out.extend(r);
         out.extend(w);
         let mut privates: HashMap<&str, &str> = HashMap::new();
@@ -488,15 +488,31 @@ pub fn emit(
         v
     };
     let mut names = dynamic_names(&texts(&first));
-    for _ in 0..8 {
+    let trace = std::env::var("DARTFORGE_JSPROD_TRACE").is_ok();
+    for phase in 0..8 {
         let Some(e) = fixed_point(a, input, op, Some(&names), &mut report)? else {
+            if trace {
+                eprintln!("[jsprod] signature phase {phase}: the fixed point did not converge");
+            }
             break;
         };
         let new = dynamic_names(&texts(&e));
         if new.is_subset(&names) {
             return Ok((e, Some(report)));
         }
+        if trace {
+            let mut extra: Vec<&String> = new.difference(&names).collect();
+            extra.sort();
+            eprintln!(
+                "[jsprod] signature phase {phase}: {} new name(s): {:?}",
+                extra.len(),
+                extra.iter().take(20).collect::<Vec<_>>()
+            );
+        }
         names.extend(new);
+    }
+    if trace {
+        eprintln!("[jsprod] signature phases did not close: every signature stays");
     }
     // The second phase did not close: the first one (with every signature)
     // stands.

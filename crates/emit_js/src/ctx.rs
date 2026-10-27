@@ -133,6 +133,8 @@ pub struct Ctx<'a> {
     /// the expression do not depend on the runtime environment. 132 thousand
     /// calls, 1.78 M allocations.
     pub rti_memo: RefCell<HashMap<Ty, String>>,
+    /// [`Ctx::single_method_type`], by member name, computed on first use.
+    pub single_method_types: RefCell<Option<HashMap<dartforge_intern::SymbolId, Option<Ty>>>>,
     /// The short ids of the classes in SDK-mode recipes
     /// ([`crate::recipe_ids`]), computed on first use.
     recipe_ids: std::cell::OnceCell<Vec<String>>,
@@ -256,6 +258,7 @@ impl<'a> Ctx<'a> {
             member_memo: RefCell::new(HashMap::new()),
             extension_memo: RefCell::new(HashMap::new()),
             rti_memo: RefCell::new(HashMap::new()),
+            single_method_types: RefCell::new(None),
             recipe_ids: std::cell::OnceCell::new(),
             mixed_in: std::cell::OnceCell::new(),
             short_recipe: std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0"),
@@ -2087,6 +2090,65 @@ impl<'a> Ctx<'a> {
             });
         }
         out
+    }
+
+    /// The function type every instance method named `name` has, in the whole
+    /// program, when there is exactly one and it is closed and not generic:
+    /// then the tear-off of any `name` method has that runtime type, whatever
+    /// the receiver's class (an override with another type, an explicitly
+    /// `covariant` parameter, whose forwarding stubs have another type, a
+    /// getter or a field of the same name anywhere give `None`).
+    pub fn single_method_type(&self, name: dartforge_intern::SymbolId) -> Option<Ty> {
+        let mut memo = self.single_method_types.borrow_mut();
+        let map = memo.get_or_insert_with(|| {
+            let mut map: HashMap<dartforge_intern::SymbolId, Option<Ty>> = HashMap::new();
+            for (i, f) in self.program.functions.iter().enumerate() {
+                if f.class.is_none() || f.static_ || f.extension.is_some() {
+                    continue;
+                }
+                if matches!(
+                    f.kind,
+                    FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+                ) {
+                    continue;
+                }
+                // Setters live under `name=`: only their getter twin clashes.
+                let key = match f.kind {
+                    FunctionKind::Setter => continue,
+                    _ => f.name,
+                };
+                // An explicitly `covariant` parameter makes the emitter write
+                // forwarding stubs whose type has `Object?` there.
+                let covariant = crate::own_sdk::ast_params(self, FunctionElementId(i as u32))
+                    .iter()
+                    .any(|p| p.covariant);
+                let ty = if f.kind == FunctionKind::Function && !covariant {
+                    Some(self.fn_ty(FunctionElementId(i as u32)))
+                        .filter(|t| t.has_no_params())
+                        .filter(
+                            |t| matches!(t, Ty::Fn { type_params, .. } if type_params.is_empty()),
+                        )
+                } else {
+                    None
+                };
+                match map.get(&key) {
+                    None => {
+                        map.insert(key, ty);
+                    }
+                    Some(prev) if prev.as_ref() != ty.as_ref() => {
+                        map.insert(key, None);
+                    }
+                    _ => {}
+                }
+            }
+            for v in self.program.variables.iter() {
+                if v.class.is_some() && !v.static_ && v.extension.is_none() {
+                    map.insert(v.name, None);
+                }
+            }
+            map
+        });
+        map.get(&name).cloned().flatten()
     }
 
     pub fn fn_ty(&self, fid: FunctionElementId) -> Ty {

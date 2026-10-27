@@ -155,6 +155,28 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         "import 'dart:async';\n",
         "import 'dart:async';\nimport 'dart:collection' show UnmodifiableMapView;\n",
     ),
+    // `bind` takes the tear-off's type from the class's signature table. A
+    // tear-off whose type is the same for every method of that name gets it
+    // from the call (`dart.tbind(o, "m", T)`, `emit_js`'s typed bind), and
+    // the name needs no signature entry.
+    (
+        Some("DARTFORGE_JSPROD_TYPED_BIND"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "bind(obj, name, method) {\n  if (obj == null) obj = jsNull;",
+        "bind(obj, name, method, [providedType]) {\n  if (obj == null) obj = jsNull;",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_TYPED_BIND"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "  var methodType = getMethodType(obj, name);\n  // Native JavaScript methods",
+        "  var methodType = providedType ?? getMethodType(obj, name);\n  // Native JavaScript methods",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_TYPED_BIND"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "/// Binds the `call` method of an interface type, handling null.\n",
+        "/// The tear-off of the method `name` of `obj`, of type `type`.\ntbind(obj, name, type) => bind(obj, name, null, type);\n\n/// Binds the `call` method of an interface type, handling null.\n",
+    ),
 ];
 
 /// Applies `PATCHES` to `sdk` as overlay replacements. The patched files

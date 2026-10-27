@@ -648,8 +648,9 @@ fn is_identifier(v: &str) -> bool {
 
 /// Whether the *strings* in the arguments of a call to `callee` are property
 /// names (see [`IdentifierStrings`]).
-/// `dart.bind`/`dart.bindCall` (or their flattened forms): the *tearoff*,
-/// which reads the method and the signature by the property name.
+/// `dart.bind`/`dart.bindCall`/`dart.tbind` (or their flattened forms): the
+/// *tearoff*, which reads the method (and the signature) by the property
+/// name.
 fn is_bind(callee: &oxc_ast::ast::Expression<'_>) -> bool {
     use oxc_ast::ast::Expression;
     let name = match callee {
@@ -659,7 +660,7 @@ fn is_bind(callee: &oxc_ast::ast::Expression<'_>) -> bool {
         Expression::Identifier(i) => crate::flatten::member(i.name.as_str(), "dart"),
         _ => None,
     };
-    matches!(name, Some("bind" | "bindCall"))
+    matches!(name, Some("bind" | "bindCall" | "tbind"))
 }
 
 /// `dart.lateFields` (or its flattened form): its *strings* are lists of
