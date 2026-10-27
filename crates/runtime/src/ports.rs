@@ -1024,6 +1024,9 @@ struct Queues {
     /// Requests to run at the safepoint (the publication of a JIT
     /// reload), served with the control messages, between one event and the next.
     safepoints: std::collections::VecDeque<SafepointRequest>,
+    /// The isolate's thread is blocked (or about to block) in [`wait_message`]:
+    /// only then does an ordinary message need to wake it.
+    waiting: bool,
 }
 
 /// A request to run at the isolate's safepoint: the function receives the datum
@@ -1055,6 +1058,19 @@ impl IsolateQueue {
     fn notify(&self) {
         self.sig_num.notify_one();
         self.waker.wake();
+        self.native_pump.notify(|pump| pump.notify());
+    }
+
+    /// After an ordinary message was queued (with the queue's mutex already
+    /// released): the thread is only woken when [`wait_message`] said it waits —
+    /// a busy thread looks at the queue before it waits again, and on macOS a
+    /// trigger nobody waits for would only make the next wait return at once.
+    /// A native pump waits outside [`wait_message`]: it is always told.
+    fn notify_posted(&self, waiting: bool) {
+        if waiting {
+            self.sig_num.notify_one();
+            self.waker.wake();
+        }
         self.native_pump.notify(|pump| pump.notify());
     }
 }
@@ -1260,8 +1276,18 @@ pub fn post(port: i64, graph: Graph) {
 
 /// Publishes with the reference already obtained from the registry; the mutex linearizes closing.
 fn post_to_queue(f: &IsolateQueue, port: i64, graph: Graph) {
+    let waiting = post_message(f, port, graph);
+    if let Some(waiting) = waiting {
+        f.notify_posted(waiting);
+    }
+}
+
+/// Queues the message; whether the receiver waits (`None` when closed). The
+/// wake-up happens after the mutex is released: the receiver's event loop
+/// takes the same mutex between its events.
+fn post_message(f: &IsolateQueue, port: i64, graph: Graph) -> Option<bool> {
     let mut m = f.messages.lock().unwrap_or_else(|e| e.into_inner());
-    if m.closed { return; }
+    if m.closed { return None; }
     // Retaining neither collects nor calls Dart; closing uses this same mutex.
     let mut owners = Vec::new();
     graph.visit_values(|v| {
@@ -1272,7 +1298,7 @@ fn post_to_queue(f: &IsolateQueue, port: i64, graph: Graph) {
         }
     });
     m.normal.push_back(Message { port, graph, owners, arrival: crate::clock::Instant::now() });
-    f.notify();
+    Some(m.waiting)
 }
 
 /// Posts `graph` to the control queue of the isolate that owns `port` (the
@@ -1564,11 +1590,13 @@ fn wait_message(deadline: Option<crate::clock::Instant>, control_only: bool) -> 
         let mut m = f.messages.lock().unwrap_or_else(|e| e.into_inner());
         loop {
             if !m.control.is_empty() || !m.safepoints.is_empty() || (!control_only && !m.normal.is_empty()) {
+                m.waiting = false;
                 return true;
             }
             if !control_only {
                 let pump = f.native_pump.owner_clone();
                 if let Some(pump) = pump {
+                    m.waiting = false;
                     drop(m);
                     pump.run(deadline, false);
                     // Native callbacks may change timers or keepalive without
@@ -1576,11 +1604,15 @@ fn wait_message(deadline: Option<crate::clock::Instant>, control_only: bool) -> 
                     return false;
                 }
             }
+            // From here until it returns, a sender must wake this thread
+            // (`IsolateQueue::notify_posted`).
+            m.waiting = true;
             match deadline {
                 None => m = f.sig_num.wait(m).unwrap_or_else(|e| e.into_inner()),
                 Some(p) => {
                     let current_time = crate::clock::Instant::now();
                     if current_time >= p {
+                        m.waiting = false;
                         return false;
                     }
                     if Waker::ACTIVE {
