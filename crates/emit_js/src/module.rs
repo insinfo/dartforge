@@ -287,6 +287,9 @@ pub fn emit_with_cache(
     let mut entry_ident = String::from("main");
     let mut entry_path = String::from("main.js");
     let mut main_async = false;
+    // The library of the `main` the entry library exports: its own, or one it
+    // re-exports (`export 'other.dart';`), as the VM finds it.
+    let main_library = entry_main_library(ctx.program, ctx.interner).or(ctx.program.entry);
     let mut done: HashSet<u32> = HashSet::new();
     for (i, lib) in ctx.program.libraries.iter().enumerate() {
         let lid = LibraryId(i as u32);
@@ -304,7 +307,7 @@ pub fn emit_with_cache(
             modules.push((info.module_path.clone(), text));
         }
         for &g in &group {
-            if Some(g) == ctx.program.entry {
+            if Some(g) == main_library {
                 entry_ident = ctx.libs[g.0 as usize].ident.clone();
                 entry_path = info.module_path.clone();
                 main_async = lib_main_is_async(ctx, g);
@@ -328,6 +331,23 @@ pub fn emit_with_cache(
         "if (typeof process !== 'undefined') process.on('uncaughtException', (e) => {{\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n}});\nimport './preambulo.js';\nimport {{ dart }} from './dart_sdk.js';\nimport {{ {entry_ident} as m }} from './{entry_path}';\nm.main();\n"
     );
     Ok(Emitted { modules, entry })
+}
+
+/// The library declaring the top-level `main` that the entry library exports.
+pub fn entry_main_library(
+    program: &dartforge_elements::model::Program,
+    interner: &dartforge_intern::Interner,
+) -> Option<LibraryId> {
+    let name = interner.lookup("main")?;
+    let binding = program.library(program.entry?).exported.get(&name)?;
+    match binding.getter? {
+        Element::Function(f) => {
+            let f = &program.functions[f.0 as usize];
+            (f.class.is_none() && f.extension.is_none() && f.kind == FunctionKind::Function)
+                .then_some(f.library)
+        }
+        _ => None,
+    }
 }
 
 fn lib_main_is_async(ctx: &Ctx, lib: LibraryId) -> bool {

@@ -223,7 +223,7 @@ fn roots(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkIndex) -> dartforg
         && let Some(Element::Function(f)) = a
             .program
             .library(lib)
-            .declared
+            .exported
             .get(&sym)
             .and_then(|b| b.getter)
     {

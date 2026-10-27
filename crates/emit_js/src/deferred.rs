@@ -12,7 +12,7 @@ use dartforge_intern::SymbolId;
 
 impl FnEmitter<'_, '_> {
     /// `sym` is the prefix of an `import … deferred as` of the current library.
-    fn deferred_import(&self, sym: SymbolId) -> bool {
+    pub(crate) fn deferred_import(&self, sym: SymbolId) -> bool {
         self.ctx
             .program
             .library(self.lib)
@@ -44,7 +44,7 @@ impl FnEmitter<'_, '_> {
                 self.deferred_access(*target)
                     .map(|(p, _)| (p, Some(*target)))
             }
-            ExprKind::Call { target, .. } => self
+            ExprKind::Call { target, .. } | ExprKind::Index { target, .. } => self
                 .deferred_access(*target)
                 .map(|(p, _)| (p, Some(*target))),
             ExprKind::Assign { target, .. } => self

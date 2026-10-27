@@ -71,6 +71,13 @@ pub struct FnEmitter<'m, 'a> {
     /// The expressions inside a deferred access the outer one already checked
     /// (`deferred.rs`).
     pub deferred_checked: std::collections::HashSet<ExprId>,
+    /// The expressions whose context only guides inference: the coercions
+    /// (implicit `call` tear-off, downcast) apply to the enclosing expression
+    /// (`_shouldSkipImplicitCallReferenceDueToForm`).
+    pub uncoerced: std::collections::HashSet<ExprId>,
+    /// The next [`Self::emit_method_call`] calls a member through an implicit
+    /// `this` (`m(arg)`).
+    pub implicit_this_call: bool,
     pub returns: Vec<Ty>,
     pub w: Writer,
     pub label_counter: u32,
@@ -202,6 +209,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             async_kind: AsyncKind::None,
             ret_ty: Ty::Dynamic,
             deferred_checked: std::collections::HashSet::new(),
+            uncoerced: std::collections::HashSet::new(),
+            implicit_this_call: false,
             returns: Vec::new(),
             w: Writer::default(),
             label_counter: 0,

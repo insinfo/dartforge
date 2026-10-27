@@ -3,7 +3,7 @@
 use crate::body::{AsyncKind, FnEmitter, static_member_name};
 use crate::ctx::MemberKind;
 use crate::expr::{Guard, IdentTarget};
-use crate::js::{self, Js, P_ASSIGN, P_PRIMARY};
+use crate::js::{self, Js, P_ASSIGN, P_COMMA, P_PRIMARY};
 use crate::ty::{ParameterTypes, Ty, TyParam};
 use dartforge_elements::model::{ClassId, Element, FunctionKind};
 use dartforge_frontend::ast::{self, ExprId, ExprKind};
@@ -151,6 +151,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             .class
                             .map(|c| self.ctx.this_ty(c))
                             .unwrap_or(Ty::Dynamic);
+                        self.implicit_this_call = true;
                         let (js, ty) = self.emit_method_call(
                             &Js::prim("this"),
                             &this_ty,
@@ -685,6 +686,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         is_super: bool,
         node: Option<ExprId>,
     ) -> (Js, Ty) {
+        // Only the getter call this one emits reads the flag.
+        let implicit_this = std::mem::take(&mut self.implicit_this_call);
         let recv_nn = recv_ty.non_null();
         // Object members with helpers.
         let user = self.is_user_class_ty(&recv_nn) || is_super;
@@ -800,7 +803,88 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         )
                     }
                     _ => {
-                        // Getter/field returning a function.
+                        // Getter/field returning a function. On an instance
+                        // (`a.m(arg)`, `m(arg)` with implicit `this`) the VM
+                        // evaluates the arguments before reading the member;
+                        // `super`, statics and top-level getters read it first.
+                        let explicit = !is_super
+                            && (implicit_this
+                                || node.is_some_and(|n| {
+                                    matches!(self.expr(n).kind, ExprKind::Property { .. })
+                                }));
+                        let dynamic_call = mty.is_dynamic()
+                            || matches!(&mty, Ty::Iface { class, .. } if Some(*class) == self.ctx.function_);
+                        let typed_call = matches!(
+                            mty,
+                            Ty::Fn {
+                                nullable: false,
+                                ..
+                            }
+                        );
+                        if explicit
+                            && !arguments.args.is_empty()
+                            && (typed_call || dynamic_call && arguments.type_args.is_empty())
+                        {
+                            let (targs, args, named, ret) = if typed_call {
+                                let (args, ret, targs) =
+                                    self.emit_args_for(&mty, arguments, expected);
+                                (targs, args, None, ret)
+                            } else {
+                                let (args, named, _) = self.emit_args_plain(arguments);
+                                (Vec::new(), args, named, Ty::Dynamic)
+                            };
+                            let reorder = args
+                                .iter()
+                                .chain(named.iter())
+                                .any(|a| !crate::expr::is_simple(a));
+                            {
+                                let mut seq = Vec::new();
+                                let receiver = if !reorder || crate::expr::is_simple(&recv.code) {
+                                    recv.code.clone()
+                                } else {
+                                    let r = self.temp();
+                                    seq.push(format!("{r} = {}", recv.at(P_ASSIGN)));
+                                    r
+                                };
+                                let mut late = |seq: &mut Vec<String>, a: String| {
+                                    if !reorder || crate::expr::is_simple(&a) {
+                                        a
+                                    } else {
+                                        let t = self.temp();
+                                        seq.push(format!("{t} = {a}"));
+                                        t
+                                    }
+                                };
+                                let args: Vec<String> =
+                                    args.into_iter().map(|a| late(&mut seq, a)).collect();
+                                let named = named.map(|n| late(&mut seq, n));
+                                let mut getter = Js::prim(format!("{receiver}{access}"));
+                                if let Some(node) = node
+                                    && let ExprKind::Property { target: r, .. } =
+                                        &self.expr(node).kind
+                                {
+                                    getter = self
+                                        .contravariant_read_check(getter, *r, recv_ty, name, &mty);
+                                }
+                                let call = if typed_call {
+                                    let mut all = targs;
+                                    all.extend(args);
+                                    format!("{}({})", getter.at(P_PRIMARY), all.join(", "))
+                                } else {
+                                    format!(
+                                        "dart.dcall({}, [{}]{})",
+                                        getter.code,
+                                        args.join(", "),
+                                        named.map(|n| format!(", {n}")).unwrap_or_default()
+                                    )
+                                };
+                                if seq.is_empty() {
+                                    return (Js::prim(call), ret);
+                                }
+                                seq.push(call);
+                                return (Js::new(seq.join(", "), P_COMMA).paren(), ret);
+                            }
+                        }
                         let mut getter = Js::prim(format!("{}{access}", recv.at(P_PRIMARY)));
                         if !is_super
                             && let Some(node) = node

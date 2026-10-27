@@ -592,7 +592,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         match expected {
-            Some(exp) => self.coerce_to(js, ty, exp),
+            Some(exp) => {
+                let whole = !self.uncoerced.remove(&e);
+                self.coerce_with(js, ty, exp, whole)
+            }
             None => (js, ty),
         }
     }
@@ -750,6 +753,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Implicit coercions: instantiation of a generic tearoff and `.call` of a callable class.
     pub fn coerce_to(&mut self, js: Js, ty: Ty, expected: &Ty) -> (Js, Ty) {
+        self.coerce_with(js, ty, expected, true)
+    }
+
+    /// [`Self::coerce_to`]; without `whole`, only the generic instantiation:
+    /// the downcast and the `call` tear-off apply to the enclosing expression.
+    fn coerce_with(&mut self, js: Js, ty: Ty, expected: &Ty, whole: bool) -> (Js, Ty) {
+        if !whole && !matches!(ty, Ty::Fn { .. }) {
+            return (js, ty);
+        }
         if ty.is_dynamic() && !self.in_const {
             let needs_cast = match expected {
                 Ty::Iface {
@@ -970,6 +982,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 (Js::prim("super"), ty)
             }
             ExprKind::Parenthesized(inner) => {
+                if self.uncoerced.contains(&e) {
+                    self.uncoerced.insert(*inner);
+                }
                 let (js, ty) = self.emit_expr(*inner, expected);
                 (js.paren(), ty)
             }
@@ -1177,6 +1192,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         self.declare_js(*sym, loc.js, t.clone());
                     }
                 }
+                self.uncoerced.insert(*then);
                 let (a, at) = self.emit_expr(*then, expected);
                 self.pop_scope();
                 self.push_scope();
@@ -1185,6 +1201,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         self.declare_js(*sym, loc.js, t.clone());
                     }
                 }
+                self.uncoerced.insert(*else_);
                 let (b, bt) = self.emit_expr(*else_, expected);
                 self.pop_scope();
                 let ty = self.ctx.lub(&at, &bt);
@@ -1250,6 +1267,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 sections,
                 null_aware,
             } => {
+                self.uncoerced.insert(*target);
                 let (tjs, tty) = self.emit_expr(*target, expected);
                 let t = self.temp();
                 self.cascade.push((t.clone(), tty.clone()));
@@ -3654,7 +3672,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::Identifier(id) => match self.ident_target(id.sym, target) {
                 IdentTarget::Prefix(p) => {
                     if name == "loadLibrary" {
-                        return None;
+                        // The tear-off `p.loadLibrary`.
+                        if !self.deferred_import(p) {
+                            return None;
+                        }
+                        let (call, _) = self.load_library(p);
+                        let ty = Ty::Fn {
+                            type_params: vec![],
+                            ret: Box::new(self.ctx.t_future(Ty::Void)),
+                            pos: vec![],
+                            opt: vec![],
+                            named: vec![],
+                            nullable: false,
+                        };
+                        let rti = self.rti(&ty);
+                        return Some((
+                            Js::prim(format!("dart.fn(() => {}, {rti})", call.code)),
+                            ty,
+                        ));
                     }
                     let sym = self.ctx.sym(name)?;
                     let b = self
@@ -4507,7 +4542,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 // `K` test before the `??`; the result's context applies to the
                 // whole expression.
                 let context = expected.map(|t| t.with_nullable(true));
+                self.uncoerced.insert(left);
                 let (l, lt) = self.emit_expr(left, context.as_ref());
+                self.uncoerced.insert(right);
                 let (r, rt) = self.emit_expr(right, expected.or(Some(&lt.non_null())));
                 let t = self.temp();
                 let ty = self.ctx.lub(&lt.non_null(), &rt);
@@ -4654,26 +4691,83 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     _ => None,
                 },
                 IdentTarget::Element(Element::Variable(v)) => Some(self.ctx.var_ty(v)),
+                IdentTarget::Element(Element::Function(f)) => self.setter_parameter_ty(f),
                 _ => None,
             },
             ExprKind::Property {
                 target: recv, name, ..
             } => {
                 let n = self.name(name.sym).to_string();
+                // `C.x = v`, `prefix.x = v`: a static or top-level setter or variable.
+                if let ExprKind::Identifier(id) = &self.expr(*recv).kind {
+                    match self.ident_target(id.sym, *recv) {
+                        IdentTarget::Element(Element::Class(c)) => {
+                            return match self.ctx.declared_static(c, &n, true) {
+                                Some(MemberKind::Field(v)) => Some(self.ctx.var_ty(v)),
+                                Some(MemberKind::Setter(f)) => self.setter_parameter_ty(f),
+                                _ => None,
+                            };
+                        }
+                        IdentTarget::Prefix(p) => {
+                            let b = self
+                                .ctx
+                                .program
+                                .lookup_prefixed_in_unit(self.unit, p, name.sym)?;
+                            return match b.setter.or(b.getter)? {
+                                Element::Variable(v) => Some(self.ctx.var_ty(v)),
+                                Element::Function(f) => self.setter_parameter_ty(f),
+                                _ => None,
+                            };
+                        }
+                        _ => {}
+                    }
+                }
                 let rty = self.type_of(*recv);
-                let m = self.access_member(Some(target), &rty.non_null(), &n, true)?;
-                Some(self.ctx.member_ty(&m))
+                if let Some(m) = self.access_member(Some(target), &rty.non_null(), &n, true) {
+                    return Some(self.ctx.member_ty(&m));
+                }
+                // A setter of an applicable extension.
+                self.extension_parameter_ty(&rty, &n, true, 0)
             }
             ExprKind::Index { target: recv, .. } => {
                 let rty = self.type_of(*recv);
-                let m = self.ctx.lookup_member(&rty.non_null(), "[]=", false)?;
-                match self.ctx.member_ty(&m) {
-                    Ty::Fn { pos, .. } => pos.get(1).cloned(),
-                    _ => None,
+                match self.ctx.lookup_member(&rty.non_null(), "[]=", false) {
+                    Some(m) => match self.ctx.member_ty(&m) {
+                        Ty::Fn { pos, .. } => pos.get(1).cloned(),
+                        _ => None,
+                    },
+                    None => self.extension_parameter_ty(&rty, "[]=", false, 1),
                 }
             }
             _ => None,
         }
+    }
+
+    /// The parameter type of the setter `f`.
+    fn setter_parameter_ty(&self, f: dartforge_elements::model::FunctionElementId) -> Option<Ty> {
+        if self.ctx.program.function(f).kind != FunctionKind::Setter {
+            return None;
+        }
+        let p = self.ctx.outline.functions[f.0 as usize]
+            .parameters
+            .first()?;
+        Some(self.ctx.ty_of(p.ty))
+    }
+
+    /// The type of positional parameter `i` of the member `name` of the
+    /// extension applicable to `recv_ty`, instantiated for it.
+    fn extension_parameter_ty(
+        &self,
+        recv_ty: &Ty,
+        name: &str,
+        setter: bool,
+        i: usize,
+    ) -> Option<Ty> {
+        let (_, fid, subst) = self.find_extension_member(recv_ty, name, setter)?;
+        let p = self.ctx.outline.functions[fid.0 as usize]
+            .parameters
+            .get(i)?;
+        Some(self.ctx.ty_of(p.ty).subst(&subst))
     }
 
     /// Assigns `v` to the target. Returns the expression (whose value is `v`).

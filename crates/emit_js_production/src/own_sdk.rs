@@ -45,7 +45,7 @@ fn roots(
         && let Some(Element::Function(f)) = a
             .program
             .library(lib)
-            .declared
+            .exported
             .get(&sym)
             .and_then(|b| b.getter)
     {
