@@ -6,6 +6,7 @@
 //!
 //! ```text
 //! bin/dartforge[.exe]            this executable (and the JIT's LLVM-C.dll on Windows)
+//! bin/dartforge-lsp[.exe]        the language server, when built next to this executable
 //! lib/dartforge-distribution.json
 //! lib/runtime/                   the two runtime staticlibs (emit_native's build.rs)
 //! lib/native_sdk/                the native backend overlay
@@ -39,6 +40,20 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
         &exe,
         &bin.join(exe.file_name().ok_or("executable without a name")?),
     )?;
+
+    // The language server, when it was built next to this executable
+    // (`cargo build --release -p dartforge-lsp`): in `bin/`, it finds the
+    // distribution's Dart SDK by itself.
+    let server = if cfg!(windows) {
+        "dartforge-lsp.exe"
+    } else {
+        "dartforge-lsp"
+    };
+    if let Some(sibling) = exe.parent().map(|d| d.join(server))
+        && sibling.is_file()
+    {
+        copy(&sibling, &bin.join(server))?;
+    }
 
     // The precompiled runtime (the three variants).
     for r in [

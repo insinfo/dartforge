@@ -17,6 +17,7 @@ pub mod model;
 pub mod outline;
 pub mod sdk;
 pub mod sdk_cache;
+pub mod sdk_discovery;
 pub mod unit_cache;
 
 pub use config::*;

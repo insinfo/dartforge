@@ -476,52 +476,12 @@ impl SdkLayout {
         self.libraries.get(name)
     }
 
-    /// Finds the SDK's `lib/`: `DARTFORGE_SDK_LIB`, the distribution's
-    /// (`distribution::dart_sdk`), `DART_SDK/lib`, or the `dart` on the
-    /// `PATH` (`<bin>/../lib`).
+    /// Finds the SDK's `lib/` ([`crate::sdk_discovery::search`]):
+    /// `DARTFORGE_SDK_LIB`, the distribution's (`distribution::dart_sdk`),
+    /// `DART_SDK`, `FLUTTER_ROOT`, the `dart` or `flutter` on the `PATH`, then
+    /// well-known install locations.
     pub fn discover() -> Option<PathBuf> {
-        if let Ok(explicit) = std::env::var("DARTFORGE_SDK_LIB") {
-            let path = PathBuf::from(explicit);
-            if path.join("libraries.json").exists() {
-                return Some(path);
-            }
-        }
-        // The SDK the distribution carries (the version the native overlay knows),
-        // before any SDK on the machine.
-        if let Some(path) = crate::distribution::dart_sdk() {
-            return Some(path);
-        }
-        if let Ok(sdk) = std::env::var("DART_SDK") {
-            let path = PathBuf::from(sdk).join("lib");
-            if path.join("libraries.json").exists() {
-                return Some(path);
-            }
-        }
-        let path_var = std::env::var_os("PATH")?;
-        for dir in std::env::split_paths(&path_var) {
-            for exe in ["dart.exe", "dart"] {
-                if dir.join(exe).exists() {
-                    // `<bin>/../lib` without the `..` (SDK paths show up in messages, as in the
-                    // analyzer: `…/dart-sdk/lib/…`); with a symlinked `dart` (Homebrew), via the
-                    // real executable.
-                    let candidates = [
-                        dir.parent().map(|p| p.join("lib")),
-                        Some(dir.join("..").join("lib")),
-                        std::fs::canonicalize(dir.join(exe))
-                            .ok()
-                            .and_then(|e| Some(e.parent()?.parent()?.join("lib"))),
-                    ];
-                    if let Some(lib) = candidates
-                        .into_iter()
-                        .flatten()
-                        .find(|l| l.join("libraries.json").exists())
-                    {
-                        return Some(lib);
-                    }
-                }
-            }
-        }
-        None
+        crate::sdk_discovery::search().found.map(|f| f.lib)
     }
 }
 

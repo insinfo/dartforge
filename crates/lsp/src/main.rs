@@ -7,7 +7,8 @@
 //!
 //! Threads: one thread reads `stdin` frame by frame
 //! ([`transport::read_message`]) and enqueues values in the [`Server`]; the
-//! main thread dispatches with [`Server::pump`] and writes each outgoing
+//! dispatcher thread (with a large stack, see [`DISPATCH_STACK`]) dispatches
+//! with [`Server::pump`] and writes each outgoing
 //! message whole under a `Mutex`. The server never sends requests, so there
 //! is no response to handle nor id correlation on the way back. The typed
 //! analysis (`docs/LSP.md`, "Diagnósticos tipados") runs in a third thread
@@ -58,8 +59,31 @@ fn run(arguments: Vec<String>) -> i32 {
     serve_stdio()
 }
 
-/// Main loop: enqueues from the reader, dispatches on the main thread, exits on `exit`.
+/// Stack of the dispatcher thread. The parser, the analysis and the
+/// formatter recurse over the syntax tree, and generated code nests deeply (a
+/// 30 000-term `+` chain overflowed the main thread's 8 MiB): a stack
+/// overflow aborts the process, which no `catch_unwind` contains. The size is
+/// address space reserved, not memory used; the typed analysis uses the same.
+const DISPATCH_STACK: usize = 1 << 30;
+
+/// Runs [`dispatch`] on a thread with [`DISPATCH_STACK`] bytes of stack (on
+/// the calling thread if that thread cannot be created).
 fn serve_stdio() -> i32 {
+    match std::thread::Builder::new()
+        .name("dispatch".to_string())
+        .stack_size(DISPATCH_STACK)
+        .spawn(dispatch)
+    {
+        Ok(handle) => handle.join().unwrap_or(1),
+        Err(e) => {
+            eprintln!("[dartforge-lsp] dispatcher thread not created ({e}); using the main thread");
+            dispatch()
+        }
+    }
+}
+
+/// Main loop: enqueues from the reader, dispatches on this thread, exits on `exit`.
+fn dispatch() -> i32 {
     if std::env::var("RUST_LOG").is_ok() || std::env::var("DARTFORGE_LSP_DEBUG").is_ok() {
         eprintln!("[dartforge-lsp] logging to stderr; stdout is protocol only");
     }
@@ -68,7 +92,11 @@ fn serve_stdio() -> i32 {
     std::thread::spawn(move || read_all(tx));
 
     let output = Arc::new(Mutex::new(io::stdout()));
-    let mut server = Server::with_analyzer(SemanticAnalyzer::discover());
+    let (analyzer, sdk_report) = SemanticAnalyzer::discover_reporting();
+    let mut server = Server::with_analyzer(analyzer);
+    // Said to the client once after `initialized` (`window/logMessage`, and a
+    // `window/showMessage` warning when there is no SDK).
+    server.report_sdk(sdk_report);
     // Each typed analysis in a child process of this same binary, so that its
     // program never stays in the server's memory;
     // `DARTFORGE_LSP_TYPED_IN_PROCESS=1` keeps it in a thread.

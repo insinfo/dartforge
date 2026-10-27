@@ -45,11 +45,17 @@ The measured parity of each feature with the Dart SDK's analysis server is in
   ```
 
 - A Dart SDK (3.6.x is the reference version). The server looks for it in
-  `dartforge.sdkPath`, then `DARTFORGE_SDK_LIB`, the SDK of the DartForge
-  distribution, `DART_SDK`, and finally the `dart` executable on the `PATH`.
-  Without an SDK only syntax diagnostics, formatting and the outline work: hover,
-  navigation, completion, semantic tokens and typed diagnostics need the
-  SDK's libraries.
+  `dartforge.sdkPath`, then `DARTFORGE_SDK_LIB`, the SDK next to the server (a
+  DartForge distribution), `DART_SDK`, `FLUTTER_ROOT`, the `dart` or `flutter`
+  executable on the `PATH` (following symbolic links and the Flutter wrapper),
+  and finally well-known install locations (Homebrew, `/usr/lib/dart`,
+  `~/flutter`, `~/fvm/default`, `C:\tools\dart-sdk`…). VS Code started from the
+  Dock or a desktop launcher may not see your shell's `PATH`; the well-known
+  locations cover the usual installs, and `dartforge.sdkPath` covers the rest.
+  The DartForge output channel logs which SDK was chosen. Without an SDK only
+  syntax diagnostics, formatting and the outline work (the server shows one
+  warning): hover, navigation, completion, semantic tokens and typed
+  diagnostics need the SDK's libraries.
 
 The extension finds the server in this order:
 

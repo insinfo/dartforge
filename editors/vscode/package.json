@@ -190,7 +190,7 @@
                     ],
                     "default": null,
                     "scope": "machine-overridable",
-                    "markdownDescription": "Root of the Dart SDK the server analyzes against (the folder that contains `lib/libraries.json`). When empty, the server uses `DARTFORGE_SDK_LIB`, the SDK of the DartForge distribution, `DART_SDK`, or the `dart` on the `PATH`, in that order. Changing it restarts the server."
+                    "markdownDescription": "Root of the Dart SDK the server analyzes against (the folder that contains `lib/libraries.json`). When empty, the server uses `DARTFORGE_SDK_LIB`, the SDK next to the server (DartForge distribution), `DART_SDK`, `FLUTTER_ROOT`, the `dart` or `flutter` on the `PATH` (following symbolic links and the Flutter wrapper), then well-known install locations (Homebrew, `~/flutter`, `~/fvm/default`…), in that order; the Output channel shows which one it chose. Changing it restarts the server."
                 },
                 "dartforge.server.extraEnv": {
                     "type": "object",

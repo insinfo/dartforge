@@ -63,6 +63,63 @@ recarrega o `package_config.json` na próxima abertura; reabrir um documento
 já aberto também invalida esse estado.
 O caminho local da URI é decodificado como URL de arquivo, inclusive nomes
 Unicode percent-encodados, antes de descobrir o pacote e sua versão.
+Uma mudança em `package_config.json`, `pubspec.yaml`, `pubspec.lock`,
+`analysis_options.yaml` ou `.packages` anunciada por
+`workspace/didChangeWatchedFiles` (o `pub get`) descarta também a versão de
+linguagem dos documentos que continuam abertos e os programas retidos, e os
+diagnósticos sintáticos deles são publicados de novo.
+
+O despacho roda numa thread com pilha de 1 GiB (espaço de endereço
+reservado, não memória usada): o parser, a análise e o formatador recursam
+na árvore, e uma cadeia gerada de 30 000 termos `+` estourava a pilha de
+8 MiB da thread principal no binário release (5 000 no debug). Estouro de
+pilha aborta o processo, e nenhum `catch_unwind` o contém; pânicos comuns
+continuam contidos por requisição e por notificação.
+
+`$/setTrace` (e o `trace` do `initialize`) guarda o nível; acima de `off`,
+cada requisição atendida sai também como `$/logTrace` com o tempo gasto
+(em `verbose`, o id e o tamanho dos parâmetros). Notificações `$/…`
+desconhecidas são ignoradas em silêncio, como a especificação permite (só
+com `DARTFORGE_LSP_DEBUG`/`RUST_LOG=debug` aparecem no `stderr`).
+
+## Descoberta do SDK
+
+O servidor procura o SDK do Dart uma vez, na partida
+(`dartforge_elements::sdk_discovery::search`, a mesma busca do compilador e do
+`dartforge analyze` sem `--sdk-path`). Vale o primeiro candidato com
+`libraries.json` e `core/core.dart` (aceita a raiz do SDK ou o `lib/`):
+
+1. `initializationOptions.sdkPath` do cliente (troca o SDK antes de qualquer
+   análise);
+2. `DARTFORGE_SDK_LIB` — é por ela que a extensão do VS Code repassa a
+   configuração `dartforge.sdkPath` (`editors/vscode/src/server.ts`);
+3. o SDK ao lado do executável: o da distribuição do `dartforge pack`
+   (`<raiz>/lib/dart-sdk`, com o marcador `dartforge-distribution.json`), ou
+   um `dart-sdk/` junto do binário;
+4. `DART_SDK`;
+5. `FLUTTER_ROOT` (`<flutter>/bin/cache/dart-sdk`);
+6. o `dart` do `PATH`, seguindo links simbólicos (Homebrew) e o script do
+   Flutter (`<flutter>/bin/dart` → `bin/cache/dart-sdk`);
+7. o `flutter` do `PATH`, do mesmo modo;
+8. locais de instalação conhecidos: Homebrew (`/opt/homebrew/opt/dart@3.6`,
+   `…/dart/libexec`, também `/usr/local` e Linuxbrew), `/usr/lib/dart`
+   (pacote Debian), `/opt/dart-sdk`, o snap do Flutter, `~/dart-sdk`,
+   `~/flutter`, `~/development/flutter`, `~/fvm/default`; no Windows,
+   `C:\tools\dart-sdk` (Chocolatey), `%ProgramFiles%\Dart\dart-sdk`,
+   `C:\src\flutter`. O VS Code aberto pelo Dock ou por um lançador gráfico
+   muitas vezes não herda o `PATH` do shell; é para esse caso que eles
+   existem.
+
+Depois do `initialized`, um `window/logMessage` diz qual SDK foi escolhido,
+por qual fonte e com qual versão (arquivo `version`), e lista os candidatos
+recusados. Um SDK que não seja 3.6.x é usado, com um aviso no log: os
+recursos de linguagem não dependem dele (a versão corrente da ferramenta é
+fixa, e as bibliotecas `dart:*` ficam no piso 3.6, `docs/VERSOES-LINGUAGEM.md`),
+mas as bibliotecas de outra versão podem dar respostas diferentes das do
+servidor do Dart 3.6.2 (hover, completar e navegação funcionaram com o SDK
+3.13.5). Sem SDK nenhum, além do log, um único `window/showMessage` de aviso
+explica como configurar (`dartforge.sdkPath`, `DARTFORGE_SDK_LIB`, `sdkPath`):
+só diagnósticos de sintaxe, formatação e estrutura respondem.
 
 ## Sincronização incremental e UTF-16
 
@@ -952,6 +1009,16 @@ configuração do cliente).
 código 0), `utf16_correto` (emoji 4 bytes/2 unidades, CRLF, escape de
 surrogate solto), `stdout_limpo` (com `RUST_LOG=debug`, tudo decodifica
 quadro a quadro), `cancelamento` (resposta -32800).
+`tests/editor_session.rs` (processo filho): uma sessão de editor num projeto
+de dois pacotes com SDK mínimo — relatório do SDK, `$/setTrace`, hover,
+definição entre pacotes, referências, digitação caractere a caractere com
+completar/hover/tokens no meio de erros de sintaxe, renomear, formatar,
+mudança de `package_config.json` anunciada, rodadas de edição com a memória
+residente medida, `didClose`, `shutdown`/`exit` —, sem erro interno, sem
+pânico e sem notificação ignorada no `stderr`; também SDK ausente (um único
+aviso), `sdkPath` nas opções, código profundamente aninhado e a mesma pressão
+num projeto real (`DARTFORGE_LSP_EDITOR_PROJECT`, até
+`DARTFORGE_LSP_EDITOR_FILES` arquivos; pulado sem a variável).
 `tests/plato_protocolo.rs` (`plato_pelo_protocolo`, K=24 × K=24 pelo
 transporte com arquivos reais): binário separado de propósito — o alocador
 contador é global e os testes de um binário dividem o processo, então a

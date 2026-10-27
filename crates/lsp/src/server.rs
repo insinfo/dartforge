@@ -129,6 +129,9 @@ const RENAME_INVALID: i32 = -32010;
 /// worst case is a cancellable request running anyway, never retention.
 const MAX_CANCELLATIONS: usize = 4096;
 
+/// Ceiling of [`Server`]'s `failures_shown` (distinct notification methods).
+const MAX_FAILURES_SHOWN: usize = 64;
+
 /// Test hook: `dartforge/sleep` with `{"ms": N}` sleeps in 10 ms slices
 /// checking for cancellation, so the acceptance test can exercise both forms
 /// of cancellation (queued and running) without depending on a slow
@@ -326,6 +329,38 @@ pub struct Server<A = SyntacticAnalyzer> {
     /// The rename `window/showMessageRequest`s not answered yet, by request id
     /// (§12.1 steps 13 and 17).
     pending_renames: HashMap<String, PendingRename>,
+    /// The SDK outcome, reported to the client once after `initialized`
+    /// ([`Server::report_sdk`]).
+    sdk_report: Option<crate::SdkReport>,
+    /// Notification methods whose contained panic was already shown to the
+    /// user: a failing `didChange` would otherwise raise one error popup per
+    /// keystroke. Every failure is still logged.
+    failures_shown: HashSet<String>,
+    /// The client's trace level (`initialize.trace`, `$/setTrace`): `off`,
+    /// `messages` or `verbose`. Above `off`, each request's handling time goes
+    /// out as `$/logTrace`.
+    trace: Trace,
+}
+
+/// The LSP `TraceValue`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Trace {
+    #[default]
+    Off,
+    Messages,
+    Verbose,
+}
+
+impl Trace {
+    /// Reads a `TraceValue` (`"off"`, `"messages"`, `"verbose"`); anything else is `None`.
+    fn parse(value: Option<&Value>) -> Option<Trace> {
+        match value?.as_str()? {
+            "off" => Some(Trace::Off),
+            "messages" => Some(Trace::Messages),
+            "verbose" => Some(Trace::Verbose),
+            _ => None,
+        }
+    }
 }
 
 /// The `rename` waiting for the user's answer.
@@ -428,6 +463,62 @@ impl<A: Analyzer> Server<A> {
             user_questions: false,
             client_commands: Vec::new(),
             pending_renames: HashMap::new(),
+            sdk_report: None,
+            failures_shown: HashSet::new(),
+            trace: Trace::Off,
+        }
+    }
+
+    /// Hands the server the SDK discovery outcome: after `initialized` it goes
+    /// to the client as `window/logMessage` (and, without an SDK, a single
+    /// `window/showMessage` warning). See [`crate::SdkReport`].
+    pub fn report_sdk(&mut self, report: crate::SdkReport) {
+        self.sdk_report = Some(report);
+    }
+
+    /// The client's current trace level (`initialize.trace`, `$/setTrace`).
+    pub fn trace(&self) -> Trace {
+        self.trace
+    }
+
+    /// `$/logTrace` for a handled request: the method and its time; with
+    /// `verbose`, the id and the parameters' size as well.
+    fn log_trace(&self, request: &Value, elapsed: std::time::Duration) -> Value {
+        let method = request.get("method").and_then(Value::as_str).unwrap_or("?");
+        let message = format!("{method} handled in {} ms", elapsed.as_millis());
+        let mut params = json!({"message": message});
+        if self.trace == Trace::Verbose {
+            let size = request.get("params").map_or(0, |p| p.to_string().len());
+            params["verbose"] = json!(format!(
+                "id {}, {size} bytes of params",
+                request.get("id").unwrap_or(&Value::Null)
+            ));
+        }
+        json!({"jsonrpc": "2.0", "method": "$/logTrace", "params": params})
+    }
+
+    /// `initializationOptions.sdkPath` (an SDK root or its `lib/`): the analyzer
+    /// switches to it, and the report says so (or why it could not).
+    fn configure_sdk(&mut self, path: &str) {
+        let result = dartforge_elements::sdk_discovery::sdk_lib(std::path::Path::new(path))
+            .map_err(|e| format!("{path}: {e}"))
+            .and_then(|lib| {
+                self.analyzer
+                    .use_sdk(&lib)
+                    .map(|()| lib)
+                    .map_err(|e| format!("{path}: {e}"))
+            });
+        let report = self.sdk_report.get_or_insert_with(Default::default);
+        match result {
+            Ok(lib) => {
+                report.chosen = Some(dartforge_elements::sdk_discovery::FoundSdk {
+                    version: dartforge_elements::sdk_discovery::sdk_version(&lib),
+                    lib,
+                    source: "the sdkPath initialization option".to_string(),
+                });
+                report.configured_error = None;
+            }
+            Err(e) => report.configured_error = Some(e),
         }
     }
 
@@ -883,7 +974,11 @@ impl<A: Analyzer> Server<A> {
                         .to_string();
                     let text = format!("An error occurred while handling {method} notification");
                     register(format!("panic while handling {method}"));
-                    outputs.push(message_notification("window/showMessage", 1, &text));
+                    if self.failures_shown.len() < MAX_FAILURES_SHOWN
+                        && self.failures_shown.insert(method.clone())
+                    {
+                        outputs.push(message_notification("window/showMessage", 1, &text));
+                    }
                     outputs.push(message_notification(
                         "window/logMessage",
                         1,
@@ -900,9 +995,11 @@ impl<A: Analyzer> Server<A> {
             // A panic in a query does not bring the server down (Dart's never goes down
             // because of a request): the response is an internal error and the semantic
             // session, which may have been left half-done, drops.
+            let started = std::time::Instant::now();
             let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 self.handle_request(&request)
             }));
+            let elapsed = started.elapsed();
             match response {
                 Ok(r) => outputs.push(r),
                 Err(panic) => {
@@ -924,6 +1021,9 @@ impl<A: Analyzer> Server<A> {
                         &format!("{text}: {}", panic_text(&*panic)),
                     ));
                 }
+            }
+            if self.trace != Trace::Off {
+                outputs.push(self.log_trace(&request, elapsed));
             }
         }
         // Typed results after the notifications: what an already received change
@@ -982,6 +1082,9 @@ impl<A: Analyzer> Server<A> {
             // With the capability, the configuration and then the dynamic registration;
             // without it, only the registration (§2.2).
             "initialized" => {
+                if let Some(report) = self.sdk_report.take() {
+                    self.pending_outputs.extend(report.messages());
+                }
                 if self.requestable_configuration {
                     self.request_configuration();
                 } else {
@@ -993,6 +1096,12 @@ impl<A: Analyzer> Server<A> {
                 None
             }
             "$/cancelRequest" => None,
+            "$/setTrace" => {
+                if let Some(t) = Trace::parse(message.pointer("/params/value")) {
+                    self.trace = t;
+                }
+                None
+            }
             // The received `settings` are ignored: the configuration is requested again
             // (`handler_workspace_configuration.dart:22-31`).
             "workspace/didChangeConfiguration" => {
@@ -1115,33 +1224,57 @@ impl<A: Analyzer> Server<A> {
             }
             "workspace/didChangeWatchedFiles" => {
                 // The file watcher (§3.3): what changed on disk.
-                if let Some(t) = &self.typed
-                    && let Some(changes) =
-                        message.pointer("/params/changes").and_then(Value::as_array)
-                {
-                    for m in changes {
-                        let Some(path) = m
-                            .get("uri")
+                let paths: Vec<std::path::PathBuf> = message
+                    .pointer("/params/changes")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|m| {
+                        m.get("uri")
                             .and_then(Value::as_str)
                             .and_then(|u| url::Url::parse(u).ok())
                             .filter(|u| u.scheme() == "file")
                             .and_then(|u| u.to_file_path().ok())
-                        else {
-                            continue;
-                        };
-                        t.file_on_disk(&path);
+                    })
+                    .collect();
+                if let Some(t) = &self.typed {
+                    for path in &paths {
+                        t.file_on_disk(path);
+                    }
+                }
+                // `pub get` rewrote a project's configuration: the open documents'
+                // language versions and the retained programs are stale, and their
+                // syntactic diagnostics are published again.
+                if paths.iter().any(|p| is_project_configuration(p)) {
+                    self.analyzer.project_configuration_changed();
+                    if !self.pulled_diagnostics {
+                        let uris: Vec<String> = self.documents.uris().map(str::to_string).collect();
+                        for u in uris {
+                            let p = self.publish(&u);
+                            if let Some(p) = self.filter_repeated_empty(&u, p) {
+                                self.pending_outputs.push(p);
+                            }
+                        }
                     }
                 }
                 None
             }
             _ => {
-                register(format!("unknown notification ignored: {method}"));
-                // §2.3: `$/…` is ignored; any other becomes the `Unknown method` error,
+                // §2.3: `$/…` may be ignored by the protocol's rules, silently (an
+                // editor sends `$/setTrace`, `$/progress`… routinely); any other
+                // becomes the `Unknown method` error,
                 // which for a notification is an error `window/showMessage`. After
                 // `shutdown`, it is discarded.
-                if method.starts_with("$/") || self.disabling {
+                if method.starts_with("$/") {
+                    if detail_level() {
+                        register(format!("notification ignored: {method}"));
+                    }
+                    None
+                } else if self.disabling {
+                    register(format!("unknown notification ignored: {method}"));
                     None
                 } else {
+                    register(format!("unknown notification ignored: {method}"));
                     Some(json!({
                         "jsonrpc": "2.0",
                         "method": "window/showMessage",
@@ -1177,6 +1310,16 @@ impl<A: Analyzer> Server<A> {
         match method {
             "initialize" => {
                 self.initialized = true;
+                if let Some(t) = Trace::parse(message.pointer("/params/trace")) {
+                    self.trace = t;
+                }
+                if let Some(path) = message
+                    .pointer("/params/initializationOptions/sdkPath")
+                    .and_then(Value::as_str)
+                    .filter(|p| !p.trim().is_empty())
+                {
+                    self.configure_sdk(path.trim());
+                }
                 self.hierarchical_symbols = message
                     .pointer("/params/capabilities/textDocument/documentSymbol/hierarchicalDocumentSymbolSupport")
                     .and_then(Value::as_bool)
@@ -4217,6 +4360,20 @@ fn utf16_starts(text: &str) -> Vec<usize> {
         starts.push(o);
     }
     starts
+}
+
+/// A file whose change reconfigures the projects under it (§3.3).
+fn is_project_configuration(path: &std::path::Path) -> bool {
+    path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+        matches!(
+            n,
+            "package_config.json"
+                | "pubspec.yaml"
+                | "pubspec.lock"
+                | "analysis_options.yaml"
+                | ".packages"
+        )
+    })
 }
 
 fn initialize_roots(params: Option<&Value>) -> Vec<std::path::PathBuf> {

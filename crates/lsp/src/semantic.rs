@@ -151,10 +151,25 @@ impl SemanticAnalyzer {
 
     /// Discovers the SDK through the same paths the compiler uses.
     pub fn discover() -> Self {
+        Self::discover_reporting().0
+    }
+
+    /// [`SemanticAnalyzer::discover`], with the report of what was chosen and
+    /// what was refused, for the client's log ([`crate::SdkReport`]).
+    pub fn discover_reporting() -> (Self, crate::SdkReport) {
+        let search = dartforge_elements::sdk_discovery::search();
         // The SDK as the analyzer sees it (M1): without patches, with the dart2js
         // internal libraries.
-        let sdk = SdkLayout::discover().and_then(|p| SdkLayout::load_as_analyzer(&p).ok());
-        Self::new(sdk)
+        let (sdk, error) = match search
+            .found
+            .as_ref()
+            .map(|f| SdkLayout::load_as_analyzer(&f.lib))
+        {
+            Some(Ok(sdk)) => (Some(sdk), None),
+            Some(Err(e)) => (None, Some(e)),
+            None => (None, None),
+        };
+        (Self::new(sdk), crate::SdkReport::from_search(search, error))
     }
 
     /// In-memory generation with the current texts of the open `.dart`
@@ -503,6 +518,13 @@ impl Analyzer for SemanticAnalyzer {
         self.wide_session.invalidate();
     }
 
+    fn project_configuration_changed(&mut self) {
+        self.syntactic.project_configuration_changed();
+        self.session.invalidate();
+        self.wide_session.invalidate();
+        self.known = Default::default();
+    }
+
     fn open_document(&mut self, documents: &DocumentStore, uri: &str) {
         if self.incremental {
             self.session.open(documents, uri);
@@ -535,6 +557,15 @@ impl Analyzer for SemanticAnalyzer {
 
     fn sdk_for_diagnostics(&self) -> Option<std::path::PathBuf> {
         self.sdk.as_ref().map(|s| s.root.clone())
+    }
+
+    fn use_sdk(&mut self, lib: &std::path::Path) -> Result<(), String> {
+        let sdk = SdkLayout::load_as_analyzer(lib)?;
+        self.sdk = Some(sdk);
+        self.session.invalidate();
+        self.wide_session.invalidate();
+        self.known = Default::default();
+        Ok(())
     }
 
     fn prepare_rename(

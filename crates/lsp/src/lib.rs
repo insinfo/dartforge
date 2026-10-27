@@ -76,6 +76,7 @@ mod registration;
 mod relevance;
 mod relevance_tables;
 mod rename;
+mod sdk_report;
 mod semantic;
 mod semantic_tokens;
 mod session;
@@ -96,8 +97,9 @@ use utf16::LineTable;
 
 pub use completion::{AutoImport, Call, Completion, CompletionItem};
 pub use rename::{Edit, Rename, RenameFile};
+pub use sdk_report::SdkReport;
 pub use semantic::SemanticAnalyzer;
-pub use server::Server;
+pub use server::{Server, Trace};
 pub use typed::{CHILD_ARGUMENT as TYPED_ANALYSIS_ARGUMENT, typed_analysis_child};
 
 pub use actions::{CodeAction, Linked, LinkedGroup};
@@ -579,6 +581,21 @@ pub trait Analyzer {
         None
     }
 
+    /// A file that configures projects (`package_config.json`, `pubspec.yaml`,
+    /// `analysis_options.yaml`…) changed on disk, typically after `pub get`:
+    /// what the analyzer derived from it (each document's language version, the
+    /// retained programs) drops, even for documents that stay open.
+    fn project_configuration_changed(&mut self) {}
+
+    /// Switches to the SDK whose `lib/` is `lib` (the client's
+    /// `initializationOptions.sdkPath`), before any document is analyzed.
+    ///
+    /// # Errors
+    /// The SDK does not load, or the analyzer does not use an SDK (the default).
+    fn use_sdk(&mut self, _lib: &std::path::Path) -> Result<(), String> {
+        Err("this analyzer does not use a Dart SDK".to_string())
+    }
+
     /// Conservative references in the document itself: the declaration first,
     /// then the uses, all as spans in UTF-8 bytes.
     ///
@@ -1014,6 +1031,11 @@ impl Analyzer for SyntacticAnalyzer {
                 library: None,
             }),
         }
+    }
+
+    fn project_configuration_changed(&mut self) {
+        self.configs.clear();
+        self.patterns.clear();
     }
 
     fn closed_document(&mut self, uri: &str) {

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 /// A reduced `dart:core`: enough for inherited members, generics, enums and
 /// extensions, without depending on an installed SDK.
-const CORE: &str = r#"library dart.core;
+pub const CORE: &str = r#"library dart.core;
 class Object {
   const Object();
   bool operator ==(Object other) => true;
