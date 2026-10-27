@@ -1307,7 +1307,56 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             None => vty.clone(),
                         }
                     }
+                    // `flatten(X)` is that of its bound when the bound is a
+                    // future type (`X extends FutureOr<A>` flattens to `A`).
+                    Ty::Param { .. } => match self.ctx.resolve_param_bound(&vty) {
+                        Ty::FutureOr { arg, .. } => (*arg).clone(),
+                        bound => {
+                            match self.ctx.future_.and_then(|f| self.ctx.as_super(&bound, f)) {
+                                Some(ft) => ft.args().first().cloned().unwrap_or(Ty::Dynamic),
+                                None => vty.clone(),
+                            }
+                        }
+                    },
                     _ => Ty::Dynamic,
+                };
+                // A value whose static type is not a future is awaited only if
+                // it is a `Future<flatten(S)>` (the CFE's runtime check type):
+                // `await o` with `Object o = Future<Object?>…` keeps the future.
+                let needs_check = match &vty {
+                    Ty::FutureOr { .. } => true,
+                    Ty::Param { .. } => self
+                        .ctx
+                        .future_
+                        .and_then(|f| self.ctx.as_super(&vty, f))
+                        .is_none(),
+                    Ty::Iface { class, .. } => {
+                        self.ctx
+                            .future_
+                            .and_then(|f| self.ctx.as_super(&vty, f))
+                            .is_none()
+                            && ![
+                                self.ctx.int_,
+                                self.ctx.double_,
+                                self.ctx.num_,
+                                self.ctx.bool_,
+                                self.ctx.string_,
+                            ]
+                            .contains(&Some(*class))
+                    }
+                    _ => false,
+                };
+                let v = match self.ctx.future_ {
+                    Some(future) if needs_check => {
+                        self.m.use_sdk("async");
+                        let check = Ty::iface_args(future, vec![ty.clone()]);
+                        Js::prim(format!(
+                            "async.awaitWithTypeCheck({}, {})",
+                            self.rti(&check),
+                            v.code
+                        ))
+                    }
+                    _ => v,
                 };
                 (
                     Js::new(format!("yield {}", v.at(P_YIELD)), P_YIELD).paren(),
@@ -1711,17 +1760,50 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if *null_aware {
                     crate::open_block!(self.w, "if ({t} != null) {{");
                 }
-                if value_ty.is_some() {
+                // A `dynamic` spread is cast to `Iterable`/`Map` and each
+                // element to the literal's type, as the CFE does.
+                let checked =
+                    vty.is_dynamic() && !self.ctx.filter.is_some_and(|f| f.omit_implicit_checks());
+                let vty = if checked {
+                    let class = if value_ty.is_some() {
+                        self.ctx.map_
+                    } else {
+                        self.ctx.iterable_
+                    };
+                    match class {
+                        Some(class) => {
+                            let n = if value_ty.is_some() { 2 } else { 1 };
+                            let target = Ty::iface_args(class, vec![Ty::Dynamic; n]);
+                            let cast = self.as_cast(&Js::prim(t.clone()), &target);
+                            crate::emit_line!(self.w, "{t} = {};", cast.code);
+                            target
+                        }
+                        None => vty,
+                    }
+                } else {
+                    vty
+                };
+                let element = |s: &Self, code: String, ty: &Ty| {
+                    if checked {
+                        s.as_cast(&Js::prim(code), ty).code
+                    } else {
+                        code
+                    }
+                };
+                if let Some(vt) = value_ty {
                     // Map: iterate over the entries.
                     let entries = self.member_access(&vty.non_null(), "entries", false);
                     let x = self.temp();
                     crate::open_block!(self.w, "for ({x} of {t}{entries}) {{");
-                    add(self, format!("{x}.key\u{0}{x}.value"));
+                    let key = element(self, format!("{x}.key"), elem_ty);
+                    let value = element(self, format!("{x}.value"), vt);
+                    add(self, format!("{key}\u{0}{value}"));
                     self.w.close("}");
                 } else {
                     let x = self.temp();
                     crate::open_block!(self.w, "for ({x} of {t}) {{");
-                    add(self, x);
+                    let item = element(self, x, elem_ty);
+                    add(self, item);
                     self.w.close("}");
                 }
                 if *null_aware {
@@ -1830,10 +1912,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 await_,
             } => {
                 let (ijs, ity) = self.emit_expr(*iterable, None);
-                let et = if *await_ { self.ctx.stream_ } else { self.ctx.iterable_ }
-                    .and_then(|i| self.ctx.as_super(&ity, i))
-                    .and_then(|t| t.args().first().cloned())
-                    .unwrap_or(Ty::Dynamic);
+                let (ijs, ity) = self.checked_iterable(ijs, ity, *await_);
+                let et = if *await_ {
+                    self.ctx.stream_
+                } else {
+                    self.ctx.iterable_
+                }
+                .and_then(|i| self.ctx.as_super(&ity, i))
+                .and_then(|t| t.args().first().cloned())
+                .unwrap_or(Ty::Dynamic);
                 self.push_scope();
                 if *await_ {
                     // `await for` in an `async` body, like the statement: a
@@ -1855,8 +1942,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     match target {
                         ast::ForInTarget::Declared { name, ty, .. } => {
                             let t = ty.map(|t| self.resolve_type(t)).unwrap_or(et.clone());
+                            let value = self.checked_loop_value(&current, &et, &t);
                             let jsn = self.declare(name.sym, t);
-                            crate::emit_line!(self.w, "let {jsn} = {current};");
+                            crate::emit_line!(self.w, "let {jsn} = {value};");
                         }
                         ast::ForInTarget::Pattern { pattern, .. } => {
                             let t = self.temp();
@@ -1880,8 +1968,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 match target {
                     ast::ForInTarget::Declared { name, ty, .. } => {
                         let t = ty.map(|t| self.resolve_type(t)).unwrap_or(et.clone());
-                        let jsn = self.declare(name.sym, t);
+                        let jsn = self.declare(name.sym, t.clone());
                         crate::open_block!(self.w, "for (let {jsn} of {}) {{", ijs.code);
+                        let value = self.checked_loop_value(&jsn, &et, &t);
+                        if value != jsn {
+                            crate::emit_line!(self.w, "{jsn} = {value};");
+                        }
                     }
                     ast::ForInTarget::Pattern { pattern, .. } => {
                         let t = self.temp();
@@ -4781,6 +4873,39 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
             _ => None,
+        }
+    }
+
+    /// The iterable of a `for`-in over a `dynamic` value, cast to
+    /// `Iterable<dynamic>` (`Stream<dynamic>` for `await for`) as the CFE does.
+    pub fn checked_iterable(&self, js: Js, ty: Ty, stream: bool) -> (Js, Ty) {
+        let class = if stream {
+            self.ctx.stream_
+        } else {
+            self.ctx.iterable_
+        };
+        match class {
+            Some(class)
+                if ty.is_dynamic()
+                    && !self.ctx.filter.is_some_and(|f| f.omit_implicit_checks()) =>
+            {
+                let target = Ty::iface_args(class, vec![Ty::Dynamic]);
+                (self.as_cast(&js, &target), target)
+            }
+            _ => (js, ty),
+        }
+    }
+
+    /// The loop variable's value of a `for`-in: `value` cast to the declared
+    /// type when the elements are `dynamic`.
+    pub fn checked_loop_value(&self, value: &str, element: &Ty, declared: &Ty) -> String {
+        if element.is_dynamic()
+            && !declared.is_dynamic()
+            && !self.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+        {
+            self.as_cast(&Js::prim(value.to_string()), declared).code
+        } else {
+            value.to_string()
         }
     }
 

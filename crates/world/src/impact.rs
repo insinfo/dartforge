@@ -1365,8 +1365,15 @@ fn walk_element(m: &mut Engine<'_>, ctx: &Context, el: &CollectionElement) {
             target,
             iterable,
             body,
-            ..
+            await_,
         } => {
+            // `await for` in a literal: the same `StreamIterator` calls as
+            // the statement.
+            if *await_ && m.include_sdk {
+                for n in ["moveNext", "current", "cancel"] {
+                    m.new_external_selector(n);
+                }
+            }
             for_in_target(m, ctx, target);
             expr(m, ctx, *iterable);
             walk_element(m, ctx, body);

@@ -1420,9 +1420,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     (AsyncKind::Async, Ty::FutureOr { .. }) => Some(expected.clone()),
                     _ => None,
                 };
+                // The value is checked against `FutureOr<T>`, not the
+                // function's `Future<T>`.
                 let (js, ty) = match future {
                     Some(ctx) => {
-                        self.with_shorthand_context(*e, &ctx, |s| s.emit_expr(*e, Some(&expected)))
+                        self.with_shorthand_context(*e, &ctx, |s| s.emit_expr(*e, Some(&ctx)))
                     }
                     None => self.emit_expr(*e, Some(&expected)),
                 };
@@ -1823,11 +1825,16 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             StmtKind::Return(e) => match e {
                 Some(e) => {
                     let expected = self.ret_ty.clone();
+                    // In an `async` body the value is a `FutureOr<T>` (a
+                    // `dynamic` one may be a future).
                     let expected = match (&self.async_kind, &expected) {
                         (AsyncKind::Async, Ty::Iface { args, .. }) if !args.is_empty() => {
-                            args[0].clone()
+                            Ty::FutureOr {
+                                arg: Box::new(args[0].clone()),
+                                nullable: false,
+                            }
                         }
-                        (AsyncKind::Async, Ty::FutureOr { arg, .. }) => (**arg).clone(),
+                        (AsyncKind::Async, Ty::FutureOr { .. }) => expected.clone(),
                         _ => expected,
                     };
                     let (js, ty) = self.emit_expr(*e, Some(&expected));
@@ -2089,6 +2096,7 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         body: StmtId,
     ) {
         let (ijs, ity) = self.emit_expr(iterable, None);
+        let (ijs, ity) = self.checked_iterable(ijs, ity, await_);
         let elem_ty = if await_ {
             self.ctx
                 .stream_
@@ -2134,7 +2142,6 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             );
             self.w.open("try {");
             crate::open_block!(self.w, "while ((yield {it}.moveNext())) {{");
-            let _ = &decl_ty;
             match pattern {
                 Some(p) if p.0 != u32::MAX => {
                     crate::emit_line!(self.w, "let {var_js} = {it}.current;");
@@ -2147,7 +2154,11 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         crate::emit_line!(self.w, "{};", ljs.code);
                     }
                 }
-                None => crate::emit_line!(self.w, "let {var_js} = {it}.current;"),
+                None => {
+                    let value =
+                        self.checked_loop_value(&format!("{it}.current"), &elem_ty, &decl_ty);
+                    crate::emit_line!(self.w, "let {var_js} = {value};");
+                }
             }
             self.emit_stmt(body);
             self.w.close("}");
@@ -2168,7 +2179,13 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         crate::emit_line!(self.w, "{};", ljs.code);
                     }
                 }
-                None => crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code),
+                None => {
+                    crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code);
+                    let value = self.checked_loop_value(&var_js, &elem_ty, &decl_ty);
+                    if value != var_js {
+                        crate::emit_line!(self.w, "{var_js} = {value};");
+                    }
+                }
             }
             self.emit_stmt(body);
             self.w.close("}");
