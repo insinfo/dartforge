@@ -1254,8 +1254,11 @@ pub fn minify_with_properties(
         rewrite_binds(&mut program, &map, &allocator);
         rewrite_late_fields(&mut program, &map, &allocator);
     }
+    // `DARTFORGE_JSPROD_MANGLE=0` keeps the identifiers (diagnostics: the
+    // final file with readable top-level names, to attribute its bytes).
+    let mangle = std::env::var("DARTFORGE_JSPROD_MANGLE").map_or(true, |v| v != "0");
     let options = MinifierOptions {
-        mangle: Some(oxc_minifier::MangleOptions {
+        mangle: mangle.then(|| oxc_minifier::MangleOptions {
             top_level: Some(true),
             ..oxc_minifier::MangleOptions::default()
         }),

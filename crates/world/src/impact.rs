@@ -974,6 +974,26 @@ fn binary_operator_name(op: ast::BinaryOp) -> Option<&'static str> {
     })
 }
 
+/// The class and nullability of the static type of `x` when it is an
+/// interface type itself (not a type variable, a promotion or `dynamic`).
+fn static_interface(m: &Engine<'_>, ctx: &Context, x: ExprId) -> Option<(ClassId, bool)> {
+    let t = m.e.bodies.units.get(ctx.unit.0 as usize)?.get_type(x)?;
+    match m.e.table.get(t) {
+        dartforge_types::table::Type::Interface {
+            class, nullable, ..
+        } => Some((*class, *nullable)),
+        _ => None,
+    }
+}
+
+/// Whether `c` is `String` of `dart:core`.
+fn string_like(m: &Engine<'_>, c: Option<ClassId>) -> bool {
+    let p = m.e.program;
+    c.is_some_and(|c| {
+        Some(p.class(c).library) == p.core && m.e.interner.resolve(p.class(c).name) == "String"
+    })
+}
+
 /// Whether `c` is `int`, `double` or `num` of `dart:core`.
 fn num_like(m: &Engine<'_>, c: Option<ClassId>) -> bool {
     let p = m.e.program;
@@ -1008,6 +1028,9 @@ fn operator_selector(
     };
     use ast::BinaryOp as B;
     let receiver = receiver_class(m, ctx, left);
+    // The emitter decides on the static type itself (`emit_binop_values`): a
+    // type variable bounded by `num` still dispatches by symbol.
+    let exact = static_interface(m, ctx, left);
     let inlined = matches!(
         op,
         B::Add
@@ -1022,7 +1045,12 @@ fn operator_selector(
             | B::LtEq
             | B::GtEq
     );
-    if inlined && num_like(m, receiver) {
+    // `s + x` with a (non-nullable: `+` is not callable on `String?`)
+    // `String` on the left is the JavaScript `+` (`emit_binop_values`).
+    if op == B::Add && exact.is_some_and(|(c, nullable)| !nullable && string_like(m, Some(c))) {
+        return;
+    }
+    if inlined && exact.is_some_and(|(c, _)| num_like(m, Some(c))) {
         let right_ok = match right {
             None => true,
             Some(r) => {
@@ -1033,12 +1061,24 @@ fn operator_selector(
                         .and_then(|u| u.get_type(r));
                 ty.is_some_and(|t| {
                     matches!(m.e.table.get(t), dartforge_types::table::Type::Dynamic)
-                }) || num_like(m, receiver_class(m, ctx, r))
+                }) || static_interface(m, ctx, r).is_some_and(|(c, _)| num_like(m, Some(c)))
             }
         };
         if right_ok {
             return;
         }
+    }
+    if receiver.is_none() && std::env::var("DARTFORGE_JSPROD_SEL_WHY").is_ok_and(|v| v == name) {
+        let ty =
+            m.e.bodies
+                .units
+                .get(ctx.unit.0 as usize)
+                .and_then(|u| u.get_type(left));
+        eprintln!(
+            "[jsprod] operator {name}: left {:?} type {:?}",
+            m.e.program.unit(ctx.unit).ast.expr(left).kind,
+            ty.map(|t| m.e.table.get(t).clone())
+        );
     }
     m.new_selector_with_receiver(name, receiver);
 }
@@ -1414,6 +1454,46 @@ fn walk_element(m: &mut Engine<'_>, ctx: &Context, el: &CollectionElement) {
     }
 }
 
+/// The instance operator a binary expression or an increment resolved to,
+/// with [`Engine::operators_by_selector`]: [`operator_selector`] records it
+/// with the receiver's cone (or not at all, when the emitter writes a
+/// JavaScript operator), so the resolution must not record it again without
+/// a cone. `DARTFORGE_JSPROD_OPERATOR_RESOLVED=0` records it anyway.
+fn operator_member(m: &Engine<'_>, ast: &ast::Ast, id: ExprId, r: &Resolved) -> bool {
+    let Resolved::Member {
+        member: MemberRef::Function(f),
+        ..
+    } = r
+    else {
+        return false;
+    };
+    // An extension type's operator is static dispatch: it lives through the
+    // resolution, never by selector.
+    let func = m.e.program.function(*f);
+    if !m.operators_by_selector()
+        || func.static_
+        || func.extension.is_some()
+        || func
+            .class
+            .is_none_or(|c| m.e.program.class(c).kind == ClassKind::ExtensionType)
+        || std::env::var("DARTFORGE_JSPROD_OPERATOR_RESOLVED").is_ok_and(|v| v == "0")
+    {
+        return false;
+    }
+    match &ast.expr(id).kind {
+        ExprKind::Binary { op, .. } => binary_operator_name(*op).is_some(),
+        ExprKind::Unary { op, .. } => matches!(
+            op,
+            UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec
+        ),
+        ExprKind::Assign {
+            op: AssignOp::Compound(bop),
+            ..
+        } => binary_operator_name(*bop).is_some(),
+        _ => false,
+    }
+}
+
 fn apply_resolved(m: &mut Engine<'_>, r: &Resolved, receiver: Option<ClassId>) {
     match r {
         Resolved::Element(el) => m.use_element(*el),
@@ -1585,7 +1665,9 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
         if let Some(t) = u.get_type(id) {
             m.visit_type(t);
         }
-        if let Some(r) = u.get_resolved(id) {
+        if let Some(r) = u.get_resolved(id)
+            && !operator_member(m, ast, id, r)
+        {
             let r = r.clone();
             apply_resolved(m, &r, receiver);
         }
@@ -1956,7 +2038,18 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 } else {
                     ast::BinaryOp::Sub
                 };
-                operator_selector(m, ctx, bop, *operand, None);
+                // The operand of `x++` may carry no read type of its own
+                // (it is also a write target); the value of `x++` is the old
+                // `x`, and that of `++x` the operator's result, assignable to
+                // `x`: a number there means a number operand.
+                let left = if static_interface(m, ctx, *operand).is_none()
+                    && static_interface(m, ctx, id).is_some_and(|(c, _)| num_like(m, Some(c)))
+                {
+                    id
+                } else {
+                    *operand
+                };
+                operator_selector(m, ctx, bop, left, None);
             }
             if m.operators_by_selector() && matches!(op, UnaryOp::Neg | UnaryOp::BitNot) {
                 let receiver = receiver_class(m, ctx, *operand);
@@ -2013,7 +2106,18 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 // Compound (`+=`, `??=`): reads and writes.
                 AssignOp::Compound(bop) => {
                     write_to_target(m, ctx, *target);
-                    operator_selector(m, ctx, *bop, *target, Some(*value));
+                    // As for `x++`: the target may carry no read type; the
+                    // result of `x op= v` is assigned to `x`, so a number (or
+                    // a `String`) there means one in `x`.
+                    let left = if static_interface(m, ctx, *target).is_none()
+                        && static_interface(m, ctx, id).is_some_and(|(c, nullable)| {
+                            num_like(m, Some(c)) || (!nullable && string_like(m, Some(c)))
+                        }) {
+                        id
+                    } else {
+                        *target
+                    };
+                    operator_selector(m, ctx, *bop, left, Some(*value));
                     expr(m, ctx, *target);
                     expr(m, ctx, *value);
                 }

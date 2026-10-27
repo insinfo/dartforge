@@ -1361,6 +1361,7 @@ impl<'a> Engine<'a> {
         if self.sel.contains(name) {
             return;
         }
+        self.trace_selector(name, None);
         self.sel.insert(name.to_string());
         if let Some(by_owner) = self.pending.remove(name) {
             let mut fs: Vec<FunctionElementId> = by_owner.into_values().flatten().collect();
@@ -1513,6 +1514,7 @@ impl<'a> Engine<'a> {
                 self.sel_cone.insert(name.to_string(), HashSet::from([t]));
             }
         }
+        self.trace_selector(name, Some(t));
         if let Some(l) = self.names_by_cone.get_mut(t.0 as usize) {
             l.push(name.to_string());
         }
@@ -1539,6 +1541,37 @@ impl<'a> Engine<'a> {
         for f in fs {
             self.mark_fn_live(f);
         }
+    }
+
+    /// `DARTFORGE_JSPROD_SEL_WHY=name` (diagnostics): who records the
+    /// selector `name`, and with which receiver cone.
+    fn trace_selector(&self, name: &str, cone: Option<ClassId>) {
+        let Ok(target) = std::env::var("DARTFORGE_JSPROD_SEL_WHY") else {
+            return;
+        };
+        if target != name {
+            return;
+        }
+        let p = self.e.program;
+        let who = match self.cause {
+            Cause::Function(f) => {
+                let func = p.function(f);
+                let owner = func
+                    .class
+                    .map(|c| format!("{}.", self.name(p.class(c).name)))
+                    .unwrap_or_default();
+                format!(
+                    "{}::{owner}{}",
+                    p.library(func.library).uri,
+                    self.name(func.name)
+                )
+            }
+            other => format!("{other:?}"),
+        };
+        let cone = cone.map_or("(unrestricted)".to_string(), |c| {
+            self.name(p.class(c).name).to_string()
+        });
+        eprintln!("[jsprod] selector {name} cone {cone} recorded by {who}");
     }
 
     /// The selector `name` (unrestricted or restricted) keeps a member of the
