@@ -110,10 +110,20 @@ conjunto (`{1, 'a': 3}`) derrubava a inferência (pânico ao digitar).
   `postgres_fork` (25 arquivos, ~93 MB) e `new_sali/backend` (120 arquivos,
   ~245 MB, memória estável). Testes de sessão de editor em
   `crates/lsp/tests/editor_session.rs`.
-- Pendências do LSP: formatação quadrática em cadeias binárias muito longas
-  (80 000 termos, 13 s; bloqueia o despacho); hover de `var x = [1, 'a': 3]`
-  no topo mostra `List<Object>` em vez de `List<dynamic>`; uma SDK que existe
-  mas falha ao carregar não faz tentar o próximo candidato.
+- Pendências do LSP de 26/10, resolvidas em 27/10: a formatação de cadeias
+  binárias longas era quadrática na conversão das edições em posições (cada
+  edição varria a linha desde o início) e, para `1 * 2 + …`, no divisor de
+  linhas (cópia do conjunto de regras a cada tentativa); 80 000 termos caíram
+  de 13 s para ~0,15 s e de 1,5 s para 0,16 s, com o oráculo do formatador
+  em 45 407/45 407. A formatação roda numa thread própria: passou de 200 ms,
+  é respondida depois, sem travar o despacho, e aceita `$/cancelRequest`.
+  O hover de `var x = [1, 'a': 3]` com `List<Object>` está certo: o
+  `dart language-server` 3.6.2 dá `List<Object>` no topo, em campo e em
+  local (a recuperação do parser separa `'a': 3` em dois elementos) e
+  `dynamic` para `{1, 'a': 3}`; ficou um teste com esses casos. Uma SDK que
+  existe mas falha ao carregar agora é recusada no log e a descoberta segue
+  para o próximo candidato. Continua caro, como no `dart format`, formatar
+  listas com milhares de argumentos (5 000 `a + b`: ~2,4 s nos dois).
 
 ## Balanço das últimas 48 horas — corte em 20/10/2026 às 14:33:15
 

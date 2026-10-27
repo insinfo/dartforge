@@ -76,6 +76,29 @@ na árvore, e uma cadeia gerada de 30 000 termos `+` estourava a pilha de
 pilha aborta o processo, e nenhum `catch_unwind` o contém; pânicos comuns
 continuam contidos por requisição e por notificação.
 
+A formatação (`formatting`, `rangeFormatting`, `onTypeFormatting`) roda numa
+thread própria, também com pilha de 1 GiB (`formatting::start`). O despacho
+espera até 200 ms; se ela não terminou, a requisição é respondida depois
+(quando a thread acorda o laço principal), e as mensagens seguintes continuam
+sendo despachadas. Um `$/cancelRequest` dessa requisição responde
+`RequestCancelled` na hora (o resultado da thread é descartado), e um
+documento alterado enquanto ela formatava recebe `ContentModified`
+(-32801). Sem o gancho de despertar (`Server::on_diagnostics`, o caso dos
+testes que usam o `Server` direto) a formatação continua síncrona. Casos
+patológicos continuam caros como no `dart format` (uma lista de 5 000
+argumentos `a + b` leva ~2,4 s nos dois), mas não travam mais o servidor.
+Cadeias binárias longas ficaram lineares (27/10/2026, release, M4): 80 000
+termos `1 + 1 + …` levavam 13 s porque cada edição convertia o deslocamento
+em posição varrendo a linha (uma só, antes de formatar) desde o início;
+agora as edições são convertidas por um cursor sequencial
+(`utf16::PositionCursor`), e o conjunto leva ~0,15 s. No divisor de linhas,
+`1 * 2 + 1 * 2 + …` copiava o conjunto de regras inteiro a cada tentativa de
+ligar uma regra, mesmo as que falhavam (80 000 termos: 1,5 s); com ligação no
+lugar e desfazer (`RuleValues::undo`), 0,16 s. Saída idêntica: oráculo do
+formatador 45 407/45 407 arquivos e as cadeias geradas (até 10 000 termos,
+acima disso o `dart format` estoura a pilha) iguais ao `dart format`.
+Testes: `tests/formatting.rs`.
+
 `$/setTrace` (e o `trace` do `initialize`) guarda o nível; acima de `off`,
 cada requisição atendida sai também como `$/logTrace` com o tempo gasto
 (em `verbose`, o id e o tamanho dos parâmetros). Notificações `$/…`
@@ -87,7 +110,13 @@ com `DARTFORGE_LSP_DEBUG`/`RUST_LOG=debug` aparecem no `stderr`).
 O servidor procura o SDK do Dart uma vez, na partida
 (`dartforge_elements::sdk_discovery::search`, a mesma busca do compilador e do
 `dartforge analyze` sem `--sdk-path`). Vale o primeiro candidato com
-`libraries.json` e `core/core.dart` (aceita a raiz do SDK ou o `lib/`):
+`libraries.json` e `core/core.dart` (aceita a raiz do SDK ou o `lib/`) que
+também carregue (`sdk_discovery::search_with`): um candidato que existe mas
+falha ao carregar — `libraries.json` corrompido, `dart:core` ilegível — é
+recusado, aparece no log com o motivo (`could not be loaded: …`) e a busca
+segue para o próximo. A versão não muda a ordem: uma escolha explícita
+(`DARTFORGE_SDK_LIB`, `DART_SDK`…) vale mesmo que exista um SDK 3.6.x mais
+abaixo na lista; só gera o aviso descrito adiante.
 
 1. `initializationOptions.sdkPath` do cliente (troca o SDK antes de qualquer
    análise);
