@@ -414,11 +414,6 @@ impl ArcSlot {
     }
 
     #[inline(always)]
-    pub(crate) fn is_none(&self) -> bool {
-        self.get().is_none()
-    }
-
-    #[inline(always)]
     pub(crate) fn as_ref(&self) -> Option<&HeapArc> {
         self.get()
     }
@@ -4169,7 +4164,9 @@ impl Heap {
         // What the TLAB did not use becomes free again.
         self.return_tlabs();
         self.minor_collection = minor;
-        let mut aging = minor && self.aging && self.arc.is_none();
+        // The ARC nursery ages too (a young survivor stays uncounted), except in
+        // the full synchronization, whose reclamation keeps only counted objects.
+        let mut aging = minor && self.aging && !full_arc;
         if aging && self.aging_pause.0 > 0 {
             self.aging_pause.0 -= 1;
             aging = false;
@@ -4199,7 +4196,14 @@ impl Heap {
             // stays remembered; the others become old again.
             let previous = std::mem::take(&mut self.objects.remembered);
             let mut kept = Vec::new();
+            // The ARC nursery's old-to-young references, as in the minor collection
+            // without aging below; promotion counts those whose target it promotes.
+            let mut old_to_young = self
+                .arc
+                .as_mut()
+                .map(|a| std::mem::take(&mut a.old_to_young));
             for &b in &previous {
+                let start = pending_list.len();
                 // SAFETY: remembered block, live.
                 #[allow(unsafe_code)]
                 let (work, mut keep) =
@@ -4210,6 +4214,13 @@ impl Heap {
                     keep |= self.young_child(action);
                     pending_list.push(action);
                 });
+                if let Some(edges) = old_to_young.as_mut() {
+                    for &v in &pending_list[start..] {
+                        if self.young_child(v) {
+                            edges.push((owner, v));
+                        }
+                    }
+                }
                 if keep {
                     kept.push(b);
                 } else {
@@ -4221,6 +4232,9 @@ impl Heap {
                 }
             }
             self.objects.remembered = kept;
+            if let (Some(arc), Some(edges)) = (self.arc.as_mut(), old_to_young) {
+                arc.old_to_young = edges;
+            }
         } else if minor {
             // The remembered old objects: their references may be young. Under the
             // ARC nursery, each strong reference from one of them to a young object
@@ -4393,7 +4407,7 @@ impl Heap {
         for (owner, action) in attachment_edges {
             if !promotion
                 .as_ref()
-                .is_some_and(|(promoted, _)| promoted.contains(&owner))
+                .is_some_and(|p| p.promoted.contains(&owner))
             {
                 self.arc_raw_write(owner, action, 0);
             }
@@ -4437,8 +4451,8 @@ impl Heap {
         if aging {
             self.survivor_state = kept;
         }
-        if let Some((promoted, remembered)) = promotion {
-            self.sync_arc(full_arc, promoted, remembered);
+        if let Some(promotion) = promotion {
+            self.sync_arc(full_arc, promotion);
         } else if minor {
             self.minors_since_full += 1;
         } else {
@@ -6646,6 +6660,16 @@ mod unified_space {
     }
 }
 
+/// What the ARC synchronization takes from the minor marking ([`Heap::promotion_data`]).
+struct PromotionData {
+    /// The young objects the marking promoted.
+    promoted: Vec<Ref>,
+    /// The remembered old objects (the trace).
+    remembered: Vec<Ref>,
+    /// The older objects the young survivors of the aging reference.
+    referenced_by_young: Vec<Ref>,
+}
+
 /// The ARC state in the heap (docs/ARC-IMPLEMENTACAO.md, on top of
 /// docs/ARC-CICLOS-ESPECIFICACAO.md §19 and §22): the RC of the strong occurrences
 /// between old objects and in the owning slots. Observational roots are
@@ -7000,18 +7024,39 @@ impl Heap {
     }
 
     /// The young objects promoted by the minor marking in progress and the remembered
-    /// old ones, as handles (before the sweep of the young).
-    fn promotion_data(&self) -> (Vec<Ref>, Vec<Ref>) {
+    /// old ones, as handles (before the sweep of the young), and the older objects
+    /// the young survivors of the aging reference: those references are not
+    /// counted until the survivor's promotion, so they protect their targets from
+    /// dying by RC meanwhile, like roots.
+    fn promotion_data(&self) -> PromotionData {
         let mut promoted = Vec::new();
-        self.objects
-            .young_marked(&mut |b| promoted.push(b as i64 + HANDLE_OFFSET));
+        let mut kept = Vec::new();
+        self.objects.young_marked(&mut |b, promotes| {
+            if promotes {
+                promoted.push(b as i64 + HANDLE_OFFSET);
+            } else {
+                kept.push(b as i64 + HANDLE_OFFSET);
+            }
+        });
+        let mut referenced_by_young = Vec::new();
+        for h in kept {
+            self.visit_strong_references(h, &mut |v| {
+                if smi::e_handle(v) && !self.young_child(v) && self.space_block(v).is_some() {
+                    referenced_by_young.push(v);
+                }
+            });
+        }
         let remembered = self
             .objects
             .remembered
             .iter()
             .map(|&b| b as i64 + HANDLE_OFFSET)
             .collect();
-        (promoted, remembered)
+        PromotionData {
+            promoted,
+            remembered,
+            referenced_by_young,
+        }
     }
 
     /// Enables ARC (`dartforge_memory_arc_v1`, at program startup): a
@@ -7275,7 +7320,12 @@ impl Heap {
     ///    finalizers) until there are no new deaths;
     /// 6. in the full collection, the reclamation: the marks are the RC live ones and the
     ///    full sweep returns the blocks of the dead.
-    fn sync_arc(&mut self, full: bool, promoted: Vec<Ref>, remembered: Vec<Ref>) {
+    fn sync_arc(&mut self, full: bool, promotion: PromotionData) {
+        let PromotionData {
+            promoted,
+            remembered,
+            referenced_by_young,
+        } = promotion;
         let mut arc = self.arc.take().expect("ARC ligado");
         if arc.state.trace_log {
             eprintln!(
@@ -7311,11 +7361,11 @@ impl Heap {
         }
         // The references the remembered old objects have to promoted ones, as the
         // minor collection's card scan found them (a snapshotted owner counts all
-        // its current references below). Each target was young and reached through
-        // its remembered owner: promoted now.
+        // its current references below). A target that stays young (aging) keeps
+        // its owner remembered, and a later promotion counts it.
         for (x, v) in std::mem::take(&mut arc.old_to_young) {
-            if !arc.snapshots.contains_key(&x) && arc.state.alive(x) {
-                debug_assert!(promoted_now(&arc.state, v));
+            if promoted_now(&arc.state, v) && !arc.snapshots.contains_key(&x) && arc.state.alive(x)
+            {
                 arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
             }
         }
@@ -7375,12 +7425,15 @@ impl Heap {
         let mut root_list = Vec::new();
         self.root_list(&mut root_list);
         root_list.retain(|&h| smi::e_handle(h));
-        root_list.sort_unstable();
-        root_list.dedup();
-        let protected = |h: Ref| root_list.binary_search(&h).is_ok();
         for &h in &root_list {
             arc.state.add_candidate(h);
         }
+        // The targets of the young survivors' uncounted references (aging) are
+        // protected like the roots' until the survivor is promoted or dies.
+        root_list.extend(referenced_by_young);
+        root_list.sort_unstable();
+        root_list.dedup();
+        let protected = |h: Ref| root_list.binary_search(&h).is_ok();
         // With `DARTFORGE_ARC_CYCLES=always`, the cycle round repeats on
         // each pass with new deaths: the discard (and the ephemeron that leaves with the
         // holder) releases survivors that may have been left in a cycle without a
@@ -7964,7 +8017,10 @@ impl Heap {
             {
                 continue;
             }
-            if !arc.state.alive(h) {
+            // A young survivor (the nursery's aging) has no count yet.
+            if !arc.state.alive(h)
+                && !(!arc.pure && crate::layout::state::is_young(self.header(h).state))
+            {
                 let parent_node = origin.get(&h).copied();
                 let desc = |x: Ref| {
                     let c = self.header(x);
@@ -8028,12 +8084,60 @@ mod arc_no_heap {
         h
     }
 
+    /// A heap under ARC whose minor collection promotes every survivor (without
+    /// the aging, which [`nursery_aging_protects_old_targets_of_survivors`] covers).
     fn heap_arc() -> Heap {
+        let mut heap = Heap::new(false);
+        heap.verify = true;
+        heap.aging = false;
+        heap.enable_arc();
+        heap.arc.as_mut().unwrap().check = true;
+        heap
+    }
+
+    /// The nursery with aging: a young survivor's references are not counted
+    /// until its promotion. The old object it references, whose counted
+    /// occurrences are gone, is protected meanwhile (it would die by RC while
+    /// reachable); the remembered old owner's reference to a survivor counts when
+    /// the survivor is promoted, not before.
+    #[test]
+    fn nursery_aging_protects_old_targets_of_survivors() {
         let mut heap = Heap::new(false);
         heap.verify = true;
         heap.enable_arc();
         heap.arc.as_mut().unwrap().check = true;
-        heap
+        heap.arc.as_mut().unwrap().pure = false;
+        assert!(heap.aging);
+        let owning = heap.push_owning_frame(2);
+        let old = heap.allocate_str("old target");
+        heap.set_root(owning, 0, old);
+        let holder = list(&mut heap, 1);
+        heap.set_root(owning, 1, holder);
+        heap.run_collection(true);
+        heap.run_collection(true);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(old).unwrap().rc, 1);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(holder).unwrap().rc, 1);
+        // A young survivor holds the old target; an old holder holds the survivor.
+        let observer = heap.push_frame_with_slots(1);
+        let young = list(&mut heap, 1);
+        heap.set_root(observer, 0, young);
+        heap.write_refs(young, 1, &[old]);
+        heap.write_refs(holder, 1, &[young]);
+        heap.set_root(observer, 0, 0);
+        heap.set_root(owning, 0, 0);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(old).unwrap().rc, 0);
+        heap.run_collection(true);
+        assert!(crate::layout::state::is_young(heap.header(young).state));
+        assert!(heap.arc.as_ref().unwrap().state.meta(young).is_none());
+        assert!(alive(&heap, old), "the survivor protects its old target");
+        heap.run_collection(true);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(young).unwrap().rc, 1);
+        assert_eq!(heap.arc.as_ref().unwrap().state.meta(old).unwrap().rc, 1);
+        heap.write_refs(holder, 1, &[0]);
+        heap.run_collection(true);
+        assert!(!alive(&heap, young) && !alive(&heap, old));
+        heap.pop_frame(observer);
+        heap.pop_frame(owning);
     }
 
     /// Nursery mode: a young object held for a while by an owning slot has no

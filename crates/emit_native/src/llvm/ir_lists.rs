@@ -196,14 +196,17 @@ pub(super) fn helpers(arc: bool, nursery: bool) -> std::borrow::Cow<'static, str
 
 /// The tracing helpers with the stores of the ARC nursery: the element of a
 /// storage, the storage of a `_GrowableList` (also the one `@df.list_grow`
-/// installs) come out inline when the owner is young (state `YOUNG`, never
-/// remembered); otherwise through the runtime, as in [`helpers`] under ARC.
+/// installs) come out inline when the owner is young (`YOUNG` or a survivor of
+/// the aging, never remembered); otherwise through the runtime, as in [`helpers`]
+/// under ARC.
 fn nursery_helpers() -> String {
     let young = |o: &str, k: &str| {
         format!(
-            "%{k}p = inttoptr i64 %{o} to ptr\n%{k}s = getelementptr inbounds i8, ptr %{k}p, i64 {}\n%{k}e = load i8, ptr %{k}s, align 1\n%{k}y = icmp eq i8 %{k}e, {}\nbr i1 %{k}y, label %{k}.young, label %{k}.old\n",
+            "%{k}p = inttoptr i64 %{o} to ptr\n%{k}s = getelementptr inbounds i8, ptr %{k}p, i64 {}\n%{k}e = load i8, ptr %{k}s, align 1\n%{k}d = sub i8 %{k}e, {}\n%{k}u = icmp ule i8 %{k}d, {}\n%{k}b = icmp eq i8 %{k}e, {}\n%{k}y = or i1 %{k}u, %{k}b\nbr i1 %{k}y, label %{k}.young, label %{k}.old\n",
             layout::offsets::STATE as i64 - layout::HANDLE_OFFSET,
-            layout::state::YOUNG
+            layout::state::YOUNG,
+            layout::state::SURVIVOR - layout::state::YOUNG,
+            layout::state::SURVIVOR_B
         )
     };
     let element = "%e = call ptr @df.list_element(i64 %a, i64 %i)\nstore i64 %v, ptr %e, align 8\ncall void @df.element_barrier(i64 %a, i64 %i, i64 %v)\n";

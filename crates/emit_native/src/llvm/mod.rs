@@ -5595,7 +5595,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// The ARC nursery's store into an object that may be old: a young owner
-    /// (state `YOUNG`) takes the inline store that follows, without
+    /// (state `YOUNG` or a survivor) takes the inline store that follows, without
     /// barrier or count; any other goes to `dartforge_object_set`, which counts the
     /// replacement and remembers the owner, and then to `wb{v}.fim`. Leaves the
     /// emission in the young block.
@@ -5609,12 +5609,21 @@ impl<'a> LlvmEmitter<'a> {
         )
         .unwrap();
         writeln!(o, "  %nye{v} = load i8, ptr %nys{v}, align 1").unwrap();
+        // Young or a survivor of the aging (`layout::state::is_young`).
+        writeln!(o, "  %nyd{v} = sub i8 %nye{v}, {}", layout::state::YOUNG).unwrap();
         writeln!(
             o,
-            "  %nyy{v} = icmp eq i8 %nye{v}, {}",
-            layout::state::YOUNG
+            "  %nyu{v} = icmp ule i8 %nyd{v}, {}",
+            layout::state::SURVIVOR - layout::state::YOUNG
         )
         .unwrap();
+        writeln!(
+            o,
+            "  %nyb{v} = icmp eq i8 %nye{v}, {}",
+            layout::state::SURVIVOR_B
+        )
+        .unwrap();
+        writeln!(o, "  %nyy{v} = or i1 %nyu{v}, %nyb{v}").unwrap();
         writeln!(o, "  br i1 %nyy{v}, label %ny{v}.young, label %ny{v}.old").unwrap();
         writeln!(o, "ny{v}.old:").unwrap();
         writeln!(

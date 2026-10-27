@@ -1460,25 +1460,31 @@ impl ObjectSpace {
     /// handed-out range goes back to the free ranges without being touched; the large region of
     /// a dead young object goes back to their cache. The remembered ones become old again.
     /// Returns (dead, freed bytes).
-    /// The young objects the minor marking in progress reached (the promoted ones): those
-    /// handed out one by one and the marked blocks of the TLAB ranges. Before
-    /// [`ObjectSpace::sweep_young`] (ARC registers them,
-    /// docs/ARC-IMPLEMENTACAO.md).
-    pub(crate) fn young_marked(&self, f: &mut dyn FnMut(*mut Header)) {
-        for &(b, _) in &self.young_set {
-            // SAFETY: block handed out since the last collection, in a live page.
-            if unsafe { marked(b) } {
-                f(b);
+    /// The young objects the minor marking in progress reached: the marked blocks
+    /// handed out one by one, of the TLAB ranges and of the survivor runs of the
+    /// previous collection, with whether the marking promoted them (made them old)
+    /// or, with aging, kept them young (a survivor state). Before
+    /// [`ObjectSpace::sweep_young`] (ARC registers the promoted ones and protects
+    /// what the kept ones reference, docs/ARC-IMPLEMENTACAO.md).
+    pub(crate) fn young_marked(&self, f: &mut dyn FnMut(*mut Header, bool)) {
+        // SAFETY (of the uses): a block of a live page.
+        let mut visit = |b: *mut Header| unsafe {
+            if marked(b) {
+                f(b, matches!((*b).state, OLD | REMEMBERED));
             }
+        };
+        for &(b, _) in &self.young_set {
+            visit(b);
         }
-        for &(start, end, class) in &self.ranges {
+        for &(start, end, class) in self.ranges.iter().chain(&self.survivors) {
+            if class == LARGE {
+                visit(start.cast());
+                continue;
+            }
             let size = block_bytes(class_words(class));
             let mut p = start;
             while p < end {
-                // SAFETY: block of the range, in a live page.
-                if unsafe { marked(p.cast()) } {
-                    f(p.cast());
-                }
+                visit(p.cast());
                 p = p.wrapping_add(size);
             }
         }
