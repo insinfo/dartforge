@@ -508,6 +508,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Static type the common inference recorded for `e`, as a `Ty`, if it can
     /// be reified here (see [`Self::common_ty_in_scope`]).
+    /// The `writeType` the common inference recorded for the assignment `e`.
+    pub fn common_write_type(&self, e: ExprId) -> Option<Ty> {
+        let id = *self
+            .ctx
+            .bodies
+            .units
+            .get(self.unit.0 as usize)?
+            .write_types
+            .get(&e)?;
+        self.common_ty_in_scope(id)
+    }
+
     pub fn common_type(&self, e: ExprId) -> Option<Ty> {
         if e.0 == u32::MAX {
             return None;
@@ -4932,7 +4944,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     fn emit_assign(&mut self, op: AssignOp, target: ExprId, value: ExprId, e: ExprId) -> (Js, Ty) {
         match op {
             AssignOp::Assign => {
-                let tty = self.target_ty(target);
+                // A local's context is its declared type (`writeType`), not
+                // the promoted one the emitter's scope may hold.
+                let declared = matches!(
+                    self.common_resolution(target),
+                    Some(Resolved::Local(_) | Resolved::Parameter { .. })
+                )
+                .then(|| self.common_write_type(e))
+                .flatten();
+                let tty = declared.or_else(|| self.target_ty(target));
                 let (v, vty) = self.emit_expr(value, tty.as_ref());
                 // Update the type of an unannotated local with a known value type (promotion by assignment).
                 let (js, _) = self.emit_assign_to(target, &v, &vty);
@@ -6557,21 +6577,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         // Factory redirection `= Other`: resolve the target.
         if is_factory {
-            if let Some(target) = self.factory_redirect_target(fid.unwrap()) {
-                let (tclass, tname, is_target_factory) = target;
+            if let Some(target) = self.factory_redirect_target_type(fid.unwrap()) {
+                let (tclass, tname, is_target_factory, target_ty) = target;
                 let tref = self.class_ref(tclass);
                 let tgeneric = self.ctx.requires_rti(tclass);
                 if tgeneric {
-                    let tt = if self.ctx.class_params[tclass.0 as usize].len() == targs.len() {
-                        Some(Ty::Iface {
-                            class: tclass,
-                            args: targs.clone(),
-                            nullable: false,
-                        })
-                    } else {
-                        None
+                    // The target type with this call's class arguments.
+                    let map: HashMap<u32, Ty> = self.ctx.class_params[class.0 as usize]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| (p.id, targs.get(i).cloned().unwrap_or(Ty::Dynamic)))
+                        .collect();
+                    let tt = match target_ty.subst(&map) {
+                        t @ Ty::Iface { .. } => t,
+                        _ => ty.clone(),
                     };
-                    arg_js.insert(0, self.rti(&tt.unwrap_or(ty.clone())));
+                    arg_js.insert(0, self.rti(&tt));
                 }
                 let tjs = if tname.is_empty() {
                     "new".to_string()
@@ -6620,6 +6641,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         &self,
         fid: dartforge_elements::model::FunctionElementId,
     ) -> Option<(ClassId, String, bool)> {
+        self.factory_redirect_target_type(fid)
+            .map(|(c, n, f, _)| (c, n, f))
+    }
+
+    /// [`Self::factory_redirect_target`] with the effective target's type, in
+    /// terms of the redirecting constructor class's type parameters (`C() =
+    /// D<int>` and `D<T>() = E<double, T>` give `E<double, int>`).
+    pub fn factory_redirect_target_type(
+        &self,
+        fid: dartforge_elements::model::FunctionElementId,
+    ) -> Option<(ClassId, String, bool, Ty)> {
         let fid = self.ctx.program.function(fid).patched_by.unwrap_or(fid);
         let f = self.ctx.program.function(fid);
         let dartforge_elements::model::FunctionRef::Constructor { unit, member } = f.node else {
@@ -6651,7 +6683,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
         }
-        let Ty::Iface { class, .. } = t else {
+        let Ty::Iface {
+            class, ref args, ..
+        } = t
+        else {
             return None;
         };
         let key = if name.is_empty() {
@@ -6661,15 +6696,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         };
         let tfid = key.and_then(|k| self.ctx.program.class(class).constructors.get(&k).copied());
         let is_factory = tfid.is_some_and(|x| self.ctx.program.function(x).factory);
-        // If the target redirects too, follow it.
+        // If the target redirects too, follow it, composing the arguments.
         if let Some(tf) = tfid {
             if is_factory {
-                if let Some(next) = self.factory_redirect_target(tf) {
-                    return Some(next);
+                if let Some((c2, n2, f2, t2)) = self.factory_redirect_target_type(tf) {
+                    let map: HashMap<u32, Ty> = self.ctx.class_params[class.0 as usize]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| (p.id, args.get(i).cloned().unwrap_or(Ty::Dynamic)))
+                        .collect();
+                    return Some((c2, n2, f2, t2.subst(&map)));
                 }
             }
         }
-        Some((class, name, is_factory))
+        Some((class, name, is_factory, t))
     }
 }
 
