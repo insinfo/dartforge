@@ -1035,7 +1035,7 @@ pub(crate) fn alias_of(
             if renames {
                 return Some(TypeRef::Alias(class, None, td));
             }
-            inf.instantiate_to_bounds(&params)
+            inf.default_types(&params, Some(tgt))
         }
     };
     let map = inf.map(&params, &inst);
@@ -3482,6 +3482,32 @@ fn property(
     {
         return (recv, short_circuit);
     }
+    // `x.call` read with `x` of a type parameter type bounded by a function
+    // type or by `Function`: the target is not itself a `FunctionType`, so
+    // `TypePropertyResolver` resolves the bound and finds the `call` of the
+    // function (or none on `Function`) without an error, but
+    // `PropertyElementResolver._resolve` drops its `callFunctionType`: no
+    // getter, so the read is `dynamic` (3.6.2 `property_element_resolver.dart:
+    // 440-445, 480-503`, `type_property_resolver.dart:183-201`).
+    if !check_null
+        && !cx.overlays.contains_key(&target)
+        && Some(name.sym) == inf.sym.call
+        && matches!(
+            inf.table.get(recv),
+            Type::TypeParameter { .. } | Type::Intersection { .. }
+        )
+    {
+        let bound = inf.resolve_to_bound(recv);
+        let function_bound = match inf.table.get(bound) {
+            Type::Function { .. } => true,
+            Type::Interface { class, .. } => Some(*class) == inf.core.function_class,
+            _ => false,
+        };
+        if function_bound {
+            resolver(inf, cx, e, Resolved::Dynamic);
+            return (inf.core.dynamic_, short_circuit);
+        }
+    }
     let search = lookup_target_member(inf, cx, target, recv, name.sym, false);
     inf.report_extension_ambiguity(name.span);
     let t = match search {
@@ -3753,8 +3779,8 @@ fn static_access(
                 return m.ty;
             }
             if !explicit_instance
-                && args.is_some()
                 && !inf.outline.typedefs[td.0 as usize].type_params.is_empty()
+                && (args.is_some() || !same_bounds_as_class(inf, c, td))
             {
                 return generic_alias_tearoff(inf, cx, e, c, td, name);
             }
@@ -4011,6 +4037,41 @@ fn constructor_tearoff(
     }
     let sig = inf.constructor_signature(c, f);
     tearoff_with_arguments(inf, c, sig, args)
+}
+
+/// The parameters of an alias that forwards them to class `c`
+/// (`typedef A<T> = C<T>`) have the bounds of the class's (each a subtype of
+/// the other, with the class's parameters read as the alias's). Otherwise the
+/// tear-off `A.new` is generic over the alias's parameters with their own
+/// bounds (`C<T> Function<T extends num>(T)` for `typedef A<T extends num> =
+/// C<T>`): `constructorElementToInfer` always takes the alias's
+/// `typeParameters` (3.6.2 `invocation_inference_helper.dart:103-120`).
+fn same_bounds_as_class(
+    inf: &mut BodyInferrer<'_>,
+    c: ClassId,
+    td: dartforge_elements::model::TypedefId,
+) -> bool {
+    let alias = inf.outline.typedefs[td.0 as usize].type_params.clone();
+    let class = inf.outline.classes[c.0 as usize].type_params.clone();
+    if alias.len() != class.len() {
+        return false;
+    }
+    let types: Vec<TypeId> = alias
+        .iter()
+        .map(|&p| {
+            inf.table.intern(Type::TypeParameter {
+                param: p,
+                nullable: false,
+            })
+        })
+        .collect();
+    let map = inf.map(&class, &types);
+    alias.iter().zip(class.iter()).all(|(&a, &k)| {
+        let ab = inf.table.param(a).bound;
+        let kb = inf.table.param(k).bound;
+        let kb = inf.subst(kb, &map);
+        ab == kb || (inf.sub(ab, kb) && inf.sub(kb, ab))
+    })
 }
 
 /// `F.new`/`F.the_name` through a generic alias that does more than forward the
@@ -6009,7 +6070,23 @@ fn assignment(
                     .unwrap_or(inf.core.bool_);
                 (t, Some((yes, not_)))
             } else {
-                (infer(inf, cx, the_value, context), None)
+                // The right side is analyzed in the context of the (possibly
+                // promoted) variable, but its implicit `call` tear-off is
+                // decided against the write type, the declared one
+                // (`_insertImplicitCallReference` with an
+                // `AssignmentExpression` parent, 3.6.2 `resolver.dart:4095-4101`):
+                // `x = B()` with `x` declared `Object` and promoted to a
+                // function type keeps `B` and demotes `x`.
+                let (t, _) = infer_keeping_context(inf, cx, the_value, context);
+                let write_context = if matches!(inf.table.get(write), Type::Dynamic)
+                    && !inf.table.is_invalid(write)
+                {
+                    inf.core.unknown
+                } else {
+                    write
+                };
+                let t = record_implicit_call(inf, cx, the_value, t, write_context).unwrap_or(t);
+                (t, None)
             };
             if let Some(id) = local {
                 let decl = cx.local(id).ty;

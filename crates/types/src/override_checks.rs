@@ -1350,6 +1350,38 @@ impl Ctx<'_> {
         })
     }
 
+    /// Some class of the hierarchy of `c` (itself included) has a
+    /// `GetterMethodConflict` for `key`: the name is left out of its
+    /// interface, and so of the interfaces that inherit from it, so the
+    /// absence is decided (3.6.2 `inheritance_manager3.dart`,
+    /// `_checkForGetterMethodConflict`).
+    fn getter_method_conflict(&mut self, c: ClassId, key: SymbolId) -> bool {
+        let the_name = crate::inheritance::MemberName::new(self.interner, self.library, key);
+        let supers = self
+            .outline
+            .hierarchy
+            .get(c)
+            .map(|d| d.supertypes.keys().copied().collect::<Vec<_>>())
+            .unwrap_or_default();
+        let mut h = std::mem::take(&mut self.inheritance);
+        let found = {
+            let mut p = crate::inheritance::OutlineProvider {
+                program: self.program,
+                interner: self.interner,
+                core: self.core,
+                outline: self.outline,
+                table: &mut *self.table,
+            };
+            std::iter::once(c).chain(supers).any(|s| {
+                h.interface(&mut p, s).conflicts.iter().any(|x| {
+                    matches!(x, crate::inheritance::Conflict::GetterMethod { name, .. } if *name == the_name)
+                })
+            })
+        };
+        self.inheritance = h;
+        found
+    }
+
     /// All instance member keys of `c` and of its supertypes.
     fn hierarchy_keys(&self, c: ClassId) -> Vec<SymbolId> {
         let mut v: Vec<SymbolId> = Vec::new();
@@ -1500,8 +1532,11 @@ pub fn abstract_members(
                 continue;
             }
             let Some((mem, member_type)) = cx.in_interface(this_one, key, 0) else {
-                // A conflict or combined signature that is not decided here.
-                if !program.class(intf).instance_members.contains_key(&key) {
+                // A conflict or combined signature that is not decided here;
+                // a getter/method conflict leaves the name out for certain.
+                if !program.class(intf).instance_members.contains_key(&key)
+                    && !cx.getter_method_conflict(intf, key)
+                {
                     uncertain = true;
                 }
                 continue;

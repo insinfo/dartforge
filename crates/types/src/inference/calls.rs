@@ -1723,7 +1723,8 @@ pub(crate) fn the_call(
                 _ => (inf.outline.classes[c.0 as usize].type_params.to_vec(), None),
             };
             let targs: Option<Vec<TypeId>> = if args.type_args.is_empty() {
-                Some(inf.instantiate_to_bounds(&params))
+                let target = alias.map(|td| inf.outline.typedefs[td.0 as usize].target_type);
+                Some(inf.default_types(&params, target))
             } else if args.type_args.len() == params.len() {
                 Some(
                     args.type_args

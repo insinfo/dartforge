@@ -1717,11 +1717,27 @@ impl<'a> OutlineResolver<'a> {
         self.instantiate_to_bounds(&formals)
     }
 
-    /// Instantiation to bounds (`instantiate to bounds`): the written bound, or
-    /// `dynamic`; bounds that mention their own parameters (F-bounds) have
-    /// those parameters replaced by `dynamic`.
+    /// Instantiation to bounds of a raw class type: the parameters' default
+    /// types ([`crate::ops::default_types`]).
     fn instantiate_to_bounds(&mut self, formals: &[TypeParamId]) -> Vec<TypeId> {
-        crate::ops::instantiate_to_bounds(formals, &[], self.table, self.core)
+        self.default_types(formals, None)
+    }
+
+    /// The default types of the parameters of a class (`alias_target` `None`)
+    /// or of an alias ([`crate::ops::default_types`]), with the aliases
+    /// resolved so far.
+    fn default_types(
+        &mut self,
+        formals: &[TypeParamId],
+        alias_target: Option<TypeId>,
+    ) -> Vec<TypeId> {
+        let params = &self.typedef_type_params;
+        let targets = &self.typedef_targets;
+        let aliases = |td: TypedefId| {
+            let i = td.0 as usize;
+            Some((params.get(i)?.to_vec(), (*targets.get(i)?)?))
+        };
+        crate::ops::default_types(formals, alias_target, &aliases, self.table, self.core)
     }
 
     fn instantiate_self_class(&mut self, class_opt: Option<ClassId>) -> TypeId {
@@ -2270,7 +2286,7 @@ impl<'a> OutlineResolver<'a> {
                                         // Wrong number of type arguments: all invalid.
                                         vec![self.table.invalid(self.core.dynamic_); formals.len()]
                                     } else {
-                                        self.instantiate_to_bounds(&formals)
+                                        self.default_types(&formals, Some(target_ty))
                                     };
                                     let mut subst = HashMap::with_capacity(formals.len());
                                     for (&f, &a) in formals.iter().zip(resolved_args.iter()) {
@@ -2438,7 +2454,7 @@ impl<'a> OutlineResolver<'a> {
                                     // Wrong number of type arguments: all invalid.
                                     vec![self.table.invalid(self.core.dynamic_); formals.len()]
                                 } else {
-                                    self.instantiate_to_bounds(&formals)
+                                    self.default_types(&formals, Some(target_ty))
                                 };
                                 let mut subst = HashMap::with_capacity(formals.len());
                                 for (&f, &a) in formals.iter().zip(resolved_args.iter()) {
@@ -2581,6 +2597,13 @@ impl<'a> OutlineResolver<'a> {
             );
             local_params.push(pid);
             local_scope.insert(tp.name.sym, pid);
+        }
+        // The bounds see all the parameters (`T f<T extends U, U>()`).
+        for (tp, &pid) in p.function_type_params.iter().zip(local_params.iter()) {
+            if let Some(ast_bound) = tp.bound {
+                let b = self.resolve_annotation(unit_id, ast_bound, library, &local_scope);
+                self.table.set_type_param_bound(pid, b);
+            }
         }
         let ret = match p.ty {
             Some(t) => self.resolve_annotation(unit_id, t, library, &local_scope),

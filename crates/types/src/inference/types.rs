@@ -158,7 +158,7 @@ impl<'a> BodyInferrer<'a> {
                 if params.is_empty() {
                     return t;
                 }
-                let args = self.instantiate_to_bounds(&params);
+                let args = self.default_types(&params, None);
                 self.table.intern(Type::Interface {
                     class,
                     args: args.into_boxed_slice(),
@@ -458,10 +458,26 @@ impl<'a> BodyInferrer<'a> {
         }
     }
 
-    /// Instantiation to bounds (`instantiate to bounds`) of the parameters of a
-    /// class used raw (`List` → `List<dynamic>`).
+    /// Instantiation to bounds (`instantiateTypeFormalsToBounds`) of the
+    /// parameters of an extension.
     pub(crate) fn instantiate_to_bounds(&mut self, params: &[TypeParamId]) -> Vec<TypeId> {
         crate::ops::instantiate_to_bounds(params, &[], self.table, self.core)
+    }
+
+    /// The default types of the parameters of a class (`alias_target` `None`)
+    /// or of an alias used raw (`List` → `List<dynamic>`):
+    /// [`crate::ops::default_types`].
+    pub(crate) fn default_types(
+        &mut self,
+        params: &[TypeParamId],
+        alias_target: Option<TypeId>,
+    ) -> Vec<TypeId> {
+        let typedefs = &self.outline.typedefs;
+        let aliases = |td: dartforge_elements::model::TypedefId| {
+            let d = typedefs.get(td.0 as usize)?;
+            Some((d.type_params.to_vec(), d.target_type))
+        };
+        crate::ops::default_types(params, alias_target, &aliases, self.table, self.core)
     }
 
     /// Fresh copies (reused per list) of type parameters, with the bounds
@@ -799,7 +815,7 @@ impl<'a> BodyInferrer<'a> {
                         } else if !args.is_empty() {
                             vec![self.table.invalid(self.core.dynamic_); data.type_params.len()]
                         } else {
-                            self.instantiate_to_bounds(&data.type_params)
+                            self.default_types(&data.type_params, Some(data.target_type))
                         };
                         let map = self.map(&data.type_params, &args);
                         let r = self.subst(data.target_type, &map);
@@ -964,7 +980,7 @@ impl<'a> BodyInferrer<'a> {
         let args = if args.len() == params.len() {
             args
         } else {
-            self.instantiate_to_bounds(&params)
+            self.default_types(&params, None)
         };
         let class = self.program.class(cid);
         if class.kind == ClassKind::ExtensionType {
@@ -1039,6 +1055,13 @@ impl<'a> BodyInferrer<'a> {
                 self.table.without_default_type.insert(pid);
                 local.insert(tp.name.sym, pid);
                 tps.push(pid);
+            }
+            // The bounds see all the parameters (`T f<T extends U, U>()`).
+            for (tp, &pid) in p.function_type_params.iter().zip(tps.iter()) {
+                if let Some(b) = tp.bound {
+                    let bt = self.resolve_annotation(unit, lib, b, &local);
+                    self.table.set_type_param_bound(pid, bt);
+                }
             }
             let ret = match p.ty {
                 Some(r) => self.resolve_annotation(unit, lib, r, &local),

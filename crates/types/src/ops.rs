@@ -5,7 +5,7 @@
 //! (`normalize`) and upper/lower bounds (`lub`/`glb`).
 
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
-use dartforge_elements::model::ClassId;
+use dartforge_elements::model::{ClassId, TypedefId};
 use std::collections::HashMap;
 
 /// Makes a type nullable (`T?`).
@@ -278,6 +278,288 @@ pub fn instantiate_to_bounds(
     args.into_iter()
         .map(|a| a.unwrap_or(core.dynamic_))
         .collect()
+}
+
+/// Whether an occurrence is replaced by the lower type (`Never`) or by the
+/// upper one in [`default_types`]: the `_variance` of the analyzer's
+/// `_UpperLowerReplacementVisitor`, where only covariant and contravariant
+/// flip and every other variance (`unrelated`, `invariant`) takes the upper.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Position {
+    Covariant,
+    Contravariant,
+    Fixed,
+}
+
+impl Position {
+    fn flip(self) -> Position {
+        match self {
+            Position::Covariant => Position::Contravariant,
+            Position::Contravariant => Position::Covariant,
+            Position::Fixed => Position::Fixed,
+        }
+    }
+
+    /// The position of an alias's parameter (`VarianceBuilder`'s variance of
+    /// the parameter in the alias's target) inside this one (`Variance.combine`).
+    fn inside(self, table: &TypeTable, target: TypeId, p: TypeParamId) -> Position {
+        use crate::bound_checks::AliasVariance;
+        match crate::bound_checks::variance_of_alias_parameter(table, target, p) {
+            AliasVariance::Covariant => self,
+            AliasVariance::Contravariant => self.flip(),
+            AliasVariance::Other => Position::Fixed,
+        }
+    }
+}
+
+/// The parameters and the target of an alias, for [`default_types`].
+pub type AliasLookup<'a> = &'a dyn Fn(TypedefId) -> Option<(Vec<TypeParamId>, TypeId)>;
+
+/// The default types of `params` (`TypeParameterElementImpl.defaultType`),
+/// which raw class and alias types take: `DefaultTypesBuilder._computeBounds`
+/// of the 3.6.2 analyzer (`src/summary2/default_types_builder.dart:195-247`).
+/// A parameter without a written bound has `dynamic`. In each strongly
+/// connected component of the bound dependencies, the component's parameters
+/// are replaced in each bound by `dynamic`, or by `Never` in a contravariant
+/// position; then each parameter, in order, is replaced in every bound by its
+/// own (or by `Never` in a contravariant position): `C<T extends void
+/// Function(U), U>` is `C<void Function(Never), dynamic>`. The starting
+/// position of a bound is the parameter's variance: covariant for a class,
+/// that of the parameter in the target `alias_target` for an alias
+/// (`VarianceBuilder`), so `typedef F<X extends A<X>> = Function(X)` is
+/// `F<A<Never>>`. A bound written with an alias (`X extends Finv<Y>`) is
+/// walked through the alias's arguments with its parameters' variances, as
+/// the analyzer walks the unexpanded `NamedTypeBuilder`; `aliases` gives the
+/// parameters and target of each alias. Unlike [`instantiate_to_bounds`]
+/// (`instantiateTypeFormalsToBounds`), which replaces cycles by `dynamic`
+/// everywhere.
+pub fn default_types(
+    params: &[TypeParamId],
+    alias_target: Option<TypeId>,
+    aliases: AliasLookup<'_>,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+) -> Vec<TypeId> {
+    let n = params.len();
+    let starts: Vec<Position> = params
+        .iter()
+        .map(|&p| match alias_target {
+            None => Position::Covariant,
+            Some(tgt) => Position::Covariant.inside(table, tgt, p),
+        })
+        .collect();
+    let mut bounds: Vec<TypeId> = params
+        .iter()
+        .map(|&p| {
+            let d = table.param(p);
+            if !d.explicit || matches!(table.get(d.bound), Type::Dynamic) {
+                core.dynamic_
+            } else {
+                d.bound
+            }
+        })
+        .collect();
+    // `reaches[i][j]`: the bound of `i` depends, directly or not, on `j`.
+    let mut reaches: Vec<Vec<bool>> = (0..n)
+        .map(|i| {
+            (0..n)
+                .map(|j| mentions_parameters(bounds[i], &params[j..=j], table))
+                .collect()
+        })
+        .collect();
+    for k in 0..n {
+        let through = reaches[k].clone();
+        for row in reaches.iter_mut().filter(|row| row[k]) {
+            for (cell, &next) in row.iter_mut().zip(through.iter()) {
+                *cell |= next;
+            }
+        }
+    }
+    let original = bounds.clone();
+    for i in 0..n {
+        let component: HashMap<TypeParamId, (TypeId, TypeId)> = (0..n)
+            .filter(|&j| j == i || (reaches[i][j] && reaches[j][i]))
+            .map(|j| (params[j], (core.dynamic_, core.never)))
+            .collect();
+        bounds[i] = replace_by_position(original[i], &component, starts[i], aliases, table);
+    }
+    for i in 0..n {
+        let one: HashMap<TypeParamId, (TypeId, TypeId)> =
+            std::iter::once((params[i], (bounds[i], core.never))).collect();
+        for j in 0..n {
+            bounds[j] = replace_by_position(bounds[j], &one, starts[j], aliases, table);
+        }
+    }
+    bounds
+}
+
+/// Replaces the parameters of `subs` in `t` by their upper type, or by their
+/// lower type in a contravariant position. When no lower type is chosen, the
+/// result is the ordinary substitution by the upper types, which keeps the
+/// display decorations (aliases).
+fn replace_by_position(
+    t: TypeId,
+    subs: &HashMap<TypeParamId, (TypeId, TypeId)>,
+    start: Position,
+    aliases: AliasLookup<'_>,
+    table: &mut TypeTable,
+) -> TypeId {
+    let keys: Vec<TypeParamId> = subs.keys().copied().collect();
+    if !mentions_parameters(t, &keys, table) {
+        return t;
+    }
+    let upper: HashMap<TypeParamId, TypeId> = subs.iter().map(|(&p, &(u, _))| (p, u)).collect();
+    let by_upper = substitute(t, &upper, table);
+    let by_position = replace_rec(t, subs, &upper, start, aliases, table);
+    if table.canonical(by_position) == table.canonical(by_upper) {
+        by_upper
+    } else {
+        by_position
+    }
+}
+
+fn replace_rec(
+    t: TypeId,
+    subs: &HashMap<TypeParamId, (TypeId, TypeId)>,
+    upper: &HashMap<TypeParamId, TypeId>,
+    position: Position,
+    aliases: AliasLookup<'_>,
+    table: &mut TypeTable,
+) -> TypeId {
+    if let Some(crate::table::DisplayDecoration::Alias { typedef, args }) =
+        table.decoration(t).cloned()
+        && let Some((alias_params, target)) = aliases(typedef)
+        && alias_params.len() == args.len()
+    {
+        let new_args: Box<[TypeId]> = args
+            .iter()
+            .zip(alias_params.iter())
+            .map(|(&a, &p)| {
+                let inside = position.inside(table, target, p);
+                replace_rec(a, subs, upper, inside, aliases, table)
+            })
+            .collect();
+        let map: HashMap<TypeParamId, TypeId> = alias_params
+            .iter()
+            .copied()
+            .zip(new_args.iter().copied())
+            .collect();
+        let mut expanded = substitute(table.canonical(target), &map, table);
+        if table.get(t).is_declared_nullable() {
+            expanded = nullable(expanded, table);
+        }
+        return table.decorate(
+            expanded,
+            crate::table::DisplayDecoration::Alias {
+                typedef,
+                args: new_args,
+            },
+        );
+    }
+    let t = table.canonical(t);
+    match table.get(t).clone() {
+        // `visitTypeParameterType` returns the replacement itself.
+        Type::TypeParameter { param, .. } => match subs.get(&param) {
+            Some(&(_, lower)) if position == Position::Contravariant => lower,
+            Some(&(u, _)) => u,
+            None => t,
+        },
+        Type::Interface {
+            class,
+            args,
+            nullable,
+        } => {
+            let args: Box<[TypeId]> = args
+                .iter()
+                .map(|&a| replace_rec(a, subs, upper, position, aliases, table))
+                .collect();
+            table.intern(Type::Interface {
+                class,
+                args,
+                nullable,
+            })
+        }
+        Type::ExtensionType {
+            decl,
+            args,
+            nullable,
+        } => {
+            let args: Box<[TypeId]> = args
+                .iter()
+                .map(|&a| replace_rec(a, subs, upper, position, aliases, table))
+                .collect();
+            table.intern(Type::ExtensionType {
+                decl,
+                args,
+                nullable,
+            })
+        }
+        Type::FutureOr { arg, nullable } => {
+            let arg = replace_rec(arg, subs, upper, position, aliases, table);
+            table.intern(Type::FutureOr { arg, nullable })
+        }
+        Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            nullable,
+        } => {
+            let keys: Vec<TypeParamId> = subs.keys().copied().collect();
+            // Bounds of the function's own type parameters that mention the
+            // replaced ones: the upper types (a rare shape), with the
+            // parameters renamed by the substitution.
+            if type_params
+                .iter()
+                .any(|&p| mentions_parameters(table.param(p).bound, &keys, table))
+            {
+                return substitute(t, upper, table);
+            }
+            let against = position.flip();
+            let ret = replace_rec(ret, subs, upper, position, aliases, table);
+            let positional: Box<[TypeId]> = positional
+                .iter()
+                .map(|&a| replace_rec(a, subs, upper, against, aliases, table))
+                .collect();
+            let optional: Box<[TypeId]> = optional
+                .iter()
+                .map(|&a| replace_rec(a, subs, upper, against, aliases, table))
+                .collect();
+            let named: Box<[(dartforge_intern::SymbolId, TypeId, bool)]> = named
+                .iter()
+                .map(|&(s, a, r)| (s, replace_rec(a, subs, upper, against, aliases, table), r))
+                .collect();
+            table.intern(Type::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                nullable,
+            })
+        }
+        Type::Record {
+            positional,
+            named,
+            nullable,
+        } => {
+            let positional: Box<[TypeId]> = positional
+                .iter()
+                .map(|&a| replace_rec(a, subs, upper, position, aliases, table))
+                .collect();
+            let named: Box<[(dartforge_intern::SymbolId, TypeId)]> = named
+                .iter()
+                .map(|&(s, a)| (s, replace_rec(a, subs, upper, position, aliases, table)))
+                .collect();
+            table.intern(Type::Record {
+                positional,
+                named,
+                nullable,
+            })
+        }
+        _ => substitute(t, upper, table),
+    }
 }
 
 /// Performs simultaneous substitution of type parameters by arguments.

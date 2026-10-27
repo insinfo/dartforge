@@ -1014,6 +1014,55 @@ const CASES: &[AnalyzerCase] = &[
             ("deprecated_member_use_from_same_package", 24, 25, 6),
         ],
     ),
+    (
+        "implementation_conformance.dart",
+        "class C { void m({int x = 0}) {} }\nabstract class I { void m({int x, int y}); }\nclass D extends C implements I {}\nclass G { foo(int x) => x; }\nclass H { foo(int x, {int? y}) => x; }\nclass K extends G implements H {\n  noSuchMethod(i) => 42;\n}\nabstract class P { var member; }\nabstract class Q { member() {} }\nabstract class B implements P, Q {}\nclass R extends B {}\n",
+        &[
+            ("invalid_implementation_override", 3, 7, 1),
+            ("invalid_implementation_override", 6, 7, 1),
+            ("inconsistent_inheritance_getter_and_method", 11, 16, 1),
+            ("non_abstract_class_inherits_abstract_member", 12, 7, 1),
+        ],
+    ),
+    (
+        "wildcard_duplicates.dart",
+        "void f(int _, int _) {}\nvoid g([int _ = 1, int _ = 2]) {}\nclass A<_, _> {\n  A(int _, int _);\n  void m(void _(), void _()) {}\n}\nvoid k(void cb(int _, int _)) {}\ntypedef T = void Function(int _, int _);\nvoid main() {\n  int _ = 1;\n  int _ = 2;\n  try {} catch (_, _) {}\n  var h = (int _, int _) {};\n  h(1, 2);\n}\n",
+        &[
+            ("duplicate_definition", 1, 19, 1),
+            ("duplicate_definition", 2, 24, 1),
+            ("duplicate_definition", 3, 12, 1),
+            ("duplicate_definition", 4, 16, 1),
+            ("duplicate_definition", 5, 25, 1),
+            ("duplicate_definition", 7, 27, 1),
+            ("duplicate_definition", 8, 38, 1),
+            ("duplicate_definition", 11, 7, 1),
+            ("duplicate_definition", 12, 20, 1),
+            ("duplicate_definition", 13, 23, 1),
+        ],
+    ),
+    (
+        "call_through_bound.dart",
+        "typedef F = T Function<T>(T);\nextension EB<T extends F> on T {\n  T get explicitCall => this.call;\n  T get implicitCall => call;\n}\nT viaBound<T extends void Function()>(T x) => x.call;\nT viaFunction<T extends Function>(T x) => x.call;\nS viaChain<T extends void Function(), S extends T>(S x) => x.call;\nT? nullAware<T extends void Function()>(T? x) => x?.call;\nvoid Function() direct(void Function() g) => g.call;\n",
+        &[("return_of_invalid_type", 4, 25, 4)],
+    ),
+    (
+        "function_type_bounds.dart",
+        "typedef Exactly<T> = T Function(T);\nextension StaticType<T> on T {\n  T expectStaticType<R extends Exactly<T>>() => this;\n}\nclass C<T> {\n  C(T x);\n}\ntypedef Bounded<T extends num> = C<T>;\ntypedef Direct<T> = C<T>;\nT mn<T extends num>(T x, T y) => x;\nvoid tp(T minFn<T extends num>(T x, T y)) {}\nclass A<X> {}\ntypedef Fcon<X extends A<X>> = Function(X);\nclass E<T extends void Function(U), U> {}\nclass D<X extends Function(X)> {}\nvoid f(Fcon a, List<Fcon> b, E e, D d) {}\nvoid main() {\n  Bounded.new.expectStaticType<Exactly<C<T> Function<T extends num>(T)>>();\n  Direct.new.expectStaticType<Exactly<C<T> Function<T>(T)>>();\n  tp(mn);\n  String s = Bounded.new;\n  String fcon = (A<Never> x) {} as Fcon;\n  print([s, fcon]);\n}\n",
+        &[
+            ("invalid_assignment", 21, 14, 11),
+            ("invalid_assignment", 22, 17, 23),
+        ],
+    ),
+    (
+        "default_types.dart",
+        "typedef F<X> = void Function<Y extends X>();\nF<X> toF<X>(X x) => throw 0;\ntypedef Finv<X> = X Function(X);\ntypedef Fcon<X> = Function(X);\nclass Ainv<X extends Finv<Y>, Y> {}\nclass Acon<X extends Fcon<Y>, Y> {}\nclass Self<X extends Function(X)> {}\nvoid f(Ainv a, Acon b, Self c) {\n  F<Ainv<Finv<dynamic>, dynamic>> x = toF(a);\n  F<Acon<Fcon<Never>, dynamic>> y = toF(b);\n  F<Self<Function(Never)>> z = toF(c);\n  print([x, y, z]);\n}\nclass A<X> {}\nmixin B<X, Y extends Fcon<X>> on A<X> {}\nclass C<X> extends A<X> with B {}\n",
+        &[("wrong_type_parameter_variance_in_superinterface", 16, 9, 1)],
+    ),
+    (
+        "promoted_assignment_call.dart",
+        "class B {\n  Object call() => 0;\n}\nvoid f() {\n  Object g() => 1;\n  Object x = g;\n  x as Object Function();\n  var y = x = B();\n  B b = y;\n  Object Function() h = x;\n  print([b, h]);\n}\n",
+        &[("invalid_assignment", 10, 25, 1)],
+    ),
 ];
 
 #[test]

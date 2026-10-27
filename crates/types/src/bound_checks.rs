@@ -116,6 +116,25 @@ pub fn arguments_out_of_bounds(
             _ => None,
         })
         .collect();
+    // A generic mixin written without arguments (`with M`): its
+    // `NamedType.type` is the type the mixin inference gave
+    // (`_MixinInference`), not the raw type's default types.
+    let mut inferred_mixins: HashMap<ast::TypeId, TypeId> = HashMap::new();
+    for (ci, class) in program.classes.iter().enumerate() {
+        let Some(data) = outline.classes.get(ci) else {
+            continue;
+        };
+        if data.mixins.len() != class.mixins.len() {
+            continue;
+        }
+        for (&(u, node), &inferred) in class.mixins.iter().zip(data.mixins.iter()) {
+            if u == unit
+                && matches!(&a.ty(node).kind, TypeKind::Named { args, .. } if args.is_empty())
+            {
+                inferred_mixins.insert(node, inferred);
+            }
+        }
+    }
     let mut out = Vec::new();
     for (i, t) in a.types.iter().enumerate() {
         if let TypeKind::Named { name, args } = &t.kind {
@@ -124,7 +143,11 @@ pub fn arguments_out_of_bounds(
                 continue;
             }
             let super_allowed = !without_super.contains(&id);
-            match v.registered(id) {
+            match inferred_mixins
+                .get(&id)
+                .copied()
+                .or_else(|| v.registered(id))
+            {
                 Some(r) => v.check_type(r, t.span, args, super_allowed, &mut out),
                 None if !args.is_empty() => v.check(t.span, name, args, super_allowed, &mut out),
                 None => {}
@@ -283,7 +306,11 @@ pub fn enum_instantiated_to_bounds(
         if params.is_empty() {
             continue;
         }
-        let args = crate::ops::instantiate_to_bounds(&params, &[], table, core);
+        let aliases = |td: dartforge_elements::model::TypedefId| {
+            let d = outline.typedefs.get(td.0 as usize)?;
+            Some((d.type_params.to_vec(), d.target_type))
+        };
+        let args = crate::ops::default_types(&params, None, &aliases, table, core);
         let mut v = Verifier {
             program,
             interner,
@@ -1014,6 +1041,29 @@ impl SimpleParameters for Box<[ast::Parameter]> {
         self.iter()
             .map(|p| (p.kind, p.ty, p.name.map(|n| n.sym), p.required))
             .collect()
+    }
+}
+
+/// The variance of an alias's parameter, as [`crate::ops::default_types`]
+/// needs it.
+pub(crate) enum AliasVariance {
+    Covariant,
+    Contravariant,
+    /// Unrelated (the parameter does not occur) or invariant.
+    Other,
+}
+
+/// The variance of parameter `p` of an alias in the alias's target `target`
+/// (the analyzer's `VarianceBuilder`).
+pub(crate) fn variance_of_alias_parameter(
+    table: &TypeTable,
+    target: TypeId,
+    p: TypeParamId,
+) -> AliasVariance {
+    match variance_in(table, target, p, Variance_::Co) {
+        Variance_::Co => AliasVariance::Covariant,
+        Variance_::Contra => AliasVariance::Contravariant,
+        Variance_::None_ | Variance_::In => AliasVariance::Other,
     }
 }
 
