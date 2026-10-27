@@ -1630,6 +1630,7 @@ pub(crate) fn constant_condition(m: &Engine<'_>, ctx: &Context, x: ExprId) -> Op
         | ExprKind::Unary { .. }
         | ExprKind::Binary { .. }
         | ExprKind::Is { .. }
+        | ExprKind::Call { .. }
         | ExprKind::Parenthesized(_) => c.bool_of(ctx.unit, x),
         _ => None,
     }

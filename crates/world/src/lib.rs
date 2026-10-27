@@ -1357,6 +1357,17 @@ impl<'a> Engine<'a> {
 
     /// The world saw a record type or literal.
     pub(crate) fn see_records(&mut self) {
+        if !self.records_seen && std::env::var("DARTFORGE_JSPROD_RECORDS_WHY").is_ok() {
+            let who = match self.cause {
+                Cause::Function(f) => {
+                    let p = self.e.program;
+                    let func = p.function(f);
+                    format!("{}::{}", p.library(func.library).uri, self.name(func.name))
+                }
+                other => format!("{other:?}"),
+            };
+            eprintln!("[jsprod] records seen in {who}");
+        }
         self.records_seen = true;
     }
 
@@ -1950,7 +1961,7 @@ impl<'a> Engine<'a> {
             Type::Record {
                 positional, named, ..
             } => {
-                self.records_seen = true;
+                self.see_records();
                 let mut ts: Vec<dartforge_types::table::TypeId> = positional.to_vec();
                 ts.extend(named.iter().map(|(_, t)| *t));
                 for x in ts {

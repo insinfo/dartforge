@@ -97,6 +97,36 @@ impl<'a> Constants<'a> {
         self.without_records.set(b);
     }
 
+    /// `JS_GET_FLAG('X')` of `dart:_foreign_helper`, with the values the
+    /// emitter writes (`emit_js::own_sdk::SdkMode::flag`: DDC with sound null
+    /// safety). `DARTFORGE_JSPROD_SDK_FLAGS=0` leaves them unknown here.
+    fn flag(&self, u: UnitId, target: ExprId, arguments: &ast::Arguments) -> Option<Value> {
+        let p = self.e.program;
+        let callee = match self.resolved(u, target)? {
+            Resolved::Element(Element::Function(f)) => *f,
+            _ => return None,
+        };
+        let func = p.function(callee);
+        if p.library(func.library).uri != "dart:_foreign_helper"
+            || self.e.interner.resolve(func.name) != "JS_GET_FLAG"
+            || arguments.args.len() != 1
+            || std::env::var("DARTFORGE_JSPROD_SDK_FLAGS").is_ok_and(|v| v == "0")
+        {
+            return None;
+        }
+        let ExprKind::String(lit) = &p.unit(u).ast.expr(arguments.args[0].value).kind else {
+            return None;
+        };
+        let name = lit.constant_value()?.to_string_lossy();
+        match name.as_str() {
+            "DEV_COMPILER" | "SOUND_NULL_SAFETY" | "VARIANCE" => Some(Value::Bool(true)),
+            "MINIFIED" | "LEGACY" | "EXTRA_NULL_SAFETY_CHECKS" | "PRINT_LEGACY_STARS" => {
+                Some(Value::Bool(false))
+            }
+            _ => None,
+        }
+    }
+
     /// Whether `x` reads `Rti.kindRecord` of `dart:_rti`.
     fn is_record_kind(&self, u: UnitId, x: ExprId) -> bool {
         let p = self.e.program;
@@ -293,6 +323,7 @@ impl<'a> Constants<'a> {
             | ExprKind::Unary { .. }
             | ExprKind::Binary { .. }
             | ExprKind::Is { .. }
+            | ExprKind::Call { .. }
             | ExprKind::Parenthesized(_) => self.bool_of(u, x),
             _ => None,
         }
@@ -400,6 +431,7 @@ impl<'a> Constants<'a> {
                 let b = self.expr(u, *right, locals, depth + 1)?;
                 Some(Value::Bool((a == b) == (*op == BinaryOp::Eq)))
             }
+            ExprKind::Call { target, arguments } => self.flag(u, *target, arguments),
             ExprKind::Identifier(n) => match self.resolved(u, x)? {
                 // A parameter read resolves as a local (or, in some
                 // scopes, as a parameter).
