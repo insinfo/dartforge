@@ -1,5 +1,34 @@
 # Estado do DartForge — 2026-10-27
 
+## Fechamento de 27/10/2026: nenhuma falha exclusiva do JS na suíte `tests/language`
+
+Commits `0506fa00` a `3db3a201`, validados localmente (suíte completa sem
+regressões, corpus JS **274/274** em dev e produção, testes e clippy de
+`emit_js` e `types`) e enviados.
+
+| Ferramenta | Iguais à VM 3.6.2 (2863 programas) |
+|---|---:|
+| DartForge JS dev, início da sessão (`f994cb83`) | 2526 |
+| DartForge JS dev, agora (`3db3a201`) | **2756** |
+| DDC 3.6.2 oficial | 2744 |
+
+Falhas que só o DartForge tem: **53 → 0**. As 107 que restam o DDC também
+erra (divergências da plataforma web: inteiros, `identical` de números,
+mensagens).
+
+Entraram neste fechamento: *tear-offs* genéricos de construtor (`C.new`,
+`GGen.new`) e por alias; instanciação para limites com parâmetros externos
+em escopo; captura das variáveis do inicializador do `for` pela primeira
+iteração (declaradas no cabeçalho e inicializadas dentro da primeira
+iteração); tipo de retorno de funções locais vindo da inferência comum
+(inclusive `return` em ramo morto) e tipo de retorno escrito mantido em
+funções `async`; `dynamic`/`void` contra `T?` resolvem `T` para `Object`
+(argumentos de tipo de extensão); `await` de variável de tipo promovida a
+tipo futuro; closure atribuída a local promovido inferida contra o tipo
+declarado, como no CFE (o `types` agora registra quais atribuições usaram o
+contexto promovido, sem mudar o analisador); instanciação implícita que
+resolve para `Never` em constantes.
+
 ## Continuação de 27/10/2026: JS acima do DDC na suíte `tests/language`
 
 Mais 21 commits, de `28a109bc` a `08c5d571`, todos validados localmente
