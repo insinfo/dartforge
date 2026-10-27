@@ -315,6 +315,74 @@ Testes ignorados de `dartforge-emit-native`: os 13 de `tests/contract.rs` passam
 gravados da matriz de desktop (`target/desktop-matrix`) e um sysroot Linux
 (`DARTFORGE_TEST_LINUX_SYSROOT`), que esta máquina não tem.
 
+## Rodada de 2026-10-27 (segunda continuação): prólogo e cópia de cabeçalhos
+
+Mesma máquina e método da continuação anterior (início `88e5457a`, recompilado de uma
+cópia exportada; fim `348d1e94`; processos alternados, medianas; servidor em 5 rodadas
+de 5 s com `bench/comparison/load_keepalive.dart`, 4 × 8 conexões). A carga oscilou
+entre 3 e 9; os ciclos e as instruções por pedido valem mais que o tempo de parede.
+
+| medida | início | fim | Dart AOT 3.6.2 |
+|---|---:|---:|---:|
+| servidor `/json` com keep-alive, pedidos/s (rodadas sem carga) | 50,4 mil | 55,6 mil | 72,0 mil |
+| instruções / ciclos por pedido | 293,5 mil / 86,8 mil | 270,5 mil / 79,1 mil | 211,9 mil / 69,9 mil |
+| `async`, ciclos / instruções | 5,14 G / 30,5 G | 5,16 G / 30,5 G | 5,05 G / 14,1 G |
+| árvores (só o núcleo, 20 rodadas), ciclos / instruções | 1,141 G / 5,52 G | 1,150 G / 5,52 G | 1,055 G / 5,02 G |
+
+Em tempo de parede sem carga (continuação anterior), `async` 254 contra 249 ms e
+árvores 13 contra 11 ms; nada desta rodada mexeu neles (diferenças de ±1% em ciclos
+são ruído). O servidor está em 77% do Dart (era 71% no começo do dia).
+
+**O que entrou** (validado como antes: testes de `dartforge-emit-native` com o LLVM
+22.1.8 no `PATH`, corpus nativo 160/160 em `--optimize` com `DARTFORGE_CHECK_SHADOW=1`,
+em `--gc-stress` e em desenvolvimento, corpus em Wasm 160/160, `clippy -D warnings`):
+
+- `fd3e882f`: a verificação de pilha no prólogo só fica nas funções com alguma
+  chamada que pode executar Dart (ou que gravam um global: inicializadores e caches de
+  constantes, cuja saída de falha impede a publicação parcial). Uma função que só chama
+  o runtime acrescenta um quadro, coberto pela folga abaixo do limite, e nenhum ciclo
+  de chamadas volta a ela. Exceções por tabelas e Wasm mantêm a verificação em todas.
+  Servidor +1,3% de pedidos/s; executável 16 KB menor.
+- `348d1e94`: `bytes[i]` de uma `List<int>` lê em linha a unidade da string de um
+  `CodeUnits` (o `String.codeUnits` que `_CopyingBytesBuilder.add` copia byte a byte
+  para cada cabeçalho) antes de cair no seletor. Servidor −3,5% de instruções por
+  pedido.
+
+**Chamadas ao sistema por pedido**, contadas com um interpositor de `write`/`read`/`ioctl`
+nos dois servidores: as mesmas (2,25 `write`, 2 `ioctl` `FIONREAD`, 1,24 `read` com
+dados). O DartForge faz ainda 0,24 `read` por pedido que voltam `EAGAIN`, que o Dart não
+faz (não investigado; provavelmente o dreno do pipe de interrupção na thread de E/S).
+Ou seja, a diferença é toda código de usuário na thread principal.
+
+**Onde vai o tempo agora** (thread principal): chamadas ao sistema 31%; código Dart
+gerado 28% mais 9,5% nas entradas uniformes; runtime 15% (alocação de `Uint8List` de
+8 KiB por `dartforge_typed_new_t` ~3%, com `memset` e `take_from_region`; RTI ~6%;
+`String.[]` pelo runtime ~1%; `_tlv_get_addr` das variáveis por thread do runtime
+1,5%); alocação e coleta ~7%.
+
+**Não feito: o redesenho do ARC.** O cabeçalho do objeto tem 16 bytes inteiramente
+ocupados (`state`, `flags`, `n`, `class_id`, `map`, `metadata`), lidos com deslocamentos
+fixos pelo código gerado, pelo runtime e pelos objetos estáticos da imagem; a contagem
+no cabeçalho exige crescer o cabeçalho para 24 bytes ou liberar `map`/`metadata`, uma
+mudança de layout que atravessa compilador, runtime, coletor e imagens. Além disso, no
+perfil das árvores em ARC simples 30% do tempo é a morte dos objetos dentro de
+`run_collection` (`drain_zeros` → `discard_located` → `take_edges`/`ref_positions`
+e `release` de cada filho), trabalho por objeto que a contagem no cabeçalho reduz mas
+não elimina; o coletor de ciclos (`candidates.rs`) e as provas de posse do ARC preparado
+dependem da tabela atual. É trabalho de vários dias com risco em todos os modos de
+memória, e não cabia nesta rodada sem deixar o ARC quebrado. Plano: (1) cabeçalho de 24
+bytes com a contagem e os bits de estado do ARC, `MetaArc` só para candidatos a ciclo;
+(2) `retain`/`release` e a barreira de escrita de campo como helpers `@df.*` em linha,
+com o caminho lento (zero, candidato a ciclo) no runtime; (3) o mapa de referências por
+classe guardado em cache para `take_edges`; (4) medir árvores, JSON e HTTP em ARC contra
+o tracing.
+
+**Próximos passos do servidor, em ordem:** o quadro de raízes só nos caminhos lentos e
+o contexto da thread em registrador (o maior item por chamada); a alocação de blocos
+médios (8 KiB) pela TLAB em vez de `allocate_block_outside_tlab`; `String.[]` Latin-1
+em linha (a tabela de strings de um caractere no contexto); o laço de
+`_CopyingBytesBuilder.add` desmembrado; RTI nos sítios genéricos de streams e futures.
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
@@ -333,7 +401,7 @@ gravados da matriz de desktop (`target/desktop-matrix`) e um sysroot Linux
    nulo e elimina `boolean_selector`, `source_span`, `string_scanner` e `stream_channel`, que
    aqui somam cerca de 160 KB sem minificação. No hello o piso vem dos membros de `Object`
    tratados como universais (`universal_names`): `toString` puxa o RTI inteiro.
-2. **Vazão HTTP ~75% do Dart** (53,8 contra 71,7 mil pedidos/s no fim de 2026-10-27).
+2. **Vazão HTTP ~77% do Dart** (55,6 contra 72,0 mil pedidos/s no fim de 2026-10-27).
    Perfil achatado; os ganhos estruturais são o prólogo das funções (contexto da thread
    em registrador, quadro de raízes só nos caminhos lentos), o modelo `async` da VM e
    menos chamadas ao runtime em Rust.
