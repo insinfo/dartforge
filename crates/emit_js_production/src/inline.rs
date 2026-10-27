@@ -257,6 +257,12 @@ fn stable_argument(e: &Expression<'_>) -> bool {
         | Expression::NullLiteral(_)
         | Expression::ThisExpression(_) => true,
         Expression::ParenthesizedExpression(p) => stable_argument(&p.expression),
+        // A deduplicated *string* (`minify::dedup_strings`): a `var` with a
+        // literal value, declared and initialized first thing in the file.
+        Expression::Identifier(i) => i
+            .name
+            .strip_prefix("t$S")
+            .is_some_and(|d| !d.is_empty() && d.bytes().all(|c| c.is_ascii_digit())),
         _ => false,
     }
 }
@@ -642,7 +648,7 @@ impl Sites<'_> {
             .map(|a| a.as_expression())
             .collect::<Option<_>>()?;
         if d.simple_args && !args.iter().all(|a| stable_argument(a)) {
-            return None;
+            return self.drop_unused_tail(it, d, &args);
         }
         // The arguments of unused parameters are dropped.
         if args.iter().zip(&d.used).any(|(a, &u)| !u && !droppable(a)) {
@@ -659,6 +665,43 @@ impl Sites<'_> {
             pos = e;
         }
         out.push_str(&self.source[pos as usize..d.expr.1 as usize]);
+        out.push(')');
+        Some(out)
+    }
+}
+
+impl Sites<'_> {
+    /// A call that cannot be inlined still loses the trailing arguments of
+    /// parameters the body never reads, when they have no effect
+    /// ([`droppable`]): the `checkBinding(old, new, "expr", location)` of the
+    /// ngdart views, whose body reads two (3,370 calls in limitless_ui).
+    fn drop_unused_tail(
+        &self,
+        it: &oxc_ast::ast::CallExpression<'_>,
+        d: &Def,
+        args: &[&Expression<'_>],
+    ) -> Option<String> {
+        if std::env::var("DARTFORGE_JSPROD_DROP_UNUSED_ARGS").is_ok_and(|v| v == "0") {
+            return None;
+        }
+        let mut keep = args.len();
+        while keep > 0 && !d.used[keep - 1] && droppable(args[keep - 1]) {
+            keep -= 1;
+        }
+        if keep == args.len() {
+            return None;
+        }
+        let callee = it.callee.span();
+        let mut out = self.source[callee.start as usize..callee.end as usize].to_string();
+        out.push('(');
+        let kept: Vec<&str> = args[..keep]
+            .iter()
+            .map(|a| {
+                let s = a.span();
+                &self.source[s.start as usize..s.end as usize]
+            })
+            .collect();
+        out.push_str(&kept.join(", "));
         out.push(')');
         Some(out)
     }
@@ -869,7 +912,7 @@ mod tests {
     #[test]
     fn drops_the_arguments_of_unused_parameters() {
         let src = wrap(
-            "f = function(a, b, c = null, d = null) { return !g(a, b); };\nh(f(x.y, z, \"expr\", loc));\nh(f(x, z));\nh(f(x, z, w.v));\nh(f(1, 2, \"expr\", 5));",
+            "f = function(a, b, c = null, d = null) { return !g(a, b); };\nh(f(x.y, z, \"expr\", loc));\nh(f(x, z));\nh(f(x, z, w.v));\nh(f(1, 2, \"expr\", 5));\nh(f(x.y, z, \"expr\", t$S3));",
         );
         let out = apply(&src).unwrap();
         // The callee is looked up in the body; mutable arguments stay eager.
@@ -878,6 +921,9 @@ mod tests {
         assert!(out.contains("h((!g((1), (2))))"), "{out}");
         // A property read can throw: its argument is not dropped.
         assert!(out.contains("h(f(x, z, w.v))"), "{out}");
+        // Not inlined (the arguments are not stable), the call still loses
+        // the arguments of the unused parameters that cannot throw.
+        assert!(out.contains("h(f(x.y, z));"), "{out}");
     }
 
     #[test]
