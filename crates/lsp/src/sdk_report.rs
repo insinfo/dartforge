@@ -3,8 +3,9 @@
 //! The binary discovers the SDK at startup
 //! ([`dartforge_elements::sdk_discovery::search`]: `DARTFORGE_SDK_LIB`, the
 //! SDK next to the executable, `DART_SDK`, `FLUTTER_ROOT`, `dart`/`flutter` on
-//! the `PATH`, well-known install locations); an `initializationOptions.sdkPath`
-//! sent by the client overrides it. After `initialized`, the server says once
+//! the `PATH`, well-known install locations), skipping a candidate that
+//! exists but fails to load; an `initializationOptions.sdkPath` sent by the
+//! client overrides it. After `initialized`, the server says once
 //! through `window/logMessage` which SDK it uses (or what it tried) and, without
 //! any SDK, shows a single `window/showMessage` warning explaining how to
 //! configure one: without an SDK only the syntactic features answer.

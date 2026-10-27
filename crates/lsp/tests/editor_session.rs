@@ -918,6 +918,69 @@ fn missing_sdk_is_reported_once() {
 }
 
 #[test]
+fn an_sdk_that_fails_to_load_falls_through_to_the_next() {
+    let dir = Scratch::new("fallthrough");
+    let home = dir.0.join("home");
+    fs::create_dir_all(&home).unwrap();
+    // Both look like SDKs (`libraries.json` and `core/core.dart` exist), but
+    // one has a corrupt `libraries.json` and the other's `dart:core` points
+    // to a file that cannot be read.
+    let corrupt = write_sdk(&dir.0.join("corrupt"));
+    fs::write(corrupt.join("lib/libraries.json"), "{ not json").unwrap();
+    let unreadable = write_sdk(&dir.0.join("unreadable"));
+    fs::write(
+        unreadable.join("lib/libraries.json"),
+        r#"{"dartdevc":{"libraries":{"core":{"uri":"core/missing.dart","patches":[]}}}}"#,
+    )
+    .unwrap();
+    let flutter = dir.0.join("flutter");
+    let good = write_sdk(&flutter.join("bin/cache"));
+    assert!(good.ends_with("bin/cache/sdk"));
+    fs::rename(&good, flutter.join("bin/cache/dart-sdk")).unwrap();
+    let mut variables = without_sdk(&home);
+    variables.retain(|(k, _)| !matches!(*k, "DARTFORGE_SDK_LIB" | "DART_SDK" | "FLUTTER_ROOT"));
+    variables.push((
+        "DARTFORGE_SDK_LIB",
+        Some(corrupt.join("lib").display().to_string()),
+    ));
+    variables.push(("DART_SDK", Some(unreadable.display().to_string())));
+    variables.push(("FLUTTER_ROOT", Some(flutter.display().to_string())));
+    let borrowed: Vec<(&str, Option<&str>)> =
+        variables.iter().map(|(k, v)| (*k, v.as_deref())).collect();
+    let mut s = Session::start(&borrowed);
+    handshake(&mut s, None, json!({}));
+    let file = dir.write("a.dart", "int twice(int x) => x + x;\nvar y = twice(2);\n");
+    let uri = uri_of(&file);
+    s.notify(
+        "textDocument/didOpen",
+        json!({"textDocument": {"uri": uri, "languageId": "dart", "version": 1,
+                                "text": "int twice(int x) => x + x;\nvar y = twice(2);\n"}}),
+    );
+    let h = s.at("textDocument/hover", &uri, (1, 9), json!({}));
+    assert!(hover_text(&h).contains("twice"), "semantic hover: {h}");
+    let (code, stderr, notifications, errors) = s.finish();
+    assert_healthy(code, &stderr, &notifications, &errors);
+    let logs = log_messages(&notifications, "window/logMessage");
+    assert!(
+        logs.iter()
+            .any(|l| l.starts_with("Using the Dart SDK") && l.contains("FLUTTER_ROOT")),
+        "{logs:?}"
+    );
+    let skipped = logs
+        .iter()
+        .find(|l| l.starts_with("Dart SDK candidates skipped"))
+        .unwrap_or_else(|| panic!("{logs:?}"));
+    assert!(
+        skipped.contains("DARTFORGE_SDK_LIB: ")
+            && skipped.contains("libraries.json is invalid")
+            && skipped.contains("DART_SDK: ")
+            && skipped.contains("missing.dart"),
+        "{skipped}"
+    );
+    assert!(log_messages(&notifications, "window/showMessage").is_empty());
+}
+
+#[test]
 fn sdk_path_option_overrides_discovery() {
     let dir = Scratch::new("option");
     let sdk = write_sdk(&dir.0);

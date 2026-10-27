@@ -156,20 +156,16 @@ impl SemanticAnalyzer {
 
     /// [`SemanticAnalyzer::discover`], with the report of what was chosen and
     /// what was refused, for the client's log ([`crate::SdkReport`]).
+    ///
+    /// A candidate that exists but does not load is refused (and listed in
+    /// the report) and the next one is tried.
     pub fn discover_reporting() -> (Self, crate::SdkReport) {
-        let search = dartforge_elements::sdk_discovery::search();
-        // The SDK as the analyzer sees it (M1): without patches, with the dart2js
-        // internal libraries.
-        let (sdk, error) = match search
-            .found
-            .as_ref()
-            .map(|f| SdkLayout::load_as_analyzer(&f.lib))
-        {
-            Some(Ok(sdk)) => (Some(sdk), None),
-            Some(Err(e)) => (None, Some(e)),
-            None => (None, None),
-        };
-        (Self::new(sdk), crate::SdkReport::from_search(search, error))
+        let mut sdk = None;
+        let search = dartforge_elements::sdk_discovery::search_with(&mut |lib| {
+            sdk = Some(load_sdk(lib)?);
+            Ok(())
+        });
+        (Self::new(sdk), crate::SdkReport::from_search(search, None))
     }
 
     /// In-memory generation with the current texts of the open `.dart`
@@ -276,6 +272,24 @@ impl SemanticAnalyzer {
         let project = self.project(documents, uri)?;
         references_in(&project, uri, offset)
     }
+}
+
+/// Loads the SDK whose `lib/` is `lib` as the analyzer sees it (M1: without
+/// patches, with the dart2js internal libraries) and checks that `dart:core`
+/// can be read, so that an SDK that would only fail on the first analysis is
+/// refused at once.
+///
+/// # Errors
+/// Why the SDK is not usable: an unreadable or invalid `libraries.json`,
+/// no `dart:core`, or a `core.dart` that cannot be read.
+fn load_sdk(lib: &std::path::Path) -> Result<SdkLayout, String> {
+    let sdk = SdkLayout::load_as_analyzer(lib)?;
+    let core = sdk
+        .library("core")
+        .ok_or_else(|| "it declares no dart:core library".to_string())?;
+    std::fs::read_to_string(&core.path)
+        .map_err(|e| format!("could not read {}: {e}", core.path.display()))?;
+    Ok(sdk)
 }
 
 /// The references of what is at `offset` of `uri`, in the given project.
@@ -560,7 +574,7 @@ impl Analyzer for SemanticAnalyzer {
     }
 
     fn use_sdk(&mut self, lib: &std::path::Path) -> Result<(), String> {
-        let sdk = SdkLayout::load_as_analyzer(lib)?;
+        let sdk = load_sdk(lib)?;
         self.sdk = Some(sdk);
         self.session.invalidate();
         self.wide_session.invalidate();

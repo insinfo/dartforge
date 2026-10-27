@@ -17,7 +17,15 @@
 //!    `~/flutter`, `~/fvm/default`…). Editors started from a desktop launcher
 //!    often run without the user's shell `PATH`, which is why these exist.
 //!
-//! A candidate is valid when it has `libraries.json` and `core/core.dart`.
+//! A candidate is valid when it has `libraries.json` and `core/core.dart`
+//! and, with [`search_with`], when the caller manages to load it: a candidate
+//! that exists but fails to load (a corrupt `libraries.json`, an unreadable
+//! `core.dart`) is recorded as refused and the search goes on to the next one.
+//!
+//! The SDK's version does not change the order: an explicit choice
+//! (`DARTFORGE_SDK_LIB`, `DART_SDK`…) wins even when a 3.6.x SDK exists further
+//! down the list. The tools report the version of the chosen SDK, and the
+//! language server warns when it is not 3.6.x.
 
 use std::path::{Path, PathBuf};
 
@@ -84,7 +92,25 @@ pub fn sdk_version(lib: &Path) -> Option<String> {
 
 /// Runs the discovery described in the module documentation.
 pub fn search() -> SdkSearch {
-    let mut s = Search::default();
+    search_with(&mut |_| Ok(()))
+}
+
+/// [`search`], where a candidate is chosen only when `load` accepts its
+/// `lib/` too; a refusal is listed in [`SdkSearch::rejected`] as
+/// `<source>: <lib> (could not be loaded: <reason>)` and the next candidate
+/// is tried. `load` typically loads the SDK and keeps it.
+///
+/// ```
+/// // Nothing loads: every candidate on this machine is refused.
+/// let search = dartforge_elements::sdk_discovery::search_with(&mut |_| Err("refused".into()));
+/// assert!(search.found.is_none());
+/// ```
+pub fn search_with(load: &mut dyn FnMut(&Path) -> Result<(), String>) -> SdkSearch {
+    let mut s = Search {
+        found: None,
+        rejected: Vec::new(),
+        load,
+    };
     s.run();
     SdkSearch {
         found: s.found,
@@ -92,21 +118,19 @@ pub fn search() -> SdkSearch {
     }
 }
 
-#[derive(Default)]
-struct Search {
+struct Search<'a> {
     found: Option<FoundSdk>,
     rejected: Vec<String>,
+    /// The caller's check of a valid candidate ([`search_with`]).
+    load: &'a mut dyn FnMut(&Path) -> Result<(), String>,
 }
 
-impl Search {
-    /// Tries `path` (an SDK root or `lib/`). `named` candidates (the user set
-    /// them) are listed as refused even when they do not exist.
-    fn probe(&mut self, source: &str, path: &Path, named: bool) -> bool {
-        if self.found.is_some() {
-            return true;
-        }
-        match sdk_lib(path) {
-            Ok(lib) => {
+impl Search<'_> {
+    /// Chooses `lib` (already checked by [`sdk_lib`]) if the caller loads it;
+    /// otherwise records why not.
+    fn accept(&mut self, source: &str, lib: PathBuf) -> bool {
+        match (self.load)(&lib) {
+            Ok(()) => {
                 self.found = Some(FoundSdk {
                     version: sdk_version(&lib),
                     lib,
@@ -114,6 +138,24 @@ impl Search {
                 });
                 true
             }
+            Err(e) => {
+                self.rejected.push(format!(
+                    "{source}: {} (could not be loaded: {e})",
+                    lib.display()
+                ));
+                false
+            }
+        }
+    }
+
+    /// Tries `path` (an SDK root or `lib/`). `named` candidates (the user set
+    /// them) are listed as refused even when they do not exist.
+    fn probe(&mut self, source: &str, path: &Path, named: bool) -> bool {
+        if self.found.is_some() {
+            return true;
+        }
+        match sdk_lib(path) {
+            Ok(lib) => self.accept(source, lib),
             Err(reason) => {
                 if named || path.exists() {
                     self.rejected
@@ -251,20 +293,28 @@ impl Search {
         false
     }
 
-    /// The first valid of `candidates`; when none is, one refusal for `source`.
+    /// The first valid of `candidates` that loads; when none is valid, one
+    /// refusal for `source` (each candidate that failed to load is already
+    /// listed on its own). The same SDK reached through several paths is
+    /// tried once.
     fn first_valid(&mut self, source: &str, candidates: &[PathBuf]) -> bool {
+        let mut tried: Vec<PathBuf> = Vec::new();
         for c in candidates {
             if let Ok(lib) = sdk_lib(c) {
-                self.found = Some(FoundSdk {
-                    version: sdk_version(&lib),
-                    lib,
-                    source: source.to_string(),
-                });
-                return true;
+                let key = lib.canonicalize().unwrap_or_else(|_| lib.clone());
+                if tried.contains(&key) {
+                    continue;
+                }
+                tried.push(key);
+                if self.accept(source, lib) {
+                    return true;
+                }
             }
         }
-        self.rejected
-            .push(format!("{source}: no Dart SDK found around it"));
+        if tried.is_empty() {
+            self.rejected
+                .push(format!("{source}: no Dart SDK found around it"));
+        }
         false
     }
 }
@@ -355,7 +405,12 @@ mod tests {
         std::fs::create_dir_all(d.join("bin")).unwrap();
         std::fs::write(d.join("bin/dart"), "#!/bin/sh\n").unwrap();
         fake_sdk(&flutter_sdk(&d), "3.6.2");
-        let mut s = Search::default();
+        let mut load = accept_all;
+        let mut s = Search {
+            found: None,
+            rejected: Vec::new(),
+            load: &mut load,
+        };
         let bin = d.join("bin");
         assert!(s.first_valid("test", &[bin.join(".."), bin.join("cache/dart-sdk")]));
         assert_eq!(
@@ -366,9 +421,61 @@ mod tests {
         std::fs::remove_dir_all(&d).unwrap();
     }
 
+    fn accept_all(_: &Path) -> Result<(), String> {
+        Ok(())
+    }
+
+    #[test]
+    fn a_candidate_that_fails_to_load_falls_through_to_the_next() {
+        let d = scratch("load-fails");
+        fake_sdk(&d.join("broken"), "3.13.0");
+        fake_sdk(&d.join("good"), "3.6.2");
+        let broken_lib = d.join("broken/lib");
+        let mut load = |lib: &Path| {
+            if lib == broken_lib {
+                Err("libraries.json is invalid".to_string())
+            } else {
+                Ok(())
+            }
+        };
+        let mut s = Search {
+            found: None,
+            rejected: Vec::new(),
+            load: &mut load,
+        };
+        assert!(!s.probe("DART_SDK", &d.join("broken"), true));
+        assert!(s.probe("FLUTTER_ROOT", &d.join("good"), true));
+        let found = s.found.clone().unwrap();
+        assert_eq!(found.lib, d.join("good/lib"));
+        assert_eq!(found.version.as_deref(), Some("3.6.2"));
+        assert_eq!(s.rejected.len(), 1, "{:?}", s.rejected);
+        assert!(
+            s.rejected[0].starts_with("DART_SDK: ")
+                && s.rejected[0].ends_with("(could not be loaded: libraries.json is invalid)"),
+            "{:?}",
+            s.rejected
+        );
+        // Several paths around one `dart`: the broken one is skipped, once.
+        let mut s = Search {
+            found: None,
+            rejected: Vec::new(),
+            load: &mut load,
+        };
+        let candidates = [d.join("broken"), d.join("broken/lib"), d.join("good")];
+        assert!(s.first_valid("dart on the PATH", &candidates));
+        assert_eq!(s.found.unwrap().lib, d.join("good/lib"));
+        assert_eq!(s.rejected.len(), 1, "{:?}", s.rejected);
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
     #[test]
     fn named_candidates_are_reported_even_when_missing() {
-        let mut s = Search::default();
+        let mut load = accept_all;
+        let mut s = Search {
+            found: None,
+            rejected: Vec::new(),
+            load: &mut load,
+        };
         assert!(!s.probe("DART_SDK", Path::new("/definitely/not/here"), true));
         assert!(!s.probe(
             "a well-known install location",
