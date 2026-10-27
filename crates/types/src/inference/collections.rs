@@ -1014,8 +1014,17 @@ fn visit(
             };
             inf.visited_spreads.insert(*key, tk);
             inf.visited_spreads.insert(*value, tv);
-            restrict(inf, &mut gi, tk, 0);
-            restrict(inf, &mut gi, tv, 1);
+            if shape == Shape::Map {
+                restrict(inf, &mut gi, tk, 0);
+                restrict(inf, &mut gi, tv, 1);
+            } else {
+                // A map entry outside a map (code being typed: `[1, a: b]`)
+                // contributes `dynamic` as the element type
+                // (`_computeElementType`, `typed_literal_resolver.dart:195-197`:
+                // "This error will be reported elsewhere").
+                let d = inf.core.dynamic_;
+                restrict(inf, &mut gi, d, 0);
+            }
         }
         CollectionElement::Spread { value, null_aware } => {
             let c = match shape {
