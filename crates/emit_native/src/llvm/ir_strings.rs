@@ -41,7 +41,10 @@ use std::fmt::Write;
 /// * `@df.string_hash(s)`: the hash in the header, or `@dartforge_string_hash` on the
 ///   first query;
 /// * `@df.string_equals(a, b)`: `==` between two strings (identity; different lengths and
-///   different computed hashes give false without a call);
+///   different computed hashes give false without a call; two strings of the same
+///   class are compared unit by unit inline, the one-character strings of
+///   `String.[]` among them, whose hash is often not computed yet; only a
+///   one-byte string against a two-byte one goes to the runtime);
 /// * `@df.string_equals_object(a, b)`: `==` of a string with an `Object?` (the
 ///   overlay's `_StringBase.==`): what is not a string is different.
 pub const HELPERS: &str = "\
@@ -159,7 +162,36 @@ hashes:
   %mh = icmp eq i32 %ha, %hb
   %algum = or i1 %az, %bz
   %talvez = or i1 %algum, %mh
-  br i1 %talvez, label %lento, label %nao
+  br i1 %talvez, label %classes, label %nao
+classes:
+  %pca = getelementptr inbounds i8, ptr %pa, i64 2
+  %pcb = getelementptr inbounds i8, ptr %pb, i64 2
+  %ca = load i32, ptr %pca, align 4, !invariant.load !{}
+  %cb = load i32, ptr %pcb, align 4, !invariant.load !{}
+  %mc = icmp eq i32 %ca, %cb
+  %ca6 = sub i32 %ca, 6
+  %texto = icmp ult i32 %ca6, 2
+  %mesma = and i1 %mc, %texto
+  br i1 %mesma, label %unidades, label %lento
+unidades:
+  %dois = icmp ne i32 %ca, 6
+  %sh = zext i1 %dois to i64
+  %nb = shl i64 %la, %sh
+  %ua = getelementptr inbounds i8, ptr %pa, i64 22
+  %ub = getelementptr inbounds i8, ptr %pb, i64 22
+  br label %laco
+laco:
+  %i = phi i64 [ 0, %unidades ], [ %i1, %compara ]
+  %fim = icmp eq i64 %i, %nb
+  br i1 %fim, label %sim, label %compara
+compara:
+  %xa = getelementptr inbounds i8, ptr %ua, i64 %i
+  %xb = getelementptr inbounds i8, ptr %ub, i64 %i
+  %ba = load i8, ptr %xa, align 1
+  %bb = load i8, ptr %xb, align 1
+  %i1 = add i64 %i, 1
+  %eb = icmp eq i8 %ba, %bb
+  br i1 %eb, label %laco, label %nao
 lento:
   %r = call i8 @dartforge_string_equals(i64 %a, i64 %b)
   %rb1 = icmp ne i8 %r, 0

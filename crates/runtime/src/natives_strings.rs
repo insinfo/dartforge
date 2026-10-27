@@ -502,6 +502,52 @@ fn new_accumulator_with(units: Vec<u16>) -> i64 {
     })
 }
 
+/// The common `StringBuffer.write` of a string, read from the two block headers
+/// as the generated code reads them: the accumulator's attachment and the
+/// string's units, without the heap's borrow and handle lookups. The heap is
+/// only entered when the native storage changed size (the attachment
+/// accounting). `None` for anything else (not an accumulator with storage, not a
+/// string): the caller's general path decides.
+#[allow(unsafe_code)]
+fn write_string_by_headers(accumulator: i64, obj: i64) -> Option<i64> {
+    use crate::layout::{HANDLE_OFFSET, Header, cid, flags, offsets};
+    if !crate::layout::is_object(accumulator) || !crate::layout::is_object(obj) {
+        return None;
+    }
+    let a = (accumulator - HANDLE_OFFSET) as *const u8;
+    let o = (obj - HANDLE_OFFSET) as *const u8;
+    // SAFETY: the handles of live objects the generated code passed: each points
+    // to its block header; strings and the accumulator do not move, and nothing
+    // below collects.
+    unsafe {
+        let (ah, oh) = (&*a.cast::<Header>(), &*o.cast::<Header>());
+        if ah.class_id != cid::STRING_ACCUMULATOR || ah.flags & flags::ATTACHMENT == 0 {
+            return None;
+        }
+        let storage = *a.add(offsets::ATTACHMENT).cast::<*mut TextAccumulator>();
+        if storage.is_null() {
+            return None;
+        }
+        let len = *o.add(offsets::LENGTH).cast::<i64>() as usize;
+        let units = o.add(offsets::UNITS);
+        let text = match oh.class_id {
+            cid::ONE_BYTE_STRING => crate::text::TextRef::OneByte(std::slice::from_raw_parts(units, len)),
+            cid::TWO_BYTE_STRING => {
+                crate::text::TextRef::TwoByte(std::slice::from_raw_parts(units.cast::<u16>(), len))
+            }
+            _ => return None,
+        };
+        let storage = &mut *storage;
+        let before = storage.accounted_bytes();
+        storage.append(text);
+        let after = storage.accounted_bytes();
+        if before != after {
+            HEAP.with(|heap| heap.borrow_mut().adjust_attachment(accumulator, after));
+        }
+        Some(len as i64)
+    }
+}
+
 /// Native storage of a live accumulator; only its owner isolate may mutate it.
 ///
 /// # Panics
@@ -549,6 +595,9 @@ pub extern "C" fn dartforge_native_DartForge_sb_write(accumulator: i64, text: i6
 pub extern "C" fn dartforge_native_DartForge_sb_write_if_string(accumulator: i64, obj: i64) -> i64 {
     if !crate::layout::is_object(obj) {
         return -1;
+    }
+    if let Some(n) = write_string_by_headers(accumulator, obj) {
+        return n;
     }
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
