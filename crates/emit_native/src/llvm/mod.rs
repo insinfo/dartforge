@@ -4258,17 +4258,18 @@ impl<'a> LlvmEmitter<'a> {
         }
         self.externals
             .insert("llvm.trap".into(), "declare void @llvm.trap()".into());
-        // The published preparation counts every owner in the generated code,
-        // young objects included: the pure ARC. Without it the runtime keeps the
-        // counts, and young objects go through the nursery. The SDK and the
-        // program agree through the same configuration (`target::arc_prepared`).
-        let prepared = self.module.arc_prepared
-            || self.module.arc_aot_ports.is_some()
-            || crate::target::arc_prepared().unwrap_or(true);
+        // Young objects go through the nursery, prepared or not (the prepared
+        // code's owners are roots of the minor collection, and promotion counts
+        // them); `DARTFORGE_ARC_NURSERY=0` keeps the pure ARC. The SDK and the
+        // program agree through the same configuration (`target::arc_nursery`).
         writeln!(
             self.out,
             "  call void @dartforge_memory_arc{}_v1()",
-            if prepared { "" } else { "_nursery" }
+            if crate::target::arc_nursery() {
+                "_nursery"
+            } else {
+                ""
+            }
         )
         .unwrap();
         self.out.push_str(

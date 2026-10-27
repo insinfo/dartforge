@@ -639,12 +639,12 @@ pub extern "C" fn dartforge_memory_arc_v1() {
 }
 
 /// Enables the ARC with the nursery: the entry of a program compiled with
-/// `--memory=arc` without the published preparation (whose code counts every
-/// owner itself, young objects included) calls this instead of
-/// [`dartforge_memory_arc_v1`]. Young objects are not counted — the minor
-/// collection frees the dead ones in bulk, like the tracing sweep — and only
-/// what survives to promotion enters the counts (`Heap::enable_arc_mode`).
-/// `DARTFORGE_ARC_NURSERY=0` keeps the pure ARC (measurement).
+/// `--memory=arc` calls this instead of [`dartforge_memory_arc_v1`] (the pure
+/// ARC, kept by compiling with `DARTFORGE_ARC_NURSERY=0`). Young objects are not
+/// counted — the minor collection frees the dead ones in bulk, like the tracing
+/// sweep — and only what survives to promotion enters the counts
+/// (`Heap::enable_arc_mode`); the owners of prepared code are roots of the minor
+/// collection, and promotion counts them.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_memory_arc_nursery_v1() {
     HEAP.with(|heap| heap.borrow_mut().enable_arc_mode(true));

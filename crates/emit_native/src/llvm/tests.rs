@@ -630,14 +630,9 @@ fn arc_entry_rejects_incompatible_abi_before_registrations() {
             assert!(!body.contains("@dartforge_arc_verify_abi"));
             continue;
         }
-        // The prepared code counts young owners itself (pure ARC); the
-        // unprepared program leaves them to the nursery.
-        let activation = if prepared {
-            "@dartforge_memory_arc_v1()"
-        } else {
-            "@dartforge_memory_arc_nursery_v1()"
-        };
-        let activate = body.find(activation).unwrap();
+        // Prepared or not, young objects go through the nursery.
+        let activate = body.find("@dartforge_memory_arc_nursery_v1()").unwrap();
+        assert!(!body.contains("@dartforge_memory_arc_v1()"));
         let check = body.find("@dartforge_arc_verify_abi(i64 1)").unwrap();
         let compatible = body.find("df.arc.compatible:\n").unwrap();
         assert!(activate < check && check < compatible);

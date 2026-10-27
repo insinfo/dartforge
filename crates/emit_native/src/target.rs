@@ -256,6 +256,15 @@ pub fn arc_memory() -> Result<bool, String> {
     }
 }
 
+/// The young generation of ARC memory (docs/ARC-IMPLEMENTACAO.md): the entry
+/// turns ARC on through `dartforge_memory_arc_nursery_v1`, and young objects are
+/// not counted until a minor collection promotes them. `DARTFORGE_ARC_NURSERY=0`
+/// keeps the pure ARC (`dartforge_memory_arc_v1`, every write counted on the
+/// spot), for measurement; the variable goes into the key of the compiled SDK.
+pub fn arc_nursery() -> bool {
+    !std::env::var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "0")
+}
+
 /// The published ARC preparation (owners in the HIR, `optimize::arc`), through the
 /// variable `DARTFORGE_ARC_PREPARED=1`: only with ARC memory. Absent,
 /// ARC follows the legacy regime of the CLI (no tokens in the code).

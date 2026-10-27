@@ -781,6 +781,11 @@ fn sdk_key_with_overlay(
     if crate::target::arc_prepared().unwrap_or(false) {
         h.update(b"arc=prepared_v1\0");
     }
+    // The pure ARC activates another memory mode at the entry of each isolate.
+    if std::env::var("DARTFORGE_MEMORY").is_ok_and(|v| v == "arc") && !crate::target::arc_nursery()
+    {
+        h.update(b"arc=pure_v1\0");
+    }
     // The roots mode changes the code (`llvm/mod.rs`); the default does not enter.
     if std::env::var("DARTFORGE_ROOTS").is_ok_and(|v| v == "maps") {
         // `_v2`: with the unwind table on Unix (`with_uwtable`).
