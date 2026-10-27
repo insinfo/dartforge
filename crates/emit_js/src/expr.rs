@@ -916,6 +916,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     subst.insert(p.id, t.clone());
                     rtis.push(self.rti(&t));
                 }
+                if let Some((td, name)) = self.alias_tearoffs.get(&js.code).cloned() {
+                    let targs: Vec<Ty> = type_params
+                        .iter()
+                        .map(|p| subst.get(&p.id).cloned().unwrap_or(Ty::Dynamic))
+                        .collect();
+                    if let Some(r) = self.alias_ctor_tearoff(td, &name, targs) {
+                        return r;
+                    }
+                }
                 let code = format!("dart.gbind({}, {})", js.code, rtis.join(", "));
                 (
                     Js::prim(self.constant_instantiation(&js, code, constant)),
@@ -985,7 +994,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// or top-level function and the type arguments are `constant`, a
     /// constant (`identical` to every other one), as the CFE makes it.
     fn constant_instantiation(&mut self, f: &Js, code: String, constant: bool) -> String {
-        if !constant || !f.code.starts_with("dart.gFn(L$") {
+        // A constant generic function: a top-level one, or a cached
+        // constant such as a generic constructor tear-off.
+        let constant_function = f.code.starts_with("dart.gFn(L$")
+            || f.code.starts_with("L$") && f.code.contains(".$C(");
+        if !constant || !constant_function {
             return code;
         }
         self.m.note_const_record(self.lib);
@@ -1132,6 +1145,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             ExprKind::TypeArguments { target, type_args } => {
                 let tys: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
+                // `prefix.C<int>`: a type literal of the prefixed class.
+                if let ExprKind::Property {
+                    target: pt,
+                    name: pn,
+                    ..
+                } = &self.expr(*target).kind
+                    && let ExprKind::Identifier(pid) = &self.expr(*pt).kind
+                    && let IdentTarget::Prefix(p) = self.ident_target(pid.sym, *pt)
+                    && let Some(Element::Class(c)) = self
+                        .ctx
+                        .program
+                        .lookup_prefixed_in_unit(self.unit, p, pn.sym)
+                        .and_then(|b| b.getter)
+                {
+                    let t = Ty::Iface {
+                        class: c,
+                        args: tys,
+                        nullable: false,
+                    };
+                    let rti = self.rti(&t);
+                    return (
+                        Js::prim(format!("dart_rti.createRuntimeType({rti})")),
+                        self.ctx.t_type(),
+                    );
+                }
                 if let ExprKind::Identifier(id) = &self.expr(*target).kind {
                     if let IdentTarget::Element(Element::Class(c)) =
                         self.ident_target(id.sym, *target)
@@ -3996,9 +4034,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     Some(self.emit_element_get(el, name))
                 }
                 IdentTarget::Element(Element::Class(c)) => self.static_member_get(c, name),
-                // `Alias.x`: a static of the class the alias denotes.
+                // `Alias.x`: a static of the class the alias denotes, or the
+                // tear-off of one of its constructors through the alias.
                 IdentTarget::Element(Element::Typedef(td)) => {
                     let (c, _, _) = self.alias_creation(td)?;
+                    let key = if name == "new" {
+                        self.ctx.empty_sym
+                    } else {
+                        self.ctx.sym(name)
+                    };
+                    if key.is_some_and(|k| self.ctx.program.class(c).constructors.contains_key(&k))
+                    {
+                        return self.alias_ctor_tearoff(td, name, Vec::new());
+                    }
                     self.static_member_get(c, name)
                 }
                 IdentTarget::Element(Element::Extension(ext)) => {
@@ -4067,12 +4115,40 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 type_args,
             } => {
                 // `C<T>.new` / `C<T>.named`: tearoff of an instantiated constructor.
+                // `prefix.C<T>.new`.
+                if let ExprKind::Property {
+                    target: pt,
+                    name: pn,
+                    ..
+                } = &self.expr(*t2).kind
+                    && let ExprKind::Identifier(pid) = &self.expr(*pt).kind
+                    && let IdentTarget::Prefix(p) = self.ident_target(pid.sym, *pt)
+                {
+                    let element = self
+                        .ctx
+                        .program
+                        .lookup_prefixed_in_unit(self.unit, p, pn.sym)
+                        .and_then(|b| b.getter);
+                    let targs: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
+                    return match element {
+                        Some(Element::Class(c)) => self.ctor_tearoff(c, targs, name),
+                        Some(Element::Typedef(td)) => self.alias_ctor_tearoff(td, name, targs),
+                        _ => None,
+                    };
+                }
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
-                    if let IdentTarget::Element(Element::Class(c)) = self.ident_target(id.sym, *t2)
-                    {
-                        let targs: Vec<Ty> =
-                            type_args.iter().map(|t| self.resolve_type(*t)).collect();
-                        return self.ctor_tearoff(c, targs, name);
+                    match self.ident_target(id.sym, *t2) {
+                        IdentTarget::Element(Element::Class(c)) => {
+                            let targs: Vec<Ty> =
+                                type_args.iter().map(|t| self.resolve_type(*t)).collect();
+                            return self.ctor_tearoff(c, targs, name);
+                        }
+                        IdentTarget::Element(Element::Typedef(td)) => {
+                            let targs: Vec<Ty> =
+                                type_args.iter().map(|t| self.resolve_type(*t)).collect();
+                            return self.alias_ctor_tearoff(td, name, targs);
+                        }
+                        _ => {}
                     }
                 }
                 None
@@ -4098,13 +4174,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         for (p, a) in params.iter().zip(targs.iter()) {
             subst.insert(p.id, a.clone());
         }
-        let ty = self.ctx.fn_ty(fid).subst_prop(&subst);
         let inst = Ty::Iface {
             class: c,
             args: targs.clone(),
             nullable: false,
         };
-        let ty = match ty {
+        let ty = match self.ctx.fn_ty(fid).subst_prop(&subst) {
             Ty::Fn {
                 pos,
                 opt,
@@ -4113,7 +4188,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 ..
             } => Ty::Fn {
                 type_params: vec![],
-                ret: Box::new(inst.clone()),
+                ret: Box::new(inst),
                 pos,
                 opt,
                 named,
@@ -4121,11 +4196,6 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             },
             t => t,
         };
-        let (pos_n, ..) = match &ty {
-            Ty::Fn { pos, .. } => (pos.len(), ()),
-            _ => (0, ()),
-        };
-        let params_js: Vec<String> = (0..pos_n).map(|i| format!("a{i}")).collect();
         let f = self.ctx.program.function(fid);
         let cname = if name == "new" {
             "new".to_string()
@@ -4145,23 +4215,225 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 ty,
             ));
         }
-        let mut args = params_js.clone();
-        if self.ctx.requires_rti(c) {
-            args.insert(0, self.rti(&inst));
+        // Without type arguments the tear-off is generic over the class's
+        // parameters (`GGen.new` is a `GGen<T> Function<T>(int)`), and a
+        // canonical constant; with them, its instantiation (`gbind`, equal
+        // for equal types, canonical for constant ones).
+        let (generic, generic_ty) = self.generic_ctor_tearoff(c, fid, &cname, f.factory);
+        if targs.is_empty() {
+            return Some((generic, generic_ty));
         }
-        let call = if f.factory {
-            format!("{}.{cname}({})", self.class_ref(c), args.join(", "))
-        } else {
-            format!("new {}.{cname}({})", self.class_ref(c), args.join(", "))
-        };
-        let rti = self.rti(&ty);
+        let rtis: Vec<String> = targs.iter().map(|t| self.rti(t)).collect();
+        let code = format!("dart.gbind({}, {})", generic.code, rtis.join(", "));
+        let constant = !targs.iter().any(|t| t.mentions_params());
         Some((
-            Js::prim(format!(
-                "dart.fn(({}) => {call}, {rti})",
-                params_js.join(", ")
-            )),
+            Js::prim(self.constant_instantiation(&generic, code, constant)),
             ty,
         ))
+    }
+
+    /// The tear-off of the constructor `name` through the type alias `td`,
+    /// with the alias's type arguments `targs` (none: raw). A non-generic
+    /// alias instantiates the class; a proper rename (`typedef D<T> = C<T>`)
+    /// is the class's own generic tear-off; any other generic alias is
+    /// generic over its own parameters.
+    fn alias_ctor_tearoff(
+        &mut self,
+        td: dartforge_elements::model::TypedefId,
+        name: &str,
+        targs: Vec<Ty>,
+    ) -> Option<(Js, Ty)> {
+        let data = self.ctx.outline.typedefs[td.0 as usize].clone();
+        let Ty::Iface { class: c, args, .. } = self.ctx.ty_of(data.target_type) else {
+            return None;
+        };
+        let alias_params: Vec<crate::ty::TyParam> = data
+            .type_params
+            .iter()
+            .map(|p| self.ctx.ty_param_of(*p))
+            .collect();
+        if !targs.is_empty() || alias_params.is_empty() {
+            let map: HashMap<u32, Ty> = alias_params
+                .iter()
+                .map(|p| p.id)
+                .zip(targs.iter().cloned())
+                .collect();
+            let class_args: Vec<Ty> = args.iter().map(|a| a.subst(&map)).collect();
+            return self.ctor_tearoff(c, class_args, name);
+        }
+        let class_params = self.ctx.class_params[c.0 as usize].clone();
+        let proper_rename = alias_params.len() == class_params.len()
+            && args
+                .iter()
+                .zip(&alias_params)
+                .all(|(a, p)| matches!(a, Ty::Param { id, nullable: false, .. } if *id == p.id))
+            && {
+                let map: HashMap<u32, Ty> = class_params
+                    .iter()
+                    .map(|q| q.id)
+                    .zip(args.iter().cloned())
+                    .collect();
+                class_params
+                    .iter()
+                    .zip(&alias_params)
+                    .all(|(q, p)| q.bound.subst(&map) == *p.bound)
+            };
+        if proper_rename {
+            return self.ctor_tearoff(c, Vec::new(), name);
+        }
+        let key = if name == "new" {
+            self.ctx.empty_sym
+        } else {
+            self.ctx.sym(name)
+        };
+        let fid = *self.ctx.program.class(c).constructors.get(&key?)?;
+        let cname = if name == "new" {
+            "new".to_string()
+        } else {
+            static_member_name(name)
+        };
+        let factory = self.ctx.program.function(fid).factory;
+        let (js, ty) =
+            self.generic_ctor_tearoff_over(c, fid, &cname, factory, &alias_params, &args);
+        self.alias_tearoffs
+            .insert(js.code.clone(), (td, name.to_string()));
+        Some((js, ty))
+    }
+
+    /// The generic tear-off of the constructor `fid` of the generic class
+    /// `c`: `dart.gFn((T, a0) => new C.new(C<T>, a0), <T>(…) => C<T>)`,
+    /// cached as a module constant so that `C.new == C.new`.
+    fn generic_ctor_tearoff(
+        &mut self,
+        c: ClassId,
+        fid: dartforge_elements::model::FunctionElementId,
+        cname: &str,
+        factory: bool,
+    ) -> (Js, Ty) {
+        let params = self.ctx.class_params[c.0 as usize].clone();
+        let args: Vec<Ty> = params
+            .iter()
+            .map(|p| Ty::Param {
+                id: p.id,
+                name: p.name.clone(),
+                nullable: false,
+            })
+            .collect();
+        self.generic_ctor_tearoff_over(c, fid, cname, factory, &params, &args)
+    }
+
+    /// [`Self::generic_ctor_tearoff`] generic over `params` (a type alias's),
+    /// creating `c<args>` with `args` written in terms of them
+    /// (`typedef Bounded<T extends num> = C<T>`: `Bounded.new` is a
+    /// `C<T> Function<T extends num>(T)`).
+    fn generic_ctor_tearoff_over(
+        &mut self,
+        c: ClassId,
+        fid: dartforge_elements::model::FunctionElementId,
+        cname: &str,
+        factory: bool,
+        params: &[crate::ty::TyParam],
+        class_args: &[Ty],
+    ) -> (Js, Ty) {
+        let class_params = self.ctx.class_params[c.0 as usize].clone();
+        let fresh: Vec<crate::ty::TyParam> = params
+            .iter()
+            .map(|p| self.ctx.fresh_param(&p.name, (*p.bound).clone()))
+            .collect();
+        let map: HashMap<u32, Ty> = params
+            .iter()
+            .zip(&fresh)
+            .map(|(p, f)| {
+                (
+                    p.id,
+                    Ty::Param {
+                        id: f.id,
+                        name: f.name.clone(),
+                        nullable: false,
+                    },
+                )
+            })
+            .collect();
+        let fresh: Vec<crate::ty::TyParam> = fresh
+            .into_iter()
+            .map(|f| crate::ty::TyParam {
+                bound: Box::new(f.bound.subst(&map)),
+                ..f
+            })
+            .collect();
+        let inst_args: Vec<Ty> = class_args.iter().map(|a| a.subst(&map)).collect();
+        let inst = Ty::Iface {
+            class: c,
+            args: inst_args.clone(),
+            nullable: false,
+        };
+        // The constructor's signature in terms of the fresh parameters.
+        let class_map: HashMap<u32, Ty> =
+            class_params.iter().map(|p| p.id).zip(inst_args).collect();
+        let (pos, opt, named, nullable) = match self.ctx.fn_ty(fid).subst(&class_map) {
+            Ty::Fn {
+                pos,
+                opt,
+                named,
+                nullable,
+                ..
+            } => (pos, opt, named, nullable),
+            _ => (vec![], vec![], vec![], false),
+        };
+        let ty = Ty::Fn {
+            type_params: fresh.clone(),
+            ret: Box::new(inst.clone()),
+            pos: pos.clone(),
+            opt: opt.clone(),
+            named: named.clone(),
+            nullable,
+        };
+        let type_js: Vec<String> = (0..fresh.len()).map(|i| format!("T${i}")).collect();
+        let saved = self.fn_type_params.len();
+        for (f, js) in fresh.iter().zip(&type_js) {
+            self.fn_type_params.push((f.id, js.clone()));
+        }
+        let inst_rti = self.rti(&inst);
+        self.fn_type_params.truncate(saved);
+        let mut value_js: Vec<String> = (0..pos.len() + opt.len())
+            .map(|i| format!("a{i}"))
+            .collect();
+        if !named.is_empty() {
+            value_js.push("opts".into());
+        }
+        let mut args = vec![inst_rti];
+        args.extend(value_js.iter().cloned());
+        let cref = self.class_ref(c);
+        let call = if factory {
+            format!("{cref}.{cname}({})", args.join(", "))
+        } else {
+            format!("new {cref}.{cname}({})", args.join(", "))
+        };
+        let mut all_params = type_js;
+        all_params.extend(value_js);
+        let defaults: Vec<String> = fresh
+            .iter()
+            .map(|f| {
+                let d = self.default_type_arg(&f.bound);
+                self.rti(&if d.mentions_params() { Ty::Dynamic } else { d })
+            })
+            .collect();
+        let code = format!(
+            "dart.gFn(({}) => {call}, {}, dart.constList({}, [{}]))",
+            all_params.join(", "),
+            self.rti(&ty),
+            self.rti(&Ty::Dynamic),
+            defaults.join(", ")
+        );
+        self.m.note_const_record(self.lib);
+        let lv = self.lib_var(self.lib);
+        (
+            Js::prim(format!(
+                "{lv}.$C({}, () => {code})",
+                js::string_literal(&code)
+            )),
+            ty,
+        )
     }
 
     pub fn static_member_get(&mut self, c: ClassId, name: &str) -> Option<(Js, Ty)> {
@@ -4218,11 +4490,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         };
         if let Some(sym) = key {
             if class.constructors.contains_key(&sym) {
-                let targs: Vec<Ty> = self.ctx.class_params[c.0 as usize]
-                    .iter()
-                    .map(|_| Ty::Dynamic)
-                    .collect();
-                return self.ctor_tearoff(c, targs, name);
+                // Raw `C.new`: generic over the class's parameters (an
+                // implicit instantiation, with a context, happens in
+                // `coerce_to`).
+                return self.ctor_tearoff(c, Vec::new(), name);
             }
             if let Some(&fid) = class.constructors.get(&sym) {
                 let ty = self.ctx.fn_ty(fid);

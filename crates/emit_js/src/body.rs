@@ -81,6 +81,11 @@ pub struct FnEmitter<'m, 'a> {
     /// The out-of-scope type parameters whose bounds [`Self::recipe`] is
     /// expanding (an F-bound must not recurse forever).
     pub expanding_bounds: std::cell::RefCell<Vec<u32>>,
+    /// Generic constructor tear-offs made through a type alias, by their
+    /// code: an implicit instantiation of one is the alias instantiated
+    /// (`Bounded.new` in an `C<int> Function(int)` context is `C<int>.new`).
+    pub alias_tearoffs:
+        std::collections::HashMap<String, (dartforge_elements::model::TypedefId, String)>,
     pub returns: Vec<Ty>,
     pub w: Writer,
     pub label_counter: u32,
@@ -215,6 +220,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             uncoerced: std::collections::HashSet::new(),
             implicit_this_call: None,
             expanding_bounds: std::cell::RefCell::new(Vec::new()),
+            alias_tearoffs: std::collections::HashMap::new(),
             returns: Vec::new(),
             w: Writer::default(),
             label_counter: 0,
