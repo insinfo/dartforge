@@ -272,7 +272,9 @@ pub fn apply(source: &str) -> Result<String, String> {
 
 /// The outer wrapper's body (the whole file is one IIFE); unlike
 /// [`unwrappable`], it may declare anything.
-fn unwrappable_any<'b, 'a>(s: &'b Statement<'a>) -> Option<&'b oxc_ast::ast::FunctionBody<'a>> {
+pub(crate) fn unwrappable_any<'b, 'a>(
+    s: &'b Statement<'a>,
+) -> Option<&'b oxc_ast::ast::FunctionBody<'a>> {
     let Statement::ExpressionStatement(e) = s else {
         return None;
     };
@@ -291,7 +293,7 @@ fn unwrappable_any<'b, 'a>(s: &'b Statement<'a>) -> Option<&'b oxc_ast::ast::Fun
 
 /// The `dart` runtime function a callee names (`dart.x` or, flattened,
 /// `dart$$x`).
-fn dart_member<'a>(callee: &'a Expression<'_>) -> Option<&'a str> {
+pub(crate) fn dart_member<'a>(callee: &'a Expression<'_>) -> Option<&'a str> {
     match callee {
         Expression::StaticMemberExpression(m) if matches!(&m.object, Expression::Identifier(o) if o.name == "dart") => {
             Some(m.property.name.as_str())

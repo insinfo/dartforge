@@ -1141,7 +1141,8 @@ pub fn minify_with_properties(
     // `defineExtensionAccessors`), and the name disappears from the text
     // while still being read at run time. And again afterwards, for whatever
     // it creates. `DARTFORGE_JSPROD_COMPRESS=0` turns compression off.
-    let mut strings = IdentifierStrings::new(marker_start(&program));
+    let runtime_end = marker_start(&program);
+    let mut strings = IdentifierStrings::new(runtime_end);
     strings.visit_program(&program);
     if std::env::var("DARTFORGE_JSPROD_COMPRESS").map_or(true, |v| v != "0") {
         let mut c = oxc_minifier::CompressOptions::smallest();
@@ -1168,6 +1169,15 @@ pub fn minify_with_properties(
     }
     strings.before = false;
     strings.visit_program(&program);
+    // The runtime's private names grouped per library, on the compressed
+    // tree (`private_names.rs`); each description still reserves its name,
+    // as its literal did. `DARTFORGE_JSPROD_GROUP_PRIVATE_NAMES=0` turns it
+    // off.
+    if std::env::var("DARTFORGE_JSPROD_GROUP_PRIVATE_NAMES").map_or(true, |v| v != "0") {
+        for n in crate::private_names::group(&allocator, &mut program, runtime_end) {
+            strings.record(&n);
+        }
+    }
     let mut free: Vec<&str> = names
         .renamable
         .iter()

@@ -24,6 +24,7 @@ pub mod inline;
 pub mod minify;
 pub mod named_args;
 pub mod own_sdk;
+pub mod private_names;
 pub mod properties;
 pub mod reach;
 pub mod rti_rules;
