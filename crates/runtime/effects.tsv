@@ -198,6 +198,7 @@ dartforge_main_arguments	1	1	0
 dartforge_mark_constant	1	0	0
 dartforge_mark_permanent	1	1	0
 dartforge_member_rejected	0	0	0
+dartforge_memory_arc_nursery_v1	1	0	0
 dartforge_memory_arc_v1	1	0	0
 dartforge_native_ClassID_getID	1	1	0
 dartforge_native_Closure_computeHash	1	1	0

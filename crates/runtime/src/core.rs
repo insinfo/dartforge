@@ -638,6 +638,19 @@ pub extern "C" fn dartforge_memory_arc_v1() {
     ARC_MEMORY.with(|m| m.set(true));
 }
 
+/// Enables the ARC with the nursery: the entry of a program compiled with
+/// `--memory=arc` without the published preparation (whose code counts every
+/// owner itself, young objects included) calls this instead of
+/// [`dartforge_memory_arc_v1`]. Young objects are not counted — the minor
+/// collection frees the dead ones in bulk, like the tracing sweep — and only
+/// what survives to promotion enters the counts (`Heap::enable_arc_mode`).
+/// `DARTFORGE_ARC_NURSERY=0` keeps the pure ARC (measurement).
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_memory_arc_nursery_v1() {
+    HEAP.with(|heap| heap.borrow_mut().enable_arc_mode(true));
+    ARC_MEMORY.with(|m| m.set(true));
+}
+
 thread_local! {
     /// The ARC is enabled on this isolate: the cheap question of the natives that
     /// write references without the `Heap` (`natives_hash.rs`, `natives_lists.rs`).

@@ -6665,11 +6665,12 @@ pub struct HeapArc {
     /// deletion*) on every synchronization; `never`: neither it nor the full collection's
     /// fixed point (the diagnostic); the default: the fixed point in the full collection.
     cycles: Option<bool>,
-    /// Pure ARC (the default; docs/ARC-IMPLEMENTACAO.md §6): every reference
-    /// write counts on the spot, also in a young object, and draining
-    /// ([`Heap::drain_arc`]) decides lifetime without walking the heap. With
-    /// `DARTFORGE_ARC_NURSERY=1`, the first-stage mode: the nursery through the
-    /// traced minor collection and the young object's edges counted at promotion.
+    /// Pure ARC (the prepared program's; docs/ARC-IMPLEMENTACAO.md §6): every
+    /// reference write counts on the spot, also in a young object, and draining
+    /// ([`Heap::drain_arc`]) decides lifetime without walking the heap. Otherwise
+    /// the nursery (the unprepared program's, [`Heap::enable_arc_mode`]): young
+    /// objects are uncounted, the traced minor collection frees the dead ones in
+    /// bulk, and the survivors' edges are counted at promotion.
     pure: bool,
     /// Nursery mode: the strong references from remembered old objects to young
     /// ones that the minor collection in progress found (owner, young target),
@@ -7016,9 +7017,24 @@ impl Heap {
     /// of the occurrences that reach it, including owning slots.
     /// Observational roots only protect the objects they see.
     pub fn enable_arc(&mut self) {
+        self.enable_arc_mode(false);
+    }
+
+    /// [`Self::enable_arc`] choosing the young objects' treatment: `nursery` (the
+    /// unprepared program) leaves them uncounted until promotion; otherwise every
+    /// write counts on the spot (the pure ARC, which the prepared code requires).
+    /// `DARTFORGE_ARC_NURSERY=0` or `=1` overrides the choice (measurement). A heap
+    /// whose ARC is already on keeps its mode: switching after objects were
+    /// counted would break the counts.
+    pub fn enable_arc_mode(&mut self, nursery: bool) {
         if self.arc.is_some() {
             return;
         }
+        let nursery = match crate::console::env_var("DARTFORGE_ARC_NURSERY").as_deref() {
+            Ok("1") => true,
+            Ok("0") => false,
+            _ => nursery,
+        };
         self.run_collection(false);
         let mut arc = Box::new(HeapArc {
             state: crate::arc::ArcHeapState::new(),
@@ -7030,7 +7046,7 @@ impl Heap {
                 Ok("never") => Some(false),
                 _ => None,
             },
-            pure: !crate::console::env_var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "1"),
+            pure: !nursery,
             old_to_young: Vec::new(),
         });
         arc.state.trace_log =

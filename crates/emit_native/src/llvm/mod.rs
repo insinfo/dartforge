@@ -4258,9 +4258,21 @@ impl<'a> LlvmEmitter<'a> {
         }
         self.externals
             .insert("llvm.trap".into(), "declare void @llvm.trap()".into());
+        // The published preparation counts every owner in the generated code,
+        // young objects included: the pure ARC. Without it the runtime keeps the
+        // counts, and young objects go through the nursery. The SDK and the
+        // program agree through the same configuration (`target::arc_prepared`).
+        let prepared = self.module.arc_prepared
+            || self.module.arc_aot_ports.is_some()
+            || crate::target::arc_prepared().unwrap_or(true);
+        writeln!(
+            self.out,
+            "  call void @dartforge_memory_arc{}_v1()",
+            if prepared { "" } else { "_nursery" }
+        )
+        .unwrap();
         self.out.push_str(
-            "  call void @dartforge_memory_arc_v1()\n\
-            \x20 %df.arc.abi = call i8 @dartforge_arc_verify_abi(i64 1)\n\
+            "  %df.arc.abi = call i8 @dartforge_arc_verify_abi(i64 1)\n\
             \x20 %df.arc.abi.ok = icmp eq i8 %df.arc.abi, 1\n\
             \x20 br i1 %df.arc.abi.ok, label %df.arc.compatible, label %df.arc.incompatible\n\
             df.arc.incompatible:\n\

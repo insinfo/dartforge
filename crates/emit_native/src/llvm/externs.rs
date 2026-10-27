@@ -207,6 +207,16 @@ pub const EXTERNS: &[Extern] = &[
         },
     },
     Extern {
+        // The same, with the nursery: the ARC of a program without the
+        // published preparation (young objects uncounted until promotion).
+        decl: "declare void @dartforge_memory_arc_nursery_v1()",
+        effects: Effects {
+            allocates: true,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
         // The counted write of a `Ref` into a word of a `REFS` body (the
         // list element under ARC): neither allocates nor throws.
         decl: "declare void @dartforge_arc_write_ref(i64, i64, i64) nounwind",

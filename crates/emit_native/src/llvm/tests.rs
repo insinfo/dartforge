@@ -605,33 +605,46 @@ fn arc_operations_reject_unevaluated_literal_scalar_and_wrong_result() {
 
 #[test]
 fn arc_entry_rejects_incompatible_abi_before_registrations() {
-    for sdk in [false, true] {
-        for arc in [false, true] {
-            let mut m = Module::new();
-            m.sdk_mode = sdk;
-            m.arc_memory = arc;
-            let ir = LlvmEmitter::new(&m).emit_all();
-            let body = body_of(
-                &ir,
-                if sdk {
-                    "df.prepare_isolate"
-                } else {
-                    "dartforge_entry"
-                },
-            );
-            if !arc {
-                assert!(!body.contains("@dartforge_arc_verify_abi"));
-                continue;
-            }
-            let activate = body.find("@dartforge_memory_arc_v1()").unwrap();
-            let check = body.find("@dartforge_arc_verify_abi(i64 1)").unwrap();
-            let compatible = body.find("df.arc.compatible:\n").unwrap();
-            assert!(activate < check && check < compatible);
-            assert!(body.contains("icmp eq i8 %df.arc.abi, 1"));
-            assert!(body.contains("label %df.arc.compatible, label %df.arc.incompatible"));
-            assert!(body.contains("df.arc.incompatible:\n  call void @llvm.trap()\n  unreachable"));
-            assert!(ir.contains("declare void @llvm.trap()"));
+    for (sdk, arc, prepared) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (true, true, false),
+        (false, true, true),
+        (true, true, true),
+    ] {
+        let mut m = Module::new();
+        m.sdk_mode = sdk;
+        m.arc_memory = arc;
+        m.arc_prepared = prepared;
+        let ir = LlvmEmitter::new(&m).emit_all();
+        let body = body_of(
+            &ir,
+            if sdk {
+                "df.prepare_isolate"
+            } else {
+                "dartforge_entry"
+            },
+        );
+        if !arc {
+            assert!(!body.contains("@dartforge_arc_verify_abi"));
+            continue;
         }
+        // The prepared code counts young owners itself (pure ARC); the
+        // unprepared program leaves them to the nursery.
+        let activation = if prepared {
+            "@dartforge_memory_arc_v1()"
+        } else {
+            "@dartforge_memory_arc_nursery_v1()"
+        };
+        let activate = body.find(activation).unwrap();
+        let check = body.find("@dartforge_arc_verify_abi(i64 1)").unwrap();
+        let compatible = body.find("df.arc.compatible:\n").unwrap();
+        assert!(activate < check && check < compatible);
+        assert!(body.contains("icmp eq i8 %df.arc.abi, 1"));
+        assert!(body.contains("label %df.arc.compatible, label %df.arc.incompatible"));
+        assert!(body.contains("df.arc.incompatible:\n  call void @llvm.trap()\n  unreachable"));
+        assert!(ir.contains("declare void @llvm.trap()"));
     }
 }
 
