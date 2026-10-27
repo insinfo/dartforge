@@ -3090,9 +3090,15 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         }
     };
     let duplicate = ctx.sdk.is_some() && !native_class && ctx.libs[class.library.0 as usize].is_sdk;
+    // Production profile: outside a native peer's prototype chain the `dartx`
+    // key is only read by a tear-off through the symbol
+    // (`Liveness::symbol_signature`).
+    let symbol_read =
+        |n: &str| !ctx.production() || ctx.in_native_chain(c) || ctx.symbol_signature_live(n);
     let with_dartx = |items: &mut Vec<String>, n: &str, value: &str| {
         if (duplicate || (ctx.sdk.is_some() && inherited_native_aliases.contains(n)))
             && natives.contains(n)
+            && symbol_read(n)
         {
             items.push(format!("{}: {value}", crate::own_sdk::native_key(m, n)));
         }
@@ -3102,11 +3108,15 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // Newly bridged native-interface aliases require their actual substituted
     // signature: retaining only an older superclass signature loses generic
     // function information during dynamic calls of the bound method.
-    method_sigs.retain(|(n, _)| {
-        ctx.signature_live(signature_name(n)) || inherited_native_method_signatures.contains(n)
-    });
-    generic_methods
-        .retain(|(n, _)| ctx.signature_live(n) || inherited_native_method_signatures.contains(n));
+    // Production profile: a bridged alias is read like any other entry, by
+    // dynamic dispatch or a tear-off of its name
+    // (`DARTFORGE_JSPROD_ALIAS_SIGNATURES=0` keeps them all).
+    let keep_aliases = !ctx.production()
+        || std::env::var("DARTFORGE_JSPROD_ALIAS_SIGNATURES").is_ok_and(|v| v == "0");
+    let alias_method = |n: &str| keep_aliases && inherited_native_method_signatures.contains(n);
+    let alias_accessor = |n: &str| keep_aliases && inherited_native_aliases.contains(n);
+    method_sigs.retain(|(n, _)| ctx.signature_live(signature_name(n)) || alias_method(n));
+    generic_methods.retain(|(n, _)| ctx.signature_live(n) || alias_method(n));
     // A `late` field is a getter/setter pair (its storage is the field):
     // dynamic accesses find it by its name, as in the CFE's lowering.
     for f in fields.iter().filter(|f| f.late && f.virtual_ && !f.helper) {
@@ -3115,12 +3125,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             setter_sigs.push((f.name.clone(), f.ty.clone()));
         }
     }
-    getter_sigs.retain(|(n, _)| {
-        ctx.signature_live(signature_name(n)) || inherited_native_aliases.contains(n)
-    });
-    setter_sigs.retain(|(n, _)| {
-        ctx.signature_live(signature_name(n)) || inherited_native_aliases.contains(n)
-    });
+    getter_sigs.retain(|(n, _)| ctx.signature_live(signature_name(n)) || alias_accessor(n));
+    setter_sigs.retain(|(n, _)| ctx.signature_live(signature_name(n)) || alias_accessor(n));
     let fields_sig: Vec<&FieldInfo> = fields
         .iter()
         .filter(|f| ctx.signature_live(&f.name))

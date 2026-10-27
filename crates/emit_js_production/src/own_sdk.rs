@@ -164,21 +164,51 @@ fn strip_polyfill(
     }
 }
 
+/// The names whose signature entries the runtime may read.
+#[derive(Default)]
+struct SignatureNames {
+    /// Passed to dynamic dispatch or to a *tear-off*.
+    names: HashSet<String>,
+    /// Torn off through the `dartx` symbol (`dart.bind(o, $name)`): also in
+    /// `names`.
+    symbols: HashSet<String>,
+}
+
+impl SignatureNames {
+    fn is_subset(&self, other: &SignatureNames) -> bool {
+        self.names.is_subset(&other.names) && self.symbols.is_subset(&other.symbols)
+    }
+    fn extend(&mut self, other: SignatureNames) {
+        self.names.extend(other.names);
+        self.symbols.extend(other.symbols);
+    }
+}
+
 /// Member names that the text passes to dynamic dispatch or to a *tearoff*
 /// (`dsend`/`dgsend`/`dload`/`dput`/`bind` and the `Repl` variants): the
-/// literal strings and the private symbols (`var x = dart.privateName(L,
-/// "_n")` used as an argument).
-fn dynamic_names(texts: &[(String, String)]) -> HashSet<String> {
+/// literal strings, the private symbols (`var x = dart.privateName(L,
+/// "_n")` used as an argument) and, for `bind`, the extension symbols
+/// (`var $n = dartx.n` or `dartx.n` itself), which also go into
+/// [`SignatureNames::symbols`].
+fn dynamic_names(texts: &[(String, String)]) -> SignatureNames {
     let mut out: HashSet<String> = HashSet::new();
+    let mut symbols: HashSet<String> = HashSet::new();
     for (_, t) in texts {
         let (r, w) = crate::sdk::signature_selectors_by_kind(t);
         out.extend(r);
         out.extend(w);
         let mut privates: HashMap<&str, &str> = HashMap::new();
+        let mut extension: HashMap<&str, &str> = HashMap::new();
         for line in t.lines() {
             let Some(r) = line.strip_prefix("var ") else {
                 continue;
             };
+            if let Some((var, rest)) = r.split_once(" = dartx.")
+                && let Some(name) = rest.strip_suffix(';')
+            {
+                extension.insert(var, name);
+                continue;
+            }
             let Some((var, rest)) = r.split_once(" = dart.privateName(") else {
                 continue;
             };
@@ -224,7 +254,14 @@ fn dynamic_names(texts: &[(String, String)]) -> HashSet<String> {
             }
             if arg == position {
                 let a = t[start..j].trim();
-                if let Some(n) = privates.get(a) {
+                let symbol = extension
+                    .get(a)
+                    .copied()
+                    .or_else(|| a.strip_prefix("dartx."));
+                if let Some(n) = symbol.filter(|_| &t[i..p] == "bind") {
+                    out.insert(n.to_string());
+                    symbols.insert(n.to_string());
+                } else if let Some(n) = privates.get(a) {
                     out.insert(n.to_string());
                 } else if a.len() >= 2
                     && (a.starts_with('"') && a.ends_with('"')
@@ -243,7 +280,10 @@ fn dynamic_names(texts: &[(String, String)]) -> HashSet<String> {
             }
         }
     }
-    out
+    SignatureNames {
+        names: out,
+        symbols,
+    }
 }
 
 /// `DARTFORGE_JSPROD_WHY=name`: each function (of the program or of the SDK)
@@ -341,7 +381,7 @@ fn fixed_point(
     a: &dartforge_emit_js::Analysis<'_>,
     input: dartforge_world::WorldInput<'_>,
     op: Options,
-    signatures: Option<&HashSet<String>>,
+    signatures: Option<&SignatureNames>,
     report: &mut WorldReport,
 ) -> Result<Option<EmittedWithSdk>, String> {
     let mut roots = roots(a, &input);
@@ -432,7 +472,8 @@ fn fixed_point(
             world: &world,
             program: a.program,
             stub: op.stub,
-            signatures,
+            signatures: signatures.map(|s| &s.names),
+            symbol_signatures: signatures.map(|s| &s.symbols),
             constants: Some(&constants),
             named_args: named_args.as_ref(),
             omit_checks: op.omit_checks,
@@ -644,7 +685,7 @@ pub fn emit(
             return Ok((e, Some(report)));
         }
         if trace {
-            let mut extra: Vec<&String> = new.difference(&names).collect();
+            let mut extra: Vec<&String> = new.names.difference(&names.names).collect();
             extra.sort();
             eprintln!(
                 "[jsprod] signature phase {phase}: {} new name(s): {:?}",

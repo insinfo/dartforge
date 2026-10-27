@@ -48,6 +48,15 @@ pub trait Liveness {
     fn signature(&self, _name: &str) -> bool {
         true
     }
+    /// The signature entry of member `name` under its `dartx` key is read on
+    /// an object whose constructor is a Dart class (not a native peer): only
+    /// a *tear-off* through the extension symbol (`dart.bind(o, $name)`)
+    /// does that — dynamic dispatch reaches a Dart object by the string. The
+    /// classes in a native peer's prototype chain keep the key regardless.
+    /// The default is to emit all of them.
+    fn symbol_signature(&self, _name: &str) -> bool {
+        true
+    }
     /// The class's `addRtiResources` (its recipe on the constructor and its
     /// type tags on the prototype) is emitted. Only objects read them, so a
     /// class that no instance has in its prototype chain may go without; the

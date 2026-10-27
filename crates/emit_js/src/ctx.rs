@@ -140,6 +140,9 @@ pub struct Ctx<'a> {
     recipe_ids: std::cell::OnceCell<Vec<String>>,
     /// The classes some class of the program mixes in, computed on first use.
     mixed_in: std::cell::OnceCell<HashSet<ClassId>>,
+    /// The classes in the prototype chain of a native peer (the peer, its
+    /// superclasses and their mixins), computed on first use.
+    native_chain: std::cell::OnceCell<HashSet<ClassId>>,
     /// `DARTFORGE_JSPROD_SHORT_RECIPE=0` keeps the library in every recipe.
     short_recipe: bool,
     /// Per unit, the nodes that are the target of a compound assignment or of
@@ -261,6 +264,7 @@ impl<'a> Ctx<'a> {
             single_method_types: RefCell::new(None),
             recipe_ids: std::cell::OnceCell::new(),
             mixed_in: std::cell::OnceCell::new(),
+            native_chain: std::cell::OnceCell::new(),
             short_recipe: std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0"),
             write_targets: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
@@ -650,6 +654,13 @@ impl<'a> Ctx<'a> {
     /// The signature entry of the member `name` is emitted ([`crate::filter::Liveness::signature`]).
     pub fn signature_live(&self, name: &str) -> bool {
         self.filter.is_none_or(|x| x.signature(name))
+    }
+
+    /// The `dartx` signature entry of the member `name` of a Dart class
+    /// outside every native chain is emitted
+    /// ([`crate::filter::Liveness::symbol_signature`]).
+    pub fn symbol_signature_live(&self, name: &str) -> bool {
+        self.filter.is_none_or(|x| x.symbol_signature(name))
     }
 
     /// Label of a pruned element for the *stub* (`dart_podado("…")`).
@@ -1784,6 +1795,31 @@ impl<'a> Ctx<'a> {
                 (0..self.program.classes.len() as u32)
                     .flat_map(|i| self.mixins_of(ClassId(i)))
                     .collect()
+            })
+            .contains(&c)
+    }
+
+    /// Whether `c` is in the prototype chain of a native peer: the native
+    /// class itself, a superclass of one or a mixin applied in that chain.
+    /// `registerExtension` hands the peer's signature table, whose
+    /// prototype chain runs through these classes, to the JavaScript type,
+    /// and dynamic dispatch on a native receiver looks members up by their
+    /// `dartx` key (`_canonicalMember`).
+    pub fn in_native_chain(&self, c: ClassId) -> bool {
+        self.native_chain
+            .get_or_init(|| {
+                let mut out = HashSet::new();
+                for &n in &self.native_set {
+                    let mut k = Some(n);
+                    while let Some(x) = k {
+                        if !out.insert(x) {
+                            break;
+                        }
+                        out.extend(self.mixins_of(x));
+                        k = self.superclass_of(x);
+                    }
+                }
+                out
             })
             .contains(&c)
     }

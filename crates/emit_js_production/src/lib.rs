@@ -275,6 +275,7 @@ pub fn emit_with_world(
             program: a.program,
             stub: op.stub,
             signatures: None,
+            symbol_signatures: None,
             constants: None,
             named_args: None,
             omit_checks: false,

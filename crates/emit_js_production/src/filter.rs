@@ -14,6 +14,10 @@ pub struct Adapter<'m> {
     /// Names whose signature entries are emitted (those of dynamic dispatch
     /// and of the *tearoffs* in the text); `None`: all of them.
     pub signatures: Option<&'m std::collections::HashSet<String>>,
+    /// Names torn off through their `dartx` symbol (`dart.bind(o, $name)`):
+    /// the `dartx` signature entries of Dart classes outside the native
+    /// chains; `None`: all of them.
+    pub symbol_signatures: Option<&'m std::collections::HashSet<String>>,
     /// Constant conditions and `assert` (profile with the own SDK).
     pub constants: Option<&'m dartforge_world::Constants<'m>>,
     /// Short keys for named parameters (`named_args.rs`).
@@ -83,6 +87,14 @@ impl Liveness for Adapter<'_> {
         self.signatures.is_none_or(|s| {
             s.contains(name) || s.contains(dartforge_emit_js::body::js_member_name(name).as_str())
         })
+    }
+    fn symbol_signature(&self, name: &str) -> bool {
+        // `DARTFORGE_JSPROD_SYMBOL_SIGNATURES=0` emits every `dartx` entry.
+        std::env::var("DARTFORGE_JSPROD_SYMBOL_SIGNATURES").is_ok_and(|v| v == "0")
+            || self.symbol_signatures.is_none_or(|s| {
+                s.contains(name)
+                    || s.contains(dartforge_emit_js::body::js_member_name(name).as_str())
+            })
     }
     fn rti_resources(&self, c: ClassId) -> bool {
         // `DARTFORGE_JSPROD_RTI_RESOURCES=0` emits them for every class.
