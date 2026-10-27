@@ -279,7 +279,7 @@ fn rewrite(
     }
     let mut edits: Vec<(usize, usize, String)> = Vec::new();
     for (start, end, v) in found {
-        let json = serde_json::to_string(&v).unwrap_or_default();
+        let json = rules_json(&v);
         edits.push((start, end, dartforge_emit_js::js::string_literal(&json)));
     }
     for (start, end) in lists {
@@ -310,6 +310,33 @@ fn rewrite(
     }
     out.push_str(&js[pos..]);
     out
+}
+
+/// The JSON of a rules object, its entries ordered by their value (then by
+/// key): the rules of classes alike (the views of every library, which
+/// differ only in the type argument) become neighbors, and gzip finds them.
+/// `addRules` assigns every key of one call before any lookup, so the order
+/// is not observable. `DARTFORGE_JSPROD_RULE_ORDER=0` keeps the key order.
+fn rules_json(v: &serde_json::Value) -> String {
+    let by_value = std::env::var("DARTFORGE_JSPROD_RULE_ORDER").map_or(true, |x| x != "0");
+    let Some(o) = v.as_object().filter(|_| by_value) else {
+        return serde_json::to_string(v).unwrap_or_default();
+    };
+    let mut entries: Vec<(String, String)> = o
+        .iter()
+        .map(|(k, x)| {
+            (
+                serde_json::to_string(x).unwrap_or_default(),
+                serde_json::to_string(k).unwrap_or_default(),
+            )
+        })
+        .collect();
+    entries.sort();
+    let body: Vec<String> = entries
+        .into_iter()
+        .map(|(x, k)| format!("{k}:{x}"))
+        .collect();
+    format!("{{{}}}", body.join(","))
 }
 
 /// A rule identical to one registered before it becomes the forwarding
@@ -414,7 +441,7 @@ pub fn merge_program_rules(js: &str, program_start: usize) -> String {
             merged.insert(k.clone(), v.clone());
         }
     }
-    let json = serde_json::to_string(&serde_json::Value::Object(merged)).unwrap_or_default();
+    let json = rules_json(&serde_json::Value::Object(merged));
     let last = calls.len() - 1;
     let mut out = String::with_capacity(js.len());
     let mut pos = 0;
@@ -722,7 +749,7 @@ mod tests {
         let out = merge_program_rules(&js, start);
         assert_eq!(out.matches("addRules").count(), 2, "{out}");
         assert!(
-            out.contains(r#"{\"|A\":{\"|x\":[]},\"|B\":{\"|y\":[]},\"|C\":\"|A\"}"#),
+            out.contains(r#"{\"|C\":\"|A\",\"|A\":{\"|x\":[]},\"|B\":{\"|y\":[]}}"#),
             "{out}"
         );
         assert!(
