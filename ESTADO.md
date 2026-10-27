@@ -1,5 +1,69 @@
 # Estado do DartForge — 2026-10-27
 
+## Continuação de 27/10/2026: JS acima do DDC na suíte `tests/language`
+
+Mais 21 commits, de `28a109bc` a `08c5d571`, todos validados localmente
+(suíte completa sem regressões a cada lote, corpus JS em dev e produção,
+testes e clippy do `emit_js`) e enviados.
+
+| Ferramenta | Iguais à VM 3.6.2 (2863 programas) |
+|---|---:|
+| DartForge JS dev, início da sessão (`f994cb83`) | 2526 |
+| DartForge JS dev, fechamento anterior (`7c965006`) | 2703 |
+| DartForge JS dev, agora (`08c5d571`) | **2745** |
+| DDC 3.6.2 oficial | 2744 |
+
+Falhas que só o DartForge tem: **53 → 11**. As 107 que o DDC também erra são
+divergências da plataforma web; em 12 programas acertamos e o DDC não.
+Corpus JS: **271/271** em dev e produção.
+
+Entraram nesta continuação: privados resolvidos por biblioteca (acesso e
+chave de membro), *throwers* para privados de outra biblioteca mesmo sem
+`noSuchMethod`, campos `abstract` sem armazenamento, campo privado virtual
+quando um subtipo o sobrescreve; `!` dentro da cadeia de *null-shorting*;
+`void f() => e` devolve o valor; `??` em valor padrão sem temporário;
+estáticos e construtores via alias (inclusive `T<int>.named()` e alias de
+variável de tipo); função local genérica com limite de tipo função com
+nomeados (correção no *parser*); aliases `dartx` para membros herdados de
+superclasse comum; instanciação de funções genéricas guardadas em locais;
+cast de padrão `as` sempre avaliado; verificação de limites de métodos
+genéricos com limite que menciona o parâmetro da classe (`checkTypeBound`)
+e em sobrescritas; stubs reificados com todos os covariantes como `Object?`;
+`late final` com `LateError.localADI`; encaminhadores de `noSuchMethod`
+assinados (setter e genéricos com padrões); ordem de avaliação de nomeados
+antes de posicionais; nomes de `Object.prototype` como parâmetros nomeados;
+`static const` com setter estático homônimo; setters de mixin sob setter
+covariante; enums genéricos instanciados e chamados via `call`; padrões
+`dynamic` em métodos genéricos; cadeias de *factories* redirecionadas com
+argumentos compostos; constantes canonizadas independentemente do
+construtor; campos de record `constructor`/`prototype`; cast de `dynamic`
+para `Never`/`Null`; parâmetros genéricos no formato antigo (`bar<V>(…)`).
+
+As 11 que faltam: *tear-offs* de construtor genérico sem contexto e por
+alias (`GGen.new`, `Bounded.new`) e literais de tipo instanciados (exigem
+funções genéricas com rti montado em tempo de execução); variável de tipo
+promovida a interseção em `await`; argumentos de tipo de extensão inferidos
+(`[o].whereNotNull()`); avaliação constante com `T` → `Never` em
+`const C(f)`; captura do inicializador do `for` por closures; contexto de
+atribuição a local promovido (o `types` segue o analyzer, o CFE usa o tipo
+declarado); `closure/type_arguments`, `regress50905`, `async/congruence_local`.
+
+**LSP** (agente, `bff32730`, `351888b0`, `3faf2276`): formatação de 80 000
+termos de 13 s para 0,14 s (o gargalo era a conversão de posições no LSP,
+mais um caso quadrático no divisor de linhas), formatação numa thread
+própria com cancelamento (`$/cancelRequest`) e `ContentModified`, e a busca
+de SDK passa ao próximo candidato quando um não carrega. O hover de
+`[1, 'a': 3]` já era igual ao do Dart 3.6.2 (a nota anterior estava errada).
+
+**AOT nativo** (agente em andamento, commits locais ainda não enviados):
+JSON já à frente do Dart (3,66 G contra 4,49 G ciclos); `async` de 6,39 G
+para 5,17 G ciclos (Dart 5,08 G) com `await` de futuro concluído no estilo da
+VM, quadros alocados na TLAB e cache de `is` para `null`/Smi; árvores ainda
++16% de ciclos; HTTP `/json` 47,2 mil contra 71,9 mil pedidos/s (25,5 contra
+18,8 µs de CPU por pedido). Em andamento: segundo nível no cache de RTI dos
+sítios `is`. Máquina carregada (load 5–20): comparações por ciclos e
+instruções.
+
 ## Atualização de 26–27/10/2026: JS, analisador, LSP e extensão VS Code
 
 Foco: compilador JavaScript pronto para produção, analisador e LSP com a
