@@ -135,8 +135,8 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
     (
         Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
         "_internal/js_dev_runtime/private/profile.dart",
-        "trackCall(obj) {\n  if (JS<bool>('!', '!#', _trackProfile)) return;\n",
-        "trackCall(obj) {\n  return;\n",
+        "trackCall(obj) {\n  if (JS<bool>('!', '!#', _trackProfile)) return;\n  int index = -1;\n  _totalCallRecords++;\n  if (_callMethodRecords.length == _callRecordSampleSize) {\n    // Ensure that each sample has an equal\n    // _callRecordSampleSize / _totalCallRecords chance of inclusion\n    // by choosing to include the new record in the sample the with the\n    // appropriate probability randomly evicting one of the existing records.\n    // Unfortunately we can't use the excellent Random.nextInt method defined\n    // by Dart from within this library.\n    index = JS<int>('!', 'Math.floor(Math.random() * #)', _totalCallRecords);\n    if (index >= _callMethodRecords.length) return; // don't sample\n  }\n  var record =\n      _CallMethodRecord(JS('', 'new Error()'), dart.getReifiedType(obj));\n  if (index == -1) {\n    _callMethodRecords.add(record);\n  } else {\n    _callMethodRecords[index] = record;\n  }\n}\n",
+        "trackCall(obj) {}\n",
     ),
     // `InvocationImpl` (every failed dynamic call) built its named arguments
     // with `Map.unmodifiable(Map.fromIterable(…))`: both go through the
