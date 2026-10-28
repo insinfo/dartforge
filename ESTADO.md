@@ -1,4 +1,61 @@
-# Estado do DartForge — 2026-10-27
+# Estado do DartForge — 2026-10-28
+
+## 27–28/10/2026: ARC com nursery, HTTP nativo e tamanho do JS de produção
+
+Commits até `4a8143dc`, validados localmente e enviados. A suíte
+`tests/language` foi rodada em um export de cada HEAD enviado e ficou em
+**2756/2863** em todas as rodadas.
+
+**ARC.** O modo nursery foi corrigido: um slot dono registrava um objeto
+jovem cedo demais e causava `RcZero`. Agora ele é o padrão para ARC simples
+e preparado; o ARC puro só existe compilando com `DARTFORGE_ARC_NURSERY=0`.
+Detalhes em `RELATORIO-PRONTIDAO-PRODUCAO.md` e `docs/ARC-IMPLEMENTACAO.md`.
+
+| ARC (ms; HTTP em req/s) | padrão | simples antes | simples agora | preparado antes | preparado agora |
+|---|---:|---:|---:|---:|---:|
+| trees | 13 | 282 | 24 | 360 | 171 |
+| strings | 42 | 132 | 53 | 370 | 267 |
+| JSON | 74 | 300 | 165 | 743 | 582 |
+| HTTP | 55,1k | 14,1k | 40,5k | 5,6k | 8,2k |
+
+**HTTP nativo (modo padrão).** Três rodadas foram fechadas e a quarta está
+em andamento.
+
+| | início | agora | Dart 3.6.2 |
+|---|---:|---:|---:|
+| req/s | 55,6k | 62,8k | 71,0k |
+| instruções / ciclos por requisição | 271k / 79k | 231k / 72k | 212k / 71k |
+| CPU da thread do isolate por requisição | — | 11,2 µs | 8,7 µs |
+| trees (ms) | 13,8 | 12,15 | 11,8 |
+
+As principais mudanças foram estas:
+- o contexto da thread passa como argumento nas chamadas diretas;
+- memo de tipos por thread para os caches de RTI;
+- `String.[]` Latin-1 e `StringBuffer` em linha;
+- listas literais e listas tipadas pequenas alocadas pelo TLAB;
+- varredura jovem por palavra de bitmap;
+- limite jovem adaptativo.
+
+O modo `DARTFORGE_CHECK_SHADOW=1` voltou a funcionar: três externos estavam
+marcados como "coleta" sem alocar no heap. I/O e syscalls são equivalentes
+aos do Dart. A diferença que resta está no runtime: cerca de 3,8 µs por
+requisição, contra 1,6 µs na VM.
+
+**JS de produção contra `dart2js -O4`.** Os detalhes estão em
+`docs/JS-PRODUCAO-TAMANHO.md`, §15–§19.
+
+| alvo (bytes) | início | agora | dart2js -O4 | razão |
+|---|---:|---:|---:|---:|
+| `print('hi')` | 44.383 | 2.128 | 5.074 | 0,42× |
+| corpus (273), total | 17.242.249 | 10.967.007 | 11.024.980 | 0,995× (gz 1,040×) |
+| corpus, mediana | 1,465× | 0,976× | | gz 1,032× |
+| `limitless_ui` | 3.455.727 | 3.369.232 | 3.704.125 | 0,910× |
+| `new_sali` | 7.404.523 | 7.178.421 | 7.614.136 | 0,943× |
+
+Em gzip o corpus ainda está 4% acima, e a rodada seguinte trata disso.
+Honrar `@pragma('dart2js:as:trust')` e confiar nos primitivos como o
+`dart2js -O4` mudaria a semântica, por isso ficou de fora até decisão do
+proprietário.
 
 ## Fechamento de 27/10/2026: nenhuma falha exclusiva do JS na suíte `tests/language`
 
