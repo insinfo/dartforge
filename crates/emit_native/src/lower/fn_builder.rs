@@ -93,6 +93,10 @@ pub struct FnBuilder<'a, 'c> {
     /// Caches of native RTI IDs declared by the lowering, with an implicit `$ok` flag.
     /// All writes and representations require a check before producing contracts.
     pub arc_rti_caches: std::collections::HashSet<String>,
+    /// Globals declared here (`extra_globals`) whose content is never a handle
+    /// (`Module::dart_scalar_globals`), such as the loaded flag of a deferred
+    /// prefix. Without it, ARC preparation cannot classify their I64 reads.
+    pub dart_scalar_globals: std::collections::HashSet<String>,
     /// Shareable definitions declared nominally by the ARC producer.
     /// Does not certify equivalence of the copies nor emission dependencies.
     pub arc_shared_functions: std::collections::HashSet<String>,
@@ -407,6 +411,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             arc_uniform_returns: Default::default(),
             dart_ref_returns: Default::default(),
             arc_rti_caches: Default::default(),
+            dart_scalar_globals: Default::default(),
             arc_shared_functions: Default::default(),
             arc_direct_local_functions: Default::default(),
             break_targets: Vec::new(),
@@ -691,6 +696,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         module.arc_uniform_returns.extend(self.arc_uniform_returns);
         module.dart_ref_returns.extend(self.dart_ref_returns);
         module.arc_rti_caches.extend(self.arc_rti_caches);
+        module.dart_scalar_globals.extend(self.dart_scalar_globals);
         module
             .arc_shared_functions
             .extend(self.arc_shared_functions);

@@ -1195,7 +1195,9 @@ pub struct Module {
     /// entries, FFI callbacks or HIR functions supplied by another producer.
     pub dart_ref_returns: std::collections::HashSet<String>,
     /// Storages of Dart globals whose representation, by the Dart type, is an
-    /// unboxed scalar (`int`, `double`, `bool`): the content is never a handle.
+    /// unboxed scalar (`int`, `double`, `bool`), and scalar globals the lowering
+    /// declares for itself (the loaded flag of a deferred prefix): the content is
+    /// never a handle.
     pub dart_scalar_globals: std::collections::HashSet<String>,
     /// Uniform entries declared by the lowering for the ARC ABI with an Owned return.
     /// They are premises to prepare the whole body, not certificates of indirect

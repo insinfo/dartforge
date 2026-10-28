@@ -489,6 +489,7 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.arc_uniform_returns.extend(b.arc_uniform_returns);
         module.dart_ref_returns.extend(b.dart_ref_returns);
         module.arc_rti_caches.extend(b.arc_rti_caches);
+        module.dart_scalar_globals.extend(b.dart_scalar_globals);
         module.arc_shared_functions.extend(b.arc_shared_functions);
         module
             .arc_direct_local_functions
@@ -522,6 +523,7 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
         module.arc_uniform_returns.extend(b.arc_uniform_returns);
         module.dart_ref_returns.extend(b.dart_ref_returns);
         module.arc_rti_caches.extend(b.arc_rti_caches);
+        module.dart_scalar_globals.extend(b.dart_scalar_globals);
         module.arc_shared_functions.extend(b.arc_shared_functions);
         module
             .arc_direct_local_functions

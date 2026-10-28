@@ -821,6 +821,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.arc_uniform_returns.extend(b.arc_uniform_returns);
         self.dart_ref_returns.extend(b.dart_ref_returns);
         self.arc_rti_caches.extend(b.arc_rti_caches);
+        self.dart_scalar_globals.extend(b.dart_scalar_globals);
         self.arc_shared_functions.extend(b.arc_shared_functions);
         self.arc_direct_local_functions
             .extend(b.arc_direct_local_functions);

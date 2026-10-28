@@ -86,6 +86,10 @@ impl FnBuilder<'_, '_> {
         );
         if self.done_entries.insert(symbol.clone()) {
             self.extra_globals.push((0, Type::I64, symbol.clone()));
+            if self.ctx.arc_memory {
+                // A 0/1 flag, never a handle: ARC classifies its reads Trivial.
+                self.dart_scalar_globals.insert(symbol.clone());
+            }
         }
         symbol
     }
@@ -196,5 +200,96 @@ impl FnBuilder<'_, '_> {
             Type::Ref,
         );
         self.call_support("_dartforgeLoadLibrary", vec![mark], span)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::hir::{Instruction, Type};
+
+    /// The loaded flag of a deferred prefix is an I64 global the lowering
+    /// declares for itself. ARC preparation classifies an I64 read only with a
+    /// proof that it holds no handle; without the scalar fact, the read of the
+    /// flag in a function that touches the prefix had no classification.
+    #[test]
+    fn deferred_flag_reads_are_scalar_for_arc_preparation() {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                let dir = tempfile::tempdir().unwrap();
+                std::fs::write(dir.path().join("library.dart"), "int counter = 0;\n").unwrap();
+                let entry = dir.path().join("main.dart");
+                std::fs::write(
+                    &entry,
+                    "import 'library.dart' deferred as d;\n\
+                     bool loaded() { try { d.counter; return true; } catch (_) { return false; } }\n\
+                     void main() async { print(loaded()); await d.loadLibrary(); print(loaded()); }\n",
+                )
+                .unwrap();
+                let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+                let mut interner = dartforge_intern::Interner::new();
+                let program =
+                    dartforge_elements::load::load(&entry, &sdk, None, &mut interner).unwrap();
+                let mut table = dartforge_types::TypeTable::new();
+                let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
+                let (mut outline, _) =
+                    dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+                let libraries: Vec<_> = program
+                    .libraries
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, l)| !l.is_sdk)
+                    .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
+                    .collect();
+                let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(
+                    &program,
+                    &interner,
+                    &mut table,
+                    &core,
+                    &mut outline,
+                    &libraries,
+                );
+                let mut context = crate::context::Context::new(
+                    &program, &interner, &table, &core, &outline, &bodies,
+                )
+                .with_source_sdk();
+                context.arc_memory = true;
+                let mut module = crate::lower::lower_program(&context);
+                assert!(module.errors.is_empty(), "{:?}", module.errors);
+                let flags: Vec<String> = module
+                    .globals
+                    .iter()
+                    .filter(|g| g.1 == Type::I64 && g.2.starts_with("dfd."))
+                    .map(|g| g.2.clone())
+                    .collect();
+                assert_eq!(flags.len(), 1, "{:?}", module.globals);
+                assert!(module.dart_scalar_globals.contains(&flags[0]));
+                assert!(
+                    module
+                        .functions
+                        .iter()
+                        .flat_map(|f| &f.blocks)
+                        .flat_map(|b| &b.instructions)
+                        .any(|(_, i, _)| matches!(i, Instruction::LoadGlobal { symbol, .. } if *symbol == flags[0]))
+                );
+                crate::optimize::prepare_for_emission(&mut module, true, false);
+                module.arc_external_callees = true;
+                module.arc_external_layouts = crate::lower::sdk_arc_layouts(&context);
+                let mut plans = module
+                    .functions
+                    .iter()
+                    .map(|f| {
+                        (
+                            f.symbol.clone(),
+                            crate::optimize::arc::DartFunctionPlan::default(),
+                        )
+                    })
+                    .collect();
+                crate::optimize::arc::prepare_arc_dart_module(&mut module, &mut plans).unwrap();
+                assert!(module.arc_prepared);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }
