@@ -294,6 +294,14 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         "/// Helper method for `.noSuchMethod` used when the receiver isn't statically\n",
         "/// `JSNumber.toString` of a number (the production profile's interpolation\n/// of a non-nullable `int`, `double` or `num`).\n@notNull\nString strNum(@notNull num n) =>\n    JS<String>('!', '# === 0 && 1 / # < 0 ? \"-0.0\" : \"\" + #', n, n, n);\n\n/// Helper method for `.noSuchMethod` used when the receiver isn't statically\n",
     ),
+    // `>>` by a literal count (`emit_js`'s literal shifts) needs the receiver
+    // twice: the body of `JSNumber.>>` for a count up to 31 as a function.
+    (
+        Some("DARTFORGE_JSPROD_LITERAL_SHIFTS"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "/// Helper method for `.noSuchMethod` used when the receiver isn't statically\n",
+        "/// `JSNumber.>>` of `n` by a `count` from 0 to 31 (the production\n/// profile's shifts by a literal count).\n@notNull\nint shrCount(@notNull int n, @notNull int count) =>\n    JS<int>('!', '# > 0 ? # >>> # : (# >> #) >>> 0', n, n, count, n, count);\n\n/// Helper method for `.noSuchMethod` used when the receiver isn't statically\n",
+    ),
     // `print` converts its argument with the interpolation's generic
     // `dart.str`, whose `toString` reaches every class. The conversion moves
     // to the call site (`emit_js`'s print specialization calls `_printLine`

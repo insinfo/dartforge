@@ -4930,6 +4930,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 BinaryOp::Shl => (format!("{} << {k} >>> 0", l.at(P_SHIFT)), P_SHIFT),
                 BinaryOp::UShr => (format!("{} >>> {k}", l.at(P_SHIFT)), P_SHIFT),
+                _ if k <= 31 && ctx.runtime_declares("shrCount") => {
+                    // The patched `dart.shrCount`: the receiver is needed
+                    // twice, and a call is shorter than the conditional.
+                    (format!("dart.shrCount({}, {k})", l.at(P_ASSIGN)), P_PRIMARY)
+                }
                 _ => {
                     // `this > 0 ? this >>> k : (this >> k) >>> 0`, the count
                     // clamped to 31 on the negative side.

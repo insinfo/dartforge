@@ -1840,10 +1840,15 @@ impl<'a> Ctx<'a> {
     /// The production SDK patch that gives `dart:_runtime` its `strNum`
     /// (`sdk_patches.rs`) is applied.
     pub fn str_num_patch(&self) -> bool {
+        self.runtime_declares("strNum")
+    }
+
+    /// `dart:_runtime` declares `name` (a production SDK patch's helper).
+    pub fn runtime_declares(&self, name: &str) -> bool {
         let Some(rt) = self.sdk.as_ref().and_then(|s| s.runtime) else {
             return false;
         };
-        self.interner.lookup("strNum").is_some_and(|sym| {
+        self.interner.lookup(name).is_some_and(|sym| {
             self.program
                 .library(rt)
                 .declared
