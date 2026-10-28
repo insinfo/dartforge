@@ -299,6 +299,7 @@ fn always_null_parameters() {
                 without_records: false,
                 without_legacy: false,
                 without_dynamic_named: false,
+                without_function_targets: false,
                 without_functions: false,
             };
             let mut computation = dartforge_world::Computation::new(e, options);

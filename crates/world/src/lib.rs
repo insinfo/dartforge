@@ -429,6 +429,11 @@ pub struct Options {
     /// type). The `dart:_rti` branches for the function kinds and the
     /// recipe syntax of function types fold away (`constants.rs`).
     pub without_functions: bool,
+    /// No function type is ever the target of a subtype test (assumed,
+    /// then checked against the emitted text: every function-type recipe is
+    /// a closure's signature). The tests of `t`'s kind against the function
+    /// kinds in `_isSubtype` fold away (`constants.rs`).
+    pub without_function_targets: bool,
     /// No dynamic call passes named arguments (assumed, then checked
     /// against the emitted text): the `named` parameters of the runtime's
     /// dynamic-call helpers are always `null` (`constants.rs`).
@@ -810,6 +815,7 @@ impl<'a> Computation<'a> {
                 c.set_without_legacy(op.without_legacy);
                 c.set_without_dynamic_named(op.without_dynamic_named);
                 c.set_without_functions(op.without_functions);
+                c.set_without_function_targets(op.without_function_targets);
             }
             if std::env::var("DARTFORGE_JSPROD_NULL_PARAMS").map_or(true, |v| v != "0") {
                 m.params = Some(params::ParamFlow::new(e, &m.universal_names));

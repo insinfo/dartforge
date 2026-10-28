@@ -401,6 +401,11 @@ fn fixed_point(
         // (`DARTFORGE_JSPROD_FUNCTIONS_GATE=0` assumes they may exist).
         without_functions: std::env::var("DARTFORGE_JSPROD_FUNCTIONS_GATE")
             .map_or(true, |v| v != "0"),
+        // No function type as a subtype-test target until the text shows
+        // one (`DARTFORGE_JSPROD_FUNCTION_TARGETS_GATE=0` assumes there may
+        // be).
+        without_function_targets: std::env::var("DARTFORGE_JSPROD_FUNCTION_TARGETS_GATE")
+            .map_or(true, |v| v != "0"),
         // No dynamic call with named arguments until the text shows one
         // (`DARTFORGE_JSPROD_DYNAMIC_NAMED_GATE=0` assumes they may exist).
         without_dynamic_named: std::env::var("DARTFORGE_JSPROD_DYNAMIC_NAMED_GATE")
@@ -411,6 +416,7 @@ fn fixed_point(
     constants.set_without_legacy(opm.without_legacy);
     constants.set_without_dynamic_named(opm.without_dynamic_named);
     constants.set_without_functions(opm.without_functions);
+    constants.set_without_function_targets(opm.without_function_targets);
     let runtime_equals = a
         .program
         .libraries
@@ -528,6 +534,12 @@ fn fixed_point(
             computation = dartforge_world::Computation::new(input, opm);
             continue;
         }
+        if opm.without_function_targets && texts.iter().any(|(_, t)| targets_function_type(t)) {
+            opm.without_function_targets = false;
+            constants.set_without_function_targets(false);
+            computation = dartforge_world::Computation::new(input, opm);
+            continue;
+        }
         if opm.without_dynamic_named && texts.iter().any(|(_, t)| passes_dynamic_named(t)) {
             opm.without_dynamic_named = false;
             constants.set_without_dynamic_named(false);
@@ -623,6 +635,99 @@ fn cites_function_type(text: &str) -> bool {
         }
     }
     function_recipe_literal(text)
+}
+
+/// Whether a function type in `text` may be the target of a subtype test
+/// (`_isSubtype`'s `t`): every recipe literal with a function type that is
+/// not a closure's own signature. A signature is the recipe of the second
+/// argument of `dart.fn(f, R)`, written `dart_rti._Universe.eval(…, "R",
+/// true)` or `env[_eval]("R")`, with no function type nested inside (a
+/// nested one is a parameter type that a dynamic call checks, a bound that
+/// an instantiation checks). A closure's type is only ever the `s` side:
+/// tested against interface types, printed, compared. Anything else (a type
+/// argument, an `is`/`as` target, a method signature, a tear-off, the rules'
+/// JSON) counts as a target. A text that does not parse counts too; a false
+/// positive only keeps `_isFunctionSubtype`.
+fn targets_function_type(text: &str) -> bool {
+    use oxc_ast::ast::{Argument, CallExpression, Expression};
+    use oxc_ast_visit::Visit;
+    struct V {
+        signatures: std::collections::HashSet<u32>,
+        target: bool,
+    }
+    /// The recipe literal of a signature argument, when it has that shape.
+    fn signature_literal<'b>(e: &'b Expression<'_>) -> Option<&'b oxc_ast::ast::StringLiteral<'b>> {
+        let Expression::CallExpression(c) = e else {
+            return None;
+        };
+        let literal = match (&c.callee, &c.arguments[..]) {
+            (
+                Expression::StaticMemberExpression(m),
+                [_, Argument::StringLiteral(l), Argument::BooleanLiteral(_)],
+            ) if m.property.name == "eval"
+                && matches!(&m.object, Expression::StaticMemberExpression(u)
+                    if u.property.name == "_Universe") =>
+            {
+                l
+            }
+            (Expression::ComputedMemberExpression(m), [Argument::StringLiteral(l)]) if matches!(&m.expression, Expression::Identifier(i) if i.name == "_eval") => {
+                l
+            }
+            _ => return None,
+        };
+        Some(literal)
+    }
+    fn is_dart_fn(c: &CallExpression<'_>) -> bool {
+        matches!(&c.callee, Expression::StaticMemberExpression(m)
+            if m.property.name == "fn"
+                && matches!(&m.object, Expression::Identifier(o) if o.name == "dart"))
+    }
+    impl<'a> Visit<'a> for V {
+        fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+            if is_dart_fn(it)
+                && let [_, Argument::CallExpression(_)] = &it.arguments[..]
+                && let Some(e) = it.arguments[1].as_expression()
+                && let Some(l) = signature_literal(e)
+                && l.value.bytes().filter(|&c| c == b'(').count() == 1
+            {
+                self.signatures.insert(l.span.start);
+            }
+            oxc_ast_visit::walk::walk_call_expression(self, it);
+        }
+        fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
+            let v = it.value.as_str();
+            if function_recipe(v.as_bytes()) {
+                if !self.signatures.contains(&it.span.start) {
+                    self.target = true;
+                }
+            } else if v.contains('"') && v.split('"').any(|p| function_recipe(p.as_bytes())) {
+                // The rules' JSON (`JSON.parse("{\"|a\": [\"|o()\"]}")`).
+                self.target = true;
+            }
+        }
+        fn visit_template_literal(&mut self, it: &oxc_ast::ast::TemplateLiteral<'a>) {
+            for q in &it.quasis {
+                let v = q.value.raw.as_str();
+                if function_recipe(v.as_bytes())
+                    || (v.contains('"') && v.split('"').any(|p| function_recipe(p.as_bytes())))
+                {
+                    self.target = true;
+                }
+            }
+            oxc_ast_visit::walk::walk_template_literal(self, it);
+        }
+    }
+    let allocator = oxc_allocator::Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, text, oxc_span::SourceType::mjs()).parse();
+    if !parsed.diagnostics.is_empty() {
+        return true;
+    }
+    let mut v = V {
+        signatures: std::collections::HashSet::new(),
+        target: false,
+    };
+    v.visit_program(&parsed.program);
+    v.target
 }
 
 /// A recipe-like literal (only recipe characters) with a function type (a
@@ -1414,6 +1519,30 @@ mod front_coding_tests {
                 prev.clone()
             })
             .collect()
+    }
+
+    #[test]
+    fn function_targets_are_recipes_outside_closure_signatures() {
+        let u =
+            |r: &str| format!("dart_rti._Universe.eval(dart_rti._theUniverse(), \"{r}\", true)");
+        // Signatures only: a universe recipe and an environment one.
+        let s = format!(
+            "f(dart.fn(x => x, {}));\ng(dart.fn(() => 1, dart_rti.instanceType(this)[_eval](\"|q(|g.0)\")));\n",
+            u("|q(|p)")
+        );
+        assert!(!targets_function_type(&s));
+        // A nested function type, a type argument, an `is` target, a method
+        // signature value, the rules' JSON.
+        for t in [
+            format!("dart.fn(x => x, {});", u("~(~())")),
+            format!("new Box.new({});", u("|f<~()>")),
+            format!("{}[_is](o);", u("~(|p)")),
+            "s({m: _ti => _ti[_eval](\"~(|g.0)\")});".to_string(),
+            "r(JSON.parse(\"{\\\"|a\\\": [\\\"|o()\\\"]}\"));".to_string(),
+        ] {
+            assert!(targets_function_type(&t), "{t}");
+        }
+        assert!(targets_function_type("f(("));
     }
 
     #[test]

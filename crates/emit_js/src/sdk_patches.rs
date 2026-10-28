@@ -410,6 +410,30 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         "/// Represents the set of supertypes and type variable bindings for a given\n/// target type. The target type itself is not stored on the [TypeRule].\nclass TypeRule {\n",
         "/// The recipe of the class type variable `name`, written `C.k` with `k`\n/// its position among the type parameters of `C` (the production profile's\n/// recipes), in an environment of class `interfaceName`.\n/// A class recipe has no period (`|h`, `lib|C`), so the name splits in two.\nString? _positionalTypeVariable(\n    Object? universe, String interfaceName, String name) {\n  var parts = JS('', '#.split(\".\")', name);\n  return JS('', '#[0] === # ? \"\" + (+#[1] + 1) : #[#[0]]?.[#[1]]', parts,\n      interfaceName, parts, _Universe.findRule(universe, interfaceName), parts,\n      parts);\n}\n\n/// Represents the set of supertypes and type variable bindings for a given\n/// target type. The target type itself is not stored on the [TypeRule].\nclass TypeRule {\n",
     ),
+    // `_isSubtype` tests the kind of `t` against the function kinds through
+    // two constants of their own, equal to `kindFunction` and
+    // `kindGenericFunction`: when no function type is ever the target of a
+    // subtype test (closure types are only ever the `s` side), the
+    // production world folds exactly those two tests, and with them
+    // `_isFunctionSubtype` (`dartforge_world::Constants::set_without_function_targets`).
+    (
+        Some("DARTFORGE_JSPROD_FUNCTION_TARGETS_GATE"),
+        "_internal/js_shared/lib/rti.dart",
+        "  static const int kindGenericFunctionParameter = 14;\n",
+        "  static const int kindGenericFunctionParameter = 14;\n  static const int kindFunctionTarget = kindFunction;\n  static const int kindGenericFunctionTarget = kindGenericFunction;\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FUNCTION_TARGETS_GATE"),
+        "_internal/js_shared/lib/rti.dart",
+        "  if (tKind == Rti.kindGenericFunction) {\n    if (isJsFunctionType(s)) return true;\n",
+        "  if (tKind == Rti.kindGenericFunctionTarget) {\n    if (isJsFunctionType(s)) return true;\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FUNCTION_TARGETS_GATE"),
+        "_internal/js_shared/lib/rti.dart",
+        "  if (tKind == Rti.kindFunction) {\n    if (isJsFunctionType(s)) return true;\n",
+        "  if (tKind == Rti.kindFunctionTarget) {\n    if (isJsFunctionType(s)) return true;\n",
+    ),
     (
         Some("DARTFORGE_JSPROD_HASH_ARITY"),
         "core/object.dart",

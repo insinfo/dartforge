@@ -80,6 +80,9 @@ pub struct Constants<'a> {
     /// No function type exists at run time
     /// ([`crate::Options::without_functions`]).
     without_functions: std::cell::Cell<bool>,
+    /// No function type is the target of a subtype test
+    /// ([`crate::Options::without_function_targets`]).
+    without_function_targets: std::cell::Cell<bool>,
     /// The `named` parameters of the runtime's dynamic-call path, always
     /// `null` when no dynamic call passes named arguments
     /// ([`crate::Options::without_dynamic_named`]); empty otherwise.
@@ -100,6 +103,7 @@ impl<'a> Constants<'a> {
             without_legacy: std::cell::Cell::new(false),
             dynamic_named: RefCell::new(HashSet::new()),
             without_functions: std::cell::Cell::new(false),
+            without_function_targets: std::cell::Cell::new(false),
         }
     }
 
@@ -146,6 +150,14 @@ impl<'a> Constants<'a> {
     /// recipes are caught by the same check).
     pub fn set_without_functions(&self, b: bool) {
         self.without_functions.set(b);
+    }
+
+    /// No function type is ever the target of a subtype test: in
+    /// `_isSubtype`, `tKind == Rti.kindFunctionTarget` and
+    /// `tKind == Rti.kindGenericFunctionTarget` (the production SDK patch's
+    /// names for the function kinds in those two tests) are `false`.
+    pub fn set_without_function_targets(&self, b: bool) {
+        self.without_function_targets.set(b);
     }
 
     /// [`Constants::set_without_dynamic_named`].
@@ -251,9 +263,19 @@ impl<'a> Constants<'a> {
                         | "genericFunctionTypeParameterIndex"
                 )
         );
+        let function_target = matches!(
+            (lib, class, name),
+            (
+                "dart:_rti",
+                "Rti",
+                "kindFunctionTarget" | "kindGenericFunctionTarget"
+            )
+        );
         (record && self.without_records.get())
             || (legacy && self.without_legacy.get())
             || (function && self.without_functions.get())
+            || (function_target
+                && (self.without_functions.get() || self.without_function_targets.get()))
     }
 
     /// `_Utils.isIdentical(x, LEGACY_TYPE_REF<T>())` (either order, `x` pure).
