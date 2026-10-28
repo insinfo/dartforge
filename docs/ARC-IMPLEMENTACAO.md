@@ -698,6 +698,42 @@ descarte especializado por classe e a reutilização imediata da célula morta p
 próxima alocação do mesmo tamanho (*reuse* do Perceus), que tiram a drenagem do
 caminho; a elisão de pares nas leituras de campos `final` com receptor emprestado.
 
+### 8.6 Escritas em linha, ciclos nas drenagens e o custo da contagem no objeto
+
+`a3a76bb7`: a escrita `Ref` do ARC real testa em linha a entrada do dono (viva, sem
+escrita crua pendente — um byte `snapshot` novo na entrada, ligado quando a escrita
+crua fotografa o objeto e desligado no assentamento) e então grava, marca a
+referência e conta em linha; o resto vai à ABI. O lixo cíclico não espera mais a
+completa: a drenagem roda a rodada de ciclos quando a fila de candidatos passa de
+um limiar, que dobra quando a rodada libera pouco (um mapa grande vivo) e cai
+quando libera muito. O RSS do servidor HTTP no ARC real foi de 77 para 39 MB. O
+assentamento sem trabalho sai depois de olhar as filas, e a junção de textos com
+dono enraíza as partes com raízes de rascunho em vez de um quadro dono.
+
+Medido com carga 6–7 (os tempos não valem, as instruções e as razões sim): ARC real
+contra ARC simples na mesma rodada — árvores 63,6 contra 5,1 G instruções (13,7
+contra 1,18 G ciclos), strings 52,7 contra 15,1 G (9,2 contra 2,6 G), JSON 109 contra
+45,6 G (20,3 contra 8,1 G); servidor 547 mil contra 144 mil ciclos por pedido.
+
+**Onde vai o tempo agora** (árvores, `sample`): a morte em cascata no runtime (o
+release que zera, o assentamento e `drain_zeros`: ~45%), a drenagem disparada pela
+alocação (a decisão de cada bloco jovem e o percurso dos mortos: ~13%) e o registro
+de cada objeto novo por chamada (~9%). Consultar a tabela pela cabeça da página no
+runtime em vez do mapa radix foi medido e não pagou (descartado): o custo é a falta
+de cache na entrada de metadados de cada objeto e de cada filho, não a busca.
+
+**A contagem dentro do objeto, medida no papel:**
+
+| Opção | O que custa |
+| --- | --- |
+| Roubar bits do cabeçalho | `class_id` usa o bit 30 (o `$type` registra `0x40000001`); `map` é o mapa de referências das instâncias e o hash das strings; `metadata` guarda o RTI; `n` é o número de campos ou de palavras (saturado nos grandes). Não há 8 bits livres sem mascarar cada leitura de classe no código gerado e no runtime (despacho, testes de tipo): um `and` em cada despacho e um risco em todos os modos de memória. |
+| Palavra de contagem depois do corpo, só no preparado | +8 bytes por objeto (+25% num nó de árvore de dois campos); a contagem em `h + 14 + 8·n` (uma carga de `n` a mais); objetos grandes e estáticos continuam na tabela; todo caminho de alocação (runtime e em linha) e toda cópia ou redimensionamento de corpo precisam conhecê-la. Tira a falta de cache do retain/release, mas não a da morte, que ainda precisa dos metadados (estado, geração, candidato) — a não ser que a tabela vire preguiçosa (só candidatos e zeros adiados). Estimativa: uma semana e uma variante de runtime. |
+| Cabeçalho de 24 bytes no preparado | +8 bytes por objeto e todas as constantes de layout (`BODY`, `LENGTH`, `ELEMENTS`…) por modo, em runtime, emissor, JIT e objetos estáticos da imagem: semanas, com risco em todos os modos. |
+
+Nenhuma das três foi feita: o ganho só aparece junto com a reescrita da morte
+(metadados preguiçosos, descarte especializado por classe e reuso imediato da
+célula), que é o próximo passo de fato do ARC real.
+
 ## 5. Pendências
 
 O lowering registra nominalmente os retornos Ref de corpos tipados Dart

@@ -1071,6 +1071,13 @@ depende de tempo, iguais ao tracing):
 - `86d0dd70`: a escrita que move não faz mais o par retain/release do valor.
 - `e2851691`: a alocação do ARC real sai em linha pela TLAB (e o retain registra o objeto),
   e o nulo gravado num campo ainda não escrito do objeto novo só marca a referência.
+- `a3a76bb7`: a escrita `Ref` do ARC real conta em linha (com um byte novo nos metadados
+  que manda ao runtime o dono com escrita crua pendente), e a drenagem roda a rodada de
+  ciclos por um limiar adaptativo da fila de candidatos: o RSS do servidor em ARC real
+  foi de 77 para 39 MB. O custo de pôr a contagem dentro do objeto ficou medido no papel
+  (docs/ARC-IMPLEMENTACAO.md §8.6): não há bits livres no cabeçalho de 16 bytes, e as
+  alternativas — palavra depois do corpo ou cabeçalho de 24 bytes — custam 8 bytes por
+  objeto e só pagam junto com a reescrita da morte.
 
 **O que falta e por quê:**
 
