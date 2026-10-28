@@ -128,6 +128,7 @@ pub fn group<'a>(
                     &run,
                     d.span.start < runtime_end,
                     &mut descriptions,
+                    &seen,
                 ));
                 for d in &run {
                     seen.entry((d.library.clone(), d.description.clone()))
@@ -146,16 +147,26 @@ pub fn group<'a>(
 }
 
 /// The declarators that replace one run (without `var`), separated by commas.
-fn grouped(run: &[&Declaration], runtime: bool, descriptions: &mut Vec<String>) -> String {
+fn grouped<'r>(
+    run: &[&'r Declaration],
+    runtime: bool,
+    descriptions: &mut Vec<String>,
+    seen: &'r std::collections::HashMap<(String, String), String>,
+) -> String {
     // Libraries in order of first appearance; a repeated pair is an alias of
-    // its first variable.
+    // its first variable, also when an earlier run declared it.
     let mut libraries: Vec<(&str, Vec<&str>, Vec<&str>)> = Vec::new();
     let mut first: std::collections::HashMap<(&str, &str), &str> = std::collections::HashMap::new();
     let mut aliases: Vec<(&str, &str)> = Vec::new();
+    let cross_runs = bare_member_symbols_on();
     for d in run {
         let key = (d.library.as_str(), d.description.as_str());
         if let Some(f) = first.get(&key) {
             aliases.push((&d.name, f));
+            continue;
+        }
+        if cross_runs && let Some(f) = seen.get(&(d.library.clone(), d.description.clone())) {
+            aliases.push((&d.name, f.as_str()));
             continue;
         }
         first.insert(key, &d.name);
@@ -204,6 +215,229 @@ pub fn bare_storage_symbols() -> bool {
 /// message shows it.
 fn is_storage(description: &str) -> bool {
     description.contains('.') && description != "."
+}
+
+/// Whether member symbols that are only ever property keys lose their
+/// description (`DARTFORGE_JSPROD_BARE_MEMBER_SYMBOLS=0` keeps them).
+pub fn bare_member_symbols_on() -> bool {
+    std::env::var("DARTFORGE_JSPROD_BARE_MEMBER_SYMBOLS").map_or(true, |v| v != "0")
+}
+
+/// Turns into `.` (a fresh `Symbol()`) every description of a grouped
+/// private name whose symbol is only ever used as a property key: the key of
+/// a computed member access (`o[s]`, also as an assignment target) or of a
+/// class member (`[s]() {}`), directly or through a top-level alias
+/// (`var a = s`) that nothing reassigns.
+///
+/// A symbol's description is only read by code that receives the symbol as
+/// a value: the dynamic-call paths (`_toSymbolName` from `_dartSymbol`, for
+/// `NoSuchMethodError` and `Invocation.memberName`), the lazy-field helper
+/// (whose `LateError` shows the name), `defineAccessor`, `bind`… All of them
+/// get it as an argument or as an object-literal key, never as a member key,
+/// so a symbol that only appears as a member key never reaches them, and a
+/// fresh symbol is the same key. A pair that some other `privateName` call
+/// still creates keeps its description, so that call gets the same cached
+/// symbol. Runs after [`group`], on the compressed tree.
+pub fn bare_member_symbols<'a>(allocator: &'a Allocator, program: &mut Program<'a>) {
+    use oxc_ast_visit::Visit;
+    use oxc_syntax::reference::ReferenceId;
+    use oxc_syntax::symbol::SymbolId;
+    use std::collections::{HashMap, HashSet};
+
+    /// The reference ids in member-key position, and the `privateName`
+    /// calls outside the groups.
+    #[derive(Default)]
+    struct Keys {
+        keys: HashSet<ReferenceId>,
+        other_pairs: HashSet<(String, String)>,
+    }
+    impl Keys {
+        fn key(&mut self, k: &oxc_ast::ast::PropertyKey<'_>, computed: bool) {
+            if computed
+                && let oxc_ast::ast::PropertyKey::Identifier(i) = k
+                && let Some(r) = i.reference_id.get()
+            {
+                self.keys.insert(r);
+            }
+        }
+    }
+    impl<'a> Visit<'a> for Keys {
+        fn visit_computed_member_expression(
+            &mut self,
+            it: &oxc_ast::ast::ComputedMemberExpression<'a>,
+        ) {
+            if let Expression::Identifier(i) = &it.expression
+                && let Some(r) = i.reference_id.get()
+            {
+                self.keys.insert(r);
+            }
+            oxc_ast_visit::walk::walk_computed_member_expression(self, it);
+        }
+        fn visit_method_definition(&mut self, it: &oxc_ast::ast::MethodDefinition<'a>) {
+            self.key(&it.key, it.computed);
+            oxc_ast_visit::walk::walk_method_definition(self, it);
+        }
+        fn visit_property_definition(&mut self, it: &oxc_ast::ast::PropertyDefinition<'a>) {
+            self.key(&it.key, it.computed);
+            oxc_ast_visit::walk::walk_property_definition(self, it);
+        }
+        fn visit_accessor_property(&mut self, it: &oxc_ast::ast::AccessorProperty<'a>) {
+            self.key(&it.key, it.computed);
+            oxc_ast_visit::walk::walk_accessor_property(self, it);
+        }
+        fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
+            if crate::unwrap::dart_member(&it.callee) == Some("privateName")
+                && let [Argument::Identifier(l), Argument::StringLiteral(d)] = &it.arguments[..]
+            {
+                self.other_pairs
+                    .insert((l.name.to_string(), d.value.to_string()));
+            }
+            oxc_ast_visit::walk::walk_call_expression(self, it);
+        }
+    }
+
+    let semantic = oxc_semantic::SemanticBuilder::new().build(program).semantic;
+    let scoping = semantic.scoping();
+    let mut keys = Keys::default();
+    keys.visit_program(program);
+    let Some(Statement::ExpressionStatement(e)) = program.body.first() else {
+        return;
+    };
+    let Expression::CallExpression(c) = &e.expression else {
+        return;
+    };
+    let mut callee = &c.callee;
+    while let Expression::ParenthesizedExpression(p) = callee {
+        callee = &p.expression;
+    }
+    let Expression::FunctionExpression(f) = callee else {
+        return;
+    };
+    let Some(body) = f.body.as_ref() else {
+        return;
+    };
+    // Top-level aliases `var x = y`: the reference `y` → the symbol of `x`.
+    let mut aliases: HashMap<ReferenceId, SymbolId> = HashMap::new();
+    // Each group call, in order: its library and its bindings (`None` for a
+    // hole).
+    let mut groups: Vec<(String, Vec<String>, Vec<Option<SymbolId>>)> = Vec::new();
+    for s in &body.statements {
+        let Statement::VariableDeclaration(v) = s else {
+            continue;
+        };
+        for d in &v.declarations {
+            match (&d.id, &d.init) {
+                (BindingPattern::BindingIdentifier(x), Some(Expression::Identifier(y))) => {
+                    if let (Some(sx), Some(ry)) = (x.symbol_id.get(), y.reference_id.get()) {
+                        aliases.insert(ry, sx);
+                    }
+                }
+                (BindingPattern::ArrayPattern(a), Some(Expression::CallExpression(call))) if matches!(&call.callee, Expression::Identifier(h) if h.name == HELPER) =>
+                {
+                    let [Argument::Identifier(l), Argument::StringLiteral(text)] =
+                        &call.arguments[..]
+                    else {
+                        continue;
+                    };
+                    let bindings = a
+                        .elements
+                        .iter()
+                        .map(|e| match e {
+                            Some(BindingPattern::BindingIdentifier(b)) => b.symbol_id.get(),
+                            _ => None,
+                        })
+                        .collect();
+                    groups.push((
+                        l.name.to_string(),
+                        text.value.split(' ').map(str::to_string).collect(),
+                        bindings,
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+    // A symbol whose every reference is a member key or the initializer of
+    // an alias that itself qualifies, and that nothing writes.
+    fn only_keys(
+        s: SymbolId,
+        scoping: &oxc_semantic::Scoping,
+        keys: &HashSet<ReferenceId>,
+        aliases: &HashMap<ReferenceId, SymbolId>,
+        depth: usize,
+    ) -> bool {
+        depth < 4
+            && scoping.get_resolved_reference_ids(s).iter().all(|&r| {
+                !scoping.get_reference(r).is_write()
+                    && (keys.contains(&r)
+                        || aliases
+                            .get(&r)
+                            .is_some_and(|&a| only_keys(a, scoping, keys, aliases, depth + 1)))
+            })
+    }
+    // A pair that two group calls create relies on `privateName`'s cache.
+    let mut counts: HashMap<(&str, &str), usize> = HashMap::new();
+    for (library, words, _) in &groups {
+        for w in words {
+            *counts.entry((library, w)).or_default() += 1;
+        }
+    }
+    let mut plan: Vec<Option<String>> = Vec::new();
+    for (library, words, bindings) in &groups {
+        let mut changed = false;
+        let new: Vec<&str> = words
+            .iter()
+            .enumerate()
+            .map(|(i, w)| {
+                if w == "."
+                    || counts.get(&(library.as_str(), w.as_str())) != Some(&1)
+                    || keys.other_pairs.contains(&(library.clone(), w.clone()))
+                {
+                    return w.as_str();
+                }
+                let bare = match bindings.get(i).copied().flatten() {
+                    Some(s) => only_keys(s, scoping, &keys.keys, &aliases, 0),
+                    None => true,
+                };
+                if bare {
+                    changed = true;
+                    "."
+                } else {
+                    w.as_str()
+                }
+            })
+            .collect();
+        plan.push(changed.then(|| new.join(" ")));
+    }
+    drop(semantic);
+    // Rewrites the group calls' literals, in the same order.
+    let Some(body) = outer_body(program) else {
+        return;
+    };
+    let mut next = plan.into_iter();
+    for s in body.iter_mut() {
+        let Statement::VariableDeclaration(v) = s else {
+            continue;
+        };
+        for d in v.declarations.iter_mut() {
+            let (BindingPattern::ArrayPattern(_), Some(Expression::CallExpression(call))) =
+                (&d.id, &mut d.init)
+            else {
+                continue;
+            };
+            if !matches!(&call.callee, Expression::Identifier(h) if h.name == HELPER) {
+                continue;
+            }
+            let [Argument::Identifier(_), Argument::StringLiteral(text)] = &mut call.arguments[..]
+            else {
+                continue;
+            };
+            if let Some(Some(new)) = next.next() {
+                text.value = allocator.alloc_str(&new).into();
+                text.raw = None;
+            }
+        }
+    }
 }
 
 /// The runtime's `Symbol("name")` keys (`Symbol("sigMethod")`,
@@ -565,6 +799,47 @@ mod tests {
         let allocator = Allocator::default();
         let parsed = oxc_parser::Parser::new(&allocator, &out, oxc_span::SourceType::cjs()).parse();
         assert!(parsed.diagnostics.is_empty(), "{out}");
+    }
+
+    #[test]
+    fn only_key_symbols_lose_their_description() {
+        let body = decls(&[
+            ("a", "core", "_a"),
+            ("b", "core", "_b"),
+            ("c", "core", "_c"),
+            ("d", "core", "_d"),
+            ("e", "core", "_e"),
+            ("f", "core", "_f"),
+            ("g", "core", "_g"),
+        ]);
+        // `a` is a member key, `b` an argument, `c` a key through an alias,
+        // `d` a key through an alias that is passed on, `e` an object-literal
+        // key, `f` a class member key, `g` unused; then `z` creates `_f` again.
+        let src = format!(
+            "(function () {{\nvar dart$$privateName = function (l, n) {{}}, {body};\nvar ca = c, da = d;\no[a] = o[ca](); dsend(o, b); use(da); defineLazy(o, {{ get [e]() {{ return 1; }} }});\nclass K {{ [f]() {{}} }}\n}})();\n"
+        );
+        let allocator = Allocator::default();
+        let parsed = oxc_parser::Parser::new(&allocator, &src, oxc_span::SourceType::cjs()).parse();
+        assert!(parsed.diagnostics.is_empty());
+        let mut program = parsed.program;
+        group(&allocator, &mut program, u32::MAX);
+        bare_member_symbols(&allocator, &mut program);
+        let out = oxc_codegen::Codegen::new().build(&program).code;
+        assert!(
+            out.contains("[a, b, c, d, e, f, g] = t$V(core, \". _b . _d _e . .\")"),
+            "{out}"
+        );
+        let src2 = src.replace(
+            "class K",
+            "function z() {\nreturn dart$$privateName(core, \"_f\");\n}\nclass K",
+        );
+        let parsed =
+            oxc_parser::Parser::new(&allocator, &src2, oxc_span::SourceType::cjs()).parse();
+        let mut program = parsed.program;
+        group(&allocator, &mut program, u32::MAX);
+        bare_member_symbols(&allocator, &mut program);
+        let out = oxc_codegen::Codegen::new().build(&program).code;
+        assert!(out.contains("_e _f ."), "{out}");
     }
 
     #[test]

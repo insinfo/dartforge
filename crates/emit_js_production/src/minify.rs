@@ -1181,6 +1181,14 @@ pub fn minify_with_properties(
             strings.record(&n);
         }
     }
+    // Member symbols only ever used as property keys without descriptions
+    // (`private_names::bare_member_symbols`);
+    // `DARTFORGE_JSPROD_BARE_MEMBER_SYMBOLS=0` keeps them.
+    if crate::private_names::bare_storage_symbols()
+        && crate::private_names::bare_member_symbols_on()
+    {
+        crate::private_names::bare_member_symbols(&allocator, &mut program);
+    }
     // The runtime's symbols without descriptions
     // (`private_names::strip_symbol_descriptions`);
     // `DARTFORGE_JSPROD_BARE_SYMBOLS=0` keeps them.
