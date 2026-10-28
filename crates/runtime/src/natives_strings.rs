@@ -134,36 +134,56 @@ pub extern "C" fn dartforge_native_Internal_writeIntoTwoByteString(string: i64, 
 // `lastIndexOf`, `contains`) and splitting by one character (`split`). The result
 // is the same loop, done over the blocks' views.
 
+/// The units of the live string `h`, read from its block header as the
+/// generated code reads them (`@df.string_*`), without the heap's borrow and
+/// handle validation. The view is valid while nothing collects: the callers
+/// below neither allocate nor call Dart.
+///
+/// # Panics
+/// If `h` is not a string (compiler bug).
+#[allow(unsafe_code)]
+fn string_units<'a>(h: i64) -> crate::text::TextRef<'a> {
+    use crate::layout::{HANDLE_OFFSET, Header, cid, offsets};
+    assert!(crate::layout::is_object(h), "compiler bug: string expected\nhandle {h}");
+    let b = (h - HANDLE_OFFSET) as *const u8;
+    // SAFETY: the handle of a live object the generated code passed points to
+    // its block header; a string's length and units follow it, and strings do
+    // not move.
+    unsafe {
+        let len = *b.add(offsets::LENGTH).cast::<i64>() as usize;
+        let units = b.add(offsets::UNITS);
+        match (*b.cast::<Header>()).class_id {
+            cid::ONE_BYTE_STRING => crate::text::TextRef::OneByte(std::slice::from_raw_parts(units, len)),
+            cid::TWO_BYTE_STRING => {
+                crate::text::TextRef::TwoByte(std::slice::from_raw_parts(units.cast::<u16>(), len))
+            }
+            c => panic!("compiler bug: string expected\nhandle {h} of class {c}"),
+        }
+    }
+}
+
 /// `_StringBase._substringMatches(start, other)`: an empty `other` matches; out of
 /// bounds, it does not.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_string_region_equals(this: i64, start: i64, other_one: i64) -> u8 {
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        let t = heap.text(this).expect("compiler bug: string expected");
-        let o = heap.text(other_one).expect("compiler bug: string expected");
-        if o.is_empty() {
-            return 1;
-        }
-        let Ok(i) = usize::try_from(start) else { return 0 };
-        u8::from(t.matches_at(o, i))
-    })
+    let (t, o) = (string_units(this), string_units(other_one));
+    if o.is_empty() {
+        return 1;
+    }
+    let Ok(i) = usize::try_from(start) else { return 0 };
+    u8::from(t.matches_at(o, i))
 }
 
 /// `indexOf(String other, start)` after the check of `start` (done in Dart): the
 /// first index `>= start` where `other` matches, or -1.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_string_index_of(this: i64, other_one: i64, start: i64) -> i64 {
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        let t = heap.text(this).expect("compiler bug: string expected");
-        let o = heap.text(other_one).expect("compiler bug: string expected");
-        if o.len() > t.len() {
-            return -1;
-        }
-        let start = usize::try_from(start).unwrap_or(0);
-        t.search_for(o, start).map_or(-1, |i| i as i64)
-    })
+    let (t, o) = (string_units(this), string_units(other_one));
+    if o.len() > t.len() {
+        return -1;
+    }
+    let start = usize::try_from(start).unwrap_or(0);
+    t.search_for(o, start).map_or(-1, |i| i as i64)
 }
 
 /// `lastIndexOf(String other, start)` after the check of `start`: the last index
@@ -173,12 +193,8 @@ pub extern "C" fn dartforge_native_DartForge_string_last_index_of(this: i64, oth
     if start < 0 {
         return -1;
     }
-    HEAP.with(|heap| {
-        let heap = heap.borrow();
-        let t = heap.text(this).expect("compiler bug: string expected");
-        let o = heap.text(other_one).expect("compiler bug: string expected");
-        t.find_last(o, start as usize).map_or(-1, |i| i as i64)
-    })
+    let (t, o) = (string_units(this), string_units(other_one));
+    t.find_last(o, start as usize).map_or(-1, |i| i as i64)
 }
 
 /// `_OneByteString._splitWithCharCode(charCode)`: appends to `list` (Dart's new
