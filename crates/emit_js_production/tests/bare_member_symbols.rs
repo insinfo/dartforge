@@ -31,13 +31,14 @@ fn bare_member_symbols_matches_the_vm() {
             .as_nanos()
     ));
     std::fs::create_dir_all(&directory).unwrap();
-    for switch in ["1", "0"] {
-        let artifact = directory.join(format!("out{switch}.js"));
+    for (switch, merge) in [("1", "1"), ("1", "0"), ("0", "1")] {
+        let artifact = directory.join(format!("out{switch}{merge}.js"));
         let result = Command::new(env!("CARGO_BIN_EXE_dartforge-jsprod"))
             .arg(&source)
             .arg("-o")
             .arg(&artifact)
             .env("DARTFORGE_JSPROD_BARE_MEMBER_SYMBOLS", switch)
+            .env("DARTFORGE_JSPROD_MERGE_BARE_SYMBOLS", merge)
             .output()
             .unwrap();
         assert!(
@@ -59,7 +60,7 @@ fn bare_member_symbols_matches_the_vm() {
         assert_eq!(
             String::from_utf8(run.stdout).unwrap().replace("\r\n", "\n"),
             expected,
-            "DARTFORGE_JSPROD_BARE_MEMBER_SYMBOLS={switch}"
+            "DARTFORGE_JSPROD_BARE_MEMBER_SYMBOLS={switch} DARTFORGE_JSPROD_MERGE_BARE_SYMBOLS={merge}"
         );
     }
     std::fs::remove_dir_all(directory).unwrap();

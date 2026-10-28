@@ -410,34 +410,96 @@ pub fn bare_member_symbols<'a>(allocator: &'a Allocator, program: &mut Program<'
         plan.push(changed.then(|| new.join(" ")));
     }
     drop(semantic);
-    // Rewrites the group calls' literals, in the same order.
+    // Rewrites the group calls' literals, in the same order. The calls left
+    // with only fresh symbols become one destructuring of
+    // `Array.from(Array(n), Symbol)` at the place of the first (each
+    // `Symbol(undefined, i)` is a symbol without description), and the
+    // helper goes when no call is left.
+    let merge = std::env::var("DARTFORGE_JSPROD_MERGE_BARE_SYMBOLS").map_or(true, |v| v != "0");
     let Some(body) = outer_body(program) else {
         return;
     };
     let mut next = plan.into_iter();
-    for s in body.iter_mut() {
+    let mut merged: Vec<String> = Vec::new();
+    let mut first_merged: Option<(usize, usize)> = None;
+    let mut calls_left = 0usize;
+    for (k, s) in body.iter_mut().enumerate() {
         let Statement::VariableDeclaration(v) = s else {
             continue;
         };
-        for d in v.declarations.iter_mut() {
-            let (BindingPattern::ArrayPattern(_), Some(Expression::CallExpression(call))) =
+        let old = std::mem::replace(&mut v.declarations, oxc_allocator::Vec::new_in(&allocator));
+        for mut d in old {
+            let (BindingPattern::ArrayPattern(pattern), Some(Expression::CallExpression(call))) =
                 (&d.id, &mut d.init)
             else {
+                v.declarations.push(d);
                 continue;
             };
             if !matches!(&call.callee, Expression::Identifier(h) if h.name == HELPER) {
+                v.declarations.push(d);
                 continue;
             }
             let [Argument::Identifier(_), Argument::StringLiteral(text)] = &mut call.arguments[..]
             else {
+                v.declarations.push(d);
                 continue;
             };
             if let Some(Some(new)) = next.next() {
                 text.value = allocator.alloc_str(&new).into();
                 text.raw = None;
             }
+            let names: Option<Vec<String>> = pattern
+                .elements
+                .iter()
+                .flatten()
+                .map(|e| match e {
+                    BindingPattern::BindingIdentifier(b) => Some(b.name.to_string()),
+                    _ => None,
+                })
+                .collect();
+            match names {
+                Some(names) if merge && text.value.split(' ').all(|w| w == ".") => {
+                    first_merged.get_or_insert((k, v.declarations.len()));
+                    merged.extend(names);
+                }
+                _ => {
+                    calls_left += 1;
+                    v.declarations.push(d);
+                }
+            }
         }
     }
+    let Some((at, position)) = first_merged else {
+        return;
+    };
+    if !merged.is_empty() {
+        let snippet = format!(
+            "[{}] = Array.from(Array({}), Symbol)",
+            merged.join(", "),
+            merged.len()
+        );
+        let Statement::VariableDeclaration(v) = &mut body[at] else {
+            return;
+        };
+        // At the first one's place: a later initializer of the same
+        // statement (a class with computed keys) already reads them.
+        for (i, g) in parse_declarators(allocator, &snippet)
+            .into_iter()
+            .enumerate()
+        {
+            v.declarations.insert(position + i, g);
+        }
+    }
+    if calls_left == 0 {
+        for s in body.iter_mut() {
+            if let Statement::VariableDeclaration(v) = s {
+                v.declarations.retain(
+                    |d| !matches!(&d.id, BindingPattern::BindingIdentifier(b) if b.name == HELPER),
+                );
+            }
+        }
+    }
+    body.retain(|s| !matches!(s, Statement::VariableDeclaration(v) if v.declarations.is_empty()));
 }
 
 /// The runtime's `Symbol("name")` keys (`Symbol("sigMethod")`,
@@ -840,6 +902,33 @@ mod tests {
         bare_member_symbols(&allocator, &mut program);
         let out = oxc_codegen::Codegen::new().build(&program).code;
         assert!(out.contains("_e _f ."), "{out}");
+    }
+
+    #[test]
+    fn groups_of_fresh_symbols_merge_into_one_destructuring() {
+        let core = decls(&[
+            ("a", "core", "_a"),
+            ("b", "core", "_b"),
+            ("c", "core", "_c"),
+        ]);
+        let rti = decls(&[("d", "rti", "_d"), ("e", "rti", "_e"), ("f", "rti", "_f")]);
+        let src = format!(
+            "(function () {{\nvar dart$$privateName = function (l, n) {{}}, {core}, {rti}, K = class {{ [a]() {{}} }};\nvar x = c;\no[a] = o[b](o[x]); o[d] = o[f];\n}})();\n"
+        );
+        let allocator = Allocator::default();
+        let parsed = oxc_parser::Parser::new(&allocator, &src, oxc_span::SourceType::cjs()).parse();
+        let mut program = parsed.program;
+        group(&allocator, &mut program, u32::MAX);
+        bare_member_symbols(&allocator, &mut program);
+        let out = oxc_codegen::Codegen::new().build(&program).code;
+        assert!(
+            out.contains("[a, b, c, d, e, f] = Array.from(Array(6), Symbol), K = class"),
+            "{out}"
+        );
+        assert!(!out.contains("t$V"), "{out}");
+        let reparsed =
+            oxc_parser::Parser::new(&allocator, &out, oxc_span::SourceType::cjs()).parse();
+        assert!(reparsed.diagnostics.is_empty(), "{out}");
     }
 
     #[test]
