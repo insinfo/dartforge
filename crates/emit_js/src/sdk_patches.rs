@@ -288,6 +288,29 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         "      : (typeof self != \"undefined\") ? self : null;\n    if (!globalState) {\n      // Some platforms (e.g., d8) do not define any of the above.  The\n      // following is a non-CSP safe way to access the global object:\n      globalState = new Function('return this;')();\n    }\n",
         "      : self; // Production: the file defines `self` first.\n",
     ),
+    // `Error.safeToString` tests the primitives and strings and then calls
+    // `_objectToString`, `Primitives.safeToString`, which runs the same
+    // tests with the same results (`toString` of a number, `bool` or
+    // `null`, `JSON.stringify` of a string) before describing an object:
+    // the first copy of the tests goes.
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "core/errors.dart",
+        "  static String safeToString(Object? object) {\n    if (object is num || object is bool || null == object) {\n      return object.toString();\n    }\n    if (object is String) {\n      return _stringToSafeString(object);\n    }\n    return _objectToString(object);\n  }\n",
+        "  static String safeToString(Object? object) {\n    // Production: `_objectToString` runs the same tests.\n    return _objectToString(object);\n  }\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "core/errors.dart",
+        "  external static String _objectToString(Object object);\n",
+        "  external static String _objectToString(Object? object);\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/patch/core_patch.dart",
+        "  static String _objectToString(Object object) {\n    return Primitives.safeToString(object);\n  }\n",
+        "  static String _objectToString(Object? object) {\n    return Primitives.safeToString(object);\n  }\n",
+    ),
     // `bind` takes the tear-off's type from the class's signature table. A
     // tear-off whose type is the same for every method of that name gets it
     // from the call (`dart.tbind(o, "m", T)`, `emit_js`'s typed bind), and
