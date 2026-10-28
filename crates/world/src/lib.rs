@@ -434,6 +434,12 @@ pub struct Options {
     /// a closure's signature). The tests of `t`'s kind against the function
     /// kinds in `_isSubtype` fold away (`constants.rs`).
     pub without_function_targets: bool,
+    /// No generic function type exists at run time (assumed, then checked
+    /// against the emitted text: no recipe with a generic function type and
+    /// no generic instantiation). The generic-function kinds, the `^` recipe
+    /// syntax and the parser's generic-function `case` fold away
+    /// (`constants.rs`).
+    pub without_generic_functions: bool,
     /// No dynamic call passes named arguments (assumed, then checked
     /// against the emitted text): the `named` parameters of the runtime's
     /// dynamic-call helpers are always `null` (`constants.rs`).
@@ -816,6 +822,7 @@ impl<'a> Computation<'a> {
                 c.set_without_dynamic_named(op.without_dynamic_named);
                 c.set_without_functions(op.without_functions);
                 c.set_without_function_targets(op.without_function_targets);
+                c.set_without_generic_functions(op.without_generic_functions);
             }
             if std::env::var("DARTFORGE_JSPROD_NULL_PARAMS").map_or(true, |v| v != "0") {
                 m.params = Some(params::ParamFlow::new(e, &m.universal_names));

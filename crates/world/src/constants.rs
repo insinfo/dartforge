@@ -83,6 +83,9 @@ pub struct Constants<'a> {
     /// No function type is the target of a subtype test
     /// ([`crate::Options::without_function_targets`]).
     without_function_targets: std::cell::Cell<bool>,
+    /// No generic function type exists at run time
+    /// ([`crate::Options::without_generic_functions`]).
+    without_generic_functions: std::cell::Cell<bool>,
     /// The `named` parameters of the runtime's dynamic-call path, always
     /// `null` when no dynamic call passes named arguments
     /// ([`crate::Options::without_dynamic_named`]); empty otherwise.
@@ -104,6 +107,7 @@ impl<'a> Constants<'a> {
             dynamic_named: RefCell::new(HashSet::new()),
             without_functions: std::cell::Cell::new(false),
             without_function_targets: std::cell::Cell::new(false),
+            without_generic_functions: std::cell::Cell::new(false),
         }
     }
 
@@ -158,6 +162,16 @@ impl<'a> Constants<'a> {
     /// names for the function kinds in those two tests) are `false`.
     pub fn set_without_function_targets(&self, b: bool) {
         self.without_function_targets.set(b);
+    }
+
+    /// No generic function type exists at run time: `k ==
+    /// Rti.kindGenericFunction` (and `kindGenericFunctionParameter`, whose
+    /// types only live inside generic function types) is `false`, the `^`
+    /// recipe syntax never matches a `case`, and neither does the parser's
+    /// `Rti.kindGenericFunctionHead` (the production SDK patch's name for a
+    /// function type followed by type arguments).
+    pub fn set_without_generic_functions(&self, b: bool) {
+        self.without_generic_functions.set(b);
     }
 
     /// [`Constants::set_without_dynamic_named`].
@@ -271,11 +285,27 @@ impl<'a> Constants<'a> {
                 "kindFunctionTarget" | "kindGenericFunctionTarget"
             )
         );
+        let generic = matches!(
+            (lib, class, name),
+            (
+                "dart:_rti",
+                "Rti",
+                "kindGenericFunction"
+                    | "kindGenericFunctionParameter"
+                    | "kindGenericFunctionTarget"
+                    | "kindGenericFunctionHead"
+            ) | (
+                "dart:_recipe_syntax",
+                "Recipe",
+                "genericFunctionTypeParameterIndex"
+            )
+        );
         (record && self.without_records.get())
             || (legacy && self.without_legacy.get())
             || (function && self.without_functions.get())
             || (function_target
                 && (self.without_functions.get() || self.without_function_targets.get()))
+            || (generic && self.without_generic_functions.get())
     }
 
     /// `_Utils.isIdentical(x, LEGACY_TYPE_REF<T>())` (either order, `x` pure).

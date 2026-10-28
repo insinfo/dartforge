@@ -406,6 +406,10 @@ fn fixed_point(
         // be).
         without_function_targets: std::env::var("DARTFORGE_JSPROD_FUNCTION_TARGETS_GATE")
             .map_or(true, |v| v != "0"),
+        // No generic function type until the text shows one
+        // (`DARTFORGE_JSPROD_GENERIC_FUNCTIONS_GATE=0` assumes there may be).
+        without_generic_functions: std::env::var("DARTFORGE_JSPROD_GENERIC_FUNCTIONS_GATE")
+            .map_or(true, |v| v != "0"),
         // No dynamic call with named arguments until the text shows one
         // (`DARTFORGE_JSPROD_DYNAMIC_NAMED_GATE=0` assumes they may exist).
         without_dynamic_named: std::env::var("DARTFORGE_JSPROD_DYNAMIC_NAMED_GATE")
@@ -417,6 +421,7 @@ fn fixed_point(
     constants.set_without_dynamic_named(opm.without_dynamic_named);
     constants.set_without_functions(opm.without_functions);
     constants.set_without_function_targets(opm.without_function_targets);
+    constants.set_without_generic_functions(opm.without_generic_functions);
     let runtime_equals = a
         .program
         .libraries
@@ -534,6 +539,14 @@ fn fixed_point(
             computation = dartforge_world::Computation::new(input, opm);
             continue;
         }
+        if opm.without_generic_functions
+            && texts.iter().any(|(_, t)| cites_generic_function_type(t))
+        {
+            opm.without_generic_functions = false;
+            constants.set_without_generic_functions(false);
+            computation = dartforge_world::Computation::new(input, opm);
+            continue;
+        }
         if opm.without_function_targets && texts.iter().any(|(_, t)| targets_function_type(t)) {
             opm.without_function_targets = false;
             constants.set_without_function_targets(false);
@@ -635,6 +648,48 @@ fn cites_function_type(text: &str) -> bool {
         }
     }
     function_recipe_literal(text)
+}
+
+/// Whether `text` may create a generic function type at run time: a
+/// generic instantiation or generic function type helper (`dart.gbind`,
+/// `dart.gFnType`) or a recipe literal with a function type that has type
+/// parameters (`0^`) or bounds (`)<`), also inside the rules' JSON. A false
+/// positive only keeps the generic-function paths of `dart:_rti`.
+fn cites_generic_function_type(text: &str) -> bool {
+    if ["dart.gbind(", "dart.gFnType(", "gbind("]
+        .iter()
+        .any(|c| text.contains(c))
+    {
+        return true;
+    }
+    use oxc_ast_visit::Visit;
+    fn generic(lit: &[u8]) -> bool {
+        function_recipe(lit) && (lit.contains(&b'^') || lit.windows(2).any(|w| w == b")<"))
+    }
+    /// A literal, or one of its pieces between quotes (the rules' JSON).
+    fn cites(v: &str) -> bool {
+        generic(v.as_bytes()) || v.split('"').any(|p| generic(p.as_bytes()))
+    }
+    struct V(bool);
+    impl<'a> Visit<'a> for V {
+        fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
+            self.0 |= cites(it.value.as_str());
+        }
+        fn visit_template_literal(&mut self, it: &oxc_ast::ast::TemplateLiteral<'a>) {
+            for q in &it.quasis {
+                self.0 |= cites(q.value.raw.as_str());
+            }
+            oxc_ast_visit::walk::walk_template_literal(self, it);
+        }
+    }
+    let allocator = oxc_allocator::Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, text, oxc_span::SourceType::mjs()).parse();
+    if !parsed.diagnostics.is_empty() {
+        return true;
+    }
+    let mut v = V(false);
+    v.visit_program(&parsed.program);
+    v.0
 }
 
 /// Whether a function type in `text` may be the target of a subtype test
@@ -1543,6 +1598,22 @@ mod front_coding_tests {
             assert!(targets_function_type(&t), "{t}");
         }
         assert!(targets_function_type("f(("));
+    }
+
+    #[test]
+    fn generic_function_types_are_found_in_literals_and_rules() {
+        assert!(!cites_generic_function_type(
+            "f(\"|q(|p)\", \"~()\", \"|f<|q>\");"
+        ));
+        for t in [
+            "f(\"0^(0^)<|a?>\");",
+            "f(\"~()<|a?>\");",
+            "r(JSON.parse(\"{\\\"|a\\\": [\\\"0^(0^)<|a?>\\\"]}\"));",
+            "dart.gbind(f, T);",
+            "f((",
+        ] {
+            assert!(cites_generic_function_type(t), "{t}");
+        }
     }
 
     #[test]

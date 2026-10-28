@@ -416,11 +416,23 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
     // subtype test (closure types are only ever the `s` side), the
     // production world folds exactly those two tests, and with them
     // `_isFunctionSubtype` (`dartforge_world::Constants::set_without_function_targets`).
+    //
+    // The parser reads a function type followed by type arguments as a
+    // generic function type through a constant of its own, equal to
+    // `kindFunction`: when no generic function type exists, the world folds
+    // that `case` and with it the substitution of generic function types
+    // (`dartforge_world::Constants::set_without_generic_functions`).
     (
-        Some("DARTFORGE_JSPROD_FUNCTION_TARGETS_GATE"),
+        None,
         "_internal/js_shared/lib/rti.dart",
         "  static const int kindGenericFunctionParameter = 14;\n",
-        "  static const int kindGenericFunctionParameter = 14;\n  static const int kindFunctionTarget = kindFunction;\n  static const int kindGenericFunctionTarget = kindGenericFunction;\n",
+        "  static const int kindGenericFunctionParameter = 14;\n  static const int kindFunctionTarget = kindFunction;\n  static const int kindGenericFunctionTarget = kindGenericFunction;\n  static const int kindGenericFunctionHead = kindFunction;\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_GENERIC_FUNCTIONS_GATE"),
+        "_internal/js_shared/lib/rti.dart",
+        "      switch (Rti._getKind(base)) {\n        case Rti.kindFunction:\n          push(\n              stack,\n              _Universe._lookupGenericFunctionRti(",
+        "      switch (Rti._getKind(base)) {\n        case Rti.kindGenericFunctionHead:\n          push(\n              stack,\n              _Universe._lookupGenericFunctionRti(",
     ),
     (
         Some("DARTFORGE_JSPROD_FUNCTION_TARGETS_GATE"),
