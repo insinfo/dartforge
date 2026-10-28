@@ -54,11 +54,22 @@ pub mod inline {
     pub const FLAGS: usize = 24;
     /// The page head word with the metadata array; the next one has size and blocks.
     pub const HEAD_METAS: usize = 0;
+    /// Offset of the snapshot byte (raw writes pending) in an entry.
+    pub const SNAPSHOT: usize = 20;
+}
+
+/// The candidate queue index kept in [`MetaArc`].
+fn candidate_slot(index: usize) -> u32 {
+    u32::try_from(index)
+        .ok()
+        .filter(|&i| i != u32::MAX)
+        .expect("ARC: cycle candidates exhausted")
 }
 
 const _: () = {
     assert!(std::mem::size_of::<MetaArc>() == inline::SLOT);
     assert!(std::mem::offset_of!(MetaArc, rc) == 0);
+    assert!(std::mem::offset_of!(MetaArc, snapshot) == inline::SNAPSHOT);
     assert!(std::mem::offset_of!(MetaArc, present) == inline::FLAGS);
     assert!(std::mem::offset_of!(MetaArc, state) == inline::FLAGS + 1);
     assert!(std::mem::offset_of!(MetaArc, immortal) == inline::FLAGS + 2);
@@ -73,11 +84,14 @@ pub struct MetaArc {
     /// Owners plus strong occurrences; does not include weak ones.
     pub rc: u64,
     pub generation: u64,
-    /// Index in the current candidate queue, or `usize::MAX` when absent.
-    candidate_index: usize,
-    /// Keeps the flags at [`inline::FLAGS`] where `usize` has 32 bits.
-    #[cfg(target_pointer_width = "32")]
-    _pad: u32,
+    /// Index in the current candidate queue, or `u32::MAX` when absent.
+    candidate_index: u32,
+    /// Raw writes into the object since the last settle point: its counts wait for
+    /// the snapshot ([`inline::SNAPSHOT`]); the generated code's inline write goes to
+    /// the runtime meanwhile.
+    snapshot: bool,
+    /// Keeps the flags at [`inline::FLAGS`].
+    _pad: [u8; 3],
     /// The entry of the page array holds a registration (a removed one stays
     /// with `false`).
     present: bool,
@@ -102,9 +116,9 @@ impl MetaArc {
     const ABSENT: MetaArc = MetaArc {
         rc: 0,
         generation: 0,
-        candidate_index: usize::MAX,
-        #[cfg(target_pointer_width = "32")]
-        _pad: 0,
+        candidate_index: u32::MAX,
+        snapshot: false,
+        _pad: [0; 3],
         present: false,
         state: ArcState::Dead,
         immortal: false,
@@ -706,7 +720,7 @@ impl ArcHeapState {
             && (m.side_edges || !without_edges.is_some_and(|f| f(h)))
         {
             m.candidate = true;
-            m.candidate_index = self.candidates.len();
+            m.candidate_index = candidate_slot(self.candidates.len());
             self.candidates.push(ArcId {
                 handle: h,
                 generation: m.generation,
@@ -726,7 +740,7 @@ impl ArcHeapState {
             && let Some(m) = self.objects.get_mut(&moved.handle)
             && m.generation == moved.generation
         {
-            m.candidate_index = index;
+            m.candidate_index = candidate_slot(index);
         }
     }
 
@@ -761,7 +775,7 @@ impl ArcHeapState {
         }
         if !m.candidate && (m.side_edges || !without_edges.is_some_and(|f| f(h))) {
             m.candidate = true;
-            m.candidate_index = self.candidates.len();
+            m.candidate_index = candidate_slot(self.candidates.len());
             self.candidates.push(id);
         }
         true
@@ -841,7 +855,7 @@ impl ArcHeapState {
             self.zeros.push(id);
         } else if !m.candidate && (m.side_edges || !self.without_edges.is_some_and(|f| f(h))) {
             m.candidate = true;
-            m.candidate_index = self.candidates.len();
+            m.candidate_index = candidate_slot(self.candidates.len());
             self.candidates.push(id);
         }
         Ok(())
@@ -953,6 +967,14 @@ impl ArcHeapState {
         !self.zeros.is_empty()
     }
 
+    /// Marks (or clears) the pending raw writes of a registered object
+    /// ([`MetaArc::snapshot`]).
+    pub(crate) fn set_snapshot(&mut self, h: Ref, on: bool) {
+        if let Some(m) = self.objects.get_mut(&h) {
+            m.snapshot = on;
+        }
+    }
+
     /// The pages are the heap's space pages: publish their metadata arrays for the
     /// generated code's inline counting ([`inline`]).
     pub fn publish_pages(&mut self) {
@@ -1016,8 +1038,8 @@ impl ArcHeapState {
                 m.state = ArcState::Collecting;
                 // Use the state-transition lookup: an unqueued object needs no
                 // backlink mutation or candidate-vector access at all.
-                if !self.retain_dead_candidates && m.candidate_index != usize::MAX {
-                    let index = std::mem::replace(&mut m.candidate_index, usize::MAX);
+                if !self.retain_dead_candidates && m.candidate_index != u32::MAX {
+                    let index = std::mem::replace(&mut m.candidate_index, u32::MAX) as usize;
                     Some((
                         ArcId {
                             handle: u,
@@ -1105,7 +1127,7 @@ impl ArcHeapState {
                 .filter(|m| m.generation == id.generation)
             {
                 m.candidate = false;
-                m.candidate_index = usize::MAX;
+                m.candidate_index = u32::MAX;
             }
         }
         let mut seeds: Vec<Ref> = Vec::new();

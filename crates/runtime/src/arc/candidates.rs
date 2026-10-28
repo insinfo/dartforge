@@ -28,19 +28,19 @@ fn backlinks(a: &ArcHeapState) {
         let m = a.meta(id.handle).unwrap();
         assert_eq!(m.generation, id.generation);
         assert!(m.candidate);
-        assert_eq!(m.candidate_index, index);
+        assert_eq!(m.candidate_index as usize, index);
     }
     for (h, m) in a.objects.iter() {
         if m.candidate {
             assert_eq!(
-                a.candidates.get(m.candidate_index),
+                a.candidates.get(m.candidate_index as usize),
                 Some(&ArcId {
                     handle: h,
                     generation: m.generation
                 })
             );
         } else {
-            assert_eq!(m.candidate_index, usize::MAX);
+            assert_eq!(m.candidate_index, u32::MAX);
         }
     }
 }
@@ -296,7 +296,7 @@ fn unqueued_deaths_leave_live_candidate_backlinks_untouched() {
     backlinks(&a);
     for h in (6..=128).step_by(2) {
         assert_eq!(a.meta(h).unwrap().state, ArcState::Dead);
-        assert_eq!(a.meta(h).unwrap().candidate_index, usize::MAX);
+        assert_eq!(a.meta(h).unwrap().candidate_index, u32::MAX);
     }
     a.audit(&g, &[2, 4]).unwrap();
 }

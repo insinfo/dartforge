@@ -1588,6 +1588,10 @@ impl<'a> LlvmEmitter<'a> {
                         if self.prepared_inline_field(name, args).is_some_and(|w| w.write && w.reference))
                     {
                         Some((b.id.0, format!("wb{v}.fim")))
+                    } else if matches!(i, Instruction::CallRuntime { name, args, .. }
+                        if self.prompt_inline_write(v, name, args))
+                    {
+                        Some((b.id.0, format!("wi{v}.fim")))
                     } else if self.inline_closure_entry(i) {
                         Some((b.id.0, format!("ce{v}.fim")))
                     } else if self.inline_list_literal(i) {
@@ -2453,9 +2457,7 @@ impl<'a> LlvmEmitter<'a> {
                     // the reference mark is set inline (readers of contexts and
                     // records require it).
                     Instruction::CallRuntime { name, args, .. }
-                        if self.module.arc_prompt_death
-                            && name == "dartforge_arc_write_field_ref_v1"
-                            && args.len() == 3
+                        if self.prompt_inline_write(v, name, args)
                             && args[2].0 == Operand::Constant(Constant::Null)
                             && matches!((&args[0].0, &args[1].0),
                                 (Operand::Val(o), Operand::Constant(Constant::Int(i)))
@@ -2479,6 +2481,66 @@ impl<'a> LlvmEmitter<'a> {
                                 fresh: true,
                             },
                         );
+                        // The block of an inline counted write ends at `wi{v}.fim`.
+                        writeln!(self.out, "  br label %wi{v}.fim\nwi{v}.fim:").unwrap();
+                        self.current_label = format!("wi{v}.fim");
+                    }
+                    // The real ARC's inline counted write ([`Self::prompt_inline_write`]):
+                    // an owner whose entry is live and without pending raw writes stores
+                    // the value, marks the reference, retains the new value and
+                    // releases the old one inline (the runtime only for a zero or a
+                    // special entry); any other owner calls the ABI.
+                    Instruction::CallRuntime { name, args, .. }
+                        if self.prompt_inline_write(v, name, args) =>
+                    {
+                        let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else {
+                            unreachable!()
+                        };
+                        let i = *i;
+                        let only = self.coerce(&args[0].0, Type::I64);
+                        let sv = self.coerce(&args[2].0, Type::I64);
+                        let direct = self.direct_body(&args[0].0);
+                        writeln!(
+                            self.out,
+                            "  %wok{v} = call i1 @{}(i64 {only})",
+                            arc_tag_guards::STORE_OK
+                        )
+                        .unwrap();
+                        writeln!(
+                            self.out,
+                            "  br i1 %wok{v}, label %wi{v}.fast, label %wi{v}.slow\nwi{v}.slow:"
+                        )
+                        .unwrap();
+                        writeln!(
+                            self.out,
+                            "  call void @dartforge_arc_write_field_ref_v1(i64 {only}, i64 {i}, i64 {sv})\n  br label %wi{v}.fim\nwi{v}.fast:"
+                        )
+                        .unwrap();
+                        self.emit_field_addresses_of(v, &only, direct);
+                        writeln!(
+                            self.out,
+                            "  %wog{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {i}\n  %wold{v} = load i64, ptr %wog{v}, align 8"
+                        )
+                        .unwrap();
+                        self.emit_field_write(
+                            v,
+                            "",
+                            i as usize,
+                            &sv,
+                            "1",
+                            FieldWriteFacts {
+                                known_map: None,
+                                fresh: false,
+                            },
+                        );
+                        writeln!(
+                            self.out,
+                            "  call void @{}(i64 {sv})\n  call void @{}(i64 %wold{v})\n  br label %wi{v}.fim\nwi{v}.fim:",
+                            arc_tag_guards::RETAIN,
+                            arc_tag_guards::RELEASE
+                        )
+                        .unwrap();
+                        self.current_label = format!("wi{v}.fim");
                     }
                     // The real ARC's move into a field ([`moves_into_fields`]).
                     Instruction::CallRuntime { name, args, .. }
@@ -6190,6 +6252,25 @@ impl<'a> LlvmEmitter<'a> {
             write,
             reference,
         })
+    }
+
+    /// The real ARC's `Ref` write that comes out inline (the owner test, then the
+    /// store and the inline counting; `dartforge_arc_write_field_ref_v1` for any
+    /// other owner): a constant inline index, not a move into the field
+    /// ([`moves_into_fields`]). Its block ends at `wi{v}.fim`.
+    fn prompt_inline_write(&self, v: u32, name: &str, args: &[(Operand, Type)]) -> bool {
+        self.module.arc_prompt_death
+            && self.arc_tag_guards
+            && name == "dartforge_arc_write_field_ref_v1"
+            && args.len() == 3
+            && !self.moved_writes.contains(&v)
+            && matches!(&args[1].0, Operand::Constant(Constant::Int(i)) if (0..INLINE_FIELDS as i64).contains(i))
+            && !args.iter().any(|(a, _)| {
+                matches!(
+                    a,
+                    Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
+                )
+            })
     }
 
     /// The prepared instance factory (`dartforge_arc_object_owned_v1`, or the `_t_v1`

@@ -230,12 +230,13 @@ unsafe fn join_typed(part_list: *const i64, n: i64, owned: bool) -> i64 {
     let part_list: &[i64] = if n == 0 { &[] } else { unsafe { std::slice::from_raw_parts(part_list, 2 * n) } };
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let frame = owned.then(|| {
+        // The parts stay rooted during the allocation by observational scratch
+        // roots (no count to change, cheaper than an owning frame).
+        let mark = owned.then(|| {
             assert!(part_list.chunks_exact(2).all(|p| matches!(p[0], 0 | 1)), "invalid part kind");
-            let text: Vec<i64> = part_list.chunks_exact(2).filter(|p| p[0] == 0).map(|p| p[1]).collect();
-            let frame = heap.push_owning_frame(text.len());
-            for (k, &t) in text.iter().enumerate() { heap.set_root(frame, k, t); }
-            frame
+            let mark = heap.scratch_roots.len();
+            heap.scratch_roots.extend(part_list.chunks_exact(2).filter(|p| p[0] == 0).map(|p| p[1]));
+            mark
         });
         let (mut total, mut one) = (0usize, true);
         for p in part_list.chunks_exact(2) {
@@ -266,9 +267,9 @@ unsafe fn join_typed(part_list: *const i64, n: i64, owned: bool) -> i64 {
             unsafe { crate::text::write_units(units.add(pos * crate::text::unit_size(two)), two, t) };
             pos += t.len();
         }
-        if let Some(frame) = frame {
+        if let Some(mark) = mark {
             heap.retain_code_owner(r);
-            heap.pop_frame(frame);
+            heap.scratch_roots.truncate(mark);
         }
         r
     })

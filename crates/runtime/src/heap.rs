@@ -7006,6 +7006,10 @@ pub struct HeapArc {
     /// ones that the minor collection in progress found (owner, young target),
     /// counted by promotion ([`Heap::sync_arc`]).
     old_to_young: Vec<(Ref, Ref)>,
+    /// The real ARC's cycle round at a drain: when the candidate queue reaches
+    /// this size. A round that frees little doubles it (the candidates were live
+    /// structures, like a large map), one that frees much brings it back down.
+    cycle_threshold: usize,
 }
 
 impl std::fmt::Debug for HeapArc {
@@ -7189,8 +7193,16 @@ fn retain_registering_in(space: &ObjectSpace, validate: bool, arc: &mut HeapArc,
     };
     if in_space {
         arc.state.register_live_with(v, arc_geometry(space, v), 1);
+        // A raw write before the registration: the inline write must wait too.
+        if arc.snapshots.contains_key(&v) {
+            arc.state.set_snapshot(v, true);
+        }
     }
 }
+
+/// The candidate queue size that starts the real ARC's first cycle round at a
+/// drain ([`HeapArc::cycle_threshold`]).
+const PROMPT_CYCLE_THRESHOLD: usize = 16 * 1024;
 
 fn arc_geometry(space: &ObjectSpace, h: Ref) -> Option<crate::arc::Geometry> {
     space
@@ -7280,8 +7292,10 @@ impl Heap {
             && new_in_space
         {
             arc.state
-                .register_live_at(new, arc_geometry(&self.objects, new));
-            arc.state.retain_ref(new).unwrap_or_else(|e| arc_failure(e));
+                .register_live_with(new, arc_geometry(&self.objects, new), 1);
+            if arc.snapshots.contains_key(&new) {
+                arc.state.set_snapshot(new, true);
+            }
         }
         arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
     }
@@ -7351,6 +7365,7 @@ impl Heap {
         let arc = self.arc.as_deref_mut().expect("ARC ligado");
         value_list.retain(|&v| arc.state.meta(v).is_some());
         arc.snapshots.insert(h, value_list);
+        arc.state.set_snapshot(h, true);
     }
 
     /// The young objects promoted by the minor marking in progress and the remembered
@@ -7423,6 +7438,7 @@ impl Heap {
             },
             pure: !nursery,
             old_to_young: Vec::new(),
+            cycle_threshold: PROMPT_CYCLE_THRESHOLD,
         });
         arc.state.trace_log =
             crate::console::env_var("DARTFORGE_ARC_TRACE").is_ok_and(|v| v == "1");
@@ -7705,6 +7721,7 @@ impl Heap {
             }
         }
         for (x, snapshot) in std::mem::take(&mut arc.snapshots) {
+            arc.state.set_snapshot(x, false);
             if arc.state.alive(x) {
                 // SAFETY: the positions are body words of a live block.
                 self.visit_strong_references(x, &mut |v| value_list.push(v));
@@ -7989,6 +8006,10 @@ impl Heap {
         let Some(arc) = self.arc.as_ref() else {
             return;
         };
+        // Nothing to settle, the usual case of a settle point: one look at the queues.
+        if !arc.state.ha_zeros() && arc.snapshots.is_empty() && !arc.state.has_deferred() {
+            return;
+        }
         // A zero an observational root held goes back to the queue once no native
         // frame nor scratch root is left (the usual state while Dart code runs).
         let observers = self.scratch_roots.iter().any(|&h| h != 0)
@@ -8003,6 +8024,7 @@ impl Heap {
         if !arc.snapshots.is_empty() {
             let mut value_list = Vec::new();
             for (x, snapshot) in std::mem::take(&mut arc.snapshots) {
+                arc.state.set_snapshot(x, false);
                 if self.space_block(x).is_some() && !arc.state.dead(x) {
                     // SAFETY: the positions are body words of a live block.
                     self.visit_strong_references(x, &mut |v| value_list.push(v));
@@ -8231,6 +8253,7 @@ impl Heap {
         let mut value_list = Vec::new();
         let n_snapshots = arc.snapshots.len();
         for (x, snapshot) in std::mem::take(&mut arc.snapshots) {
+            arc.state.set_snapshot(x, false);
             if self.space_block(x).is_some() && !arc.state.dead(x) {
                 // SAFETY: the positions are body words of a live block.
                 self.visit_strong_references(x, &mut |v| value_list.push(v));
@@ -8333,7 +8356,16 @@ impl Heap {
         // 5. Zeros, cycles and the full collection's fixed point.
         let round = full && arc.cycles != Some(false);
         let mut fixpoint = round && !self.ephemerons.is_empty();
-        let cycles = arc.cycles == Some(true) || (round && !fixpoint);
+        // The real ARC frees the cyclic garbage the counts cannot at every drain:
+        // otherwise it waits for the full collection (the young cycles the nursery
+        // traces away), with the memory and the candidate queue growing meanwhile.
+        let prompt_round = self.prompt_death
+            && arc.cycles != Some(false)
+            && !fixpoint
+            && arc.state.candidates() >= arc.cycle_threshold;
+        let candidates_before = arc.state.candidates();
+        let cycle_dead_before = arc.state.statistics.dead_by_cycle;
+        let cycles = arc.cycles == Some(true) || (round && !fixpoint) || prompt_round;
         let mut ready = Vec::new();
         let mut attachment_edges = Vec::new();
         let mut natives = Vec::new();
@@ -8480,6 +8512,14 @@ impl Heap {
         self.ready_finalizations.extend(ready);
         if let Some(start) = start {
             phases.push(start.elapsed().as_micros());
+        }
+        if prompt_round {
+            let freed = (arc.state.statistics.dead_by_cycle - cycle_dead_before) as usize;
+            arc.cycle_threshold = if freed * 8 < candidates_before {
+                arc.cycle_threshold.saturating_mul(2)
+            } else {
+                (arc.cycle_threshold / 2).max(PROMPT_CYCLE_THRESHOLD)
+            };
         }
         // 6. Memory.
         // The settle points' dead: the young ones go with the sweep (their block was
