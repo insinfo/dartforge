@@ -7,6 +7,7 @@ int twice(int x) => x * 2;
 class Box {
   final Object value;
   Box(this.value);
+  int scale(int x) => x * 3;
 }
 
 void main() {
@@ -28,6 +29,19 @@ void main() {
   print(boxes.map((b) => b.value is Function).toList());
   final Object? maybe = boxes.length > 2 ? greet : null;
   print(maybe is Function?);
+  dynamic dyn = boxes.first;
+  print(dyn.scale(2));
+  try {
+    dyn.scale('x');
+  } catch (e) {
+    print(e is TypeError);
+  }
+  final tear = boxes.first.scale;
+  print(tear.runtimeType);
+  print(tear(5));
+  final Object pair = (add, 'sum');
+  print(pair is (Object, String));
+  print(pair is (int, String));
   try {
     print((o as String).length);
   } catch (e) {

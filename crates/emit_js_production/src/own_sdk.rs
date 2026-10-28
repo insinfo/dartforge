@@ -695,20 +695,23 @@ fn cites_generic_function_type(text: &str) -> bool {
 /// Whether a function type in `text` may be the target of a subtype test
 /// (`_isSubtype`'s `t`): every recipe literal with a function type that is
 /// not a closure's own signature. A signature is the recipe of the second
-/// argument of `dart.fn(f, R)`, written `dart_rti._Universe.eval(…, "R",
+/// argument of `dart.fn(f, R)` or a method's entry in
+/// `dart.setMethodSignature`, written `dart_rti._Universe.eval(…, "R",
 /// true)` or `env[_eval]("R")`, with no function type nested inside (a
 /// nested one is a parameter type that a dynamic call checks, a bound that
 /// an instantiation checks). A closure's type is only ever the `s` side:
 /// tested against interface types, printed, compared. Anything else (a type
-/// argument, an `is`/`as` target, a method signature, a tear-off, the rules'
-/// JSON) counts as a target. A text that does not parse counts too; a false
-/// positive only keeps `_isFunctionSubtype`.
+/// argument, an `is`/`as` target, a field or setter signature, which a
+/// dynamic write checks, the rules' JSON) counts as a target. A text that
+/// does not parse counts too; a false positive only keeps
+/// `_isFunctionSubtype`.
 fn targets_function_type(text: &str) -> bool {
     use oxc_ast::ast::{Argument, CallExpression, Expression};
     use oxc_ast_visit::Visit;
-    struct V {
+    struct V<'t> {
         signatures: std::collections::HashSet<u32>,
         target: bool,
+        text: &'t str,
     }
     /// The recipe literal of a signature argument, when it has that shape.
     fn signature_literal<'b>(e: &'b Expression<'_>) -> Option<&'b oxc_ast::ast::StringLiteral<'b>> {
@@ -732,12 +735,40 @@ fn targets_function_type(text: &str) -> bool {
         };
         Some(literal)
     }
+    /// The object of `dart.setMethodSignature(C, () => ({…}))` (or
+    /// `setStaticMethodSignature`).
+    fn method_signatures<'b>(
+        c: &'b CallExpression<'_>,
+    ) -> Option<&'b oxc_ast::ast::ObjectExpression<'b>> {
+        let Expression::StaticMemberExpression(m) = &c.callee else {
+            return None;
+        };
+        if !matches!(&m.object, Expression::Identifier(o) if o.name == "dart")
+            || !matches!(
+                m.property.name.as_str(),
+                "setMethodSignature" | "setStaticMethodSignature"
+            )
+        {
+            return None;
+        }
+        let [_, Argument::ArrowFunctionExpression(a)] = &c.arguments[..] else {
+            return None;
+        };
+        let mut e = a.get_expression()?;
+        while let Expression::ParenthesizedExpression(p) = e {
+            e = &p.expression;
+        }
+        match e {
+            Expression::ObjectExpression(o) => Some(o),
+            _ => None,
+        }
+    }
     fn is_dart_fn(c: &CallExpression<'_>) -> bool {
         matches!(&c.callee, Expression::StaticMemberExpression(m)
             if m.property.name == "fn"
                 && matches!(&m.object, Expression::Identifier(o) if o.name == "dart"))
     }
-    impl<'a> Visit<'a> for V {
+    impl<'a> Visit<'a> for V<'_> {
         fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
             if is_dart_fn(it)
                 && let [_, Argument::CallExpression(_)] = &it.arguments[..]
@@ -747,15 +778,45 @@ fn targets_function_type(text: &str) -> bool {
             {
                 self.signatures.insert(l.span.start);
             }
+            // `dart.setMethodSignature(C, () => ({m: R, [$n]: _ti => _ti[_eval](R)}))`:
+            // a method's type is a tear-off's type or the type a dynamic call
+            // checks its arguments against, the `s` side like a closure's.
+            if let Some(o) = method_signatures(it) {
+                for p in &o.properties {
+                    let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = p else {
+                        continue;
+                    };
+                    let value = match &p.value {
+                        Expression::ArrowFunctionExpression(a) => a.get_expression(),
+                        e => Some(e),
+                    };
+                    if let Some(l) = value.and_then(signature_literal)
+                        && l.value.bytes().filter(|&c| c == b'(').count() == 1
+                    {
+                        self.signatures.insert(l.span.start);
+                    }
+                }
+            }
             oxc_ast_visit::walk::walk_call_expression(self, it);
         }
         fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
             let v = it.value.as_str();
-            if function_recipe(v.as_bytes()) {
+            if function_type_recipe(v.as_bytes()) {
                 if !self.signatures.contains(&it.span.start) {
+                    if !self.target && std::env::var("DARTFORGE_JSPROD_TRACE").is_ok() {
+                        let start = it.span.start as usize;
+                        let from = (0..=start.saturating_sub(160))
+                            .rev()
+                            .find(|&k| self.text.is_char_boundary(k))
+                            .unwrap_or(0);
+                        eprintln!(
+                            "[jsprod] function-type target: {v:?} after {:?}",
+                            &self.text[from..start]
+                        );
+                    }
                     self.target = true;
                 }
-            } else if v.contains('"') && v.split('"').any(|p| function_recipe(p.as_bytes())) {
+            } else if v.contains('"') && v.split('"').any(|p| function_type_recipe(p.as_bytes())) {
                 // The rules' JSON (`JSON.parse("{\"|a\": [\"|o()\"]}")`).
                 self.target = true;
             }
@@ -763,8 +824,8 @@ fn targets_function_type(text: &str) -> bool {
         fn visit_template_literal(&mut self, it: &oxc_ast::ast::TemplateLiteral<'a>) {
             for q in &it.quasis {
                 let v = q.value.raw.as_str();
-                if function_recipe(v.as_bytes())
-                    || (v.contains('"') && v.split('"').any(|p| function_recipe(p.as_bytes())))
+                if function_type_recipe(v.as_bytes())
+                    || (v.contains('"') && v.split('"').any(|p| function_type_recipe(p.as_bytes())))
                 {
                     self.target = true;
                 }
@@ -780,6 +841,7 @@ fn targets_function_type(text: &str) -> bool {
     let mut v = V {
         signatures: std::collections::HashSet::new(),
         target: false,
+        text,
     };
     v.visit_program(&parsed.program);
     v.target
@@ -812,6 +874,27 @@ fn function_recipe(lit: &[u8]) -> bool {
             b"~@#^>?&*/+".contains(&lit[k - 1])
         }
     })
+}
+
+/// [`function_recipe`] without the record types (`+(…)`, `+a,b(…)`): a
+/// recipe with a function type somewhere, also inside a record.
+fn function_type_recipe(lit: &[u8]) -> bool {
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+    function_recipe(lit)
+        && (1..lit.len()).any(|k| {
+            if lit[k] != b'(' {
+                return false;
+            }
+            let mut j = k;
+            while j > 0 && ident(lit[j - 1]) {
+                j -= 1;
+            }
+            if j < k {
+                (j > 0 && lit[j - 1] == b'|') || lit[j..k].iter().all(u8::is_ascii_digit)
+            } else {
+                b"~@#^>?&*/".contains(&lit[k - 1])
+            }
+        })
 }
 
 /// [`cites_function_type`]'s literal scan.
@@ -1586,13 +1669,25 @@ mod front_coding_tests {
             u("|q(|p)")
         );
         assert!(!targets_function_type(&s));
-        // A nested function type, a type argument, an `is` target, a method
+        let m = format!(
+            "dart.setMethodSignature(C, () => ({{__proto__: dart.getMethods(C.__proto__), m: {}, [$n]: _ti => _ti[_eval](\"~(|g.0)\")}}));",
+            u("|q()")
+        );
+        assert!(!targets_function_type(&m));
+        // A record type is not a function type; a function inside one is.
+        assert!(!targets_function_type(&format!(
+            "f({});",
+            u("|d<+(|j,|k)>")
+        )));
+        assert!(!targets_function_type(&format!("f({});", u("+a,b(|j,|k)"))));
+        assert!(targets_function_type(&format!("f({});", u("+(~(),|k)"))));
+        // A nested function type, a type argument, an `is` target, a field
         // signature value, the rules' JSON.
         for t in [
             format!("dart.fn(x => x, {});", u("~(~())")),
             format!("new Box.new({});", u("|f<~()>")),
             format!("{}[_is](o);", u("~(|p)")),
-            "s({m: _ti => _ti[_eval](\"~(|g.0)\")});".to_string(),
+            "dart.setFieldSignature(C, () => ({f: _ti => _ti[_eval](\"~(|g.0)\")}));".to_string(),
             "r(JSON.parse(\"{\\\"|a\\\": [\\\"|o()\\\"]}\"));".to_string(),
         ] {
             assert!(targets_function_type(&t), "{t}");
