@@ -1522,6 +1522,34 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         };
         match kind {
             AsyncKind::None => format!("{head}\n{prologue}{body}}}"),
+            // Production: an `async` body without `await` (no `yield` in its
+            // text, which is also how a nested `async` closure shows) runs to
+            // the end in its first step: a plain function in place of the
+            // generator, with the same completer, the same zone-registered
+            // step (`_wrapJsFunctionForAsync`) and the same start, return and
+            // error paths. The arrow keeps `this`; a body naming the
+            // JavaScript `arguments` keeps the generator.
+            // `DARTFORGE_JSPROD_SYNC_ASYNC_BODIES=0` keeps the generator.
+            AsyncKind::Async
+                if self.ctx.production()
+                    && !body.contains("yield")
+                    && !mentions_js_arguments(body)
+                    && std::env::var("DARTFORGE_JSPROD_SYNC_ASYNC_BODIES")
+                        .map_or(true, |v| v != "0") =>
+            {
+                self.m.use_sdk("async");
+                let rti = self.rti(&inner_ty);
+                format!(
+                    "{head}\n{prologue}let t$completer = async._makeAsyncAwaitCompleter({rti});\n\
+let t$body = async._wrapJsFunctionForAsync((t$code, t$res) => {{\n\
+  let t$v;\n\
+  try {{ t$v = (() => {{\n{body}}})(); }}\n\
+  catch (t$e) {{ return async._asyncRethrow(t$e, t$completer); }}\n\
+  return async._asyncReturn(t$v, t$completer);\n\
+}});\n\
+return async._asyncStartSync(t$body, t$completer);\n}}"
+                )
+            }
             AsyncKind::Async => {
                 self.m.use_sdk("async");
                 let rti = self.rti(&inner_ty);
@@ -2918,4 +2946,16 @@ fn always_true(value: &Js) -> Js {
             crate::js::P_PRIMARY,
         )
     }
+}
+
+/// Whether `text` may read the JavaScript `arguments` of its function: the
+/// word not followed by `$` or an identifier character (the emitter renames a
+/// Dart `arguments` to `arguments$`).
+fn mentions_js_arguments(text: &str) -> bool {
+    text.match_indices("arguments").any(|(i, w)| {
+        !text[i + w.len()..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '$')
+    })
 }
