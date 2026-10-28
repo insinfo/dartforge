@@ -416,6 +416,7 @@ fn fixed_point(
             .map_or(true, |v| v != "0"),
     };
     let constants = dartforge_world::Constants::new(input, !op.asserts);
+    constants.set_omit_implicit_checks(op.omit_implicit_checks);
     constants.set_without_records(opm.without_records);
     constants.set_without_legacy(opm.without_legacy);
     constants.set_without_dynamic_named(opm.without_dynamic_named);
@@ -497,13 +498,16 @@ fn fixed_point(
         let ad = filter::Adapter {
             world: &world,
             program: a.program,
+            interner: a.interner,
             stub: op.stub,
             recipe_ids: ids.as_deref(),
             signatures: signatures.map(|s| &s.names),
             symbol_signatures: signatures.map(|s| &s.symbols),
             constants: Some(&constants),
             named_args: named_args.as_ref(),
-            omit_checks: op.omit_checks,
+            omit_implicit_checks: op.omit_implicit_checks,
+            trust_primitives: op.trust_primitives,
+            omit_late_names: op.omit_late_names,
             identity_hash,
             runtime_equals,
             rti_live: filter::rti_live(&world, a.program, a.interner),

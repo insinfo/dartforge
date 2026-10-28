@@ -6,12 +6,21 @@
 
 use std::path::PathBuf;
 
-use dartforge_emit_js_production::{Options, compile};
+use dartforge_emit_js_production::{OptimizationLevel, Options, compile};
 
 const USAGE: &str = "usage: dartforge-jsprod <input.dart> -o <output.js> \
+[-O1|-O2|-O3|-O4] \
 [--sdk <lib>] [--packages <package_config.json>] [--dart-sdk-js <file>] \
-[--no-prune] [--no-members] [--no-user-prune] [--no-minify] [--verify-stub] [--own-sdk|--sdk-ddc] [--enable-asserts] [--omit-checks|-O4] \
-[--language-version x.y] [--enable-experiment=a,b]";
+[--no-prune] [--no-members] [--no-user-prune] [--minify|--no-minify] [--verify-stub] [--own-sdk|--sdk-ddc] [--enable-asserts] \
+[--omit-implicit-checks] [--trust-primitives] [--omit-late-names|--no-omit-late-names] \
+[--language-version x.y] [--enable-experiment=a,b]
+
+Optimization levels, as dart2js (the default here is -O2):
+  -O1  closed world and the optimizations that keep the semantics, not minified
+  -O2  -O1 plus minification and --omit-late-names
+  -O3  -O2 plus --omit-implicit-checks: no implicit downcasts, no covariant or
+       dynamic-call argument checks (unsafe: see docs/JS-PRODUCAO-TAMANHO.md §21)
+  -O4  -O3 plus --trust-primitives: no index range checks (unsafe)";
 
 fn main() {
     if let Err(e) = run() {
@@ -28,6 +37,12 @@ fn run() -> Result<(), String> {
     let mut packages: Option<PathBuf> = None;
     let mut dart_sdk_js: Option<PathBuf> = None;
     let mut op = Options::default();
+    // As `dart2js`: the first level wins, the flags it implies are combined
+    // with the individual ones, and the `--no-…` flags win over both.
+    let mut level: Option<OptimizationLevel> = None;
+    let (mut minify, mut no_minify) = (false, false);
+    let (mut omit_late_names, mut no_omit_late_names) = (false, false);
+    let (mut omit_implicit_checks, mut trust_primitives) = (false, false);
     let mut language = dartforge_elements::sdk::LanguageOptions::default();
     let mut i = 0;
     while i < args.len() {
@@ -45,12 +60,25 @@ fn run() -> Result<(), String> {
             "--no-prune" => op.prune_sdk = false,
             "--no-members" => op.per_member = false,
             "--no-user-prune" => op.prune_user = false,
-            "--no-minify" => op.minify = false,
+            "--no-minify" => no_minify = true,
+            "--minify" => minify = true,
+            "--omit-late-names" => omit_late_names = true,
+            "--no-omit-late-names" => no_omit_late_names = true,
+            "--omit-implicit-checks" | "--omit-checks" => omit_implicit_checks = true,
+            "--trust-primitives" => trust_primitives = true,
+            other if other.starts_with("-O") => {
+                let l = OptimizationLevel::parse(other)?;
+                match level {
+                    Some(previous) => eprintln!(
+                        "warning: optimization level '{other}' ignored due to preceding '-O{}'",
+                        previous.number()
+                    ),
+                    None => level = Some(l),
+                }
+            }
             "--own-sdk" => op.own_sdk = true,
             "--sdk-ddc" => op.own_sdk = false,
             "--enable-asserts" => op.asserts = true,
-            // The `omitImplicitChecks` of `dart2js -O4`: unsafe (see `Options`).
-            "--omit-checks" | "-O4" => op.omit_checks = true,
             "--verify-stub" => {
                 op.stub = true;
                 op.own_sdk = false;
@@ -75,6 +103,11 @@ fn run() -> Result<(), String> {
         }
         i += 1;
     }
+    op = op.with_level(level.unwrap_or(OptimizationLevel::O2));
+    op.minify = (op.minify || minify) && !no_minify;
+    op.omit_late_names = (op.omit_late_names || omit_late_names) && !no_omit_late_names;
+    op.omit_implicit_checks |= omit_implicit_checks;
+    op.trust_primitives |= trust_primitives;
     let (Some(input), Some(output)) = (input, output) else {
         return Err(USAGE.to_string());
     };

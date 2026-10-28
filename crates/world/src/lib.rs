@@ -334,6 +334,18 @@ impl World {
     pub fn records_seen(&self) -> bool {
         self.records_seen
     }
+    /// The instantiated classes below `c` (itself included when
+    /// instantiated): the classes a receiver of static class `c` can have.
+    pub fn instantiated_subtypes(&self, c: ClassId) -> &[ClassId] {
+        self.inst_sub
+            .get(c.0 as usize)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+    /// `sub ⊑ sup` in the nominal class hierarchy ([`Hierarchy::is_subtype`]).
+    pub fn is_subclass(&self, sub: ClassId, sup: ClassId) -> bool {
+        self.hier.is_subtype(sub, sup)
+    }
     pub fn in_instance_prototype_chain(&self, c: ClassId) -> bool {
         self.proto_chain.get(c.0 as usize).copied().unwrap_or(false)
     }

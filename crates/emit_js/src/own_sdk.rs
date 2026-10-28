@@ -909,9 +909,10 @@ fn const_alias(
         .and_then(as_variable)
 }
 
-/// No covariance checks with `--omit-checks`.
+/// No covariance checks when the body trusts its parameters (`-O3`, or
+/// a `dart2js:parameter:trust` pragma).
 fn checks_omitted(e: &FnEmitter) -> bool {
-    e.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+    !e.checks.parameters
 }
 
 /// Covariance checks of the parameters of an instance method of a generic SDK
@@ -1133,7 +1134,7 @@ fn param_covariant_in(ctx: &Ctx, k: ClassId, g: FunctionElementId, j: usize) -> 
 pub fn covariance_stubs(ctx: &Ctx, c: ClassId) -> Vec<CovarianceStub> {
     let class = ctx.program.class(c);
     if ctx.libs[class.library.0 as usize].is_sdk
-        || ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+        || !crate::checks::Checks::level_default(ctx).parameters
         || class.kind == dartforge_elements::model::ClassKind::Mixin
     {
         return Vec::new();
@@ -1310,7 +1311,7 @@ pub fn covariance_stubs(ctx: &Ctx, c: ClassId) -> Vec<CovarianceStub> {
 pub fn setter_covariance_stubs(ctx: &Ctx, c: ClassId) -> Vec<(String, Ty)> {
     let class = ctx.program.class(c);
     if ctx.libs[class.library.0 as usize].is_sdk
-        || ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+        || !crate::checks::Checks::level_default(ctx).parameters
         || class.mixin_classes.is_empty()
     {
         return Vec::new();
@@ -2057,6 +2058,10 @@ pub fn emit_intrinsic(
                 && std::env::var("DARTFORGE_JSPROD_VARIANCE").map_or(true, |v| v != "1")
             {
                 false
+            } else if name == "OMIT_IMPLICIT_CHECKS" {
+                // The production patches' flag (`crate::sdk_patches`): the
+                // level's `--omit-implicit-checks`.
+                e.ctx.production() && e.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
             } else {
                 SdkMode::flag(&name)?
             };

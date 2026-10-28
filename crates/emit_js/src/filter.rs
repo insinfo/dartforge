@@ -128,11 +128,32 @@ pub trait Liveness {
     fn named_table(&self) -> Option<String> {
         None
     }
-    /// `--omit-checks` (the `omitImplicitChecks` of `dart2js -O3/-O4`,
-    /// `options.dart:1102-1126`): implicit casts from `dynamic` and covariance
-    /// checks are not emitted. **Unsafe**: a program with a type error keeps
+    /// `-O3` and `-O4` (the `--omit-implicit-checks` of `dart2js`,
+    /// `options.dart`, `deriveOptions`): implicit downcasts, conditions and
+    /// parameter checks (covariance, the arguments of dynamic calls) are not
+    /// emitted unless a member's pragma asks for them ([`crate::checks`]),
+    /// and neither are the interop null assertions (`nativeNullAssertions`
+    /// is off from `-O3` up). **Unsafe**: a program with a type error keeps
     /// running instead of throwing `TypeError`.
     fn omit_implicit_checks(&self) -> bool {
+        false
+    }
+    /// `-O4` (the `--trust-primitives` of `dart2js`): index range checks on
+    /// the indexable primitives are not emitted unless a member's pragma asks
+    /// for them ([`crate::checks`]). **Unsafe**.
+    fn trust_primitives(&self) -> bool {
+        false
+    }
+    /// The `LateError` messages leave the variable's name out (the
+    /// `--omit-late-names` of `dart2js -O2`); `-O1` keeps it.
+    fn omit_late_names(&self) -> bool {
+        true
+    }
+    /// Every class the world has instantiated below `c` (a receiver's static
+    /// class) is an indexable primitive: `JSArray`, `JSString` or a native
+    /// typed array, so `r[i]` reads the JavaScript element directly. Without
+    /// a filter, never.
+    fn indexable_primitive(&self, _c: ClassId) -> bool {
         false
     }
     /// Whether the emission makes the production profile's choices that are

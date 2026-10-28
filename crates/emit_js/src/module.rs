@@ -1030,6 +1030,7 @@ pub(crate) fn function_text(
     };
     let af = ctx.program.unit(unit).ast.function(function);
     let mut e = FnEmitter::new(ctx, m, unit, class, is_static);
+    e.checks = crate::checks::Checks::of_function(ctx, fid);
     let data = &ctx.outline.functions[fid.0 as usize];
     // The function's type parameters.
     let mut tp_js: Vec<String> = Vec::new();
@@ -1232,7 +1233,9 @@ fn nsm_forwarder(
             .iter()
             .any(|t| matches!(t, Ty::Param { id: p, .. } if p == id))
     });
-    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || !method_only {
+    // The CFE's `as` on the forwarder's result is an implicit downcast
+    // (`isTypeError`), trusted from `-O3` up.
+    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || !method_only || !e.checks.downcasts {
         String::new()
     } else {
         format!("{}[_as]", e.rti(&ret))
@@ -1869,7 +1872,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             // declared type (`Fields<Object> c = Fields<int>(); c.x = 's'`).
             let covariant_check = if crate::own_sdk::covariant_field(ctx, c, f.vid)
                 && !ctx.libs[class.library.0 as usize].is_sdk
-                && !ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+                && crate::checks::Checks::of_variable(ctx, f.vid).parameters
                 && !matches!(f.ty, Ty::Dynamic)
             {
                 let e = FnEmitter::new(ctx, m, f.unit, Some(c), false);
@@ -2386,7 +2389,10 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 }
                 crate::ctx::MemberKind::Getter(fid) => {
                     let ret = ctx.ty_of(ctx.outline.functions[fid.0 as usize].return_type);
-                    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || ret.mentions_params() {
+                    let cast = if matches!(ret, Ty::Dynamic | Ty::Void)
+                        || ret.mentions_params()
+                        || !se.checks.downcasts
+                    {
                         String::new()
                     } else {
                         format!("{}[_as]", se.rti(&ret))
@@ -4321,6 +4327,9 @@ fn emit_constructor(
     e.in_constructor = true;
     let ctor_sym = ctor.name.map(|n| n.sym).or(ctx.empty_sym);
     let fid = ctor_sym.and_then(|s| class.constructors.get(&s).copied());
+    if let Some(f) = fid {
+        e.checks = crate::checks::Checks::of_function(ctx, f);
+    }
     let sig = fid.map(|f| ctx.fn_ty(f));
     let (pjs, prologue) = e.declare_params(&ctor.parameters, sig.as_ref());
     let mut params: Vec<String> = Vec::new();

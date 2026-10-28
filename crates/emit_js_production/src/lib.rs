@@ -118,9 +118,91 @@ pub struct Options {
     /// `--enable-asserts`: the program's `assert`s are emitted. Off by
     /// default, as in `dart2js` (`docs/JS-PRODUCAO-TAMANHO.md` §3.3).
     pub asserts: bool,
-    /// `--omit-checks`: no implicit `dynamic` conversions and no
-    /// covariance checks, like `dart2js -O4`. Unsafe.
-    pub omit_checks: bool,
+    /// The optimization level (`-O1`…`-O4`) the flags below were derived
+    /// from ([`Options::with_level`]).
+    pub level: OptimizationLevel,
+    /// `--omit-implicit-checks` (`-O3`, `-O4`): no implicit downcasts, no
+    /// boolean conditions and no parameter checks (covariance, dynamic-call
+    /// arguments), as `dart2js`. Unsafe.
+    pub omit_implicit_checks: bool,
+    /// `--trust-primitives` (`-O4`): no index range checks on the indexable
+    /// primitives, as `dart2js`. Unsafe.
+    pub trust_primitives: bool,
+    /// `--omit-late-names` (`-O2` up): the `LateError` messages leave the
+    /// variable's name out, as `dart2js`.
+    pub omit_late_names: bool,
+}
+
+/// The `dart2js` optimization levels (`dart compile js -O1`…`-O4`, 3.6.2
+/// `options.dart`, `deriveOptions`), with the same meanings
+/// (`docs/JS-PRODUCAO-TAMANHO.md` §21):
+///
+/// * `-O1`: the closed world and every optimization that keeps the
+///   semantics, without minification;
+/// * `-O2` (the default here; `dart2js`'s is `-O1`): `-O1` plus
+///   minification and the `LateError` messages without names;
+/// * `-O3`: `-O2` plus `--omit-implicit-checks`;
+/// * `-O4`: `-O3` plus `--trust-primitives`.
+///
+/// ```
+/// use dartforge_emit_js_production::OptimizationLevel;
+/// assert_eq!(OptimizationLevel::parse("-O4"), Ok(OptimizationLevel::O4));
+/// assert!(OptimizationLevel::O3 > OptimizationLevel::O2);
+/// assert!(OptimizationLevel::parse("-O0").is_err());
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum OptimizationLevel {
+    O1 = 1,
+    O2 = 2,
+    O3 = 3,
+    O4 = 4,
+}
+
+impl OptimizationLevel {
+    /// `-O1`…`-O4`.
+    ///
+    /// # Errors
+    ///
+    /// Any other text, `-O0` included (`dart2js`'s debugging level, without
+    /// inlining or inference, has no counterpart here).
+    pub fn parse(option: &str) -> Result<OptimizationLevel, String> {
+        match option {
+            "-O1" => Ok(OptimizationLevel::O1),
+            "-O2" => Ok(OptimizationLevel::O2),
+            "-O3" => Ok(OptimizationLevel::O3),
+            "-O4" => Ok(OptimizationLevel::O4),
+            _ => Err(format!(
+                "unsupported optimization level '{option}', supported levels are: 1, 2, 3, 4"
+            )),
+        }
+    }
+
+    /// The level's number.
+    pub fn number(self) -> u8 {
+        self as u8
+    }
+}
+
+impl Options {
+    /// `self` with the flags of `level`, as `dart2js` derives them.
+    ///
+    /// ```
+    /// use dartforge_emit_js_production::{OptimizationLevel, Options};
+    /// let o1 = Options::default().with_level(OptimizationLevel::O1);
+    /// assert!(!o1.minify && !o1.omit_late_names && !o1.omit_implicit_checks);
+    /// let o4 = Options::default().with_level(OptimizationLevel::O4);
+    /// assert!(o4.minify && o4.omit_implicit_checks && o4.trust_primitives);
+    /// ```
+    pub fn with_level(self, level: OptimizationLevel) -> Options {
+        Options {
+            level,
+            minify: level >= OptimizationLevel::O2,
+            omit_late_names: level >= OptimizationLevel::O2,
+            omit_implicit_checks: level >= OptimizationLevel::O3,
+            trust_primitives: level >= OptimizationLevel::O4,
+            ..self
+        }
+    }
 }
 
 impl Default for Options {
@@ -139,7 +221,10 @@ impl Default for Options {
             minify: true,
             own_sdk,
             asserts: false,
-            omit_checks: false,
+            level: OptimizationLevel::O2,
+            omit_implicit_checks: false,
+            trust_primitives: false,
+            omit_late_names: true,
         }
     }
 }
@@ -279,13 +364,16 @@ pub fn emit_with_world(
         let ad = filter::Adapter {
             world: &world,
             program: a.program,
+            interner: a.interner,
             stub: op.stub,
             signatures: None,
             symbol_signatures: None,
             recipe_ids: None,
             constants: None,
             named_args: None,
-            omit_checks: false,
+            omit_implicit_checks: false,
+            trust_primitives: false,
+            omit_late_names: op.omit_late_names,
             identity_hash: None,
             runtime_equals: None,
             rti_live: true,
@@ -536,7 +624,7 @@ mod tests {
                 minify: false,
                 own_sdk: false,
                 asserts: true,
-                omit_checks: false,
+                ..Options::default()
             },
         );
         assert!(p.cycles.is_empty());
@@ -570,7 +658,7 @@ mod tests {
                 minify: false,
                 own_sdk: false,
                 asserts: true,
-                omit_checks: false,
+                ..Options::default()
             },
         );
         assert_eq!(
@@ -607,7 +695,7 @@ mod tests {
                 minify: false,
                 own_sdk: false,
                 asserts: true,
-                omit_checks: false,
+                ..Options::default()
             },
         );
         let without = assemble(
@@ -621,7 +709,7 @@ mod tests {
                 minify: false,
                 own_sdk: false,
                 asserts: true,
-                omit_checks: false,
+                ..Options::default()
             },
         );
         assert!(

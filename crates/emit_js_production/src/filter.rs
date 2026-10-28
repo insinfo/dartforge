@@ -35,6 +35,7 @@ pub fn recipe_ids(
 pub struct Adapter<'m> {
     pub world: &'m World,
     pub program: &'m Program,
+    pub interner: &'m dartforge_intern::Interner,
     /// Verifier mode: what is dead becomes a *stub* that reports the call
     /// (`dart_podado("…")`) instead of disappearing.
     pub stub: bool,
@@ -52,8 +53,12 @@ pub struct Adapter<'m> {
     pub constants: Option<&'m dartforge_world::Constants<'m>>,
     /// Short keys for named parameters (`named_args.rs`).
     pub named_args: Option<&'m crate::named_args::NamedArgs>,
-    /// `--omit-checks`.
-    pub omit_checks: bool,
+    /// `--omit-implicit-checks` (`-O3`, `-O4`).
+    pub omit_implicit_checks: bool,
+    /// `--trust-primitives` (`-O4`).
+    pub trust_primitives: bool,
+    /// `--omit-late-names` (`-O2` up).
+    pub omit_late_names: bool,
     /// `identityHashCode` of `dart:core` (`None`: unknown, assumed live).
     pub identity_hash: Option<FunctionElementId>,
     /// `equals` of `dart:_runtime` (`None`: unknown, assumed live).
@@ -83,6 +88,55 @@ pub fn rti_live(world: &World, program: &Program, interner: &dartforge_intern::I
                 && matches!(interner.resolve(f.name), "isDartClass" | "getClassName")))
             && world.is_live_function(FunctionElementId(i as u32))
     })
+}
+
+impl Adapter<'_> {
+    /// An abstract class or a mixin outside the libraries that declare
+    /// native classes (whose JavaScript objects may belong to an abstract
+    /// class): the world lists it among the instantiated classes when a
+    /// concrete class mixes it in (`ListBase` in the typed arrays), but every
+    /// object is an instance of a concrete class, listed on its own.
+    fn without_own_instances(&self, k: ClassId) -> bool {
+        let class = self.program.class(k);
+        (class.modifiers.abstract_ || class.kind == dartforge_elements::model::ClassKind::Mixin)
+            && !matches!(
+                self.program.library(class.library).uri.as_str(),
+                "dart:_interceptors"
+                    | "dart:_native_typed_data"
+                    | "dart:_js_helper"
+                    | "dart:html"
+                    | "dart:svg"
+                    | "dart:web_audio"
+                    | "dart:web_gl"
+                    | "dart:indexed_db"
+            )
+    }
+
+    /// `k` is `JSArray` or `JSString` (`dart:_interceptors`), or a native
+    /// typed array of numbers (`dart:_native_typed_data`, below
+    /// `NativeTypedArrayOfInt` or `NativeTypedArrayOfDouble`): its `[]` reads
+    /// the JavaScript element. The SIMD lists (`NativeInt32x4List`…) build an
+    /// object per element and are not.
+    fn is_indexable_primitive_class(&self, k: ClassId) -> bool {
+        let class = self.program.class(k);
+        let lib = self.program.library(class.library).uri.as_str();
+        let name = self.interner.resolve(class.name);
+        match lib {
+            "dart:_interceptors" => matches!(name, "JSArray" | "JSString"),
+            "dart:_native_typed_data" => {
+                self.world.instantiated_subtypes(k).contains(&k)
+                    && self.program.classes.iter().enumerate().any(|(i, c)| {
+                        self.program.library(c.library).uri == "dart:_native_typed_data"
+                            && matches!(
+                                self.interner.resolve(c.name),
+                                "NativeTypedArrayOfInt" | "NativeTypedArrayOfDouble"
+                            )
+                            && self.world.is_subclass(k, ClassId(i as u32))
+                    })
+            }
+            _ => false,
+        }
+    }
 }
 
 impl Liveness for Adapter<'_> {
@@ -202,7 +256,20 @@ impl Liveness for Adapter<'_> {
         self.named_args?.map.get(name).map(String::as_str)
     }
     fn omit_implicit_checks(&self) -> bool {
-        self.omit_checks
+        self.omit_implicit_checks
+    }
+    fn trust_primitives(&self) -> bool {
+        self.trust_primitives
+    }
+    fn omit_late_names(&self) -> bool {
+        self.omit_late_names
+    }
+    fn indexable_primitive(&self, c: ClassId) -> bool {
+        let subs = self.world.instantiated_subtypes(c);
+        !subs.is_empty()
+            && subs
+                .iter()
+                .all(|&k| self.is_indexable_primitive_class(k) || self.without_own_instances(k))
     }
     fn named_table(&self) -> Option<String> {
         self.named_args.filter(|n| n.table).map(|n| n.json())

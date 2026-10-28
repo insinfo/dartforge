@@ -495,6 +495,31 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
     SystemHash.hash20(o1.hashCode, o2.hashCode, o3.hashCode, o4.hashCode, o5.hashCode, o6.hashCode, o7.hashCode, o8.hashCode, o9.hashCode, o10.hashCode, o11.hashCode, o12.hashCode, o13.hashCode, o14.hashCode, o15.hashCode, o16.hashCode, o17.hashCode, o18.hashCode, o19.hashCode, o20.hashCode, _hashSeed);
 "##,
     ),
+    // `-O3`/`-O4` (`dart2js`'s `--omit-implicit-checks`): a dynamic call
+    // checks the arity and the names of its arguments (`NoSuchMethodError`)
+    // but not their types, nor the type arguments against the bounds, and a
+    // dynamic `x.f = v` does not check `v` against the setter's type: the
+    // parameter checks of `dart2js` that the level trusts.
+    // `JS_GET_FLAG('OMIT_IMPLICIT_CHECKS')` is the level
+    // (`emit_js::own_sdk`, `dartforge_world::Constants`).
+    (
+        None,
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "  // Now that we know the signature matches, we can perform type checks.\n  for (var i = 0; i < requiredCount; ++i) {",
+        "  // Now that we know the signature matches, we can perform type checks.\n  if (JS_GET_FLAG('OMIT_IMPLICIT_CHECKS')) return null;\n  for (var i = 0; i < requiredCount; ++i) {",
+    ),
+    (
+        None,
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "      // Check the provided type arguments against the instantiated bounds.\n      for (var i = 0; i < typeParameterCount; i++) {",
+        "      // Check the provided type arguments against the instantiated bounds.\n      if (!JS_GET_FLAG('OMIT_IMPLICIT_CHECKS')) for (var i = 0; i < typeParameterCount; i++) {",
+    ),
+    (
+        None,
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "    if (setterType != null) {\n      return JS('', '#[#] = #.#(#)', obj, f, setterType,",
+        "    if (setterType != null) {\n      if (JS_GET_FLAG('OMIT_IMPLICIT_CHECKS')) {\n        return JS('', '#[#] = #', obj, f, value);\n      }\n      return JS('', '#[#] = #.#(#)', obj, f, setterType,",
+    ),
 ];
 
 /// Applies `PATCHES` to `sdk` as overlay replacements. The patched files

@@ -775,6 +775,35 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         ))
     }
 
+    /// `s.codeUnitAt(i)` on a non-nullable `String` when the body trusts index
+    /// bounds (`-O4`, `dart2js:index-bounds:trust`): the JavaScript
+    /// `charCodeAt`, without the range check (`NaN` out of range, as `dart2js
+    /// -O4` gives). The `int` argument is a non-nullable `int` by the static
+    /// type.
+    fn trusted_code_unit_at(
+        &mut self,
+        recv: &Js,
+        recv_ty: &Ty,
+        name: &str,
+        arguments: &ast::Arguments,
+    ) -> Option<(Js, Ty)> {
+        if name != "codeUnitAt"
+            || self.checks.index_bounds
+            || !self.ctx.production()
+            || !self.ctx.is_string(recv_ty)
+            || !arguments.type_args.is_empty()
+            || arguments.args.len() != 1
+            || arguments.args[0].name.is_some()
+        {
+            return None;
+        }
+        let (a, _) = self.emit_expr(arguments.args[0].value, Some(&self.ctx.t_int()));
+        Some((
+            Js::prim(format!("{}.charCodeAt({})", recv.at(P_PRIMARY), a.code)),
+            self.ctx.t_int(),
+        ))
+    }
+
     /// Call of the instance method `recv.name(args)`.
     ///
     /// `node` is the `recv.name` access in the source, when there is one: the
@@ -828,6 +857,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return r;
             }
             self.forced_ext = None;
+        }
+        if !is_super && let Some(r) = self.trusted_code_unit_at(recv, recv_ty, name, arguments) {
+            return r;
         }
         if !is_super && let Some(r) = self.string_search_call(recv, recv_ty, name, arguments) {
             return r;
@@ -1488,6 +1520,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         None
     }
 
+    /// The call of a trusted identity cast ([`crate::checks::trusted_identity`],
+    /// `unsafeCast<T>(x)`): its argument, without the call nor the type
+    /// argument, with the call's static type.
+    fn trusted_identity_call(
+        &mut self,
+        fid: dartforge_elements::model::FunctionElementId,
+        fty: &Ty,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+    ) -> Option<(Js, Ty)> {
+        if arguments.args.len() != 1
+            || arguments.args[0].name.is_some()
+            || !crate::checks::trusted_identity(self.ctx, fid)
+        {
+            return None;
+        }
+        let (args, ret, _) = self.emit_args_for(fty, arguments, expected);
+        let arg = args.into_iter().next()?;
+        Some((Js::prim(format!("({arg})")), ret))
+    }
+
     pub fn emit_static_call(
         &mut self,
         c: ClassId,
@@ -1549,6 +1602,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         match mk {
             MemberKind::Method(fid) => {
                 let fty = self.ctx.fn_ty(fid);
+                if let Some(r) = self.trusted_identity_call(fid, &fty, arguments, expected) {
+                    return r;
+                }
                 let (args, ret, targs) = self.emit_args_for(&fty, arguments, expected);
                 let mut all = targs;
                 all.extend(args);
@@ -1630,6 +1686,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         ),
                         ret,
                     );
+                }
+                if let Some(r) = self.trusted_identity_call(fid, &fty, arguments, expected) {
+                    return r;
                 }
                 let (args, ret, targs) = self.emit_args_for(&fty, arguments, expected);
                 // SDK mode: `@NoReifyGeneric` does not pass the type arguments.

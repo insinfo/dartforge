@@ -165,6 +165,9 @@ pub struct Ctx<'a> {
     /// (`DARTFORGE_JS_CHECK_TYPES`, see `crate::type_check`); `None` when
     /// it is off.
     pub type_check: Option<RefCell<crate::type_check::TypeCheck>>,
+    /// The `dart2js` check pragmas of each unit's declarations
+    /// ([`crate::checks`]), computed on the first question about the unit.
+    pub check_pragmas: RefCell<HashMap<UnitId, std::rc::Rc<crate::checks::UnitPragmas>>>,
     /// SDK mode (`crate::own_sdk`): the `dart:` libraries are compiled
     /// too, through our own pipeline. `None` on every path that links against
     /// `dart_sdk.js` — the mode's hooks do not fire.
@@ -274,6 +277,7 @@ impl<'a> Ctx<'a> {
             errors: RefCell::new(Vec::new()),
             filter: None,
             type_check: crate::type_check::TypeCheck::from_env().map(RefCell::new),
+            check_pragmas: RefCell::new(HashMap::new()),
             sdk: None,
         };
         // Interop comes before the hierarchy: interop extension types are not
@@ -614,6 +618,7 @@ impl<'a> Ctx<'a> {
     /// keeps them; the development profile always keeps them.
     pub fn late_name<'n>(&self, name: &'n str) -> &'n str {
         if self.production()
+            && self.filter.is_some_and(|f| f.omit_late_names())
             && std::env::var("DARTFORGE_JSPROD_LATE_NAMES").map_or(true, |v| v != "0")
         {
             ""
@@ -755,9 +760,10 @@ impl<'a> Ctx<'a> {
     }
 
     /// `_isNullCheckableJsInterop`: an interop member (not `@staticInterop`)
-    /// whose type (return or getter) is non-nullable.
+    /// whose type (return or getter) is non-nullable. Never from `-O3` up,
+    /// as `dart2js`'s `nativeNullAssertions`.
     pub fn js_null_checkable(&self, mk: &MemberKind) -> bool {
-        if !self.is_js_member_kind(mk) {
+        if !self.is_js_member_kind(mk) || self.filter.is_some_and(|f| f.omit_implicit_checks()) {
             return false;
         }
         let class = match *mk {

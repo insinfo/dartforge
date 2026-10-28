@@ -868,10 +868,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 | Ty::Null => true,
                 _ => false,
             };
-            if needs_cast
-                && js.code != "null"
-                && !self.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
-            {
+            if needs_cast && js.code != "null" && self.checks.downcasts {
                 return (self.as_cast(&js, expected), expected.clone());
             }
             return (js, ty);
@@ -1387,7 +1384,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::As { value, ty } => {
                 let t = self.resolve_type(*ty);
                 let (v, vty) = self.emit_expr(*value, Some(&t));
-                if self.ctx.is_subtype(&vty, &t) && !vty.is_dynamic() {
+                // `dart2js:as:trust`: the value is assumed to have the type.
+                if (self.ctx.is_subtype(&vty, &t) && !vty.is_dynamic())
+                    || !self.checks.explicit_casts
+                {
                     return (v, t);
                 }
                 (self.as_cast(&v, &t), t)
@@ -1956,8 +1956,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 // A `dynamic` spread is cast to `Iterable`/`Map` and each
                 // element to the literal's type, as the CFE does.
-                let checked =
-                    vty.is_dynamic() && !self.ctx.filter.is_some_and(|f| f.omit_implicit_checks());
+                let checked = vty.is_dynamic() && self.checks.downcasts;
                 let vty = if checked {
                     let class = if value_ty.is_some() {
                         self.ctx.map_
@@ -4015,7 +4014,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         tear_off: bool,
     ) -> Js {
         if matches!(self.expr(recv_expr).kind, ExprKind::This | ExprKind::Super)
-            || self.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+            || !self.checks.downcasts
             || crate::own_sdk::is_top(self.ctx, result)
         {
             return js;
@@ -4683,6 +4682,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     Ty::Fn { ret, .. } => (*ret).clone(),
                     _ => Ty::Dynamic,
                 };
+                // Trusted index bounds (`-O4`, `dart2js:index-bounds:trust`)
+                // on a receiver the world proves an indexable primitive: the
+                // JavaScript element, without the range check.
+                if !self.checks.index_bounds
+                    && let Ty::Iface {
+                        class,
+                        nullable: false,
+                        ..
+                    } = recv_ty
+                    && self
+                        .ctx
+                        .filter
+                        .is_some_and(|f| f.indexable_primitive(*class))
+                {
+                    return (
+                        Js::prim(format!("{}[{}]", recv.at(P_PRIMARY), idx.code)),
+                        ty,
+                    );
+                }
                 let access = self.member_access(recv_ty, "[]", false);
                 (
                     Js::prim(format!("{}{access}({})", recv.at(P_PRIMARY), idx.code)),
@@ -5018,7 +5036,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 ctx.t_num()
             };
             let dyn_r = matches!(rt, Ty::Dynamic);
-            let rn = if dyn_r && !ctx.filter.is_some_and(|f| f.omit_implicit_checks()) {
+            let rn = if dyn_r && self.checks.downcasts {
                 // Numeric operators have a checked argument even when their
                 // receiver is statically known. A null check alone permits JS
                 // coercion of strings, booleans and arbitrary user objects.
@@ -5036,9 +5054,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     ctx.t_num()
                 };
                 self.as_cast(&r, &argument_ty)
-            } else if dyn_r {
-                Js::prim(format!("dart.notNull({})", rn.code))
             } else {
+                // A trusted downcast (`-O3`): the operand is used as is.
                 rn
             };
             return match op {
@@ -5589,10 +5606,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             self.ctx.iterable_
         };
         match class {
-            Some(class)
-                if ty.is_dynamic()
-                    && !self.ctx.filter.is_some_and(|f| f.omit_implicit_checks()) =>
-            {
+            Some(class) if ty.is_dynamic() && self.checks.downcasts => {
                 let target = Ty::iface_args(class, vec![Ty::Dynamic]);
                 (self.as_cast(&js, &target), target)
             }
@@ -5603,10 +5617,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// The loop variable's value of a `for`-in: `value` cast to the declared
     /// type when the elements are `dynamic`.
     pub fn checked_loop_value(&self, value: &str, element: &Ty, declared: &Ty) -> String {
-        if element.is_dynamic()
-            && !declared.is_dynamic()
-            && !self.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
-        {
+        if element.is_dynamic() && !declared.is_dynamic() && self.checks.downcasts {
             self.as_cast(&Js::prim(value.to_string()), declared).code
         } else {
             value.to_string()

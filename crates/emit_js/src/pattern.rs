@@ -219,7 +219,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             PatternKind::Cast { pattern, ty } => {
                 let t = self.resolve_type(*ty);
-                let cast = self.as_cast(&v, &t);
+                let cast = if self.checks.explicit_casts {
+                    self.as_cast(&v, &t)
+                } else {
+                    v.clone()
+                };
                 if cast.code == v.code {
                     return self.pattern_cond(*pattern, &cast.code, &t, binds, irrefutable);
                 }

@@ -90,6 +90,9 @@ pub struct Constants<'a> {
     /// `null` when no dynamic call passes named arguments
     /// ([`crate::Options::without_dynamic_named`]); empty otherwise.
     dynamic_named: RefCell<HashSet<ParamKey>>,
+    /// The level omits implicit checks (`-O3`/`-O4`):
+    /// `JS_GET_FLAG('OMIT_IMPLICIT_CHECKS')` of the production SDK patches.
+    omit_implicit_checks: std::cell::Cell<bool>,
 }
 
 impl<'a> Constants<'a> {
@@ -108,7 +111,15 @@ impl<'a> Constants<'a> {
             without_functions: std::cell::Cell::new(false),
             without_function_targets: std::cell::Cell::new(false),
             without_generic_functions: std::cell::Cell::new(false),
+            omit_implicit_checks: std::cell::Cell::new(false),
         }
+    }
+
+    /// The optimization level omits implicit checks (`-O3`, `-O4`): the
+    /// production SDK patches' `JS_GET_FLAG('OMIT_IMPLICIT_CHECKS')` is
+    /// `true`, as the emitter writes it.
+    pub fn set_omit_implicit_checks(&self, b: bool) {
+        self.omit_implicit_checks.set(b);
     }
 
     /// No record type or value exists at run time: `k == Rti.kindRecord`
@@ -206,6 +217,7 @@ impl<'a> Constants<'a> {
                 std::env::var("DARTFORGE_JSPROD_VARIANCE").is_ok_and(|v| v == "1"),
             )),
             "DEV_COMPILER" | "SOUND_NULL_SAFETY" => Some(Value::Bool(true)),
+            "OMIT_IMPLICIT_CHECKS" => Some(Value::Bool(self.omit_implicit_checks.get())),
             "MINIFIED" | "LEGACY" | "EXTRA_NULL_SAFETY_CHECKS" | "PRINT_LEGACY_STARS" => {
                 Some(Value::Bool(false))
             }

@@ -52,11 +52,15 @@ pub struct SavedFn {
     fn_type_params: Vec<(u32, String)>,
     is_static: bool,
     switch_labels: Vec<Option<String>>,
+    checks: crate::checks::Checks,
 }
 
 pub struct FnEmitter<'m, 'a> {
     pub ctx: &'m Ctx<'a>,
     pub m: &'m ModState,
+    /// The run-time checks the body being emitted writes (the level's
+    /// defaults and the member's `dart2js` pragmas, [`crate::checks`]).
+    pub checks: crate::checks::Checks,
     pub unit: UnitId,
     pub lib: LibraryId,
     pub class: Option<ClassId>,
@@ -220,6 +224,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         FnEmitter {
             ctx,
             m,
+            checks: crate::checks::Checks::level_default(ctx),
             unit,
             lib,
             class,
@@ -460,7 +465,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             fn_type_params: self.fn_type_params.clone(),
             is_static: self.is_static,
             switch_labels: std::mem::take(&mut self.switch_labels),
+            checks: self.checks,
         };
+        // A closure has the level's checks, not its member's pragmas (as in
+        // `dart2js`, where it is a member of its own).
+        self.checks = crate::checks::Checks::level_default(self.ctx);
         self.async_kind = async_kind;
         self.is_static = is_static;
         self.push_scope();
@@ -485,6 +494,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.is_static = saved.is_static;
         self.switch_labels = saved.switch_labels;
         self.fresh_list_append = saved.fresh_lists;
+        self.checks = saved.checks;
         (body, returns)
     }
 
@@ -2033,6 +2043,10 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         let (js, ty) = self.emit_expr(e, Some(&self.ctx.t_bool()));
         if self.ctx.is_bool(&ty) {
             (js.code, ty)
+        } else if !self.checks.downcasts {
+            // A trusted condition (`-O3`, `dart2js:downcast:trust`): no
+            // check, and only `true` is true, as `dart2js` compiles it.
+            (format!("({} === true)", js.at(crate::js::P_EQ)), ty)
         } else if ty.is_class(self.ctx.bool_) {
             (format!("dart.test({})", js.code), ty)
         } else {
