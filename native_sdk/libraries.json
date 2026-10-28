@@ -36,6 +36,14 @@
       "internal/sort.dart": "internal/sort.dart",
       "collection/list.dart": "collection/list.dart",
       "_internal/vm/lib/mirrors_patch.dart": "mirrors/mirrors_patch.dart"
+    },
+    "libraries": {
+      "_http": {
+        "uri": "_http/http.dart",
+        "patches": [
+          "overlay:http/http_patch.dart"
+        ]
+      }
     }
   },
   "comment:4": "dartforge_wasm: the WebAssembly target (wasm32-linear, docs/PLANO-WASM-MVP.md \u00a71). The runtime implements the VM's natives, so the base is vm with the same swaps; the library set and flags are dart2wasm's: dart:io and dart:isolate take the SDK's own pure-Dart wasm patches (importable, UnsupportedError on use), dart.library.ffi is false, the libraries dart2wasm does not have are removed, and the JavaScript interop (dart:js_interop, js_interop_unsafe, js_util and their internal libraries) is added over the handles of native_sdk/wasm/js_helper.dart (\"new\": a library the base does not have; \"overlay:\": a file of this folder).",

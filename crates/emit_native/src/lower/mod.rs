@@ -732,6 +732,17 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
         // empty body with the same symbol would take the place of the patch.
         return;
     }
+    // A member with a body that an SDK patch file replaces (`@patch` over a
+    // non-`external` member, `native_sdk/http/http_patch.dart`): the patch member
+    // has the same symbol and is the body that counts.
+    if let Some(p) = func_elem.patched_by
+        && p.0 as usize != f_idx
+        && let FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } =
+            ctx.program.functions[p.0 as usize].node
+        && ctx.program.unit(unit).role == dartforge_elements::model::UnitRole::Patch
+    {
+        return;
+    }
     {
         let name = ctx.symbol_name(func_elem.name);
         let symbol = symbol_of(ctx, f_idx);
