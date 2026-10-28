@@ -278,6 +278,21 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         "applyExtensionForTesting(name) {\n  var dartExtType = JS('', '#.get(#)', _extensionMap, name);\n  var jsType = JS('', '#[#]', global_, name);\n  _applyExtension(jsType, dartExtType);\n",
         "applyExtensionForTesting(name) {\n  var dartExtType = JS('', '#.get(#)', _extensionMap, name);\n  var jsType = JS('', '#[#]', global_, name);\n  if (_ontoObject(jsType, dartExtType)) return;\n  _applyExtension(jsType, dartExtType);\n",
     ),
+    // `_installProperties` copies `Object`'s members onto the JavaScript
+    // prototype and then each subclass's, redefining the overridden ones
+    // (`toString`, the `runtimeType` getter) with other attributes. V8 turns
+    // a prototype whose property is reconfigured into a dictionary, and
+    // nothing turns the prototypes of `Number` and `String` back (only an
+    // inline cache on an object receiver does that, and their receivers are
+    // primitives): every extension method call on a number or a string
+    // became a slow lookup. The members are collected on a fresh object and
+    // defined once each.
+    (
+        Some("DARTFORGE_JSPROD_FAST_PROTOTYPES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/classes.dart",
+        "  _installProperties(\n      jsProto, dartExtType, JS('', '#[#]', jsProto, _extensionType));\n",
+        "  // Production: collected first, so that each member is defined once on\n  // `jsProto` (a redefinition makes V8 turn the prototype into a dictionary).\n  var staged = JS<Object>('!', 'Object.create(null)');\n  _installProperties(\n      staged, dartExtType, JS('', '#[#]', jsProto, _extensionType));\n  copyTheseProperties(jsProto, staged, getOwnPropertySymbols(staged));\n",
+    ),
     // `dart.global` falls back to `new Function('return this;')()` when no
     // `window`, `global` or `self` exists; the production file defines
     // `self` before anything else runs (`bundle.rs`), so the fallback is
