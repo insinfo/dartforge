@@ -645,6 +645,32 @@ pub const EXTERNS: &[Extern] = &[
         },
     },
     Extern {
+        // The real ARC: the pure ARC with prompt death (prepared, exact tokens).
+        decl: "declare void @dartforge_memory_arc_prompt_v1()",
+        effects: Effects {
+            allocates: true,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
+        // The real ARC's write that hands the value's token to the field.
+        decl: "declare void @dartforge_arc_write_field_ref_move_v1(i64, i64, i64) nounwind",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
+        decl: "declare void @dartforge_arc_virtual_tokens_v1() nounwind",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
         decl: "declare void @dartforge_arc_retain(i64) nounwind",
         effects: Effects {
             allocates: false,

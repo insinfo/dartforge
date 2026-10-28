@@ -742,6 +742,11 @@ fn emit_ir_internal(
         .map_err(|e| format!("ARC preparation of the program: {e}"))?;
         optimize::arc::certify_arc_aot_ports(&mut hir_module, &plans)
             .map_err(|e| format!("ARC ports of the program: {e}"))?;
+        hir_module.arc_virtual_tokens = target::arc_virtual_tokens();
+        hir_module.arc_prompt_death = target::arc_prompt_death();
+        // Virtual tokens over the nursery: the stores into young objects come out
+        // inline, as in the unprepared code (`llvm::LlvmEmitter::prepared_inline_field`).
+        hir_module.arc_nursery_writes = hir_module.arc_virtual_tokens && target::arc_nursery();
     }
     if options.timings {
         eprintln!(

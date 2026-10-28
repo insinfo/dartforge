@@ -287,6 +287,30 @@ pub fn arc_prepared() -> Result<bool, String> {
     Ok(true)
 }
 
+/// `DARTFORGE_ARC_TOKENS=virtual`: the opt-in fast mode of the prepared ARC,
+/// *without prompt death*. The tokens are virtual
+/// ([`crate::hir::Module::arc_virtual_tokens`]): proved by the preparation, free at
+/// run time, and the deferred roots protect what they would; an object dies at the
+/// synchronization after its last reference drops, as in the plain ARC. Without
+/// the variable the prepared code keeps exact tokens: it calls the runtime for
+/// every token (`dartforge_arc_retain`/`dartforge_arc_release`), which keeps the
+/// inventory and counts them. The variable goes into the key of the compiled SDK.
+pub fn arc_virtual_tokens() -> bool {
+    std::env::var("DARTFORGE_ARC_TOKENS").is_ok_and(|v| v == "virtual")
+}
+
+/// The real ARC: the prepared code with exact tokens over the pure ARC with prompt
+/// death (`dartforge_memory_arc_prompt_v1`): every reference counts from its first
+/// write, the tokens are counted owners, and an object dies at its last release, not
+/// at the next collection. `DARTFORGE_ARC_PROMPT=0` keeps the earlier prepared ARC
+/// with exact tokens over the nursery (death at the synchronization), for
+/// comparison. The variable goes into the key of the compiled SDK.
+pub fn arc_prompt_death() -> bool {
+    arc_prepared().unwrap_or(false)
+        && !arc_virtual_tokens()
+        && !std::env::var("DARTFORGE_ARC_PROMPT").is_ok_and(|v| v == "0")
+}
+
 /// Where the collector roots live in the generated code
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.8), through the variable
 /// `DARTFORGE_ROOTS` (the `--roots=` of `compile-native` sets it):

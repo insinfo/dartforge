@@ -539,6 +539,12 @@ impl ArcHeapState {
     /// one of its blocks; the page changed geometry with live objects; or the
     /// monotonic generation was exhausted.
     pub fn register_live_at(&mut self, h: Ref, geometry: Option<Geometry>) -> ArcId {
+        self.register_live_with(h, geometry, 0)
+    }
+
+    /// [`Self::register_live_at`] with the first `rc` occurrences already counted:
+    /// one table insertion for the registration and the retain of a new owner.
+    pub fn register_live_with(&mut self, h: Ref, geometry: Option<Geometry>, rc: u64) -> ArcId {
         debug_assert!(e_handle(h));
         let generation = self.next_generation;
         self.next_generation = self
@@ -555,7 +561,7 @@ impl ArcHeapState {
             h,
             MetaArc {
                 generation,
-                rc: 0,
+                rc,
                 state: ArcState::Live,
                 candidate: false,
                 candidate_index: usize::MAX,
@@ -567,6 +573,10 @@ impl ArcHeapState {
             geometry,
         );
         self.statistics.registered_set += 1;
+        self.statistics.retains += rc;
+        if self.trace_log && rc > 0 {
+            eprintln!("[arc-trace] retain {h} rc={rc}");
+        }
         ArcId {
             handle: h,
             generation,
@@ -866,6 +876,17 @@ impl ArcHeapState {
     /// There are zeros waiting.
     pub fn ha_zeros(&self) -> bool {
         !self.zeros.is_empty()
+    }
+
+    /// The registered handles (the audit's diagnostic).
+    pub fn registered_handles(&self) -> Vec<Ref> {
+        self.objects.iter().map(|(h, _)| h).collect()
+    }
+
+    /// There are zeros an observational root held at the last drain
+    /// ([`Self::resume_deferred`] puts them back in the queue).
+    pub fn has_deferred(&self) -> bool {
+        !self.deferred_set.is_empty()
     }
 
     /// The discard transaction of set `d` (§19.4): marks them all `Collecting`; for

@@ -2722,3 +2722,74 @@ fn rti_eval_with_a_varying_class_is_called_directly() {
     assert!(body.contains("@dartforge_rti_eval("), "{body}");
     assert!(!body.contains("@df.rti_eval_site("), "{body}");
 }
+
+/// The real ARC's move into a field: the write whose value's token is dropped later
+/// on the straight line (here in the unique successor) hands the token over; a use
+/// in between, or a successor with another predecessor, keeps the copy.
+#[test]
+fn write_moves_the_token_when_the_drop_ends_the_straight_line() {
+    let write = |v: u32, object: u32, value: u32| {
+        (
+            ValueId(v),
+            Instruction::CallRuntime {
+                name: "dartforge_arc_write_field_ref_v1".into(),
+                args: vec![
+                    (Operand::Val(ValueId(object)), Type::Ref),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                    (Operand::Val(ValueId(value)), Type::Ref),
+                ],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        )
+    };
+    let drop = |v: u32, value: u32| {
+        (
+            ValueId(v),
+            Instruction::ArcDrop {
+                value: Operand::Val(ValueId(value)),
+            },
+            Type::Void,
+        )
+    };
+    let f = Function {
+        symbol: "f".into(),
+        name: "f".into(),
+        params: vec![
+            (ValueId(0), "o".into(), Type::Ref),
+            (ValueId(1), "x".into(), Type::Ref),
+            (ValueId(2), "y".into(), Type::Ref),
+        ],
+        return_ty: Type::Void,
+        debug_info: None,
+        blocks: vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![write(10, 0, 1), write(11, 0, 2)],
+                terminator: Terminator::Branch(BlockId(1)),
+            },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![drop(12, 1), write(13, 0, 2), drop(14, 2)],
+                terminator: Terminator::Return(None),
+            },
+        ],
+    };
+    let (writes, drops) = super::moves_into_fields(&f);
+    // `x` moves (its drop follows in the single successor); `y` is written again
+    // before its drop, so only the last write moves it.
+    assert!(writes.contains(&10) && drops.contains(&12));
+    assert!(!writes.contains(&11));
+    assert!(writes.contains(&13) && drops.contains(&14));
+    let mut joined = f.clone();
+    joined.blocks.push(BasicBlock {
+        id: BlockId(2),
+        instructions: vec![],
+        terminator: Terminator::Branch(BlockId(1)),
+    });
+    let (writes, _) = super::moves_into_fields(&joined);
+    assert!(
+        !writes.contains(&10),
+        "another predecessor reaches the drop"
+    );
+}

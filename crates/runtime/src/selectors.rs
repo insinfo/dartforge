@@ -423,6 +423,23 @@ fn name_hash(name: &str) -> i64 {
 /// the receiver's `noSuchMethod` receives the `Invocation` (`Object`'s throws
 /// `NoSuchMethodError`; a class may override it and return a value).
 extern "C" fn dartforge_nsm_selector(recv: i64, args: *const i64, desc: *const i64) -> i64 {
+    // The real ARC calls a uniform entry directly, and this fallback is one: it
+    // returns an Owned result like every uniform entry, from its own native scope
+    // (the borrowed result of the `noSuchMethod` port gets a token before the scope
+    // closes). Otherwise the uniform invoker adapts the borrowed result.
+    if HEAP.with(|h| h.borrow().prompt_death()) {
+        let scope = dartforge_arc_native_scope_open_v1();
+        let r = nsm_selector_borrowed(recv, args, desc);
+        if dartforge_exception_pending() == 0 {
+            dartforge_arc_retain(r);
+        }
+        dartforge_arc_native_scope_close_v1(scope);
+        return r;
+    }
+    nsm_selector_borrowed(recv, args, desc)
+}
+
+fn nsm_selector_borrowed(recv: i64, args: *const i64, desc: *const i64) -> i64 {
     let text = MISSING_SELECTOR.with(|s| s.borrow().clone());
     let (ty, name) = text.split_once(':').unwrap_or(("c", text.as_str()));
     let name = name.split_once('@').map_or(name, |(n, _)| n);

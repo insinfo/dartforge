@@ -189,7 +189,12 @@ pub extern "C" fn dartforge_native_Object_runtimeType(this: i64) -> i64 {
 /// was collected.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_WeakReference_getTarget(this: i64) -> i64 {
-    HEAP.with(|h| h.borrow().weak_refs.get(&this).copied().unwrap_or(0))
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        // The real ARC: a target whose last owner dropped reads null at once.
+        h.arc_settle();
+        h.weak_refs.get(&this).copied().unwrap_or(0)
+    })
 }
 
 /// `_WeakReference._target =` (`WeakReference_setTarget`).
@@ -201,7 +206,11 @@ pub extern "C" fn dartforge_native_WeakReference_setTarget(this: i64, target: i6
 /// `_WeakProperty.key` (`WeakProperty_getKey`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_WeakProperty_getKey(this: i64) -> i64 {
-    HEAP.with(|h| h.borrow().ephemerons.get(&this).map_or(0, |p| p.0))
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        h.arc_settle();
+        h.ephemerons.get(&this).map_or(0, |p| p.0)
+    })
 }
 
 /// `_WeakProperty.key =` (`WeakProperty_setKey`).
@@ -213,7 +222,11 @@ pub extern "C" fn dartforge_native_WeakProperty_setKey(this: i64, key: i64) {
 /// `_WeakProperty.value` (`WeakProperty_getValue`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_WeakProperty_getValue(this: i64) -> i64 {
-    HEAP.with(|h| h.borrow().ephemerons.get(&this).map_or(0, |p| p.1))
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        h.arc_settle();
+        h.ephemerons.get(&this).map_or(0, |p| p.1)
+    })
 }
 
 /// `_WeakProperty.value =` (`WeakProperty_setValue`).

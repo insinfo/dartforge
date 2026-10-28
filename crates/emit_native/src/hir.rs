@@ -1208,6 +1208,15 @@ pub struct Module {
     /// image follows the legacy regime (direct calls, factories without an owner of the
     /// code); with it, the emission requires the AOT ports certificate.
     pub arc_prepared: bool,
+    /// The prepared code's tokens are virtual (the opt-in fast mode without prompt
+    /// death, [`crate::target::arc_virtual_tokens`]): `ArcCopy`/`ArcDrop` and the
+    /// other token operations emit no runtime call, and the entry tells the runtime
+    /// (`dartforge_arc_virtual_tokens_v1`). The preparation and its verification do
+    /// not change.
+    pub arc_virtual_tokens: bool,
+    /// The real ARC ([`crate::target::arc_prompt_death`]): the prepared code with
+    /// exact tokens over the pure ARC with prompt death.
+    pub arc_prompt_death: bool,
     /// AOT registration keeps this image's ancestry facts fixed.
     /// Reloadable images leave this false: older generations may add edges.
     pub arc_fixed_ancestry: bool,

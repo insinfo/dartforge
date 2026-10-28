@@ -176,6 +176,7 @@ pub extern "C" fn dartforge_arc_list_write_len_v1(list: i64, new: i64) {
         let mut heap = h.borrow_mut();
         let new = check_arc_list_len(&heap, list, new).expect("invalid ARC length write");
         heap.list_set_len(list, new);
+        heap.arc_settle();
     })
 }
 
@@ -247,6 +248,7 @@ pub extern "C" fn dartforge_arc_list_write_ref_v1(data: i64, ix: i64, value: i64
         read_audited_ref_element(&heap, data, ix).expect("invalid ARC Ref write");
         assert!(!crate::layout::is_object(value) || heap.is_live_object(value), "dead ARC reference");
         heap.write_refs(data, 1 + ix as usize, &[value]);
+        heap.arc_settle();
     })
 }
 
@@ -278,6 +280,7 @@ pub extern "C" fn dartforge_arc_list_write_data_v1(list: i64, data: i64) -> i64 
         let mask = crate::layout::flags::FORMAT | crate::layout::flags::ELEMENT;
         if heap.header(old_gen).flags & mask != heap.header(data).flags & mask { return 0; }
         heap.list_set_data(list, data);
+        heap.arc_settle();
         1
     })
 }
@@ -1083,8 +1086,41 @@ pub extern "C" fn dartforge_arc_write_field_scalar_v1(object: i64, ix: i64, bits
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_write_field_ref_v1(object: i64, ix: i64, value: i64) {
-    HEAP.with(|heap| write_audited_field(&mut heap.borrow_mut(), object, ix, value, true)
-        .expect("ARC Ref write contract violated"));
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        write_audited_field(&mut heap, object, ix, value, true)
+            .expect("ARC Ref write contract violated");
+        heap.arc_settle();
+    });
+}
+
+/// Publishes an owned reference as a strong edge of an instance, consuming the token.
+///
+/// The real ARC's move into a field: the value's code token becomes the field's
+/// occurrence (the generated code emits no release for it), the previous edge is
+/// released, and the receiver's preconditions are those of
+/// [`dartforge_arc_write_field_ref_v1`]. Does not allocate, collect or run Dart.
+///
+/// # Panics
+/// Violated preconditions or internal counting failure; aborts at the C boundary.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let object = dartforge_arc_object_owned_v1(123, 1);
+/// let child = dartforge_arc_box_int_owned_v1(i64::MAX);
+/// dartforge_arc_write_field_ref_move_v1(object, 0, child);
+/// assert_eq!(dartforge_arc_read_field_ref_v1(object, 0), child);
+/// dartforge_arc_release(object);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_write_field_ref_move_v1(object: i64, ix: i64, value: i64) {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        write_audited_field(&mut heap, object, ix, value, true)
+            .expect("ARC Ref write contract violated");
+        heap.release_code_owner(value);
+        heap.arc_settle();
+    });
 }
 
 /// Writes a Ref edge only after checking the receiver's physical layout.
@@ -1126,8 +1162,12 @@ pub unsafe extern "C" fn dartforge_arc_write_field_ref_checked_v1(
     assert!(!layouts.is_null() && layouts.is_aligned(), "invalid ARC layouts address");
     // SAFETY: the producer guarantees the extent, immutability and lifetime of the vector.
     let layouts = unsafe { std::slice::from_raw_parts(layouts, words) };
-    HEAP.with(|heap| write_checked_ref_field(&mut heap.borrow_mut(), object, ix, value, layouts)
-        .expect("ARC checked Ref write contract violated"));
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        write_checked_ref_field(&mut heap, object, ix, value, layouts)
+            .expect("ARC checked Ref write contract violated");
+        heap.arc_settle();
+    });
 }
 
 fn write_checked_ref_field(
@@ -1666,7 +1706,12 @@ pub extern "C" fn dartforge_arc_retain(value: i64) {
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_release(value: i64) {
-    HEAP.with(|h| h.borrow_mut().release_code_owner(value));
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        h.release_code_owner(value);
+        // The real ARC: the object whose last owner this was dies here.
+        h.arc_settle();
+    });
 }
 
 /// Runs an explicit collection at a safepoint with the roots already published.
@@ -1737,6 +1782,7 @@ pub extern "C" fn dartforge_arc_frame_copy_v1(frame: i64, slot: i64, value: i64)
         let mut h = h.borrow_mut();
         h.check_owning_frame(frame);
         h.set_root(frame, slot, value);
+        h.arc_settle();
     });
 }
 
@@ -1779,7 +1825,11 @@ pub extern "C" fn dartforge_arc_frame_load_v1(frame: i64, slot: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_frame_receive_v1(frame: i64, slot: i64, value: i64) {
     let slot = usize::try_from(slot).expect("invalid ARC slot index");
-    HEAP.with(|h| h.borrow_mut().move_code_to_root(frame, slot, value));
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        h.move_code_to_root(frame, slot, value);
+        h.arc_settle();
+    });
 }
 
 /// Transfers a code token to the owner registry of a global.
@@ -1797,7 +1847,11 @@ pub extern "C" fn dartforge_arc_frame_receive_v1(frame: i64, slot: i64, value: i
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_global_receive_v1(id: i64, value: i64) {
-    HEAP.with(|h| h.borrow_mut().move_code_to_global(id, value));
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        h.move_code_to_global(id, value);
+        h.arc_settle();
+    });
 }
 
 /// Moves an owner between slots, consuming the source and the old content of the destination.
@@ -1823,7 +1877,11 @@ pub extern "C" fn dartforge_arc_frame_move_v1(
 ) {
     let of = usize::try_from(source_slot).expect("invalid ARC source index");
     let to = usize::try_from(dest_slot).expect("invalid ARC destination index");
-    HEAP.with(|h| h.borrow_mut().move_root(origin, of, dest, to));
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        h.move_root(origin, of, dest, to);
+        h.arc_settle();
+    });
 }
 
 /// Consumes the owners of the top frame without collecting or running Dart.
@@ -1842,6 +1900,7 @@ pub extern "C" fn dartforge_arc_frame_close_v1(frame: i64) {
         let mut h = h.borrow_mut();
         h.check_owning_frame(frame);
         h.pop_frame(frame);
+        h.arc_settle();
     });
 }
 

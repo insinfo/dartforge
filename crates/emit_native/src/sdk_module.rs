@@ -513,7 +513,10 @@ fn emit_sdk_modules(
             .map_err(|e| format!("ARC preparation of the source SDK: {e}"))?;
         crate::optimize::arc::certify_arc_module_ports(&mut hir, &plans)
             .map_err(|e| format!("ARC ports of the source SDK: {e}"))?;
-        for ((_, m), h) in modules.iter_mut().zip(hir) {
+        for ((_, m), mut h) in modules.iter_mut().zip(hir) {
+            h.arc_virtual_tokens = crate::target::arc_virtual_tokens();
+            h.arc_prompt_death = crate::target::arc_prompt_death();
+            h.arc_nursery_writes = h.arc_virtual_tokens && crate::target::arc_nursery();
             *m = h;
         }
     }
@@ -785,6 +788,20 @@ fn sdk_key_with_overlay(
     // prepared program only links with this SDK.
     if crate::target::arc_prepared().unwrap_or(false) {
         h.update(b"arc=prepared_v1\0");
+        // The fast mode with virtual tokens has its own bodies; the real ARC its own
+        // entry and runtime mode.
+        if crate::target::arc_virtual_tokens() {
+            h.update(b"arc_tokens=virtual_v1\0");
+        }
+        if crate::target::arc_prompt_death() {
+            h.update(b"arc=prompt_v1\0");
+        }
+        // The audited field ABI at every access (the verification mode).
+        if std::env::var("DARTFORGE_ARC_AUDITED_ABI").is_ok_and(|v| v == "1") {
+            h.update(b"arc_abi=audited_v1\0");
+        }
+        // The prepared field reads and scalar writes come out inline.
+        h.update(b"arc_fields=inline_v1\0");
     }
     // The pure ARC activates another memory mode at the entry of each isolate.
     if std::env::var("DARTFORGE_MEMORY").is_ok_and(|v| v == "arc") && !crate::target::arc_nursery()

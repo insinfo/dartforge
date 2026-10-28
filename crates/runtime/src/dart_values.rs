@@ -39,7 +39,7 @@ fn dart_fixed_list(value_list: &[i64]) -> i64 {
 fn native_field(obj: i64) -> i64 {
     HEAP.with(|h| match h.borrow().object(obj) {
         Some(o) => o.first().map_or(0, |f| f.0),
-        None => panic!("compiler bug: native field of something that is not an object"),
+        None => panic!("compiler bug: native field of something that is not an object: {obj}"),
     })
 }
 

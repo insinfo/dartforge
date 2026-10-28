@@ -651,6 +651,58 @@ pub extern "C" fn dartforge_memory_arc_nursery_v1() {
     ARC_MEMORY.with(|m| m.set(true));
 }
 
+/// Makes the generated code's ARC tokens virtual on this isolate: the entry of a
+/// prepared program compiled with `DARTFORGE_ARC_TOKENS=virtual` (the fast mode
+/// without prompt death) calls it right after turning on the ARC. That code emits
+/// no retain/release: the preparation
+/// proves each token statically, and at run time the deferred roots (the shadow
+/// stack) already protect what a token would. The runtime's own Owned returns
+/// stop counting too, and moving a token into an owning slot retains there.
+/// Does not allocate, collect or run Dart.
+///
+/// # Panics
+/// ARC off, or a token already exists.
+///
+/// ```
+/// std::thread::spawn(|| {
+///     dartforge_runtime::abi::dartforge_memory_arc_nursery_v1();
+///     dartforge_runtime::abi::dartforge_arc_virtual_tokens_v1();
+/// })
+/// .join()
+/// .unwrap();
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_virtual_tokens_v1() {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        assert!(heap.arc_active(), "virtual ARC tokens require the ARC");
+        heap.set_virtual_code_tokens();
+    });
+}
+
+/// Enables the real ARC on this isolate: the entry of a prepared program with
+/// exact tokens calls this instead of [`dartforge_memory_arc_nursery_v1`]. Every
+/// reference counts from its first write, young objects included (the pure ARC),
+/// the code's tokens are counted owners, and an object whose count reaches zero
+/// dies at the next settle point — the code's release itself — instead of at the
+/// next collection (`Heap::arc_settle`). The cycle collection stays as the backstop
+/// of the full collection.
+///
+/// ```
+/// std::thread::spawn(|| dartforge_runtime::abi::dartforge_memory_arc_prompt_v1())
+///     .join()
+///     .unwrap();
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_memory_arc_prompt_v1() {
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        heap.enable_arc_mode(false);
+        heap.enable_prompt_death();
+    });
+    ARC_MEMORY.with(|m| m.set(true));
+}
+
 thread_local! {
     /// The ARC is enabled on this isolate: the cheap question of the natives that
     /// write references without the `Heap` (`natives_hash.rs`, `natives_lists.rs`).

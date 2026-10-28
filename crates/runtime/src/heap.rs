@@ -1978,7 +1978,30 @@ pub struct Heap {
     next_message_owner: u64,
     /// SSA tokens of the ARC ABI, with multiplicity separate from slots and maps.
     /// The inventory sustains reachability and auditing; maps do not count again.
+    /// With [`Heap::virtual_code_tokens`], only the tokens the runtime itself holds
+    /// (the returns a native scope keeps) are here, as roots without a count.
     code_owners: crate::hash::HashMap<Ref, usize>,
+    /// The tokens of the generated code are virtual (`dartforge_arc_virtual_tokens_v1`,
+    /// the prepared code compiled with `DARTFORGE_ARC_TOKENS=virtual`, the fast mode
+    /// without prompt death): the preparation proves them statically and the code
+    /// emits no retain/release.
+    /// Under the deferred roots a token adds nothing a root does not already give
+    /// (a zero RC never kills an object that a root, the shadow stack included,
+    /// still sees), so a token neither counts nor enters the inventory; the moves of
+    /// a token into a counted slot retain instead of transferring.
+    virtual_code_tokens: bool,
+    /// The real ARC (`dartforge_memory_arc_prompt_v1`, the prepared code with exact
+    /// tokens over the pure ARC): every reference counts from its first write, the
+    /// code's tokens are counted owners, and a count that reaches zero kills the
+    /// object at the next settle point ([`Heap::arc_settle`]) instead of at the
+    /// next collection: the code's release settles at once, the other runtime entries
+    /// that release or observe (field and list writes, native scopes, weak
+    /// references) settle before returning. Only the runtime's observational roots
+    /// still protect a zero; the shadow stack does not (the tokens own what it holds).
+    prompt_death: bool,
+    /// The objects that died at a settle point, waiting for the physical reclaimer of
+    /// the next drain (the young ones go with the sweep of the young).
+    prompt_dead: Vec<Ref>,
     /// `late` fields already written, by handle and physical index. The mark stays
     /// outside the value: zero and null are valid program assignments.
     late_fields_initialized: crate::hash::HashSet<(i64, i64)>,
@@ -2190,6 +2213,9 @@ impl Heap {
             message_owners: crate::hash::HashMap::default(),
             next_message_owner: 0,
             code_owners: crate::hash::HashMap::default(),
+            virtual_code_tokens: false,
+            prompt_death: false,
+            prompt_dead: Vec::new(),
             late_fields_initialized: crate::hash::HashSet::default(),
             new_lates: Vec::new(),
             layout_epoch: LAYOUT_EPOCH.load(std::sync::atomic::Ordering::Acquire),
@@ -2318,16 +2344,24 @@ impl Heap {
     /// with no safepoint in between. The registry does not keep null/Smi as values.
     pub(crate) fn move_code_to_global(&mut self, id: i64, value: Ref) {
         let old = self.globals.get(&id).copied().unwrap_or(0);
+        if self.virtual_code_tokens {
+            // A virtual token has no count to hand over: the slot retains.
+            self.set_global_root(id, value);
+            return;
+        }
         if smi::e_handle(value) {
             self.check_live(value);
-            let n = *self
-                .code_owners
-                .get(&value)
-                .expect("ARC global move without a code token");
-            if n == 1 {
-                self.code_owners.remove(&value);
-            } else {
-                self.code_owners.insert(value, n - 1);
+            // Without the inventory (the real ARC) the token's count simply moves.
+            if self.code_inventory() {
+                let n = *self
+                    .code_owners
+                    .get(&value)
+                    .expect("ARC global move without a code token");
+                if n == 1 {
+                    self.code_owners.remove(&value);
+                } else {
+                    self.code_owners.insert(value, n - 1);
+                }
             }
             self.globals.insert(id, value);
         } else {
@@ -2660,6 +2694,7 @@ impl Heap {
             .chain(
                 self.code_owners
                     .iter()
+                    .filter(|_| !self.virtual_code_tokens)
                     .flat_map(|(&h, &n)| std::iter::repeat_n(h, n)),
             )
             .chain(self.ready_finalizations.iter().copied())
@@ -2738,13 +2773,69 @@ impl Heap {
     /// without searching for the block in the free lists (the check of each
     /// Owned return of the ports).
     pub(crate) fn has_code_owner(&self, address: i64) -> bool {
-        self.code_owners.contains_key(&address)
+        self.virtual_code_tokens
+            || !self.code_inventory()
+            || self.code_owners.contains_key(&address)
+    }
+
+    /// Makes the tokens of the generated code virtual ([`Heap::virtual_code_tokens`]).
+    /// Only before any token exists: the program's entry calls it right after
+    /// turning on the ARC.
+    ///
+    /// # Panics
+    /// Tokens already in the inventory.
+    pub(crate) fn set_virtual_code_tokens(&mut self) {
+        assert!(
+            self.code_owners.is_empty(),
+            "virtual ARC tokens must be chosen before the first token"
+        );
+        self.virtual_code_tokens = true;
+    }
+
+    /// Keeps a token the runtime received from Dart (the Owned return of a port
+    /// that a native scope holds until it closes). Counted tokens already are in the
+    /// inventory; a virtual one becomes a root without a count, so that the value
+    /// survives the collections until [`Heap::drop_held_code_token`].
+    pub(crate) fn hold_code_token(&mut self, value: Ref) {
+        if self.virtual_code_tokens && smi::e_handle(value) {
+            *self.code_owners.entry(value).or_insert(0) += 1;
+        }
+    }
+
+    /// Ends the hold of [`Heap::hold_code_token`]: a counted token is released, a
+    /// virtual one only leaves the inventory.
+    pub(crate) fn drop_held_code_token(&mut self, value: Ref) {
+        if !self.virtual_code_tokens {
+            self.release_code_owner(value);
+            return;
+        }
+        if !smi::e_handle(value) {
+            return;
+        }
+        match self.code_owners.entry(value) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                if *e.get() == 1 {
+                    e.remove();
+                } else {
+                    *e.get_mut() -= 1;
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(_) => {
+                panic!("ARC bug: a native scope released a token it does not hold")
+            }
+        }
     }
 
     /// Creates an occurrence for the generated code, without collection or Dart execution.
     /// The published observational location does not create another owner.
+    /// A virtual token does nothing ([`Heap::virtual_code_tokens`]).
     pub(crate) fn retain_code_owner(&mut self, value: Ref) {
-        if !smi::e_handle(value) {
+        if !smi::e_handle(value) || self.virtual_code_tokens {
+            return;
+        }
+        if !self.code_inventory() {
+            // The real ARC: the token is a counted owner, nothing more.
+            self.arc_swap_owning_root(value, 0);
             return;
         }
         self.check_live(value);
@@ -2755,8 +2846,13 @@ impl Heap {
     }
 
     /// Consumes exactly one ABI occurrence, never a slot owner.
+    /// A virtual token does nothing ([`Heap::virtual_code_tokens`]).
     pub(crate) fn release_code_owner(&mut self, value: Ref) {
-        if !smi::e_handle(value) {
+        if !smi::e_handle(value) || self.virtual_code_tokens {
+            return;
+        }
+        if !self.code_inventory() {
+            self.arc_swap_owning_root(0, value);
             return;
         }
         match self.code_owners.entry(value) {
@@ -2797,7 +2893,13 @@ impl Heap {
             .rposition(|(id, _, _)| *id == frame)
             .unwrap();
         let old = *self.frames[i].1.get(slot).expect("invalid root slot");
-        if smi::e_handle(value) {
+        if self.virtual_code_tokens {
+            // A virtual token has no count to hand over: the owning slot retains.
+            self.set_root(frame, slot, value);
+            return;
+        }
+        // Without the inventory (the real ARC) the token's count simply moves.
+        if smi::e_handle(value) && self.code_inventory() {
             self.check_live(value);
             let n = *self
                 .code_owners
@@ -2832,10 +2934,13 @@ impl Heap {
             return;
         };
         if arc.pure {
-            let mut arc = self.arc.take().expect("ARC on");
-            self.arc_retain_registering(&mut arc, new);
+            // Disjoint fields: the space answers the registration, without moving the
+            // ARC state out of the heap and back (the path of every code token).
+            let validate = self.validate_handles;
+            let objects = &self.objects;
+            let arc = self.arc.as_deref_mut().expect("ARC on");
+            retain_registering_in(objects, validate, arc, new);
             arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
-            self.arc.set(arc);
             return;
         }
         // The nursery: a young object (the usual target of the prepared code's
@@ -4185,6 +4290,12 @@ impl Heap {
                 .iter()
                 .flat_map(|(_, roots, _)| roots.iter().copied()),
         );
+        // The real ARC: the code's tokens own what its frames hold, and a slot may
+        // still keep a handle that died at its last release (the slot is not cleared
+        // before a later collection point). The shadow stack is no root there.
+        if self.prompt_death {
+            return;
+        }
         visit_frames(|h| dest.push(h));
         let from_maps = dest.len();
         visit_frames_by_maps(|h| dest.push(h));
@@ -6997,6 +7108,29 @@ fn arc_failure(e: crate::arc::ArcError) -> ! {
 
 /// The geometry of the page of block `h` for the ARC metadata table
 /// (`arc::Geometry`); `None` outside the space (the metadata goes to the reserve).
+/// [`Heap::arc_retain_registering`] over the heap's parts: retains `v`, registering
+/// the object of the space without metadata first. `validate` is
+/// [`Heap::validate_handles`] (see [`Heap::space_block`]).
+#[allow(unsafe_code)]
+fn retain_registering_in(space: &ObjectSpace, validate: bool, arc: &mut HeapArc, v: Ref) {
+    if arc
+        .state
+        .retain_if_registered(v)
+        .unwrap_or_else(|e| arc_failure(e))
+    {
+        return;
+    }
+    let in_space = if validate {
+        space.block_of(v).is_some()
+    } else {
+        // SAFETY: an object handle is a block or a static (`Heap::space_block`).
+        is_object(v) && unsafe { (*((v - HANDLE_OFFSET) as *const Header)).state } != PERMANENT
+    };
+    if in_space {
+        arc.state.register_live_with(v, arc_geometry(space, v), 1);
+    }
+}
+
 fn arc_geometry(space: &ObjectSpace, h: Ref) -> Option<crate::arc::Geometry> {
     space
         .geometry(h)
@@ -7102,18 +7236,7 @@ impl Heap {
     /// Retains `v` (registering the object of the space without metadata): a
     /// new occurrence, under pure ARC.
     fn arc_retain_registering(&self, arc: &mut HeapArc, v: Ref) {
-        if arc
-            .state
-            .retain_if_registered(v)
-            .unwrap_or_else(|e| arc_failure(e))
-        {
-            return;
-        }
-        if self.space_block(v).is_some() {
-            arc.state
-                .register_live_at(v, arc_geometry(&self.objects, v));
-            arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
-        }
+        retain_registering_in(&self.objects, self.validate_handles, arc, v);
     }
 
     /// The references the generated code wrote inline into a freshly
@@ -7764,6 +7887,252 @@ impl Heap {
     /// migrated protect what they see directly, without counting RC.
     /// Owning slots, globals, exception/stack trace and strong edges of objects
     /// count occurrences.
+    /// Turns on the real ARC's prompt death ([`Heap::prompt_death`]) over the pure
+    /// ARC. Under the nursery (forced by `DARTFORGE_ARC_NURSERY=1`, a measurement)
+    /// it stays off: young objects are not counted there.
+    pub(crate) fn enable_prompt_death(&mut self) {
+        self.prompt_death = self.arc.as_ref().is_some_and(|a| a.pure);
+    }
+
+    /// Is the real ARC's prompt death on?
+    pub fn prompt_death(&self) -> bool {
+        self.prompt_death
+    }
+
+    /// Keeps the inventory of code tokens: always, except in the real ARC, whose
+    /// tokens are counted owners like any other and need no inventory (the audit,
+    /// `DARTFORGE_ARC_CHECK=1`, keeps it to recount them).
+    fn code_inventory(&self) -> bool {
+        !self.prompt_death || self.arc.as_ref().is_some_and(|a| a.check)
+    }
+
+    /// The settle point of the real ARC: each object whose count reached zero dies
+    /// now — its weak references read null, its finalizer is queued, the targets of
+    /// its edges lose an occurrence and die in turn (an iterative queue). Only the
+    /// runtime's observational roots (the frames of the natives, the scratch roots,
+    /// the shared empty storages) still protect a zero; it waits for the next drain.
+    /// The memory goes back at the next drain. Without prompt death, or with no zero,
+    /// it does nothing.
+    ///
+    /// Called where no native holds an uncounted reference: the code's release, and
+    /// the end of the runtime entries that release or observe the dead.
+    pub(crate) fn arc_settle(&mut self) {
+        if !self.prompt_death || self.collection_deferred > 0 {
+            return;
+        }
+        let Some(arc) = self.arc.as_ref() else {
+            return;
+        };
+        // A zero an observational root held goes back to the queue once no native
+        // frame nor scratch root is left (the usual state while Dart code runs).
+        let observers = self.scratch_roots.iter().any(|&h| h != 0)
+            || self.frames.iter().any(|(_, _, owner)| !*owner);
+        let resume = arc.state.has_deferred() && !observers;
+        if !arc.state.ha_zeros() && arc.snapshots.is_empty() && !resume {
+            return;
+        }
+        let mut arc = self.arc.take().expect("ARC on");
+        // The raw writes and the ephemerons count their current occurrences first:
+        // an object they hold must not die by a count that misses them.
+        if !arc.snapshots.is_empty() {
+            let mut value_list = Vec::new();
+            for (x, snapshot) in std::mem::take(&mut arc.snapshots) {
+                if self.space_block(x).is_some() && !arc.state.dead(x) {
+                    // SAFETY: the positions are body words of a live block.
+                    self.visit_strong_references(x, &mut |v| value_list.push(v));
+                    for v in value_list.drain(..) {
+                        self.arc_retain_registering(&mut arc, v);
+                    }
+                    Self::arc_register_if_needed(&self.objects, &mut arc, x);
+                }
+                for v in snapshot {
+                    arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
+                }
+            }
+        }
+        if !self.ephemerons.is_empty() {
+            self.sync_arc_ephemerons(&mut arc);
+        }
+        // The observational roots of the runtime, few and short-lived (none, while
+        // Dart code runs outside a native's callback).
+        let mut observed: Vec<Ref> = Vec::new();
+        if observers || self.empty_storages.iter().any(|&h| h != 0) {
+            observed.extend(
+                self.frames
+                    .iter()
+                    .filter(|(_, _, owner)| !*owner)
+                    .flat_map(|(_, roots, _)| roots.iter().copied())
+                    .chain(self.scratch_roots.iter().copied())
+                    .chain(self.empty_storages.iter().copied())
+                    .filter(|&h| smi::e_handle(h)),
+            );
+        }
+        observed.sort_unstable();
+        observed.dedup();
+        let protected = |h: Ref| observed.binary_search(&h).is_ok();
+        if resume {
+            arc.state.resume_deferred();
+        }
+        let mut ready = Vec::new();
+        let mut attachment_edges = Vec::new();
+        let mut natives = Vec::new();
+        let mut finalize = Vec::new();
+        loop {
+            {
+                let HeapArc {
+                    state, ephemerons, ..
+                } = &mut *arc;
+                let mut graph = HeapGraph {
+                    heap: self,
+                    ephemerons,
+                };
+                state
+                    .drain_zeros(&mut graph, usize::MAX, &protected)
+                    .unwrap_or_else(|e| arc_failure(e));
+            }
+            let first = self.prompt_dead.len();
+            if arc.state.transfer_dead(&mut self.prompt_dead) == 0 {
+                break;
+            }
+            // The side tables a death is observable through; usually all empty.
+            if self.weak_refs.is_empty()
+                && self.ephemerons.is_empty()
+                && self.attachments.is_empty()
+                && self.finalizable.is_empty()
+            {
+                continue;
+            }
+            let mut dead_now: Vec<Ref> = self.prompt_dead[first..].to_vec();
+            dead_now.sort_unstable();
+            let dead = |h: &Ref| dead_now.binary_search(h).is_ok();
+            if !self.weak_refs.is_empty() {
+                self.weak_refs.retain(|holder, target| {
+                    if dead(target) {
+                        *target = 0;
+                    }
+                    !dead(holder)
+                });
+            }
+            if !self.ephemerons.is_empty() {
+                let holders: Vec<Ref> = self
+                    .ephemerons
+                    .keys()
+                    .copied()
+                    .filter(|p| dead(p))
+                    .collect();
+                for e in self.ephemerons.values_mut() {
+                    if dead(&e.0) {
+                        *e = (0, 0);
+                    }
+                }
+                for p in holders {
+                    self.ephemerons.remove(&p);
+                    if let Some((_, v)) = arc.ephemerons.remove_it(p) {
+                        arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
+                    }
+                }
+            }
+            if !self.attachments.is_empty() {
+                self.attachments.retain_mut(|a| {
+                    if matches!(a.action, FinalizerAction::Native(_, _, _)) && dead(&a.owner) {
+                        a.owner = 0;
+                    }
+                    if dead(&a.detach) {
+                        a.detach = 0;
+                    }
+                    if !dead(&a.value) {
+                        return true;
+                    }
+                    match a.action {
+                        FinalizerAction::Dart(action) => {
+                            ready.push(action);
+                            attachment_edges.push((a.owner, action));
+                        }
+                        FinalizerAction::Native(f, token, bytes) => natives.push((f, token, bytes)),
+                    }
+                    false
+                });
+                Self::reindex_attachment_list(&self.attachments, &mut self.attachments_by_owner);
+            }
+            if !self.finalizable.is_empty() {
+                for h in &dead_now {
+                    if let Some(pair) = self.finalizable.remove(h) {
+                        finalize.push(pair);
+                    }
+                }
+            }
+            // The identity indexes (`permanents`, `constants`, `tearoff_code`) and the
+            // `late` marks lose the dead at the next drain, before their blocks go back.
+        }
+        if !ready.is_empty() || !attachment_edges.is_empty() {
+            self.reindex_attachments();
+            for &action in &ready {
+                self.arc_retain_registering(&mut arc, action);
+            }
+            for (_, action) in attachment_edges {
+                arc.state.release(action).unwrap_or_else(|e| arc_failure(e));
+            }
+            self.ready_finalizations.extend(ready);
+        }
+        self.arc.set(arc);
+        for (finalizer, pair) in finalize {
+            finalizer(pair);
+        }
+        for (f, token, bytes) in natives {
+            self.count_external(-(bytes as isize));
+            // SAFETY: the attachment's `NativeFinalizerFunction`, `void f(void*)`;
+            // as in the VM, it runs during collection and cannot touch the heap.
+            let f: extern "C" fn(usize) = unsafe { std::mem::transmute(f) };
+            f(token);
+        }
+    }
+
+    /// The pure ARC's ephemerons: counts the current live entries against the
+    /// counted ones (the value of a new or changed entry is retained, the one of a
+    /// changed or gone entry released).
+    fn sync_arc_ephemerons(&mut self, arc: &mut HeapArc) {
+        let mut release: Vec<Ref> = Vec::new();
+        let mut currents: crate::hash::HashSet<Ref> = crate::hash::HashSet::default();
+        let entries: Vec<(Ref, Ref, Ref)> = self
+            .ephemerons
+            .iter()
+            .map(|(&p, &(k, v))| (p, k, v))
+            .collect();
+        for (p, k, v) in entries {
+            if !(arc.state.alive(p) && smi::e_handle(k) && smi::e_handle(v)) {
+                continue;
+            }
+            currents.insert(p);
+            match arc.ephemerons.counted.get(&p) {
+                Some(&(k0, v0)) if k0 == k && v0 == v => {}
+                before => {
+                    if before.is_some()
+                        && let Some((_, v0)) = arc.ephemerons.remove_it(p)
+                    {
+                        release.push(v0);
+                    }
+                    self.arc_retain_registering(arc, v);
+                    arc.ephemerons.insert_entry(p, k, v);
+                }
+            }
+        }
+        let exited: Vec<Ref> = arc
+            .ephemerons
+            .counted
+            .keys()
+            .copied()
+            .filter(|p| !currents.contains(p))
+            .collect();
+        for p in exited {
+            if let Some((_, v0)) = arc.ephemerons.remove_it(p) {
+                release.push(v0);
+            }
+        }
+        for v in release {
+            arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
+        }
+    }
+
     fn drain_arc(&mut self, full: bool) {
         check_collection_allowed();
         let trace = self.trace;
@@ -7829,46 +8198,7 @@ impl Heap {
             phases.push(start.elapsed().as_micros());
         }
         // 3. Ephemerons: the current live entries against the counted ones.
-        let mut release: Vec<Ref> = Vec::new();
-        let mut currents: crate::hash::HashSet<Ref> = crate::hash::HashSet::default();
-        let entries: Vec<(Ref, Ref, Ref)> = self
-            .ephemerons
-            .iter()
-            .map(|(&p, &(k, v))| (p, k, v))
-            .collect();
-        for (p, k, v) in entries {
-            if !(arc.state.alive(p) && smi::e_handle(k) && smi::e_handle(v)) {
-                continue;
-            }
-            currents.insert(p);
-            match arc.ephemerons.counted.get(&p) {
-                Some(&(k0, v0)) if k0 == k && v0 == v => {}
-                before => {
-                    if before.is_some()
-                        && let Some((_, v0)) = arc.ephemerons.remove_it(p)
-                    {
-                        release.push(v0);
-                    }
-                    self.arc_retain_registering(&mut arc, v);
-                    arc.ephemerons.insert_entry(p, k, v);
-                }
-            }
-        }
-        let exited: Vec<Ref> = arc
-            .ephemerons
-            .counted
-            .keys()
-            .copied()
-            .filter(|p| !currents.contains(p))
-            .collect();
-        for p in exited {
-            if let Some((_, v0)) = arc.ephemerons.remove_it(p) {
-                release.push(v0);
-            }
-        }
-        for v in release {
-            arc.state.release(v).unwrap_or_else(|e| arc_failure(e));
-        }
+        self.sync_arc_ephemerons(&mut arc);
         if let Some(start) = start {
             phases.push(start.elapsed().as_micros());
         }
@@ -7909,6 +8239,20 @@ impl Heap {
         let protected = |h: Ref| protected_set.contains(&h);
         if let Some(start) = start {
             phases.push(start.elapsed().as_micros());
+        }
+        // The settle points' dead lose their `late` marks and their entries in the
+        // identity indexes before their blocks go back (a reused block must not read a
+        // field as initialized): the settle point left them to this drain, whose loop
+        // below may find no new death to clean.
+        if !self.prompt_dead.is_empty() {
+            let mut gone = self.prompt_dead.clone();
+            gone.sort_unstable();
+            let dead = |h: &Ref| gone.binary_search(h).is_ok();
+            self.late_fields_initialized.retain(|(h, _)| !dead(h));
+            self.new_lates.retain(|(h, _)| !dead(h));
+            self.permanents.retain(|h| !dead(h));
+            self.constants.retain(|h, _| !dead(h));
+            self.tearoff_code.retain(|h, _| !dead(h));
         }
         // 5. Zeros, cycles and the full collection's fixed point.
         let round = full && arc.cycles != Some(false);
@@ -8062,6 +8406,18 @@ impl Heap {
             phases.push(start.elapsed().as_micros());
         }
         // 6. Memory.
+        // The settle points' dead: the young ones go with the sweep (their block was
+        // handed out since the last drain and has no mark), the old ones one by one.
+        for h in std::mem::take(&mut self.prompt_dead) {
+            // SAFETY: a block of the space that died logically and is not reused before
+            // this reclamation.
+            let young = crate::layout::state::is_young(unsafe {
+                (*((h - HANDLE_OFFSET) as *const Header)).state
+            });
+            if !young {
+                dead_rc.push(h);
+            }
+        }
         let (dead_swept, mut released_set) = self.objects.sweep_young(false);
         for &h in &dead_rc {
             if let Some(b) = self.space_block(h) {
@@ -8221,9 +8577,59 @@ impl Heap {
         };
         if let Err(e) = state.audit(&graph, &owning_set) {
             if let crate::arc::ArcError::Audit { handle, .. } = e {
+                // The holders the recount saw: the registered objects with an edge to the
+                // handle and the owning tables that hold it.
+                let mut parents = Vec::new();
+                for p in state.registered_handles() {
+                    let mut n = 0;
+                    crate::arc::ArcGraph::edges(&graph, p, &mut |v| n += usize::from(v == handle));
+                    if n > 0 {
+                        parents.push(format!(
+                            "{p} (cid {}, state {}) x{n}",
+                            graph.heap.header(p).class_id,
+                            graph.heap.header(p).state
+                        ));
+                    }
+                }
+                let heap = graph.heap;
+                let tables = [
+                    (
+                        "globals",
+                        heap.globals.values().filter(|&&h| h == handle).count(),
+                    ),
+                    (
+                        "literals",
+                        heap.literals.values().filter(|&&h| h == handle).count(),
+                    ),
+                    (
+                        "canonical",
+                        heap.canonical_instances
+                            .values()
+                            .filter(|&&h| h == handle)
+                            .count(),
+                    ),
+                    (
+                        "tearoffs",
+                        heap.tearoffs.values().filter(|&&h| h == handle).count(),
+                    ),
+                    (
+                        "enums",
+                        heap.enum_values.values().filter(|&&h| h == handle).count(),
+                    ),
+                    ("code", heap.code_owners.get(&handle).copied().unwrap_or(0)),
+                    (
+                        "frames",
+                        heap.frames
+                            .iter()
+                            .filter(|(_, _, owner)| *owner)
+                            .flat_map(|(_, r, _)| r.iter())
+                            .filter(|&&h| h == handle)
+                            .count(),
+                    ),
+                ];
                 panic!(
-                    "ARC bug: {e:?} (cid {})",
-                    graph.heap.header(handle).class_id
+                    "ARC bug: {e:?} (cid {}); parents {parents:?}; owning tables {tables:?}",
+                    heap.header(handle).class_id
                 );
             }
             arc_failure(e);
@@ -10031,5 +10437,151 @@ mod gc_policy_tests {
             assert_eq!(heap.ready_finalizations.front().copied(), Some(action));
             assert!(heap.object(action).is_some());
         }
+    }
+}
+
+/// The real ARC's prompt death: an object dies at the release of its last
+/// counted owner — a code token, a field, a list slot — with no collection in
+/// between; its weak references read null and its finalizer runs at once.
+#[cfg(test)]
+mod prompt_death_tests {
+    use super::*;
+    use crate::layout::{self, cid, flags};
+
+    fn heap_prompt() -> Heap {
+        let mut heap = Heap::new(false);
+        heap.verify = true;
+        heap.enable_arc();
+        heap.enable_prompt_death();
+        assert!(heap.prompt_death());
+        heap
+    }
+
+    /// An instance of `fields` fields with one code token, as the prepared factory
+    /// returns it.
+    fn owned(heap: &mut Heap, fields: usize) -> Ref {
+        let h = heap.allocate_instance(1000, fields);
+        heap.retain_code_owner(h);
+        h
+    }
+
+    fn dead(heap: &Heap, h: Ref) -> bool {
+        heap.prompt_dead.contains(&h) && heap.arc.as_ref().unwrap().state.meta(h).is_none()
+    }
+
+    /// The code's release: what the extern `dartforge_arc_release` does.
+    fn release(heap: &mut Heap, h: Ref) {
+        heap.release_code_owner(h);
+        heap.arc_settle();
+    }
+
+    #[test]
+    fn last_token_release_kills_at_once_and_clears_the_weak_reference() {
+        let mut heap = heap_prompt();
+        let collections = heap.stats.collections;
+        let leaf = owned(&mut heap, 1);
+        let weak = owned(&mut heap, 1);
+        heap.weak_refs.insert(weak, leaf);
+        heap.retain_code_owner(leaf);
+        release(&mut heap, leaf);
+        assert!(!dead(&heap, leaf), "a second token still owns it");
+        assert_eq!(heap.weak_refs[&weak], leaf);
+        release(&mut heap, leaf);
+        assert!(dead(&heap, leaf));
+        assert_eq!(heap.weak_refs[&weak], 0);
+        assert_eq!(heap.stats.collections, collections, "no collection ran");
+        release(&mut heap, weak);
+        assert!(dead(&heap, weak) && heap.weak_refs.is_empty());
+    }
+
+    #[test]
+    fn field_and_list_slot_release_their_target_at_once_with_the_cascade() {
+        let mut heap = heap_prompt();
+        let collections = heap.stats.collections;
+        let parent = owned(&mut heap, 1);
+        let child = owned(&mut heap, 1);
+        let leaf = owned(&mut heap, 1);
+        heap.set_field(child, 0, leaf, true);
+        heap.set_field(parent, 0, child, true);
+        release(&mut heap, leaf);
+        release(&mut heap, child);
+        assert!(!dead(&heap, child) && !dead(&heap, leaf));
+        // The field: overwriting it kills the child and, through it, the leaf.
+        heap.set_field(parent, 0, 0, true);
+        heap.arc_settle();
+        assert!(dead(&heap, child) && dead(&heap, leaf));
+        // The list slot.
+        let list = heap.allocate(cid::LIST, layout::list_words(2), flags::REFS);
+        heap.words_mut(list)[0] = 2;
+        heap.arc_settle();
+        heap.retain_code_owner(list);
+        let element = owned(&mut heap, 0);
+        heap.write_refs(list, 1, &[element]);
+        release(&mut heap, element);
+        assert!(!dead(&heap, element));
+        heap.write_refs(list, 1, &[0]);
+        heap.arc_settle();
+        assert!(dead(&heap, element));
+        // The list itself, with an element still in it.
+        let other = owned(&mut heap, 0);
+        heap.write_refs(list, 2, &[other]);
+        release(&mut heap, other);
+        release(&mut heap, list);
+        assert!(dead(&heap, list) && dead(&heap, other));
+        release(&mut heap, parent);
+        assert!(dead(&heap, parent));
+        assert_eq!(heap.stats.collections, collections, "no collection ran");
+        // The next drain gives the memory back and keeps the counts consistent.
+        heap.collect();
+        assert!(heap.prompt_dead.is_empty());
+    }
+
+    static FINALIZED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    fn finalize(token: usize) {
+        FINALIZED.store(token, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[test]
+    fn finalizer_runs_at_the_last_release() {
+        let mut heap = heap_prompt();
+        let object = owned(&mut heap, 1);
+        heap.finalizable.insert(object, (finalize, 77));
+        heap.retain_code_owner(object);
+        release(&mut heap, object);
+        assert_eq!(FINALIZED.load(std::sync::atomic::Ordering::SeqCst), 0);
+        release(&mut heap, object);
+        assert_eq!(FINALIZED.load(std::sync::atomic::Ordering::SeqCst), 77);
+        assert!(heap.finalizable.is_empty());
+    }
+
+    #[test]
+    fn observational_frame_of_a_native_defers_the_death_until_it_closes() {
+        let mut heap = heap_prompt();
+        let object = owned(&mut heap, 1);
+        let frame = heap.push_frame_with_slots(1);
+        heap.set_root(frame, 0, object);
+        release(&mut heap, object);
+        assert!(!dead(&heap, object), "a native's frame still sees it");
+        heap.pop_frame(frame);
+        heap.arc_settle();
+        assert!(dead(&heap, object));
+    }
+
+    #[test]
+    fn cycle_waits_for_the_collector() {
+        let mut heap = heap_prompt();
+        let a = owned(&mut heap, 1);
+        let b = owned(&mut heap, 1);
+        heap.set_field(a, 0, b, true);
+        heap.set_field(b, 0, a, true);
+        release(&mut heap, a);
+        release(&mut heap, b);
+        assert!(
+            !dead(&heap, a) && !dead(&heap, b),
+            "a cycle keeps a positive count"
+        );
+        heap.collect();
+        assert!(!heap.is_live_object(a) && !heap.is_live_object(b));
     }
 }

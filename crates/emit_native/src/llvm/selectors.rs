@@ -127,7 +127,7 @@ impl LlvmEmitter<'_> {
             )
             .unwrap();
         }
-        if self.arc_uniform_abi() {
+        if self.arc_uniform_runtime() {
             writeln!(self.out, "  %sc{v} = ptrtoint ptr %sf{v} to i64").unwrap();
             writeln!(self.out, "  %sav{v} = ptrtoint ptr %sargs{v} to i64").unwrap();
             writeln!(
@@ -212,6 +212,8 @@ impl LlvmEmitter<'_> {
                 self.module.arc_memory && self.module.arc_aot_ports.is_some(),
                 "ARC forwarding requires certified AOT ports"
             );
+        }
+        if arc_owned && self.arc_uniform_runtime() {
             writeln!(self.out, "  %sc{v} = ptrtoint ptr %sf{v} to i64").unwrap();
             writeln!(self.out, "  %sav{v} = ptrtoint ptr {a} to i64").unwrap();
             writeln!(self.out, "  %sdv{v} = ptrtoint ptr {d} to i64").unwrap();
@@ -562,7 +564,12 @@ impl LlvmEmitter<'_> {
     /// pending exception, null without an owner — the same protocol as
     /// `owner_em_escopo_nativo` in the runtime.
     fn emit_owned_thunks(&mut self) {
-        let retain = self.arc_retain_target();
+        // A virtual token has no runtime owner to create.
+        let retain_line = if self.module.arc_virtual_tokens {
+            String::new()
+        } else {
+            format!("  call void @{}(i64 %r)\n", self.arc_retain_target())
+        };
         let thunks = std::mem::take(&mut self.owned_thunks);
         for (name, (base, types)) in thunks {
             let params: Vec<String> = types
@@ -581,7 +588,7 @@ impl LlvmEmitter<'_> {
                  \x20 %z = icmp ne i8 %p, 0\n\
                  \x20 br i1 %z, label %fim, label %ok\n\
                  ok:\n\
-                 \x20 call void @{retain}(i64 %r)\n\
+                 {retain_line}\
                  \x20 br label %fim\n\
                  fim:\n\
                  \x20 %res = phi i64 [ 0, %entrada ], [ %r, %ok ]\n\

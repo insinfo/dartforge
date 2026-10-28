@@ -376,8 +376,11 @@ fn arc_invoke_uniform(
             0
         } else {
             // The old convention returns Borrowed, even if the helper was Owned
-            // captured by the boundary. Copies before releasing the scope.
-            dartforge_arc_retain(r);
+            // captured by the boundary. Copies before releasing the scope. Under the
+            // real ARC the fallback already returns Owned.
+            if !HEAP.with(|h| h.borrow().prompt_death()) {
+                dartforge_arc_retain(r);
+            }
             r
         }
     } else {
@@ -563,8 +566,9 @@ pub extern "C" fn dartforge_arc_native_scope_close_v1(id: i64) {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
         for owner in owners {
-            h.release_code_owner(owner);
+            h.drop_held_code_token(owner);
         }
+        h.arc_settle();
     });
 }
 
@@ -681,6 +685,8 @@ fn arc_finish_port(guard: Option<ArcPortGuard>, result: i64) -> i64 {
             assert_eq!(e.id, g.scope, "reentrant scope was not closed");
             e.owners.push(result);
         });
+        // The scope holds the result until it closes: a virtual token becomes a root.
+        HEAP.with(|h| h.borrow_mut().hold_code_token(result));
     }
     result
 }

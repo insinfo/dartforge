@@ -70,6 +70,106 @@ use crate::hir::*;
 use std::fmt::Write;
 
 /// Audited layout premises used to omit redundant field/map stores.
+/// The real ARC's moves into fields: a `Ref` write of the prepared field ABI whose
+/// value's token is dropped later in the same straight line of code, without any
+/// other use of the value in between, hands the token to the field
+/// (`dartforge_arc_write_field_ref_move_v1`) instead of retaining for the field and
+/// releasing the token. The straight line is the block of the write and the blocks
+/// it reaches through unconditional branches into blocks with that single
+/// predecessor: every exit after the write passes through the drop, so no other
+/// path drops the moved token. Returns the writes and the drops.
+fn moves_into_fields(
+    func: &Function,
+) -> (
+    std::collections::HashSet<u32>,
+    std::collections::HashSet<u32>,
+) {
+    let mut writes = std::collections::HashSet::new();
+    let mut drops = std::collections::HashSet::new();
+    let index: std::collections::HashMap<BlockId, usize> = func
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (b.id, i))
+        .collect();
+    let mut predecessors: std::collections::HashMap<BlockId, usize> =
+        std::collections::HashMap::new();
+    for b in &func.blocks {
+        let mut terminator = b.terminator.clone();
+        crate::optimize::operands::successors_mut(&mut terminator, &mut |s| {
+            *predecessors.entry(*s).or_insert(0) += 1;
+        });
+    }
+    for (bi, block) in func.blocks.iter().enumerate() {
+        for (k, (w, inst, _)) in block.instructions.iter().enumerate() {
+            let Instruction::CallRuntime { name, args, .. } = inst else {
+                continue;
+            };
+            if name != "dartforge_arc_write_field_ref_v1" || args.len() != 3 {
+                continue;
+            }
+            let Operand::Val(x) = args[2].0 else {
+                continue;
+            };
+            if args[0].0 == Operand::Val(x) {
+                continue;
+            }
+            // The straight line after the write.
+            let (mut b, mut from) = (bi, k + 1);
+            let found = 'scan: loop {
+                for (d, i, _) in &func.blocks[b].instructions[from..] {
+                    if matches!(i, Instruction::ArcDrop { value: Operand::Val(y) } if *y == x) {
+                        break 'scan Some(*d);
+                    }
+                    let mut used = false;
+                    crate::optimize::operands::operands(i, &mut |o| used |= *o == Operand::Val(x));
+                    if used || matches!(i, Instruction::Phi { .. }) {
+                        break 'scan None;
+                    }
+                }
+                let mut used = false;
+                crate::optimize::operands::terminator_operands(
+                    &func.blocks[b].terminator,
+                    &mut |o| used |= *o == Operand::Val(x),
+                );
+                match func.blocks[b].terminator {
+                    Terminator::Branch(next)
+                        if !used && predecessors.get(&next) == Some(&1) && next != block.id =>
+                    {
+                        b = index[&next];
+                        from = 0;
+                    }
+                    _ => break 'scan None,
+                }
+            };
+            if let Some(d) = found
+                && !drops.contains(&d.0)
+            {
+                writes.insert(w.0);
+                drops.insert(d.0);
+            }
+        }
+    }
+    (writes, drops)
+}
+
+/// `DARTFORGE_ARC_AUDITED_ABI=1`: the prepared code keeps every call to the audited
+/// field ABI (the runtime checks receiver, layout and map at each access), the
+/// verification mode; otherwise the reads, and the fast mode's writes, come out
+/// inline ([`LlvmEmitter::prepared_inline_field`]).
+fn audited_arc_abi() -> bool {
+    std::env::var("DARTFORGE_ARC_AUDITED_ABI").is_ok_and(|v| v == "1")
+}
+
+/// A prepared field ABI call that comes out inline
+/// ([`LlvmEmitter::prepared_inline_field`]).
+#[derive(Clone, Copy)]
+struct PreparedField {
+    index: usize,
+    write: bool,
+    reference: bool,
+}
+
 struct FieldWriteFacts {
     known_map: Option<u32>,
     fresh: bool,
@@ -124,6 +224,11 @@ pub struct LlvmEmitter<'a> {
     /// several ends (the inline allocation, [`LlvmEmitter::inline_allocation`]): it is
     /// the predecessor that the `phi`s of the successors name.
     exit_labels: std::collections::HashMap<u32, String>,
+    /// The real ARC's moves into fields ([`moves_into_fields`]): the `Ref` field
+    /// writes that consume the value's token, and the drops of those tokens, which
+    /// emit nothing.
+    moved_writes: std::collections::HashSet<u32>,
+    elided_drops: std::collections::HashSet<u32>,
     /// The LLVM label of the stretch being emitted (that of the block, or the last one that a
     /// split instruction opened): the predecessor of an inner `phi`.
     current_label: String,
@@ -388,6 +493,8 @@ impl<'a> LlvmEmitter<'a> {
             context_symbols: std::collections::HashSet::new(),
             context_in_parameter: false,
             exit_labels: std::collections::HashMap::new(),
+            moved_writes: std::collections::HashSet::new(),
+            elided_drops: std::collections::HashSet::new(),
             current_label: String::new(),
 
             vectors: Vec::new(),
@@ -1450,6 +1557,11 @@ impl<'a> LlvmEmitter<'a> {
             )
             .unwrap();
         }
+        (self.moved_writes, self.elided_drops) = if self.module.arc_prompt_death && tab.is_none() {
+            moves_into_fields(func)
+        } else {
+            Default::default()
+        };
         self.exit_labels = func
             .blocks
             .iter()
@@ -1459,8 +1571,16 @@ impl<'a> LlvmEmitter<'a> {
                     if tab.is_some_and(|t| t.invocations.contains_key(vid)) {
                         // The normal path of an `invoke` ([`Self::make_invoke`]).
                         Some((b.id.0, format!("inv{v}.fim")))
-                    } else if Self::inline_allocation(i).is_some() && !self.out_of_line_allocation {
+                    } else if (Self::inline_allocation(i).is_some()
+                        || matches!(i, Instruction::CallRuntime { name, args, .. }
+                            if self.prepared_inline_allocation(name, args).is_some()))
+                        && !self.out_of_line_allocation
+                    {
                         Some((b.id.0, format!("ao{v}.fim")))
+                    } else if matches!(i, Instruction::CallRuntime { name, args, .. }
+                        if self.prepared_inline_field(name, args).is_some_and(|w| w.write && w.reference))
+                    {
+                        Some((b.id.0, format!("wb{v}.fim")))
                     } else if self.inline_closure_entry(i) {
                         Some((b.id.0, format!("ce{v}.fim")))
                     } else if self.inline_list_literal(i) {
@@ -1818,8 +1938,10 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::ArcCopy { value } | Instruction::ArcMove { value } => {
                         // A proven non-handle has no physical owner. Keep its SSA token;
                         // the verified HIR and ownership plan remain unchanged.
+                        // A virtual token has none either (`Module::arc_virtual_tokens`).
                         let val_ref = self.arc_reference(value);
                         if matches!(inst, Instruction::ArcCopy { .. })
+                            && !self.module.arc_virtual_tokens
                             && !immediate_refs.contains(value, block.id, instruction_index)
                         {
                             writeln!(self.out, "  call void @{arc_retain_target}(i64 {val_ref})")
@@ -1829,7 +1951,10 @@ impl<'a> LlvmEmitter<'a> {
                     }
                     Instruction::ArcDrop { value } => {
                         let val_ref = self.arc_reference(value);
-                        if !immediate_refs.contains(value, block.id, instruction_index) {
+                        if !self.module.arc_virtual_tokens
+                            && !self.elided_drops.contains(&v)
+                            && !immediate_refs.contains(value, block.id, instruction_index)
+                        {
                             writeln!(self.out, "  call void @{arc_release_target}(i64 {val_ref})")
                                 .unwrap();
                         }
@@ -1840,7 +1965,10 @@ impl<'a> LlvmEmitter<'a> {
                         self.check_arc_global(sym_name);
                         self.global_address(v, sym_name);
                         writeln!(self.out, "  %v{v} = load i64, ptr %ga{v}").unwrap();
-                        writeln!(self.out, "  call void @{arc_retain_target}(i64 %v{v})").unwrap();
+                        if !self.module.arc_virtual_tokens {
+                            writeln!(self.out, "  call void @{arc_retain_target}(i64 %v{v})")
+                                .unwrap();
+                        }
                     }
                     Instruction::ArcStoreStrong {
                         slot: StrongSlot::Global { symbol: sym_name },
@@ -1850,7 +1978,8 @@ impl<'a> LlvmEmitter<'a> {
                         self.check_arc_global(sym_name);
                         let val_ref = self.arc_reference(value);
                         self.global_address(v, sym_name);
-                        if *mode == StrongStoreMode::Copy {
+                        let virtual_tokens = self.module.arc_virtual_tokens;
+                        if *mode == StrongStoreMode::Copy && !virtual_tokens {
                             writeln!(self.out, "  call void @{arc_retain_target}(i64 {val_ref})")
                                 .unwrap();
                         }
@@ -1860,8 +1989,13 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  call void @dartforge_arc_global_receive_v1(i64 %gr{v}, i64 {val_ref})").unwrap();
                         } else {
                             writeln!(self.out, "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {val_ref}) nounwind").unwrap();
-                            writeln!(self.out, "  call void @{arc_release_target}(i64 {val_ref})")
+                            if !virtual_tokens {
+                                writeln!(
+                                    self.out,
+                                    "  call void @{arc_release_target}(i64 {val_ref})"
+                                )
                                 .unwrap();
+                            }
                         }
                     }
                     Instruction::ArcLoadStrong { slot } => {
@@ -2291,6 +2425,91 @@ impl<'a> LlvmEmitter<'a> {
                                 self.emit_barrier(v, &only, &sv, dynamic);
                             }
                         }
+                    }
+                    // The real ARC's move into a field ([`moves_into_fields`]).
+                    Instruction::CallRuntime { name, args, .. }
+                        if name == "dartforge_arc_write_field_ref_v1"
+                            && self.moved_writes.contains(&v) =>
+                    {
+                        let o = self.coerce(&args[0].0, Type::I64);
+                        let i = self.coerce(&args[1].0, Type::I64);
+                        let x = self.coerce(&args[2].0, Type::I64);
+                        writeln!(
+                            self.out,
+                            "  call void @dartforge_arc_write_field_ref_move_v1(i64 {o}, i64 {i}, i64 {x})"
+                        )
+                        .unwrap();
+                    }
+                    // Prepared ARC with virtual tokens: the audited field ABI comes
+                    // out inline, like `GetField`/`SetField` of the nursery (see
+                    // [`Self::prepared_inline_field`]).
+                    Instruction::CallRuntime { name, args, .. }
+                        if self
+                            .prepared_inline_field(name, args)
+                            .is_some_and(|w| !w.write) =>
+                    {
+                        let index = self
+                            .prepared_inline_field(name, args)
+                            .expect("checked at the guard")
+                            .index;
+                        let only = self.coerce(&args[0].0, Type::I64);
+                        let direct = self.direct_body(&args[0].0);
+                        self.emit_field_addresses_of(v, &only, direct);
+                        writeln!(
+                            self.out,
+                            "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {index}"
+                        )
+                        .unwrap();
+                        writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
+                    }
+                    Instruction::CallRuntime { name, args, .. }
+                        if self
+                            .prepared_inline_field(name, args)
+                            .is_some_and(|w| w.write) =>
+                    {
+                        let PreparedField {
+                            index, reference, ..
+                        } = self
+                            .prepared_inline_field(name, args)
+                            .expect("checked at the guard");
+                        let object = &args[0].0;
+                        let only = self.coerce(object, Type::I64);
+                        let sv = self.coerce(&args[2].0, Type::I64);
+                        let fresh = self.fresh(object);
+                        let known = self.fresh_map(object);
+                        let direct = self.direct_body(object);
+                        let is_ref = u8::from(reference).to_string();
+                        // A scalar replaces a scalar: no count, no barrier, any owner.
+                        // A `Ref` store into the fresh object needs no split, but the
+                        // block still ends at `wb{v}.fim` (`exit_labels`).
+                        let split = reference && !fresh;
+                        if split {
+                            self.emit_nursery_split(v, &only, index, &sv, &is_ref);
+                        }
+                        self.emit_field_addresses_of(v, &only, direct);
+                        self.emit_field_write(
+                            v,
+                            "",
+                            index,
+                            &sv,
+                            &is_ref,
+                            FieldWriteFacts {
+                                known_map: known,
+                                fresh,
+                            },
+                        );
+                        if reference {
+                            self.emit_barrier_label(v);
+                        }
+                    }
+                    Instruction::CallRuntime { name, args, .. }
+                        if self.prepared_inline_allocation(name, args).is_some() =>
+                    {
+                        let (c, n) = self
+                            .prepared_inline_allocation(name, args)
+                            .expect("checked at the guard");
+                        self.emit_inline_allocation(v, c, n);
+                        self.fresh_set.insert(v);
                     }
                     Instruction::CallRuntime { .. } | Instruction::DeclaredFieldCall { .. }
                         if Self::inline_allocation(inst).is_some() =>
@@ -3375,6 +3594,19 @@ impl<'a> LlvmEmitter<'a> {
         true
     }
 
+    /// The uniform invocation goes through the runtime
+    /// (`dartforge_arc_invoke_uniform_v1`, `…_closure_v1`), which checks the port
+    /// registration and the Owned return inside a native scope. With virtual tokens
+    /// ([`Module::arc_virtual_tokens`]) those checks have nothing to count, and the
+    /// call goes straight to the entry, as in tracing memory; the noSuchMethod
+    /// fallback's borrowed return needs no copy either. The real ARC
+    /// ([`Module::arc_prompt_death`]) calls the entry directly too: every uniform
+    /// entry returns Owned, the noSuchMethod fallback included (it copies its result
+    /// itself under prompt death).
+    pub(super) fn arc_uniform_runtime(&self) -> bool {
+        self.arc_uniform_abi() && !self.module.arc_virtual_tokens && !self.module.arc_prompt_death
+    }
+
     /// The factories with a code owner (list literal, interpolation): only
     /// when the ARC preparation inserted the release of that owner. In the legacy
     /// regime nobody would release it, and the object would never be freed.
@@ -3672,7 +3904,7 @@ impl<'a> LlvmEmitter<'a> {
                 writeln!(self.out, "  store i64 {tuple}, ptr %cat{v}").unwrap();
                 let c = self.coerce(closure, Type::Ref);
                 let descriptor = &self.vector_symbols[k];
-                if self.arc_uniform_abi() {
+                if self.arc_uniform_runtime() {
                     writeln!(self.out, "  %cav{v} = ptrtoint ptr %cargs{v} to i64").unwrap();
                     writeln!(self.out, "  %cdv{v} = ptrtoint ptr @{descriptor} to i64").unwrap();
                     writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_closure_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
@@ -3700,6 +3932,8 @@ impl<'a> LlvmEmitter<'a> {
                         self.module.arc_memory && self.module.arc_aot_ports.is_some(),
                         "ARC closure forwarding requires certified AOT ports"
                     );
+                }
+                if *arc_owned && self.arc_uniform_runtime() {
                     writeln!(self.out, "  %cav{v} = ptrtoint ptr {a} to i64").unwrap();
                     writeln!(self.out, "  %cdv{v} = ptrtoint ptr {d} to i64").unwrap();
                     writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_closure_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
@@ -4463,16 +4697,25 @@ impl<'a> LlvmEmitter<'a> {
         // code's owners are roots of the minor collection, and promotion counts
         // them); `DARTFORGE_ARC_NURSERY=0` keeps the pure ARC. The SDK and the
         // program agree through the same configuration (`target::arc_nursery`).
+        // The real ARC (the prepared code with exact tokens): the pure ARC with
+        // prompt death (`target::arc_prompt_death`).
         writeln!(
             self.out,
             "  call void @dartforge_memory_arc{}_v1()",
-            if crate::target::arc_nursery() {
+            if self.module.arc_prepared && crate::target::arc_prompt_death() {
+                "_prompt"
+            } else if crate::target::arc_nursery() {
                 "_nursery"
             } else {
                 ""
             }
         )
         .unwrap();
+        // The prepared program's tokens are virtual, and so are the SDK's (both come
+        // from the same configuration, `target::arc_virtual_tokens`).
+        if self.module.arc_virtual_tokens {
+            writeln!(self.out, "  call void @dartforge_arc_virtual_tokens_v1()").unwrap();
+        }
         self.out.push_str(
             "  %df.arc.abi = call i8 @dartforge_arc_verify_abi(i64 1)\n\
             \x20 %df.arc.abi.ok = icmp eq i8 %df.arc.abi, 1\n\
@@ -5826,6 +6069,105 @@ impl<'a> LlvmEmitter<'a> {
         self.current_label = format!("ny{v}.young");
     }
 
+    /// The prepared field ABI that comes out inline, with a constant inline index:
+    /// every read and scalar write of the prepared code, and the `Ref` write of the
+    /// virtual tokens ([`Module::arc_virtual_tokens`]) over the nursery's stores
+    /// ([`Module::arc_nursery_writes`]). The read is a
+    /// load of the body word (a record's word 0 is its length, its fields
+    /// `1..=n` the next words, the same formula); the write of a `Ref` splits on
+    /// the owner's state ([`Self::emit_nursery_split`]: a young owner stores
+    /// inline, another goes to `dartforge_object_set`, which counts the
+    /// replacement — the same `Heap::set_field` the ABI ran), and a scalar write
+    /// replaces a scalar inline in any owner. The `_checked` variants drop the
+    /// layout check of the runtime: the preparation already chose the layouts
+    /// (`DARTFORGE_ARC_AUDITED_ABI=1` keeps it).
+    fn prepared_inline_field(&self, name: &str, args: &[(Operand, Type)]) -> Option<PreparedField> {
+        // The pipeline's prepared modules (`lib.rs`, `sdk_module.rs` set one of the two
+        // regimes); a module built by hand keeps the audited ABI.
+        if !(self.module.arc_virtual_tokens || self.module.arc_prompt_death) || audited_arc_abi() {
+            return None;
+        }
+        let (write, reference) = match name {
+            "dartforge_arc_read_field_ref_v1"
+            | "dartforge_arc_read_field_late_ref_v1"
+            | "dartforge_arc_read_field_scalar_v1"
+            | "dartforge_arc_read_field_scalar_checked_v1" => (false, false),
+            "dartforge_arc_write_field_ref_v1" | "dartforge_arc_write_field_ref_checked_v1" => {
+                (true, true)
+            }
+            "dartforge_arc_write_field_scalar_v1"
+            | "dartforge_arc_write_field_scalar_checked_v1" => (true, false),
+            _ => return None,
+        };
+        // A `Ref` write counts on the spot outside the nursery's young objects: only
+        // the virtual tokens over the nursery store it inline (the real ARC calls the
+        // ABI). A scalar replaces a scalar without counting in any mode.
+        if write && reference && !(self.module.arc_virtual_tokens && self.module.arc_nursery_writes)
+        {
+            return None;
+        }
+        let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else {
+            return None;
+        };
+        if !(0..INLINE_FIELDS as i64).contains(i) || (write && args.len() < 3) {
+            return None;
+        }
+        // A constant text operand would allocate in `coerce`.
+        if args.iter().any(|(a, _)| {
+            matches!(
+                a,
+                Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
+            )
+        }) {
+            return None;
+        }
+        Some(PreparedField {
+            index: *i as usize,
+            write,
+            reference,
+        })
+    }
+
+    /// The prepared instance factory (`dartforge_arc_object_owned_v1`, or the `_t_v1`
+    /// that registers the table first) that comes out inline: virtual tokens, the
+    /// nursery and a constant class and field count within the TLAB, like the
+    /// tracing `dartforge_object_new` ([`Self::inline_allocation`]). The inline path
+    /// registers the method table the same way the tracing allocation does
+    /// ([`Self::emit_inline_allocation_with_map`]). Returns `(class, fields)`.
+    fn prepared_inline_allocation(
+        &self,
+        name: &str,
+        args: &[(Operand, Type)],
+    ) -> Option<(i64, i64)> {
+        if !(self.module.arc_virtual_tokens && self.module.arc_nursery_writes && self.has_ctx) {
+            return None;
+        }
+        let expected = match name {
+            "dartforge_arc_object_owned_v1" => 2,
+            "dartforge_arc_object_owned_t_v1" => 3,
+            _ => return None,
+        };
+        if args.len() != expected {
+            return None;
+        }
+        let (Operand::Constant(Constant::Int(c)), Operand::Constant(Constant::Int(n))) =
+            (&args[0].0, &args[1].0)
+        else {
+            return None;
+        };
+        if !(0..=TLAB_N).contains(n) || !(0..=i64::from(i32::MAX)).contains(c) {
+            return None;
+        }
+        // The table the call registers must be the one the inline path registers.
+        if let Some((table, _)) = args.get(2) {
+            let known = self.module.table_functions.get(&(*c as u32));
+            if !matches!(table, Operand::Constant(Constant::Function(f)) if Some(f) == known) {
+                return None;
+            }
+        }
+        Some((*c, *n))
+    }
+
     /// The body of the object `op` is the block itself: the freshly allocated one, or
     /// `this` when no object has an outside body (`this_object`).
     fn direct_body(&self, op: &Operand) -> bool {
@@ -6619,8 +6961,14 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::DeclaredFieldCall { name, args, .. } => {
                 Self::inline_allocation(inst).is_some()
                     || name == "dartforge_exception_clear"
+                    // The prepared ABI that may come out inline
+                    // (`prepared_inline_field`, `prepared_inline_allocation`).
+                    || name == "dartforge_arc_object_owned_v1"
+                    || name == "dartforge_arc_object_owned_t_v1"
                     || ((name == "dartforge_object_get"
-                        || (name == "dartforge_object_set" && args.len() == 4))
+                        || (name == "dartforge_object_set" && args.len() == 4)
+                        || (name.starts_with("dartforge_arc_read_field_")
+                            || name.starts_with("dartforge_arc_write_field_")))
                         && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)))
             }
             _ => false,
@@ -6695,6 +7043,11 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::IntToDouble(a)
             | Instruction::DoubleToInt(a) => !scalar(a),
             Instruction::Alloca(_) | Instruction::Load { .. } | Instruction::Phi { .. } => false,
+            // A token operation neither allocates nor collects (`dartforge_arc_retain`
+            // and `dartforge_arc_release` only count; a virtual token emits nothing).
+            Instruction::ArcCopy { .. }
+            | Instruction::ArcMove { .. }
+            | Instruction::ArcDrop { .. } => false,
             // A global is a word of the isolate area (`global_address`): the read
             // is one load. The write is one store as well, unless the slot is a
             // root the collector does not read itself (`dartforge_gc_global_root`)
