@@ -2775,3 +2775,287 @@ os símbolos privados pesam pouco num arquivo de MBs).
   2756/2863 iguais à VM, as mesmas falhas de antes.
 * Uma execução do e2e do `limitless_ui` falhou por instabilidade do
   servidor de teste; o mesmo *bundle* passou 15/15 ao repetir.
+
+## 21. Rodada de 2026-10-28, tarde (macOS): os níveis `-O1` a `-O4`
+
+Decisão do dono: o `dartforge-jsprod` oferece os quatro níveis de
+otimização do `dart2js`, com os mesmos significados. As definições vêm do
+próprio `dart2js` 3.6.2 (`pkg/compiler/lib/src/options.dart`,
+`deriveOptions`; `pkg/compiler/lib/src/dart2js.dart`, o texto de `-h -v`;
+`pkg/compiler/lib/src/js_backend/annotations.dart`, as políticas por
+membro; `pkg/compiler/doc/pragmas.md`), lidas na etiqueta `3.6.2` do
+clone de referência, e o `dart compile js -O1…-O4` foi a régua de
+comportamento em programas pequenos.
+
+### 21.1 O que cada nível é no `dart2js`
+
+| nível | `dart2js` | aqui |
+| --- | --- | --- |
+| `-O1` | o padrão do `dart compile js`: análise global e *inlining*, sem minificar | o mundo fechado e todas as otimizações que mantêm a semântica, **sem** minificar (`--no-minify`) e com os nomes das variáveis `late` nas mensagens |
+| `-O2` | `-O1` + `--minify`, `--lax-runtime-type-to-string`, `--omit-late-names` | o perfil de produção de antes (minificado, `LateError` sem nome); **é o padrão aqui** |
+| `-O3` | `-O2` + `--omit-implicit-checks` | `-O2` sem *downcasts* implícitos, sem checagem de condição, sem checagens de parâmetro (covariância, argumentos de chamada dinâmica, limites de argumentos de tipo) e sem as asserções de nulo de interop |
+| `-O4` | `-O3` + `--trust-primitives` | `-O3` sem a checagem de faixa dos índices das primitivas indexáveis |
+
+O padrão fica `-O2` e não o `-O1` do `dart compile js`: é o que o perfil já
+fazia (as medidas das §§ 1–20 são todas dele) e o que se compara com
+`dart2js -O2`; o `-O1` é para ler o arquivo. Repetir `-O` vale o primeiro,
+com aviso, como no `dart2js`; as chaves avulsas `--omit-implicit-checks`,
+`--trust-primitives`, `--minify`/`--no-minify` e
+`--omit-late-names`/`--no-omit-late-names` se combinam com o nível como lá
+(as `--no-…` vencem). `--omit-checks`, a chave antiga (§8.3), virou
+sinônimo de `--omit-implicit-checks`; `-O0` é recusado.
+
+Do `-O2` do `dart2js` fica de fora o `--lax-runtime-type-to-string`: ele
+tira argumentos de tipo que só o `toString` de `runtimeType` lê, e o
+contrato do DDC reifica todos de qualquer forma (não há o que ganhar); e o
+corpus em `-O2` precisa continuar igual à VM. As políticas por nível
+(`deriveOptions`):
+
+* parâmetros, *downcasts* implícitos e condições: confiados (não emitidos) a
+  partir de `-O3`;
+* `as` explícito: checado em todos os níveis (só `--omit-as-casts`, que não
+  faz parte de nenhum nível, o confia);
+* faixa de índice: confiada em `-O4`;
+* variáveis `late`: checadas em todos os níveis;
+* asserções de nulo nativas (`nativeNullAssertions`): desligadas a partir de
+  `-O3`.
+
+### 21.2 As *pragmas*
+
+Uma *pragma* `dart2js:` vale **em qualquer nível** e sobrepõe o padrão do
+nível no corpo do membro anotado (`annotations.dart`, `getXCheckPolicy`):
+
+| *pragma* | `dart2js` | aqui |
+| --- | --- | --- |
+| `as:trust` / `as:check` | confia / checa os `as` do corpo | igual (`checks::Checks`); uma função estática cujo corpo é só `p as T` confiado sobre o seu único parâmetro (o `unsafeCast` do ngdart: `@pragma('dart2js:tryInline') @pragma('dart2js:as:trust') T unsafeCast<T>(dynamic any) => any as T;`) vira o próprio argumento na chamada, sem a chamada nem o argumento de tipo, como o *inlining* do `dart2js` |
+| `downcast:trust` / `downcast:check` | *downcasts* implícitos e condições | igual |
+| `parameter:trust` / `parameter:check` | checagens de parâmetro (covariância) | igual |
+| `types:trust` / `types:check` | as duas anteriores juntas, com precedência sobre elas | igual |
+| `index-bounds:trust` / `index-bounds:check` | faixa de índice | igual, nas leituras que o emissor especializa (§21.4) |
+| `late:trust` / `late:check` | checagem de inicialização de campos `late` (com escopo de campo, classe e biblioteca) | **não implementada**: os campos `late` continuam checados |
+| `tryInline`, `noInline` e as internas | *inlining* e efeitos | sem efeito (o `inline.rs` decide sozinho) |
+
+Como no `dart2js`, a política é do membro: uma *closure* dentro dele tem a
+do nível (lá ela é um membro próprio, sem as anotações do de fora; o
+corpo de um membro *inlined* leva a política dele). A anotação pode ser
+o construtor `pragma(…)` ou uma constante que avalie para ele, como o
+`@noBoundsChecks` do `pdf_plus`
+(`const noBoundsChecksJs = pragma('dart2js:index-bounds:trust')`, escolhida
+por `isJavaScript ? … : …` com `identical(1, 1.0)` verdadeiro na web). O
+perfil de desenvolvimento segue o DDC, que ignora essas *pragmas*. O SDK
+compilado também as tem (`pairwiseIsTest` do `rti.dart` com
+`types:trust` e `index-bounds:trust`), e as segue, como o `dart2js`.
+
+### 21.3 `-O3` (`emit_js`, `world`, remendos do SDK de produção)
+
+`FnEmitter` ganhou a política do corpo (`checks: Checks`, de
+`crates/emit_js/src/checks.rs`): o padrão do nível vem do filtro
+(`Liveness::omit_implicit_checks`, `trust_primitives`) e
+`Checks::of_function` aplica as *pragmas* do membro (do nó da função, do
+campo de um acessor implícito e da declaração pública de um *patch*). Os
+pontos que já respeitavam o antigo `--omit-checks` (o `coerce_to` dos
+*downcasts*, *spread* e `for-in` dinâmicos, a leitura contravariante, os
+operandos numéricos dinâmicos, as checagens de covariância de parâmetros e
+campos, os *stubs* de covariância) passaram a ler essa política; e entraram:
+
+* condições: `dart.dtest(x)`/`dart.test(x)` viram `(x === true)` — só
+  `true` é verdadeiro, como o `dart2js` compila uma condição confiada;
+* o `as` do resultado dos encaminhadores de `noSuchMethod` (o `isTypeError`
+  do CFE);
+* as asserções de nulo de interop (`dart.jsInteropNullCheck`,
+  `tearoffInterop`);
+* no runtime, por remendos do SDK de produção (`sdk_patches.rs`) com
+  `JS_GET_FLAG('OMIT_IMPLICIT_CHECKS')`, que o emissor e o mundo dobram
+  (`Constants::set_omit_implicit_checks`): `_argumentErrors` não checa mais
+  os tipos dos argumentos de uma chamada dinâmica (só a aridade e os nomes,
+  que dão `NoSuchMethodError`), `_checkAndCall` não checa os argumentos de
+  tipo contra os limites e `dput` não checa o valor contra o tipo do
+  *setter*. O mundo deixa de alcançar o que só essas checagens usavam.
+
+### 21.4 `-O4`: índices de primitivas
+
+O `dart2js -O4` tira a checagem de faixa de `[]`, `[]=`, `codeUnitAt` e
+`removeLast` quando a inferência prova que o receptor é uma primitiva
+indexável (`JSArray`, `JSString`, *typed array* nativo); com um receptor
+que ela não prova (polimórfico, `dynamic`), a chamada vai ao método, que
+continua checando. Aqui, com a faixa confiada, o emissor escreve:
+
+* `r[i]` no lugar de `r[$_get](i)` quando todas as classes que o mundo
+  instanciou abaixo da classe estática de `r` são primitivas indexáveis
+  (`JSArray`, `JSString`, os *typed arrays* de números de
+  `dart:_native_typed_data`; as listas SIMD constroem um objeto por elemento
+  e ficam de fora; classes abstratas e *mixins* fora das bibliotecas
+  nativas não têm instâncias próprias). `World::instantiated_subtypes` dá a
+  lista; uma `ListBase` do usuário instanciada desliga a especialização das
+  listas;
+* `s.charCodeAt(i)` para `s.codeUnitAt(i)` com `s` um `String`.
+
+Fica checado o que o `dart2js -O4` também tira mas que aqui exigiria mais
+que uma leitura: `[]=` (manteria a checagem de lista imutável, que o
+`dart2js` guarda nas *flags* do *array*) e `removeLast`; e qualquer
+receptor que o mundo não prove primitivo — o sentido seguro: onde o
+`dart2js` mantém a checagem, a nossa também fica. O inverso acontece: em
+`60_list_basico` e `124_typed_data` a inferência do `dart2js` não prova a
+lista (`J.$index$asx`) e a checagem dele fica; a nossa sai.
+
+### 21.5 Nomes que a produção mudava (as divergências da §20.8)
+
+* **Parâmetros de tipo de tipos de função genéricos**: o `rti.dart` (e o
+  DDC) os chamam `T1`, `T2`…; a VM, `Y0`, `Y1`… e, dentro de `n` parâmetros
+  de tipo de funções que envolvem, `F<n>Y0`…
+  (`TypeParameter::CanonicalNameCString`). Um remendo do `rti.dart`
+  (produção) e uma troca de texto no `dart_sdk.js` copiado para a saída do
+  desenvolvimento (`emit_js::patch_dart_sdk`; o arquivo do DDC no disco não
+  muda, e uma cópia antiga é trocada) usam o nome da VM.
+* **Parâmetros nomeados renomeados** (`named_args.rs`, §8.2): a receita do
+  tipo de função carrega a chave curta, em ordem de chave. Quando alguma
+  receita do texto cita uma chave encurtada
+  (`own_sdk::named_keys_in_recipes`, com o mesmo recomeço de rodada das
+  outras suposições), `JS_GET_FLAG('NAMED_SOURCE_NAMES')` liga e o
+  impressor de tipos de função (`_functionRtiToString`) mostra o nome do
+  fonte, na ordem dos nomes, por uma tabela só dessas chaves
+  (`dart.namedSourceName`); sem isso, nada muda no texto.
+  A VM imprime os nomeados de uma *tear-off* na ordem da declaração e os de
+  uma *closure* em ordem de nome; DDC e `dart2js`, sempre em ordem de nome,
+  e é o que fazemos.
+* **Chamada dinâmica de nome privado**: na produção, o nome privado de uma
+  biblioteca do programa é a propriedade `_nome$<etiqueta>`; o
+  `_toDisplayName` do runtime (remendo) tira a etiqueta, e o
+  `NoSuchMethodError` e o `Invocation.memberName` mostram `_nome`, como a
+  VM. O resto da mensagem do `NoSuchMethodError` segue sendo a do DDC.
+
+Testes comparados com a VM, nos dois perfis: `function_type_names` e
+`private_dynamic_names` (`crates/emit_js/tests/basic.rs` e
+`crates/emit_js_production/tests/printed_names.rs`, em `-O1`, `-O2` e
+`-O4`). O DDC (`run_lang.py ddc`) roda os dois programas igual à VM, menos
+os parâmetros de tipo, que ele imprime `T1`, `T2`…
+Uma armadilha medida no caminho: uma palavra chamada como método num
+*template* `JS()` vivo (`/…/.test(x)`, `order.sort(…)`) vira seletor vivo
+para o mundo fechado e nome fixo para as chaves nomeadas (§8.2). A primeira
+versão dos remendos acima usava `.test` e `.sort`: o `test` do
+`242_always_null_parameters` deixou de ser provado sempre nulo e a chave
+`test` deixou de encurtar. Os remendos usam só indexação e um *insertion
+sort* escrito à mão.
+
+### 21.6 Exclusões de `-O3` e `-O4`
+
+`dartforge-differential --production --level N` passa `-ON` ao
+`dartforge-jsprod` (em `-O1` a referência mantém os nomes `late`).
+`crates/differential/production_levels.tsv` lista, revisado à mão, cada
+programa do corpus que depende de uma checagem que o nível tira, com o
+nível a partir do qual sai, a checagem e o que o programa faz com ela; um
+programa excluído que passe é apontado (a lista tem de ficar exata).
+
+| nível | programa | checagem | o que depende dela |
+| --- | --- | --- | --- |
+| 3 | `67_colecoes_tipadas_generics` | parâmetro | `List<num>.add(2.5)` numa `List<int>` |
+| 3 | `76_erros_do_core_tipos` | *downcast* implícito | `int x = d` com `d` um `String` dinâmico (em `-O4`, também os índices) |
+| 3 | `95_dynamic_operadores_e_conversoes` | argumento de chamada dinâmica | `s1 + a` dinâmico com `String` e `int` |
+| 3 | `234_this_interpolado_e_coalescencia_dinamica` | *downcast* implícito | `final String u = e ?? 'z'` com `e = 5` dinâmico |
+| 3 | `235_contratos_semanticos` | parâmetro | `nums.add(1.5)` por `List<num>` numa `List<int>` |
+| 3 | `248_verificacoes_de_covariancia` | parâmetro | cada linha testa um parâmetro ou campo covariante |
+| 3 | `250_late_anulavel_e_padroes_constantes` | parâmetro | `c.n = 1.5` pelo campo `late` covariante |
+| 3 | `251_stubs_de_covariancia_e_instanciacoes_constantes` | parâmetro | *stubs* de covariância e *tear-offs* checadas |
+| 3 | `253_downcasts_para_parametros_e_campos_de_record` | *downcast* implícito | valores dinâmicos em parâmetros, locais e campos de *record* |
+| 3 | `254_mixins_de_classe_e_construtores_encaminhados` | *downcast* implícito | `E<String>(value)` com `value = 0` dinâmico |
+| 3 | `257_casts_de_iteraveis_dinamicos_e_await` | *downcast* implícito | *spread*, `for-in` e `await` dinâmicos do tipo errado |
+| 3 | `259_limites_em_tear_offs_e_f_limitados` | *downcast* implícito | *tear-off* de `C<int>` vista como `C<Object>` atribuída a `void Function(String)` |
+| 3 | `264_limites_de_metodos_genericos_e_stubs_reificados` | parâmetro | argumentos de tipo de chamadas dinâmicas fora do limite |
+| 3 | `265_late_final_e_encaminhadores_genericos` | parâmetro | encaminhador genérico com parâmetro covariante |
+| 3 | `266_ordem_de_nomeados_e_setters_covariantes` | parâmetro | *setter* covariante |
+| 3 | `270_campos_de_record_e_casts_para_never` | *downcast* implícito | valores dinâmicos em campos de *record* e em `Never` |
+| 4 | `60_list_basico` | faixa de índice | `l[10]` numa lista de três |
+| 4 | `75_stacktrace_existencia` | faixa de índice | `[1][5]` |
+| 4 | `124_typed_data` | faixa de índice | `u8b[10]` num `Uint8List` de cinco |
+| 4 | `131_string_codeunits_runes` | faixa de índice | `'abc'.codeUnitAt(3)` |
+
+Comparado com o `dart2js` no mesmo nível (`dart compile js -O3/-O4
+--enable-asserts` de cada programa, rodado no Node, contra a VM): em `-O3`
+nenhum programa que o `dart2js -O3` acerta erramos; em `-O4`, só
+`60_list_basico` e `124_typed_data`, onde a checagem do `dart2js` fica por
+imprecisão da inferência (§21.4). Todos os outros excluídos também divergem
+da VM no `dart2js` do mesmo nível.
+
+### 21.7 Tamanhos
+
+macOS arm64, Node 24.21, SDK 3.6.2, `gzip -9`. O `dart2js` de cada nível é
+o `dart compile js -O<n>` (corpus e `print('hi')`) e o
+`build_runner build --release` com `dart2js_args: ["-O<n>"]` (projetos,
+pela `--define` do `build_web_compilers`).
+
+| alvo | nível | nosso | `dart2js` | nosso/`dart2js` |
+| --- | --- | ---: | ---: | ---: |
+| `print('hi')` | `-O1` | 9.359 (gz 2.388) | 98.706 (gz 18.178) | 0,09× |
+| | `-O2` | 2.128 (gz 967) | 33.589 (gz 11.110) | 0,06× |
+| | `-O3` | 2.128 (gz 967) | 5.075 (gz 1.806) | 0,42× |
+| | `-O4` | 2.128 (gz 967) | 5.075 (gz 1.806) | 0,42× |
+| `01_print` | `-O1` | 112.551 (gz 20.300) | 108.523 (gz 20.377) | 1,037× (gz 0,996×) |
+| | `-O2` | 28.573 (gz 10.116) | 37.156 (gz 12.407) | 0,769× (gz 0,815×) |
+| | `-O3` | 28.494 (gz 10.082) | 36.059 (gz 11.867) | 0,790× (gz 0,850×) |
+| | `-O4` | 28.486 (gz 10.083) | 34.926 (gz 11.543) | 0,816× (gz 0,874×) |
+| corpus (273) | `-O1` | 37.853.337 (gz 6.792.514) | 36.071.333 (gz 6.609.658) | 1,049× (gz 1,028×) |
+| | `-O2` | 10.305.846 (gz 3.492.719) | 12.416.485 (gz 4.047.873) | **0,830×** (gz **0,863×**) |
+| | `-O3` | 10.179.280 (gz 3.458.408) | 11.353.081 (gz 3.679.959) | **0,897×** (gz **0,940×**) |
+| | `-O4` | 10.175.736 (gz 3.457.004) | 11.024.980 (gz 3.582.721) | **0,923×** (gz **0,965×**) |
+| `limitless_ui/example` | `-O1` | 13.040.929 (gz 1.577.228) | 13.603.989 (gz 1.649.369) | 0,959× (gz 0,956×) |
+| | `-O2` | 3.356.495 (gz 943.214) | 3.865.877 (gz 1.019.878) | **0,868×** (gz **0,925×**) |
+| | `-O3` | 3.338.196 (gz 939.890) | 3.727.500 (gz 989.052) | **0,896×** (gz **0,950×**) |
+| | `-O4` | 3.338.636 (gz 939.897) | 3.704.125 (gz 982.814) | **0,901×** (gz **0,956×**) |
+| `new_sali/frontend` | `-O1` | 26.327.181 (gz 3.170.966) | 25.397.739 (gz 3.367.714) | 1,037× (gz 0,942×) |
+| | `-O2` | 7.157.674 (gz 1.909.854) | 8.020.689 (gz 2.110.268) | **0,892×** (gz **0,905×**) |
+| | `-O3` | 7.092.364 (gz 1.900.534) | 7.744.086 (gz 2.042.627) | **0,916×** (gz **0,930×**) |
+| | `-O4` | 7.085.854 (gz 1.900.372) | 7.614.136 (gz 2.018.523) | **0,931×** (gz **0,941×**) |
+
+Medianas do corpus nosso/`dart2js`: 1,088× (gz 1,059×) em `-O1`, 0,840×
+(gz 0,880×) em `-O2`, 0,859× (gz 0,909×) em `-O3` e 0,886× (gz 0,941×)
+em `-O4`. Programas abaixo do `dart2js`: 95, 212, 207 e 195.
+
+Em relação ao fim da §20 (o `-O2` de então): o corpus em `-O2` subiu 15,7 KB
+(+0,15%: os nomes `Y`/`F<n>Y` e o `_toDisplayName` dos remendos da §21.5,
+vivos em quase todo programa); os projetos caíram (o `unsafeCast` do ngdart
+sem chamada nem argumento de tipo: `limitless_ui` −8,6 KB, `new_sali` −14,6
+KB). De `-O2` para `-O4` saem 130 KB do corpus (1,3%), 18 KB do
+`limitless_ui` e 72 KB do `new_sali`; o `dart2js` ganha mais (11%, 4%, 5%):
+no nosso `-O2` as checagens de parâmetro já eram poucas (o contrato do DDC
+checa a maior parte num lugar só, o `_checkAndCall` do runtime) e as rti que
+elas usam continuam vivas pelos `as` explícitos e pelos testes `is`. No `limitless_ui` o `-O4` sai 440 bytes maior que o `-O3`: 106
+`codeUnitAt` viram `s.charCodeAt(i)`, mais longo que a chamada pelo símbolo
+minificado (o mesmo que o `dart2js -O4` escreve).
+
+### 21.8 Validação
+
+* Corpus diferencial `corpus/js`: 274/274 em desenvolvimento e produção em
+  `-O1` e `-O2`; em `-O3` 258/258 (16 excluídos) e em `-O4` 254/254 (20
+  excluídos), sem exclusão sobrando; `corpus/modern` 26/26 em produção em
+  `-O2` e `-O4`.
+* `limitless_ui`: e2e 15/15 e as 48 rotas sem erro no Chrome em `-O1`,
+  `-O2`, `-O3` e `-O4`; `new_sali` carrega sem erro nos quatro (a mesma
+  página de 6.087 caracteres).
+* Testes (inclusive os ignorados) de `world`, `emit_js` e
+  `emit_js_production`, com Node, Dart e `DARTFORGE_SDK_LIB`: só o
+  `tests/identity.rs` de `p3_classes` falha, como antes. Testes novos:
+  `optimization_levels` (o programa dá, em cada nível, a mesma saída do
+  `dart compile js` do mesmo nível, e em `-O1`/`-O2` a da VM fora das
+  linhas de *pragmas*), `printed_names` e os dois de `basic.rs`.
+* Suíte `tests/language` (desenvolvimento, CLI em `target/r19-cli`):
+  2756/2863 iguais à VM, as mesmas de antes; mudaram de texto só dois testes
+  que imprimem `hashCode` e dois que agora mostram `Y0` (continuam
+  diferentes da VM pelo `from:` da *closure* do DDC). O DDC (`run_lang.py
+  ddc`) diverge da VM nos quatro.
+* `clippy -D warnings` e `rustfmt` nos arquivos tocados.
+
+### 21.9 O que falta
+
+1. `late:trust`/`late:check` (com o escopo de campo, classe e biblioteca do
+   `dart2js`) não estão implementadas: os campos `late` ficam checados em
+   todos os níveis.
+2. Em `-O4`, `[]=` e `removeLast` mantêm a checagem de faixa (o `dart2js`
+   tira); a especialização das leituras depende de o mundo provar todas as
+   listas primitivas, e uma `ListBase` instanciada em qualquer lugar a
+   desliga para todas as `List`.
+3. O `--lax-runtime-type-to-string` do `-O2` não tem efeito aqui (o
+   contrato reifica tudo); `-O0` não existe.
+4. A função do `unsafeCast` continua emitida uma vez (o mundo a vê
+   chamada no AST).
+5. As diferenças de texto do `NoSuchMethodError` (formato do DDC) e a ordem
+   dos nomeados de uma *tear-off* (a VM usa a da declaração) continuam.
