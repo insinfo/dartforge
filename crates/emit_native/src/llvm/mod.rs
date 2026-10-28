@@ -4116,10 +4116,10 @@ impl<'a> LlvmEmitter<'a> {
     /// The reified type of a new object stored through the cache of the use
     /// site: two words of the area keep `class << 32 | type` and the metadata
     /// the runtime stored for that pair (`dartforge_rti_set_cache`, which fills
-    /// them only for objects that are neither image statics nor lists). The site
-    /// calls the module's shared helper [`rti_set_cached_helper`] (`noinline`: a few
-    /// bytes per site), which on a hit stores the metadata itself instead of
-    /// entering the runtime (thread-local access, `RefCell`, the memo).
+    /// them only for objects that are neither image statics nor lists). The hit
+    /// of [`rti_set_cached_helper`] is inline and stores the metadata itself; a
+    /// miss calls its shared slow path instead of entering the runtime at once
+    /// (thread-local access, `RefCell`, the memo).
     fn emit_rti_set_cached(&mut self, v: u32, args: &[(Operand, Type)]) {
         let obj = self.coerce(&args[0].0, Type::I64);
         let ty = self.coerce(&args[1].0, Type::I64);
@@ -7719,11 +7719,6 @@ fn body_helper(per_call: bool, production: bool, without_outside: bool) -> Strin
     )
 }
 
-/// `@df.rti_set_cached(cache, obj, ty)`: [`LlvmEmitter::emit_rti_set_cached`].
-/// A value that is not an object needs nothing (the runtime returns at once);
-/// an object of the space, not `PERMANENT`, whose `class << 32 | ty` matches
-/// the first word gets the metadata of the second; the rest calls
-/// `dartforge_rti_set_cache`, which stores the type and fills the cache.
 /// The shared body of [`LlvmEmitter::emit_rti_evaluate_site_cached`]: `c` holds the
 /// key of `this` and the tuple, `d` the model and the type. Keys are stored with
 /// their top bit flipped, so that a zeroed cache matches nothing. The key of
@@ -7821,11 +7816,19 @@ plain:\n\
     )
 }
 
+/// `@df.rti_set_cached(cache, obj, ty)`: [`LlvmEmitter::emit_rti_set_cached`].
+/// A value that is not an object needs nothing (the runtime returns at once);
+/// an object of the space, not `PERMANENT`, whose `class << 32 | ty` matches
+/// the first word gets the metadata of the second, inline at the site (for a
+/// new object the class is a constant, so the hit is a load, a compare and a
+/// store); the rest goes to the shared `@df.rti_set_miss` (`noinline`), which
+/// probes the thread's memo and else calls `dartforge_rti_set_cache`, which
+/// stores the type and fills the cache.
 fn rti_set_cached_helper() -> String {
     use layout::{offsets, state};
     let d = |x: usize| x as i64 - layout::HANDLE_OFFSET;
     format!(
-        "define internal void @df.rti_set_cached(ptr %c, i64 %o, i64 %t) noinline {{\n\
+        "define internal void @df.rti_set_cached(ptr %c, i64 %o, i64 %t) alwaysinline {{\n\
   %m = and i64 %o, {mask}\n\
   %ob = icmp eq i64 %m, 2\n\
   br i1 %ob, label %obj, label %done\n\
@@ -7842,7 +7845,7 @@ obj:\n\
   %eq = icmp eq i64 %k0, %k\n\
   %np = icmp ne i8 %s, {permanent}\n\
   %ok = and i1 %eq, %np\n\
-  br i1 %ok, label %hit, label %slow\n\
+  br i1 %ok, label %hit, label %slow, !prof !{{!\"branch_weights\", i32 2000, i32 1}}\n\
 hit:\n\
   %rp = getelementptr inbounds i64, ptr %c, i64 1\n\
   %r = load i64, ptr %rp, align 8\n\
@@ -7851,6 +7854,21 @@ hit:\n\
   store i32 %rt, ptr %mp, align 4\n\
   br label %done\n\
 slow:\n\
+  call void @df.rti_set_miss(ptr %c, i64 %o, i64 %t)\n\
+  br label %done\n\
+done:\n\
+  ret void\n\
+}}\n\
+define internal void @df.rti_set_miss(ptr %c, i64 %o, i64 %t) noinline cold {{\n\
+  %p = inttoptr i64 %o to ptr\n\
+  %sp = getelementptr inbounds i8, ptr %p, i64 {state_h}\n\
+  %s = load i8, ptr %sp, align 1\n\
+  %cp = getelementptr inbounds i8, ptr %p, i64 {class_h}\n\
+  %cl = load i32, ptr %cp, align 4\n\
+  %cz = zext i32 %cl to i64\n\
+  %ch = shl i64 %cz, 32\n\
+  %k = or i64 %ch, %t\n\
+  %np = icmp ne i8 %s, {permanent}\n\
   br i1 %np, label %probe, label %runtime\n\
 probe:\n\
 {lookup}  br i1 %mfound, label %memo, label %runtime\n\
