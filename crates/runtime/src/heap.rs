@@ -2439,7 +2439,14 @@ impl Heap {
                 self.push_value_key(&mut key, Value::Ref(bits));
             }
         }
-        *self.canonical_instances.entry(key).or_insert(h)
+        if let Some(&canonical) = self.canonical_instances.get(&key) {
+            return canonical;
+        }
+        // The table is an owner (`owning_roots`): its new entry counts at once. The
+        // nursery's promotion recounted it; the pure ARC never did.
+        self.arc_swap_owning_root(h, 0);
+        self.canonical_instances.insert(key, h);
+        h
     }
 
     /// Appends to a canonical key the identity of the value `v`: numbers and
