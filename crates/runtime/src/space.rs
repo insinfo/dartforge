@@ -155,34 +155,6 @@ pub(crate) fn mark_bit(b: *const Header) -> (*mut u64, u64) {
     )
 }
 
-/// How many blocks of `size` bytes, from `p` (a block start) up to `end` or the
-/// end of the bitmap word of `p` (512 bytes of the page), start with their mark
-/// bit clear — all of them or none: 0 when any bit of that stretch is set, the
-/// caller then looks at `p` alone. Only block starts carry mark bits, so a clear
-/// stretch is a run of dead blocks.
-///
-/// # Safety
-/// The blocks from `p` to `end` are blocks of one page of the space.
-#[inline]
-pub(crate) unsafe fn unmarked_blocks(p: *mut u8, end: *mut u8, size: usize) -> usize {
-    let a = p as usize;
-    let span_end = (a | 511) + 1;
-    let limit = span_end.min(end as usize);
-    let bits = (limit - a) >> 3;
-    let (w, m) = mark_bit(p.cast());
-    let shift = m.trailing_zeros();
-    let mask = if bits >= 64 {
-        u64::MAX
-    } else {
-        (1u64 << bits) - 1
-    };
-    // SAFETY: the function contract: the bitmap word of a block of a live page.
-    if (unsafe { *w } >> shift) & mask != 0 {
-        return 0;
-    }
-    (limit - a).div_ceil(size)
-}
-
 /// Was block `b` marked (by the full collection in progress, or by the minor one that
 /// promoted it)?
 ///
@@ -1605,43 +1577,11 @@ impl ObjectSpace {
                 continue;
             }
             let size = block_bytes(class_words(class));
-            let mut chunk: *mut u8 = std::ptr::null_mut();
-            let mut dead_in_run = 0;
-            let mut p = start;
-            while p < end {
-                // SAFETY: survivor blocks of one run, in a live page.
-                let dead_run = unsafe { unmarked_blocks(p, end, size) };
-                if dead_run > 0 {
-                    dead_in_run += dead_run;
-                    if chunk.is_null() {
-                        chunk = p;
-                    }
-                    p = p.wrapping_add(dead_run * size);
-                    continue;
-                }
-                // SAFETY: a survivor block, in a live page.
-                if unsafe { marked(p.cast()) } {
-                    if !chunk.is_null() {
-                        // SAFETY: dead survivors of the run.
-                        unsafe { self.release_range(class, chunk, p) };
-                        chunk = std::ptr::null_mut();
-                    }
-                } else {
-                    dead_in_run += 1;
-                    if chunk.is_null() {
-                        chunk = p;
-                    }
-                }
-                p = p.wrapping_add(size);
-            }
-            if !chunk.is_null() {
-                // SAFETY: dead survivors of the run.
-                unsafe { self.release_range(class, chunk, end) };
-            }
+            // SAFETY: survivor blocks of one run, in a live page.
+            let dead_in_run = unsafe { self.sweep_run(class, start, end, None) };
             seen += (end as usize - start as usize) / size;
             dead_survivors += dead_in_run;
             released_set += dead_in_run * size;
-            self.in_use[class] -= dead_in_run;
         }
         dead_set += dead_survivors;
         self.survivors_seen = (seen, seen - dead_survivors);
@@ -1676,64 +1616,12 @@ impl ObjectSpace {
         let all_live = !aging && self.marked_set >= self.handed_out;
         for &(start, end, class) in if all_live { &ranges[..0] } else { &ranges[..] } {
             let size = block_bytes(class_words(class));
-            let mut chunk: *mut u8 = std::ptr::null_mut();
-            // The run of survivors in progress (with aging).
-            let mut kept: *mut u8 = std::ptr::null_mut();
-            let mut dead_in_range = 0;
-            let mut p = start;
-            while p < end {
-                // A run of unmarked bitmap bits from `p` to the end of its word
-                // (or of the range): every block that starts there is dead.
-                // SAFETY: blocks of the range, in a live page.
-                let dead_run = unsafe { unmarked_blocks(p, end, size) };
-                if dead_run > 0 {
-                    if !kept.is_null() {
-                        survivors.push((kept, p, class));
-                        kept = std::ptr::null_mut();
-                    }
-                    dead_in_range += dead_run;
-                    if chunk.is_null() {
-                        chunk = p;
-                    }
-                    p = p.wrapping_add(dead_run * size);
-                    continue;
-                }
-                // SAFETY: block of the range, in a live page.
-                if unsafe { marked(p.cast()) } {
-                    if aging {
-                        // SAFETY: a reached block of the range.
-                        unsafe { Self::keep_young(p.cast()) };
-                        if kept.is_null() {
-                            kept = p;
-                        }
-                    }
-                    if !chunk.is_null() {
-                        // SAFETY: dead blocks of the range.
-                        unsafe { self.release_range(class, chunk, p) };
-                        chunk = std::ptr::null_mut();
-                    }
-                } else {
-                    if !kept.is_null() {
-                        survivors.push((kept, p, class));
-                        kept = std::ptr::null_mut();
-                    }
-                    dead_in_range += 1;
-                    if chunk.is_null() {
-                        chunk = p;
-                    }
-                }
-                p = p.wrapping_add(size);
-            }
-            if !kept.is_null() {
-                survivors.push((kept, end, class));
-            }
-            if !chunk.is_null() {
-                // SAFETY: dead blocks of the range.
-                unsafe { self.release_range(class, chunk, end) };
-            }
+            let kept = if aging { Some(&mut survivors) } else { None };
+            // SAFETY: blocks of a range handed out since the last collection, in a
+            // live page.
+            let dead_in_range = unsafe { self.sweep_run(class, start, end, kept) };
             dead_set += dead_in_range;
             released_set += dead_in_range * size;
-            self.in_use[class] -= dead_in_range;
         }
         self.ranges = ranges;
         self.ranges.clear();
@@ -1762,6 +1650,88 @@ impl ObjectSpace {
             *d = 0;
         }
         (dead_set, released_set)
+    }
+
+    /// Sweeps the contiguous blocks `[start, end)` of class `class` by their mark
+    /// bits, a bitmap word (512 bytes of the page) at a time: the dead stretches
+    /// between marked blocks go back to the free ranges whole, and the cost is
+    /// one load per bitmap word plus one step per marked block (no per-block test
+    /// and no division per word). Returns how many blocks died.
+    ///
+    /// With `kept` (a range handed out since the last collection, with aging), each
+    /// marked block stays young ([`ObjectSpace::keep_young`]) and each run of
+    /// contiguous marked blocks is pushed to `kept`; without it (a run of
+    /// survivors of the previous collection), the marked blocks keep their bit:
+    /// they were promoted.
+    ///
+    /// # Safety
+    /// `[start, end)` are whole blocks of class `class` (not [`LARGE`]) of one page
+    /// of this space, and only block starts carry mark bits there.
+    unsafe fn sweep_run(
+        &mut self,
+        class: usize,
+        start: *mut u8,
+        end: *mut u8,
+        mut kept: Option<&mut Vec<(*mut u8, *mut u8, usize)>>,
+    ) -> usize {
+        let size = block_bytes(class_words(class));
+        let base = start as usize & !(PAGE - 1);
+        let bitmap = base as *const u64;
+        let first = (start as usize - base) >> 3;
+        let last = (end as usize - base) >> 3;
+        let mut live = 0usize;
+        // The end of the last marked block (the start of the dead stretch in
+        // progress) and the start of the run of kept blocks in progress.
+        let mut cursor = start;
+        let mut run: *mut u8 = std::ptr::null_mut();
+        let mut i = first >> 6;
+        while i << 6 < last {
+            // SAFETY: the bitmap word of blocks of a live page (function contract).
+            let mut bits = unsafe { *bitmap.add(i) };
+            if i == first >> 6 {
+                bits &= u64::MAX << (first & 63);
+            }
+            let rest = last - (i << 6);
+            if rest < 64 {
+                bits &= (1u64 << rest) - 1;
+            }
+            while bits != 0 {
+                let p = (base + (((i << 6) + bits.trailing_zeros() as usize) << 3)) as *mut u8;
+                bits &= bits - 1;
+                debug_assert!(
+                    (p as usize - start as usize).is_multiple_of(size),
+                    "a mark bit off a block start (class {class})"
+                );
+                live += 1;
+                if p > cursor {
+                    if let (Some(k), false) = (kept.as_deref_mut(), run.is_null()) {
+                        k.push((run, cursor, class));
+                        run = std::ptr::null_mut();
+                    }
+                    // SAFETY: unmarked blocks of the run: dead.
+                    unsafe { self.release_range(class, cursor, p) };
+                }
+                if kept.is_some() {
+                    // SAFETY: a reached block of the range.
+                    unsafe { Self::keep_young(p.cast()) };
+                    if run.is_null() {
+                        run = p;
+                    }
+                }
+                cursor = p.wrapping_add(size);
+            }
+            i += 1;
+        }
+        if let (Some(k), false) = (kept, run.is_null()) {
+            k.push((run, cursor, class));
+        }
+        if end > cursor {
+            // SAFETY: unmarked blocks of the run: dead.
+            unsafe { self.release_range(class, cursor, end) };
+        }
+        let dead = (end as usize - start as usize) / size - live;
+        self.in_use[class] -= dead;
+        dead
     }
 
     /// Sorts the free ranges of the class by address and merges the neighbours (the
@@ -2470,29 +2440,65 @@ mod tests_ranges {
     use super::*;
 
     #[test]
-    fn unmarked_blocks_counts_a_clear_stretch_and_refuses_any_mark() {
-        let layout = std::alloc::Layout::from_size_align(PAGE, PAGE).unwrap();
-        // SAFETY: a zeroed page-aligned buffer, freed at the end.
-        let page = unsafe { std::alloc::alloc_zeroed(layout) };
-        assert!(!page.is_null());
-        let size = 32;
-        // The blocks start after the bitmap word region, at 1024.
-        let at = |k: usize| page.wrapping_add(1024 + k * size);
-        // SAFETY: blocks of the fake page; its bitmap is the zeroed start.
-        unsafe {
-            // The word of 1024..1536 holds 16 blocks: all clear.
-            assert_eq!(unmarked_blocks(at(0), at(40), size), 16);
-            // From the middle of the word, up to its end.
-            assert_eq!(unmarked_blocks(at(10), at(40), size), 6);
-            // A range that ends inside the word.
-            assert_eq!(unmarked_blocks(at(2), at(5), size), 3);
-            mark_block(at(12).cast());
-            assert_eq!(unmarked_blocks(at(0), at(40), size), 0);
-            assert_eq!(unmarked_blocks(at(0), at(12), size), 12);
-            assert_eq!(unmarked_blocks(at(13), at(40), size), 3);
-            // A mark beyond the range does not count.
-            assert_eq!(unmarked_blocks(at(2), at(5), size), 3);
-            std::alloc::dealloc(page, layout);
+    fn sweep_run_frees_dead_stretches_and_keeps_runs_of_marked_blocks() {
+        for aging in [true, false] {
+            let mut e = ObjectSpace::new(false);
+            e.quarantine = None;
+            let class = size_class(2).unwrap();
+            let size = block_bytes(class_words(class));
+            // Blocks spanning several bitmap words (16 blocks of 32 bytes per word).
+            let (start, n) = e.take_range(class, 70);
+            assert_eq!(n, 70);
+            let at = |k: usize| start.wrapping_add(k * size);
+            let live = [3, 4, 10, 15, 16, 17, 69];
+            // SAFETY: blocks of the range just taken, in a live page.
+            unsafe {
+                for &k in &live {
+                    (*at(k).cast::<Header>()).state = YOUNG;
+                    mark_block(at(k).cast());
+                }
+            }
+            let mut kept = Vec::new();
+            // SAFETY: the whole range just taken, marks only on block starts.
+            let dead = unsafe {
+                e.sweep_run(
+                    class,
+                    start,
+                    at(70),
+                    if aging { Some(&mut kept) } else { None },
+                )
+            };
+            assert_eq!(dead, 70 - live.len());
+            let mut free = e.free_list[class].clone();
+            free.sort();
+            assert_eq!(
+                free,
+                vec![
+                    (at(0), at(3)),
+                    (at(5), at(10)),
+                    (at(11), at(15)),
+                    (at(18), at(69))
+                ]
+            );
+            if aging {
+                assert_eq!(
+                    kept,
+                    vec![
+                        (at(3), at(5), class),
+                        (at(10), at(11), class),
+                        (at(15), at(18), class),
+                        (at(69), at(70), class)
+                    ]
+                );
+            } else {
+                assert!(kept.is_empty());
+            }
+            // SAFETY: blocks of a live page.
+            unsafe {
+                for &k in &live {
+                    assert_eq!(marked(at(k).cast()), !aging);
+                }
+            }
         }
     }
 
