@@ -14,4 +14,7 @@ void main() {
   final Object g = twice;
   print(g is Function);
   print(g is List<int> Function(int));
+  dynamic d = twice;
+  print(d<int>(3));
+  print(d(4));
 }

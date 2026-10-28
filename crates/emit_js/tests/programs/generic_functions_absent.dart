@@ -23,6 +23,13 @@ void main() {
   final handlers = <Object>[length, f, () => 1];
   print(handlers.map((h) => h.runtimeType.toString()).toList());
   print([3, 1, 2].map((x) => x * 2).toList());
+  dynamic d = f;
+  print(d(5));
+  try {
+    d(1, 2);
+  } on NoSuchMethodError catch (e) {
+    print(e.toString().contains('call'));
+  }
   try {
     (o as Map<String, int>).length;
   } catch (e) {

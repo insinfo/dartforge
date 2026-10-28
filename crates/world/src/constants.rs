@@ -308,6 +308,33 @@ impl<'a> Constants<'a> {
             || (generic && self.without_generic_functions.get())
     }
 
+    /// `isGenericFunctionType(x)` of `dart:_rti` (`x` pure) without generic
+    /// function types: the kind it compares with is never
+    /// `Rti.kindGenericFunction` (the runtime's dynamic-call paths ask it).
+    fn generic_function_test(&self, u: UnitId, target: ExprId, arguments: &ast::Arguments) -> bool {
+        if !self.without_generic_functions.get()
+            || arguments.args.len() != 1
+            || arguments.args[0].name.is_some()
+            || !arguments.type_args.is_empty()
+        {
+            return false;
+        }
+        let p = self.e.program;
+        let f = match self.resolved(u, target) {
+            Some(Resolved::Element(Element::Function(f))) => *f,
+            Some(Resolved::Member {
+                member: dartforge_types::resolved::MemberRef::Function(f),
+                ..
+            }) => *f,
+            _ => return false,
+        };
+        let func = p.function(f);
+        p.library(func.library).uri == "dart:_rti"
+            && func.class.is_none()
+            && self.e.interner.resolve(func.name) == "isGenericFunctionType"
+            && self.pure_rti_read(u, arguments.args[0].value, 0)
+    }
+
     /// `_Utils.isIdentical(x, LEGACY_TYPE_REF<T>())` (either order, `x` pure).
     fn legacy_identity(&self, u: UnitId, target: ExprId, arguments: &ast::Arguments) -> bool {
         let p = self.e.program;
@@ -636,6 +663,11 @@ impl<'a> Constants<'a> {
                 let a = self.expr(u, *left, locals, depth + 1)?;
                 let b = self.expr(u, *right, locals, depth + 1)?;
                 Some(Value::Bool((a == b) == (*op == BinaryOp::Eq)))
+            }
+            ExprKind::Call { target, arguments }
+                if self.generic_function_test(u, *target, arguments) =>
+            {
+                Some(Value::Bool(false))
             }
             ExprKind::Call { target, arguments } if self.legacy_identity(u, *target, arguments) => {
                 Some(Value::Bool(false))
