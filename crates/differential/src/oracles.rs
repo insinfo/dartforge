@@ -966,7 +966,13 @@ pub fn dartforge_production(env: &Environment, program: &Program, dir: &Path) ->
     // The oracle runs the VM with `--enable-asserts`; the production profile,
     // which disables `assert`s by default (like `dart2js`), is compared with
     // them enabled.
-    let mut args = vec![entry, "-o".into(), bundle_s, "--enable-asserts".into()];
+    let mut args = vec![
+        entry,
+        "-o".into(),
+        bundle_s,
+        "--enable-asserts".into(),
+        format!("-O{}", crate::levels::level()),
+    ];
     args.extend(language_args(env, program));
     let packages = program
         .dartforge_dir()

@@ -1,0 +1,25 @@
+# Corpus programs whose output depends on a check that `-O3` or `-O4` drops
+# (`dartforge-differential --production --level N`, src/levels.rs).
+# Columns (tab-separated): lowest level that drops the check, program,
+# the check, what the program does with it. Reviewed by hand: each entry
+# was confirmed to diverge only because of that check.
+3	67_colecoes_tipadas_generics	parameter check	`List<num>.add(2.5)` on a `List<int>`: the covariant parameter of `JSArray.add` no longer throws `TypeError`, and the double stays in the list
+3	76_erros_do_core_tipos	implicit downcast	`int x = d` with `dynamic d = 'texto'` no longer throws `TypeError` (at -O4 its index cases no longer throw `RangeError` either)
+3	95_dynamic_operadores_e_conversoes	dynamic-call argument check	`s1 + a` with dynamic `s1` a `String` and `a` an `int`: `String.+` no longer checks its argument, and JavaScript concatenates
+3	234_this_interpolado_e_coalescencia_dinamica	implicit downcast	`final String u = e ?? 'z'` with `dynamic e = 5` no longer throws `TypeError`
+3	235_contratos_semanticos	parameter check	`nums.add(1.5)` through `List<num>` on a `List<int>` no longer throws `TypeError`; the program then fails on the double it kept
+3	248_verificacoes_de_covariancia	parameter check	every line tests a covariant parameter or field (generic, `covariant`, overridden) that no longer throws `TypeError`
+3	250_late_anulavel_e_padroes_constantes	parameter check	`c.n = 1.5` through the covariant `late` field of a supertype no longer throws `TypeError`
+3	251_stubs_de_covariancia_e_instanciacoes_constantes	parameter check	the covariance stubs and checked tear-offs it calls with wrong arguments no longer throw `TypeError`
+3	253_downcasts_para_parametros_e_campos_de_record	implicit downcast	dynamic values assigned to typed parameters, locals and record fields are accepted instead of throwing `TypeError`
+3	254_mixins_de_classe_e_construtores_encaminhados	implicit downcast	`E<String>(value)` with `dynamic value = 0`: the forwarded constructor's argument is no longer checked
+3	257_casts_de_iteraveis_dinamicos_e_await	implicit downcast	spreads, `for-in` and `await` of dynamic values of the wrong type no longer throw `TypeError`
+3	259_limites_em_tear_offs_e_f_limitados	implicit downcast	the tear-off `c.foo` of a `C<int>` seen as `C<Object>`, assigned to `void Function(String)`, is no longer checked against its static type
+3	264_limites_de_metodos_genericos_e_stubs_reificados	parameter check	the type arguments of dynamic generic calls are no longer checked against their bounds
+3	265_late_final_e_encaminhadores_genericos	parameter check	a generic forwarder's covariant parameter accepts a value of the wrong type
+3	266_ordem_de_nomeados_e_setters_covariantes	parameter check	a covariant setter accepts a value of the wrong type
+3	270_campos_de_record_e_casts_para_never	implicit downcast	dynamic values assigned to record fields and to `Never` are no longer checked
+4	60_list_basico	index range check	`l[10]` on a three-element list returns `undefined` instead of throwing `RangeError` (dart2js -O4 keeps this check: its inference does not prove the receiver a `JSArray`)
+4	75_stacktrace_existencia	index range check	`[1][5]` no longer throws `RangeError`
+4	124_typed_data	index range check	`u8b[10]` on a five-element `Uint8List` no longer throws `RangeError` (dart2js -O4 keeps this check: `J.$index$ax`, its inference does not prove the receiver a native typed array)
+4	131_string_codeunits_runes	index range check	`'abc'.codeUnitAt(3)` returns `NaN` instead of throwing `RangeError`

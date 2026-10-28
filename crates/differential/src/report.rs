@@ -244,7 +244,10 @@ impl ProgramResult {
     /// every program where it applied.
     pub fn production_reference(&self) -> std::borrow::Cow<'_, Output> {
         let r = self.reference();
-        if std::env::var("DARTFORGE_JSPROD_LATE_NAMES").is_ok_and(|v| v == "0") {
+        // `-O1` keeps the names, as `dart2js -O1`.
+        if std::env::var("DARTFORGE_JSPROD_LATE_NAMES").is_ok_and(|v| v == "0")
+            || crate::levels::level() < 2
+        {
             return std::borrow::Cow::Borrowed(r);
         }
         match omit_late_names(&r.stdout) {
@@ -279,10 +282,10 @@ impl ProgramResult {
     pub fn ok(&self) -> bool {
         self.forge.is_some()
             && self.forge_vs_reference().is_none()
-            && self
-                .production
-                .as_ref()
-                .is_none_or(|_| self.production_vs_reference().is_none())
+            && self.production.as_ref().is_none_or(|_| {
+                self.production_vs_reference().is_none()
+                    || crate::levels::excluded(&self.program.name).is_some()
+            })
     }
 }
 
@@ -376,6 +379,8 @@ pub fn format_report(results: &[ProgramResult]) -> String {
     let mut ok = 0usize;
     let mut ddc_warnings = 0usize;
     let mut ok_prod = 0usize;
+    let mut excluded_prod: Vec<String> = Vec::new();
+    let mut excluded_passing: Vec<String> = Vec::new();
     let with_production = results.iter().any(|r| r.production.is_some());
     let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut prod_groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -491,8 +496,29 @@ pub fn format_report(results: &[ProgramResult]) -> String {
             }
         }
         let Some(prod) = &r.production else { continue };
-        match r.production_vs_reference() {
-            None => {
+        let exclusion = crate::levels::excluded(name);
+        match (r.production_vs_reference(), exclusion) {
+            (Some(d), Some(e)) => {
+                excluded_prod.push(name.clone());
+                let _ = writeln!(
+                    out,
+                    "EXCL   {name}  (-O{} drops the {}: {}; {})",
+                    e.level,
+                    e.check,
+                    e.reason,
+                    describe(d)
+                );
+            }
+            (None, Some(e)) => {
+                ok_prod += 1;
+                excluded_passing.push(name.clone());
+                let _ = writeln!(
+                    out,
+                    "ok     {name}  (excluded from -O{} for the {}, but it matches: review production_levels.tsv)",
+                    e.level, e.check
+                );
+            }
+            (None, None) => {
                 ok_prod += 1;
                 if !std::ptr::eq(&*r.production_reference(), r.reference()) {
                     let _ = writeln!(
@@ -503,7 +529,7 @@ pub fn format_report(results: &[ProgramResult]) -> String {
                     let _ = writeln!(out, "ok     {name}");
                 }
             }
-            Some(d) => {
+            (Some(d), None) => {
                 // Tells apart the defect that matters: production differing
                 // from the other executor is a **pruning** defect; production
                 // differing only from the VM, with the other one equal, is
@@ -575,7 +601,25 @@ pub fn format_report(results: &[ProgramResult]) -> String {
         }
     }
     if with_production {
-        let _ = writeln!(out, "DartForge production:      {ok_prod}/{total} ok");
+        let level = crate::levels::level();
+        if excluded_prod.is_empty() && level == 2 {
+            let _ = writeln!(out, "DartForge production:      {ok_prod}/{total} ok");
+        } else {
+            let _ = writeln!(
+                out,
+                "DartForge production:      {ok_prod}/{} ok at -O{level} ({} excluded: {})",
+                total - excluded_prod.len(),
+                excluded_prod.len(),
+                excluded_prod.join(", ")
+            );
+        }
+        if !excluded_passing.is_empty() {
+            let _ = writeln!(
+                out,
+                "  excluded but matching at -O{level}: {}",
+                excluded_passing.join(", ")
+            );
+        }
     }
     if pending_failing + pending_passed.len() > 0 {
         let _ = writeln!(

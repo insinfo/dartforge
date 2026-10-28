@@ -6,6 +6,7 @@
 
 pub mod contract;
 pub mod corpus;
+pub mod levels;
 pub mod matrix;
 mod oracle_validation;
 pub mod oracles;

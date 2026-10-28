@@ -16,7 +16,7 @@ use dartforge_differential::{
 };
 
 const USAGE: &str = "usage:
-  dartforge-differential [--native|--wasm [--gc-stress] [--optimize]] [--production] [--corpus DIR] [--filter TEXT] [--no-forge] [--no-cache] [--jobs N] [--limit SEC] [--exec-limit SEC] [--quiet]
+  dartforge-differential [--native|--wasm [--gc-stress] [--optimize]] [--production [--level N]] [--corpus DIR] [--filter TEXT] [--no-forge] [--no-cache] [--jobs N] [--limit SEC] [--exec-limit SEC] [--quiet]
       runs dart run × [ddc+node or native] × dartforge on each program and prints the report
       (two oracle SDKs: DARTFORGE_DART_SDK, the 3.6.2 floor, and DARTFORGE_DART_SDK_3_13;
       each program goes to the smallest SDK that covers its `// requer-dart: x.y` and
@@ -33,6 +33,10 @@ const USAGE: &str = "usage:
       --production adds the fourth executor: the production profile
       (dartforge-jsprod, single pruned file) — the report then compares
       VM × our development × our production (docs/JS-PRODUCAO.md)
+      --level N runs the production profile at -ON (1-4, default 2, the
+      dart2js levels); at 3 and 4 the programs listed in
+      crates/differential/production_levels.tsv (they rely on a check the
+      level drops) are reported as excluded (docs/JS-PRODUCAO-TAMANHO.md §21)
       --jit runs the native backend through the ORCv2 JIT (dartforge-run-ir, next
       to this binary or in DARTFORGE_RUN_IR) instead of AOT; --jit-aot
       also runs the AOT of the SAME IR, lists every program where the two
@@ -308,6 +312,17 @@ fn main() {
             "--optimize" => env.optimize = true,
             "--run" => execute = true,
             "--production" => op.with_production = true,
+            // The production profile's optimization level (`-O1`…`-O4`).
+            "--level" => {
+                i += 1;
+                match args.get(i).and_then(|v| v.parse::<u8>().ok()) {
+                    Some(n @ 1..=4) => dartforge_differential::levels::set_level(n),
+                    _ => {
+                        eprintln!("--level takes 1, 2, 3 or 4\n{USAGE}");
+                        std::process::exit(2);
+                    }
+                }
+            }
             "--no-cache" => env.use_cache = false,
             "--quiet" => quiet = true,
             "-h" | "--help" => {
