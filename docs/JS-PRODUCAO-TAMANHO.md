@@ -1899,3 +1899,202 @@ mediana abaixo de 1,0× **não** foi alcançada (§16.13).
   remendo e precisa de um texto que apareça uma vez; corrigido antes do fim.
 * Uma execução do e2e do `limitless_ui` falhou por tempo e passou 15/15 ao
   repetir com o mesmo arquivo (o mesmo *bundle* das execuções vizinhas).
+
+## 17. Rodada de 2026-10-27, noite (macOS): metadados e declarações repetidas
+
+Medido antes de mexer (o `main` em `ee0ed0aa`, o fim da §16; macOS arm64,
+Node 24.21, SDK 3.6.2, `gzip -9`; mesmos `dart2js -O4` da §16):
+
+| alvo | nosso | `dart2js -O4` |
+| --- | ---: | ---: |
+| corpus (273 programas com saída do `dart2js`) | 13.731.358 (gz 4.500.777) | 11.024.980 (gz 3.582.721) |
+| mediana nosso/`dart2js` | 1,128× (gz 1,143×) | |
+| `print('hi')` | 31.277 (gz 10.756) | 5.074 (gz 1.801) |
+| `01_print` | 35.142 (gz 12.081) | 34.926 (gz 11.543) |
+| `limitless_ui/example` | 3.435.623 (gz 965.530) | 3.704.125 (gz 982.814) |
+| `new_sali/frontend` | 7.366.631 (gz 1.970.283) | 7.614.136 (gz 2.018.523) |
+
+Cada passo abaixo foi validado sozinho: corpus diferencial `corpus/js`
+274/274 em desenvolvimento e produção e `corpus/modern` 26/26 em produção
+(24/26 em desenvolvimento, as duas falhas antigas da §15.12), testes
+(inclusive os ignorados) dos *crates* tocados, `clippy -D warnings` e
+`rustfmt`, `limitless_ui` com o e2e 15/15 e as 48 rotas sem erro no Chrome,
+`new_sali` carregando sem erro (a mesma página de 6.087 caracteres). Cada
+otimização tem o seu `DARTFORGE_JSPROD_*=0`. A atribuição de bytes usou o
+`DARTFORGE_JSPROD_MANGLE=0` da §16.1 sobre o corpus inteiro (bytes do arquivo
+minificado por instrução do topo) e o *source map* do `dart2js`.
+
+### 17.1 Assinaturas que nenhuma leitura alcança (`emit_js`, `own_sdk.rs`)
+
+* A entrada `[dartx.nome]` que o DDC duplica nas assinaturas de uma classe
+  do SDK que não é nativa só é lida por uma *tear-off* pelo símbolo
+  (`dart.bind(o, $nome)`): o despacho dinâmico chega a um objeto Dart pela
+  *string* (`_canonicalMember` só troca pelo símbolo num nativo). Em produção
+  a duplicata fica só para as classes da cadeia de protótipos de um nativo
+  (`Ctx::in_native_chain`: o nativo, as superclasses e os *mixins*, cuja
+  tabela o `registerExtension` entrega ao tipo JavaScript) e para os nomes
+  destacados pelo símbolo. `DARTFORGE_JSPROD_SYMBOL_SIGNATURES=0`.
+* As assinaturas dos apelidos de interface nativa herdados de *mixin*
+  (`inherited_native_method_signatures`) eram emitidas mesmo quando nenhum
+  `dsend`/`dload`/`bind` lia o nome; agora seguem a regra das outras
+  entradas. `DARTFORGE_JSPROD_ALIAS_SIGNATURES=0`. No `122` sobra só a
+  assinatura de `>` do `JSNumber` (a única chamada dinâmica do programa).
+* **Defeito corrigido**: a extração dos nomes das assinaturas não lia o
+  segundo argumento de `dart.bind(o, $add)` (um apelido de `dartx`, não uma
+  *string*): a *tear-off* `l.add` de uma classe do SDK ou do programa que
+  implementa `List` perdia o tipo reificado (`runtimeType` dava
+  `JavaScriptFunction` e uma chamada dinâmica não checava o argumento).
+  Teste `signature_tearoffs`.
+
+Corpus **−334 KB** (13.731.358 → 13.397.415; gz −95 KB).
+
+### 17.2 Nomes privados do runtime agrupados por biblioteca (`private_names.rs`)
+
+Cada símbolo privado do SDK era uma declaração `x = dart$$privateName(L,
+"_n")`, minificada em `ie=v(h,`_n`),`. Depois da compressão do `oxc` (que já
+tirou os não lidos), uma sequência dessas declarações no topo vira uma
+desestruturação por biblioteca, `[a, b] = t$V(L, "_a _b")`, com as mesmas
+chamadas na mesma ordem de biblioteca; um par repetido vira apelido do
+primeiro (o `privateName` guarda um símbolo por biblioteca e nome). As
+descrições continuam reservadas como nomes de propriedade.
+`DARTFORGE_JSPROD_GROUP_PRIVATE_NAMES=0`. Corpus −108 KB; o gzip fica +3 KB
+(com os mesmos nomes, a forma agrupada custa ~30 bytes gzip por programa:
+o gzip já comprimia bem o `=v(h,` repetido). Feito antes da compressão, como
+passo de texto, perdia o que a compressão remove depois (no `240`, −5 bytes).
+
+### 17.3 Ids curtos de receita pelo mundo fechado (`filter.rs`, `emit_js`)
+
+Os ids curtos das receitas (§9.5) eram da ordem do programa inteiro: as
+classes mortas ocupavam ids curtos e deixavam buracos na tabela `t$N`. Agora
+cada rodada do ponto fixo ordena (`recipe_ids_ranked`): as classes vivas das
+frequentes (`int`, `String`, `List`…), as instanciadas, as só usadas como
+tipo, e as mortas no fim. O emissor, o verificador e a tabela de nomes leem
+o mesmo vetor (`WorldReport::recipe_ids`). `DARTFORGE_JSPROD_RANKED_IDS=0`.
+Corpus −136 KB (gz −15 KB); `print('hi')` −500 bytes.
+
+Medidos e descartados: ordenar pela contagem de citações da rodada anterior
+(corpus −8 KB a mais, mas os dois projetos +2 a +4 KB gzip) e só pelo nível
+(as frequentes do tipo `int` perdiam o id de uma letra: `new_sali` +3,9 KB).
+
+### 17.4 *Setter* de encaminhamento de campo `final` (`emit_js`, `module.rs`)
+
+Um campo `final` virtual ganhava `set x(v) { super.x = v; }`, que só existe
+para manter alcançável um *setter* herdado. Sem *setter* em superclasse ou
+*mixin* ninguém o chama (o Dart não tem *setter* a chamar, e um `dput` não
+acha assinatura de *setter*). `DARTFORGE_JSPROD_FINAL_SETTERS=0`. Corpus
+−97 KB (gz −20 KB). Teste `final_field_setters` (o *setter* herdado de
+superclasse e de *mixin* continua funcionando; a escrita dinâmica continua
+lançando `NoSuchMethodError`).
+
+### 17.5 `Object.hash` por aridade (`sdk_patches.rs`, `world`, `emit_js`)
+
+`Object.hash` despacha por sentinelas nos opcionais e mantinha vivas as 19
+aridades e todos os `SystemHash.hashN` (~5 KB em 25 programas; o
+`DateTime.hashCode` do SDK usa `Object.hash`). Um remendo de produção dá a
+`dart:core` as funções `_hash2` … `_hash20`, cada uma o corpo que
+`Object.hash` roda com aquele número de argumentos, e o emissor e o mundo
+mandam a chamada estática com `n` posicionais para `_hashN`
+(`arity_specialization`, a mesma regra nos dois; uma divergência o
+verificador corrige). A *tear-off* continua indo ao original.
+`DARTFORGE_JSPROD_HASH_ARITY=0`. Corpus −50 KB. Teste `object_hash_arity`
+(cada aridade dá o mesmo *hash* que o corpo original pela *tear-off*).
+
+### 17.6 Recursos rti e apelidos de extensão em lote (`rti_rules.rs`, `unwrap.rs`)
+
+* Os `addRtiResources` do SDK entram no lote do programa (§12.7), menos os
+  das classes cujas marcas uma chamada do runtime copia na carga: argumentos
+  de `applyMixin`/`registerExtension`, classes com `[dart.mixinOn]` e todas
+  as superclasses delas (o `registerExtension` copia as marcas da cadeia
+  Dart inteira de um nativo). Sem superclasse legível de uma delas, o SDK
+  fica como estava (é o que acontece no `new_sali`).
+  `DARTFORGE_JSPROD_BATCH_SDK_RESOURCES=0`. Corpus −31 KB.
+* Os `defineExtensionMethods`/`Accessors` viram uma chamada só, com lista
+  plana (classe, métodos, acessores), depois dos metadados agrupados antes do
+  `main` (então todo acessor `late` já existe), com as mesmas exclusões. As
+  *strings* do lote continuam reservadas (`t$X` entra em
+  `call_takes_names`). Abaixo de 28 instruções o lote perde.
+  `DARTFORGE_JSPROD_BATCH_EXTENSIONS=0`. Corpus −18 KB (gz −7 KB).
+
+### 17.7 Símbolos `dartx` e seus apelidos numa desestruturação (`private_names.rs`)
+
+O *bootstrap* cria cada símbolo `dartx` num laço e o topo declara os
+apelidos `$n = dartx.n` (§15.4). Depois da compressão, os dois viram uma
+declaração no lugar do laço: `var [$a, , $c] = t$Y(dartx, "a b c")`, que cria
+os símbolos na mesma ordem e os devolve. Os apelidos são `var` do mesmo
+escopo, só inicializados mais cedo (antes de toda classe). Um segundo
+apelido do mesmo nome fica como estava.
+`DARTFORGE_JSPROD_GROUP_EXTENSION_SYMBOLS=0`. Corpus **−74 KB, gz −23 KB**.
+
+### 17.8 Resultado
+
+| alvo | início | agora | `dart2js -O4` | agora/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| corpus (273) | 13.731.358 (gz 4.500.777) | **12.882.590** (gz **4.330.102**) | 11.024.980 (gz 3.582.721) | 1,168× (gz 1,209×) |
+| mediana nosso/`dart2js` | 1,128× (gz 1,143×) | **1,071×** (gz **1,112×**) | | |
+| corpus sem os 25 programas de < 12 KB no `dart2js` | 12.941.694 | **12.127.128** | 10.891.833 | 1,113× (mediana 1,050×) |
+| `print('hi')` | 31.277 (gz 10.756) | **29.920** (gz **10.532**) | 5.074 (gz 1.801) | 5,9× |
+| `01_print` | 35.142 (gz 12.081) | **33.595** (gz **11.770**) | 34.926 (gz 11.543) | **0,962×** (gz 1,020×) |
+| `48_classes_equals_hashcode` | 53.551 | **45.123** | 40.637 | 1,110× |
+| `63_iterable_expand_reduce_lazy` | 97.210 | **85.011** | 60.528 | 1,404× |
+| `122_collection_queue` | 90.645 | **81.980** | 53.242 | 1,540× |
+| `135_convert_json_classes` | 162.695 | **145.622** | 101.193 | 1,439× |
+| `limitless_ui/example` | 3.435.623 (gz 965.530) | **3.403.095** (gz **958.730**) | 3.704.125 (gz 982.814) | 0,919× (gz 0,975×) |
+| `new_sali/frontend` | 7.366.631 (gz 1.970.283) | **7.301.713** (gz **1.955.451**) | 7.614.136 (gz 2.018.523) | 0,959× (gz 0,969×) |
+
+O corpus caiu 6,2% (−849 KB brutos, −171 KB gzip); 87 dos 273 programas
+estão abaixo do `dart2js -O4` no bruto (eram 50) e 26 no gzip (eram 19). Os
+dois projetos continuam abaixo do `dart2js -O4` no bruto e no gzip. A meta
+de total e mediana abaixo de 1,0× **não** foi alcançada (§17.10).
+
+### 17.9 Medidos e descartados
+
+* `print(s)` com `String` não anulável direto para uma `_printLine` (remendo
+  do SDK, mundo e emissor espelhados): `print('hi')` −7 bytes — o rti
+  continua vivo pelo *bootstrap* (`findType`, `addRules`), pelos nativos
+  (raízes do `registerExtension`), pelo `getReifiedType` do
+  `Object.toString` e pelos caminhos de erro (`str` → `ArgumentError` →
+  `Error.safeToString` → `JSArray.toString`…); o corpus ficava +5 KB
+  (`print` e `_printLine` vivos juntos). Revertido.
+* Podar as marcas de `addRtiResources` de tipos que nenhum teste pode ver:
+  ~20 entradas extras num programa médio (~100 bytes). Não feito.
+* Podar as listas de `defineExtension*` pelos nomes `dartx` usados: 193 de
+  18.114 nomes do corpus sem uso. Não feito.
+* `List.sort` pelo `sort` do JavaScript (o que o `dart2js` faz): muda a
+  ordem dos elementos iguais em relação à VM, que usa o mesmo `Sort` do
+  `dart:_internal` que nós. Não pode.
+* Descrições curtas dos símbolos de armazenamento (`"ArgumentError.message"`):
+  aparecem nas mensagens de erro do JavaScript que o `JSNoSuchMethodError`
+  converte. Não feito.
+
+### 17.10 O que falta, por ganho esperado
+
+1. **Os 25 programas minúsculos** (755 KB contra 133 KB): o rti (~16 KB) e
+   a instalação das classes nativas. O experimento do `print` (§17.9)
+   confirmou que nenhuma mudança isolada basta: é preciso o *bootstrap* rti
+   só com o rti vivo, `is num/int/double` como `typeof` (hoje só `String` e
+   `bool`), o `strSafe` sem o `ArgumentError` (impossível em *null safety*
+   sólido para um `toString` Dart) e os nativos instalados sob demanda.
+2. **Chamadas dinâmicas** (`dload`/`dsend`): `_checkAndCall`,
+   `_argumentErrors`, `InvocationImpl`, `NoSuchMethodError`, ~4–5 KB por
+   programa que tem uma; o `dart2js` usa *stubs* de interceptor.
+3. **Biblioteca nos programas de 1,3–1,5×**: `Uri` (~18 KB contra 12–13 KB
+   no `dart2js`), os iteráveis de *cast* que o `Iterable.generate` sem
+   gerador mantém, `ListQueue`/`DoubleLinkedQueue`. O `Sort` fica (paridade
+   com a VM).
+4. O lote do SDK (§17.6) desiste no `new_sali` (uma superclasse de classe
+   copiada não é legível no texto); ler a hierarquia pelo modelo em vez do
+   texto o destravaria.
+
+### 17.11 Observações da validação
+
+* As falhas intermitentes do e2e do `limitless_ui` (§16.14) são do servidor
+  de teste: `console.error: Failed to load resource:
+  net::ERR_CONNECTION_RESET` do `python3 -m http.server` numa navegação; o
+  mesmo *bundle* passa 15/15 ao repetir.
+* Os testes ignorados `fresh_list_append` precisam de `DARTFORGE_SDK_LIB`
+  apontando para o `lib/` do SDK.
+* O teste ignorado `tests/identity.rs` continua falhando como antes
+  (`p3_classes.dart`, §15.12).
+* Suíte `tests/language` (desenvolvimento, CLI compilado à parte em
+  `target/r17-cli`): 2756/2863 iguais à VM, sem regressão; as mudanças do
+  `emit_js` são todas do perfil de produção.
