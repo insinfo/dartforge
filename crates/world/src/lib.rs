@@ -1782,6 +1782,18 @@ impl<'a> Engine<'a> {
                     self.name(func.name)
                 )
             }
+            Cause::Variable(v) => {
+                let var = p.variable(v);
+                let owner = var
+                    .class
+                    .map(|c| format!("{}.", self.name(p.class(c).name)))
+                    .unwrap_or_default();
+                format!(
+                    "{}::{owner}{}",
+                    p.library(var.library).uri,
+                    self.name(var.name)
+                )
+            }
             other => format!("{other:?}"),
         };
         let cone = cone.map_or("(unrestricted)".to_string(), |c| {
