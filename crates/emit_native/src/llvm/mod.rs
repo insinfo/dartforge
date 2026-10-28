@@ -1208,7 +1208,10 @@ impl<'a> LlvmEmitter<'a> {
         let helpers_start = self.out.len();
         self.out.push_str(ir_strings::HELPERS);
         self.out.push_str(ir_boxes::HELPERS);
-        if self.arc_tag_guards {
+        if self.arc_tag_guards && self.module.arc_prompt_death {
+            // The real ARC counts inline (`arc_tag_guards::prompt_helpers`).
+            self.out.push_str(&arc_tag_guards::prompt_helpers());
+        } else if self.arc_tag_guards {
             self.out.push_str(arc_tag_guards::HELPERS);
         }
         self.out.push_str(&ir_lists::helpers(

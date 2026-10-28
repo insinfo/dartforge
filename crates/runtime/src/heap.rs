@@ -2352,7 +2352,7 @@ impl Heap {
         if smi::e_handle(value) {
             self.check_live(value);
             // Without the inventory (the real ARC) the token's count simply moves.
-            if self.code_inventory() {
+            if self.inventoried(value) {
                 let n = *self
                     .code_owners
                     .get(&value)
@@ -2774,8 +2774,16 @@ impl Heap {
     /// Owned return of the ports).
     pub(crate) fn has_code_owner(&self, address: i64) -> bool {
         self.virtual_code_tokens
-            || !self.code_inventory()
+            || !self.inventoried(address)
             || self.code_owners.contains_key(&address)
+    }
+
+    /// Does the inventory keep the tokens of `value`? Only with
+    /// [`Heap::code_inventory`]; under prompt death a static object is outside it,
+    /// because the generated code counts inline and never calls the runtime for one
+    /// (`llvm/arc_tag_guards.rs`).
+    fn inventoried(&self, value: Ref) -> bool {
+        self.code_inventory() && (!self.prompt_death || self.space_block(value).is_some())
     }
 
     /// Makes the tokens of the generated code virtual ([`Heap::virtual_code_tokens`]).
@@ -2833,7 +2841,7 @@ impl Heap {
         if !smi::e_handle(value) || self.virtual_code_tokens {
             return;
         }
-        if !self.code_inventory() {
+        if !self.inventoried(value) {
             // The real ARC: the token is a counted owner, nothing more.
             self.arc_swap_owning_root(value, 0);
             return;
@@ -2851,7 +2859,7 @@ impl Heap {
         if !smi::e_handle(value) || self.virtual_code_tokens {
             return;
         }
-        if !self.code_inventory() {
+        if !self.inventoried(value) {
             self.arc_swap_owning_root(0, value);
             return;
         }
@@ -2899,7 +2907,7 @@ impl Heap {
             return;
         }
         // Without the inventory (the real ARC) the token's count simply moves.
-        if smi::e_handle(value) && self.code_inventory() {
+        if smi::e_handle(value) && self.inventoried(value) {
             self.check_live(value);
             let n = *self
                 .code_owners
@@ -7368,6 +7376,11 @@ impl Heap {
         arc.state.retain_dead_candidates =
             crate::console::env_var("DARTFORGE_ARC_RETAIN_DEAD_CANDIDATES").is_ok_and(|v| v == "1");
         arc.state.without_edges = Some(block_without_refs);
+        // The real ARC's generated code counts inline through the page heads; the
+        // audit keeps every token in the runtime's inventory instead.
+        if !arc.check {
+            arc.state.publish_pages();
+        }
         let reached_set = self.reachable_by_tracing();
         for &x in &reached_set {
             arc.state
@@ -8245,9 +8258,19 @@ impl Heap {
         // field as initialized): the settle point left them to this drain, whose loop
         // below may find no new death to clean.
         if !self.prompt_dead.is_empty() {
-            let mut gone = self.prompt_dead.clone();
-            gone.sort_unstable();
-            let dead = |h: &Ref| gone.binary_search(h).is_ok();
+            // An old object of the space without metadata died at a settle point
+            // (a live old one is registered); the young dead are cleaned in the loop
+            // below, after the young decision.
+            let validate = self.validate_handles;
+            let space = &self.objects;
+            let state = &arc.state;
+            let dead = |h: &Ref| {
+                died_in_drain(space, validate, state, *h)
+                    && !crate::layout::state::is_young(
+                        // SAFETY: an object of the space (`died_in_drain`).
+                        unsafe { (*((*h - HANDLE_OFFSET) as *const Header)).state },
+                    )
+            };
             self.late_fields_initialized.retain(|(h, _)| !dead(h));
             self.new_lates.retain(|(h, _)| !dead(h));
             self.permanents.retain(|h| !dead(h));
@@ -10565,6 +10588,42 @@ mod prompt_death_tests {
         assert!(!dead(&heap, object), "a native's frame still sees it");
         heap.pop_frame(frame);
         heap.arc_settle();
+        assert!(dead(&heap, object));
+    }
+
+    /// The contract of the generated code's inline counting (`arc::inline`): the
+    /// page head points to the metadata array, whose entry of the block holds the
+    /// count and the flag bytes.
+    #[test]
+    #[allow(unsafe_code)]
+    fn page_head_publishes_the_count_the_code_increments() {
+        use crate::arc::inline;
+        let mut heap = heap_prompt();
+        let object = owned(&mut heap, 2);
+        let b = (object - HANDLE_OFFSET) as u64;
+        let page = b & !(layout::PAGE as u64 - 1);
+        // SAFETY: the head of the object's page and the published array.
+        unsafe {
+            let head = page as *const u64;
+            let metas = head.read();
+            assert_ne!(metas, 0);
+            let geometry = head.add(1).read();
+            let (size, blocks) = (geometry & 0xffff_ffff, geometry >> 32);
+            let ix = (b - page - layout::PAGE_HEAD as u64) / size;
+            assert!(ix < blocks);
+            let slot = (metas + ix * inline::SLOT as u64) as *mut u64;
+            assert_eq!(slot.read(), 1, "the factory's token");
+            let flags = (slot as *const u8).add(inline::FLAGS);
+            assert_eq!(
+                (flags.read(), flags.add(1).read(), flags.add(2).read()),
+                (1, 1, 0)
+            );
+            // The code's inline retain and release.
+            slot.write(slot.read() + 1);
+            assert_eq!(heap.arc.as_ref().unwrap().state.meta(object).unwrap().rc, 2);
+            slot.write(slot.read() - 1);
+        }
+        release(&mut heap, object);
         assert!(dead(&heap, object));
     }
 

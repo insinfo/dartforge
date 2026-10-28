@@ -2043,8 +2043,10 @@ impl ObjectSpace {
     /// Clears the mark bitmap of each page (the start of the full collection).
     pub(crate) fn clear_marks(&mut self) {
         for p in self.pages.iter().filter(|p| !p.empty) {
-            // SAFETY: the page's mark bitmap.
-            unsafe { std::ptr::write_bytes(p.base, 0, PAGE_HEAD) };
+            // SAFETY: the page's mark bitmap. Its first two words cover the head
+            // itself, are never marked and hold the ARC's published metadata
+            // (`arc::inline`).
+            unsafe { std::ptr::write_bytes(p.base.add(16), 0, PAGE_HEAD - 16) };
         }
     }
 

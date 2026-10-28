@@ -24,37 +24,107 @@ use crate::hash::{HashMap, HashSet};
 /// A value in a reference position (the `Ref` of `layout`).
 pub type Ref = i64;
 
-/// The logical life cycle of an object (§19.1).
+/// The logical life cycle of an object (§19.1). The byte values are part of the
+/// inline counting of the real ARC ([`inline`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ArcState {
     /// Allocated, fields still being initialized: it does not die by a zero RC.
-    Building,
-    Live,
+    Building = 0,
+    Live = 1,
     /// Inside the discard transaction of a set.
-    Collecting,
+    Collecting = 2,
     /// Logically dead: waits for the physical reclaimer.
-    Dead,
+    Dead = 3,
 }
 
-/// The side metadata of a managed object (§19.1).
+/// The layout the generated code of the real ARC counts on (`llvm/arc_tag_guards.rs`):
+/// a space page publishes its metadata in the two first words of its head (unused
+/// bits of the mark bitmap, which covers the head itself): the address of the
+/// [`MetaArc`] array, by block index, and `size | blocks << 32`. A zero address sends
+/// the code to the runtime. Each [`MetaArc`] is [`inline::SLOT`] bytes: the count at
+/// 0, and at [`inline::FLAGS`] the bytes `present`, `state`, `immortal`, `candidate`
+/// and `cycle_free`. The code increments the count of a present, live, non-immortal
+/// entry, and decrements one above 1 that is already a cycle candidate or cannot be
+/// in a cycle; anything else goes to the runtime.
+pub mod inline {
+    /// Bytes of each metadata entry.
+    pub const SLOT: usize = 32;
+    /// Offset of the flag bytes in an entry.
+    pub const FLAGS: usize = 24;
+    /// The page head word with the metadata array; the next one has size and blocks.
+    pub const HEAD_METAS: usize = 0;
+}
+
+const _: () = {
+    assert!(std::mem::size_of::<MetaArc>() == inline::SLOT);
+    assert!(std::mem::offset_of!(MetaArc, rc) == 0);
+    assert!(std::mem::offset_of!(MetaArc, present) == inline::FLAGS);
+    assert!(std::mem::offset_of!(MetaArc, state) == inline::FLAGS + 1);
+    assert!(std::mem::offset_of!(MetaArc, immortal) == inline::FLAGS + 2);
+    assert!(std::mem::offset_of!(MetaArc, candidate) == inline::FLAGS + 3);
+    assert!(std::mem::offset_of!(MetaArc, cycle_free) == inline::FLAGS + 4);
+};
+
+/// The side metadata of a managed object (§19.1), in the C layout of [`inline`].
 #[derive(Clone, Copy, Debug)]
+#[repr(C)]
 pub struct MetaArc {
-    pub generation: u64,
     /// Owners plus strong occurrences; does not include weak ones.
     pub rc: u64,
-    pub state: ArcState,
-    /// Is (or was) in the queue of cycle candidates since the last round.
-    pub candidate: bool,
+    pub generation: u64,
     /// Index in the current candidate queue, or `usize::MAX` when absent.
     candidate_index: usize,
+    /// Keeps the flags at [`inline::FLAGS`] where `usize` has 32 bits.
+    #[cfg(target_pointer_width = "32")]
+    _pad: u32,
+    /// The entry of the page array holds a registration (a removed one stays
+    /// with `false`).
+    present: bool,
+    pub state: ArcState,
+    pub immortal: bool,
+    /// Is (or was) in the queue of cycle candidates since the last round.
+    pub candidate: bool,
+    /// The object has no reference position nor side edge: a release never makes it
+    /// a cycle candidate.
+    cycle_free: bool,
     /// An ephemeron value (or its closure) protected between rounds (§22.2): a zero
     /// RC does not start the discard.
     pub conditionally_protected: bool,
-    pub immortal: bool,
     /// Is on the deferred list (zero RC with a root), only once.
     pub deferred: bool,
     /// The body is not enough to prove the absence of edges in this generation.
     pub side_edges: bool,
+}
+
+impl MetaArc {
+    /// An absent entry of a page array.
+    const ABSENT: MetaArc = MetaArc {
+        rc: 0,
+        generation: 0,
+        candidate_index: usize::MAX,
+        #[cfg(target_pointer_width = "32")]
+        _pad: 0,
+        present: false,
+        state: ArcState::Dead,
+        immortal: false,
+        candidate: false,
+        cycle_free: false,
+        conditionally_protected: false,
+        deferred: false,
+        side_edges: false,
+    };
+
+    fn new(generation: u64, rc: u64, state: ArcState, immortal: bool) -> MetaArc {
+        MetaArc {
+            rc,
+            generation,
+            present: true,
+            state,
+            immortal,
+            ..MetaArc::ABSENT
+        }
+    }
 }
 
 /// The identity of an object in the queues: the handle and the registration's generation.
@@ -144,7 +214,9 @@ struct ArcPage {
     /// two: exact division becomes multiplication and rotation.
     inverse: u64,
     offset: u32,
-    metas: Vec<Option<MetaArc>>,
+    /// By block index; an absent entry has `present == false`. Its address is
+    /// published in the page head ([`inline`]).
+    metas: Vec<MetaArc>,
     occupied: u32,
 }
 
@@ -173,7 +245,7 @@ impl ArcPage {
             geometry: g,
             inverse,
             offset,
-            metas: (0..g.blocks).map(|_| None).collect(),
+            metas: vec![MetaArc::ABSENT; g.blocks as usize],
             occupied: 0,
         }
     }
@@ -182,6 +254,22 @@ impl ArcPage {
     /// divisible by the power of two to the top, outside `blocks`. The product by
     /// the inverse likewise rejects the inexact multiples of the odd part. There is
     /// no division or remainder on the query path.
+    /// Writes the address of the metadata array and `size | blocks << 32` in the
+    /// head of the page ([`inline`]), the mark bitmap bits that cover the head
+    /// itself (no block starts there).
+    #[allow(unsafe_code)]
+    fn publish(&self) {
+        let head = (self.geometry.first - crate::layout::PAGE_HEAD as u64) as *mut u64;
+        // SAFETY: a space page (the heap's geometry, `Table::publish`): its first
+        // `PAGE_HEAD` bytes are the bitmap, whose first two words are never marked.
+        unsafe {
+            head.add(inline::HEAD_METAS)
+                .write(self.metas.as_ptr() as u64);
+            head.add(inline::HEAD_METAS + 1)
+                .write(self.geometry.size | u64::from(self.geometry.blocks) << 32);
+        }
+    }
+
     #[inline]
     fn ix(&self, h: Ref) -> Option<usize> {
         let d = (h.wrapping_sub(crate::layout::HANDLE_OFFSET) as u64)
@@ -203,6 +291,10 @@ struct Table {
     pages: Vec<ArcPage>,
     loose: HashMap<Ref, MetaArc>,
     n: usize,
+    /// The pages are space pages (the heap's geometry): each insertion publishes the
+    /// page's array in its head ([`inline`]). Off for the core tests' made-up
+    /// geometries.
+    publish: bool,
 }
 
 /// `PAGE` = 64 KiB; a radix map region covers 2¹⁶ pages.
@@ -250,21 +342,25 @@ impl Table {
 
     fn in_local(&self, local: MetadataLocation) -> Option<&MetaArc> {
         match local {
-            MetadataLocation::Page { page, ix } => self.pages[page].metas[ix].as_ref(),
+            MetadataLocation::Page { page, ix } => {
+                Some(&self.pages[page].metas[ix]).filter(|m| m.present)
+            }
             MetadataLocation::Loose(h) => self.loose.get(&h),
         }
     }
 
     fn in_local_mut(&mut self, local: MetadataLocation) -> Option<&mut MetaArc> {
         match local {
-            MetadataLocation::Page { page, ix } => self.pages[page].metas[ix].as_mut(),
+            MetadataLocation::Page { page, ix } => {
+                Some(&mut self.pages[page].metas[ix]).filter(|m| m.present)
+            }
             MetadataLocation::Loose(h) => self.loose.get_mut(&h),
         }
     }
 
     fn get(&self, h: &Ref) -> Option<&MetaArc> {
         match self.place(*h) {
-            Some((p, i)) => self.pages[p].metas[i].as_ref(),
+            Some((p, i)) => Some(&self.pages[p].metas[i]).filter(|m| m.present),
             None if self.loose.is_empty() => None,
             None => self.loose.get(h),
         }
@@ -272,7 +368,7 @@ impl Table {
 
     fn get_mut(&mut self, h: &Ref) -> Option<&mut MetaArc> {
         match self.place(*h) {
-            Some((p, i)) => self.pages[p].metas[i].as_mut(),
+            Some((p, i)) => Some(&mut self.pages[p].metas[i]).filter(|m| m.present),
             None if self.loose.is_empty() => None,
             None => self.loose.get_mut(h),
         }
@@ -311,12 +407,16 @@ impl Table {
             pg.geometry = g;
             (pg.inverse, pg.offset) = ArcPage::factors(g);
             pg.metas.clear();
-            pg.metas.resize_with(g.blocks as usize, || None);
+            pg.metas.resize(g.blocks as usize, MetaArc::ABSENT);
         }
         let i = pg.ix(h).expect("ARC bug: handle outside the page geometry");
-        if pg.metas[i].replace(m).is_none() {
+        let was = std::mem::replace(&mut pg.metas[i], MetaArc { present: true, ..m });
+        if !was.present {
             pg.occupied += 1;
             self.n += 1;
+        }
+        if self.publish {
+            pg.publish();
         }
     }
 
@@ -339,8 +439,10 @@ impl Table {
     fn remove(&mut self, h: &Ref) -> Option<MetaArc> {
         let m = match self.place(*h) {
             Some((p, i)) => {
-                let m = self.pages[p].metas[i].take();
+                let slot = &mut self.pages[p].metas[i];
+                let m = slot.present.then_some(*slot);
                 if m.is_some() {
+                    *slot = MetaArc::ABSENT;
                     self.pages[p].occupied -= 1;
                 }
                 m
@@ -360,14 +462,16 @@ impl Table {
             .filter(|pg| pg.occupied > 0)
             .flat_map(|pg| {
                 let g = pg.geometry;
-                pg.metas.iter().enumerate().filter_map(move |(i, m)| {
-                    m.as_ref().map(|m| {
+                pg.metas
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, m)| m.present)
+                    .map(move |(i, m)| {
                         (
                             (g.first + i as u64 * g.size) as Ref + crate::layout::HANDLE_OFFSET,
                             m,
                         )
                     })
-                })
             })
             .chain(self.loose.iter().map(|(&h, m)| (h, m)))
     }
@@ -375,7 +479,7 @@ impl Table {
     fn values_mut(&mut self) -> impl Iterator<Item = &mut MetaArc> + '_ {
         self.pages
             .iter_mut()
-            .flat_map(|pg| pg.metas.iter_mut().flatten())
+            .flat_map(|pg| pg.metas.iter_mut().filter(|m| m.present))
             .chain(self.loose.values_mut())
     }
 }
@@ -459,17 +563,7 @@ impl ArcHeapState {
             .expect("ARC: generation exhausted");
         self.objects.insert(
             h,
-            MetaArc {
-                generation,
-                rc: 1,
-                state: ArcState::Building,
-                candidate: false,
-                candidate_index: usize::MAX,
-                conditionally_protected: false,
-                immortal: false,
-                deferred: false,
-                side_edges: false,
-            },
+            MetaArc::new(generation, 1, ArcState::Building, false),
             None,
         );
         self.statistics.registered_set += 1;
@@ -497,21 +591,8 @@ impl ArcHeapState {
             .next_generation
             .checked_add(1)
             .expect("ARC: generation exhausted");
-        self.objects.insert(
-            h,
-            MetaArc {
-                generation,
-                rc: 0,
-                state: ArcState::Live,
-                candidate: false,
-                candidate_index: usize::MAX,
-                conditionally_protected: false,
-                immortal: true,
-                deferred: false,
-                side_edges: false,
-            },
-            None,
-        );
+        self.objects
+            .insert(h, MetaArc::new(generation, 0, ArcState::Live, true), None);
     }
 
     /// Registers an object that already exists and starts being counted (the young
@@ -560,15 +641,8 @@ impl ArcHeapState {
         self.objects.insert(
             h,
             MetaArc {
-                generation,
-                rc,
-                state: ArcState::Live,
-                candidate: false,
-                candidate_index: usize::MAX,
-                conditionally_protected: false,
-                immortal: false,
-                deferred: false,
-                side_edges: false,
+                cycle_free: self.without_edges.is_some_and(|f| f(h)),
+                ..MetaArc::new(generation, rc, ArcState::Live, false)
             },
             geometry,
         );
@@ -661,6 +735,7 @@ impl ArcHeapState {
     pub(crate) fn mark_side_edges(&mut self, h: Ref) {
         if let Some(m) = self.objects.get_mut(&h) {
             m.side_edges = true;
+            m.cycle_free = false;
         }
         self.add_candidate(h);
     }
@@ -876,6 +951,15 @@ impl ArcHeapState {
     /// There are zeros waiting.
     pub fn ha_zeros(&self) -> bool {
         !self.zeros.is_empty()
+    }
+
+    /// The pages are the heap's space pages: publish their metadata arrays for the
+    /// generated code's inline counting ([`inline`]).
+    pub fn publish_pages(&mut self) {
+        self.objects.publish = true;
+        for pg in &self.objects.pages {
+            pg.publish();
+        }
     }
 
     /// The registered handles (the audit's diagnostic).
