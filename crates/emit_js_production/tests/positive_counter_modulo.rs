@@ -27,6 +27,18 @@ fn node_output(js: &str) -> String {
         .replace("\r\n", "\n")
 }
 
+/// Whether `f` holds the Euclidean modulo of a literal divisor,
+/// `(x % k + k) % k`.
+fn euclidean(f: &str) -> bool {
+    f.match_indices(" + ").any(|(i, _)| {
+        let tail = &f[i + 3..];
+        let k: String = tail.chars().take_while(char::is_ascii_digit).collect();
+        !k.is_empty()
+            && tail[k.len()..].starts_with(&format!(") % {k}"))
+            && f[..i].ends_with(&format!(" % {k}"))
+    })
+}
+
 fn function<'a>(js: &'a str, name: &str) -> &'a str {
     let start = js
         .find(&format!("function {name}("))
@@ -101,8 +113,10 @@ fn canonical_counters_and_refusals_match_checked_vm_and_o2() {
                 ("userNamedIntrinsic", 11),
                 ("maximumDivisor", 1000000000),
             ] {
+                let f = function(&production.js, name);
                 assert!(
-                    function(&production.js, name).contains(&format!("i % {divisor}")),
+                    f.contains(&format!("i % {divisor}"))
+                        && !f.contains(&format!(" + {divisor}) % {divisor}")),
                     "actual fast path: {name}"
                 );
             }
@@ -120,8 +134,11 @@ fn canonical_counters_and_refusals_match_checked_vm_and_o2() {
                 "conditionWrite",
                 "conditionClosure",
             ] {
+                // Refused: the SDK's `%`, or the Euclidean modulo of a
+                // positive literal divisor (`emit_js`'s literal modulo).
+                let f = function(&production.js, name);
                 assert!(
-                    function(&production.js, name).contains("[$modulo]("),
+                    f.contains("[$modulo](") || euclidean(f),
                     "checked refusal: {name}"
                 );
             }
@@ -187,7 +204,10 @@ fn resolved_foreign_intrinsic_refuses_hidden_counter_mutation() {
         )
         .expect("SDK intrinsic compilation");
         if !minify {
-            assert!(function(&production.js, "rawMutation").contains("i[$modulo](3)"));
+            // The SDK's `%` or the Euclidean modulo of the literal divisor,
+            // never the counter's raw `%`.
+            let f = function(&production.js, "rawMutation");
+            assert!(f.contains("i[$modulo](3)") || f.contains("(i % 3 + 3) % 3"));
         }
         assert_eq!(
             node_output(&production.js),

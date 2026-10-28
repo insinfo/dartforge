@@ -1199,6 +1199,22 @@ fn num_like(m: &Engine<'_>, c: Option<ClassId>) -> bool {
     })
 }
 
+/// `r` is an `int` literal the emitter takes as a literal modulus: written in
+/// decimal, from 1 to 2^31 - 1 (`emit_js`'s `literal_modulus`).
+fn literal_modulo(m: &Engine<'_>, ctx: &Context, r: ExprId) -> bool {
+    let unit = m.e.program.unit(ctx.unit);
+    let ExprKind::Int(span) = unit.ast.expr(r).kind else {
+        return false;
+    };
+    let text = &unit.source[span.start..span.end];
+    !text.is_empty()
+        && !text.starts_with('0')
+        && text.bytes().all(|b| b.is_ascii_digit())
+        && text
+            .parse::<u32>()
+            .is_ok_and(|k| (1..=0x7fff_ffff).contains(&k))
+}
+
 /// The selector of a binary operator applied to `left` (the receiver), with
 /// [`Engine::operators_by_selector`]. The operators the emitter writes as
 /// JavaScript operators on numbers (`emit_binop_values`: `+ - * / & | ^ < >
@@ -1238,6 +1254,20 @@ fn operator_selector(
             | B::LtEq
             | B::GtEq
     );
+    // `i % k` with a non-nullable `int` and a positive literal `k`: the
+    // emitter writes the Euclidean modulo inline (`emit_js`'s
+    // `literal_modulus`).
+    if op == B::Rem
+        && m.include_sdk
+        && right.is_some_and(|r| literal_modulo(m, ctx, r))
+        && exact.is_some_and(|(c, nullable)| {
+            !nullable
+                && m.int_num.is_some_and(|(int, _)| int == c)
+                && std::env::var("DARTFORGE_JSPROD_LITERAL_MODULO").map_or(true, |v| v != "0")
+        })
+    {
+        return;
+    }
     // `s + x` with a (non-nullable: `+` is not callable on `String?`)
     // `String` on the left is the JavaScript `+` (`emit_binop_values`).
     if op == B::Add && exact.is_some_and(|(c, nullable)| !nullable && string_like(m, Some(c))) {

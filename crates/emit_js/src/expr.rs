@@ -4885,6 +4885,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 ctx.t_int(),
             );
         }
+        // Production: `i % k` with a non-nullable `int` on the left and a
+        // positive `int` literal on the right is the Euclidean modulo
+        // `(i % k + k) % k`: exact for integers (|i % k| < k), never `-0`,
+        // and the same value `JSNumber.%` computes (its body certified as
+        // the canonical one), without the call and its argument checks
+        // (`DARTFORGE_JSPROD_LITERAL_MODULO=0` keeps it).
+        // The world registers no `%` here either (`literal_modulo`).
+        if op == BinaryOp::Rem
+            && ctx.production()
+            && ctx.is_int(lt)
+            && !lt.is_nullable()
+            && let Some(k) = literal_modulus(&r.code)
+            && std::env::var("DARTFORGE_JSPROD_LITERAL_MODULO").map_or(true, |v| v != "0")
+            && crate::own_sdk::certified_number_modulo(ctx)
+        {
+            return (
+                Js::new(format!("({} % {k} + {k}) % {k}", l.at(P_MUL)), P_MUL),
+                ctx.t_int(),
+            );
+        }
         let num_l = ctx.is_num_like_nullable(lt);
         let num_r = ctx.is_num_like_nullable(rt) || matches!(rt, Ty::Dynamic);
         if num_l
@@ -7204,4 +7224,16 @@ fn access_key(access: &str) -> String {
             .unwrap_or(access)
             .to_string(),
     }
+}
+
+/// The positive `int` divisor of the production profile's literal modulo
+/// (`emit_binop_values`): a decimal literal from 1 to 2^31 - 1.
+/// `dartforge_world` applies the same rule to the source literal.
+pub(crate) fn literal_modulus(code: &str) -> Option<u32> {
+    if code.is_empty() || !code.bytes().all(|b| b.is_ascii_digit()) || code.starts_with('0') {
+        return None;
+    }
+    code.parse::<u32>()
+        .ok()
+        .filter(|k| *k >= 1 && *k <= 0x7fff_ffff)
 }
