@@ -896,6 +896,110 @@ leem o contexto por TLS no trampolim; e o modelo `async` do dart2js (`_propagate
 sobreviventes (7,9%) e o `memset` (6,6%); o Dart faz a coleta jovem em paralelo em threads
 auxiliares, por isso empata em ciclos do processo com 2,5% a menos de tempo de parede.
 
+## Rodada de 2026-10-28 (fim da manhã): o runtime da thread do isolado — `StringBuffer`, cópias e textos
+
+Medido no `main`, de `4a8143dc` (início: o servidor e as árvores compilados com o compilador
+desse commit) a `e042497a` (fim; o compilador recompilado de uma cópia exportada com
+`git archive` mais só os patches desta rodada, porque a árvore de trabalho tinha mudanças em
+andamento de outro agente), no mesmo Mac mini M4. A máquina ficou carregada quase toda a
+rodada (carga de 4 a 38, outros agentes compilando); as tabelas usam só rodadas começadas com
+a carga abaixo de 3,5 e descartam as que outro processo perturbou. Servidor: mediana de 5 rodadas
+alternadas de 4 s com 4 × 8 conexões de `bench/comparison/load_keepalive.dart` e contadores do
+processo pelo `time -l`; CPU por thread pelo `ps -M` depois da carga (2 rodadas alternadas,
+iguais em ±1%); árvores: mediana de 5 processos alternados.
+
+| medida | início | fim | Dart AOT 3.6.2 |
+|---|---:|---:|---:|
+| servidor `/json` com keep-alive, pedidos/s | 63,5 mil | 65,9 mil | 70,1 mil |
+| instruções / ciclos por pedido (processo) | 230,4 mil / 74,8 mil | 215,5 mil / 72,0 mil | 211,1 mil / 73,4 mil |
+| thread do isolado por pedido: sistema + usuário | 4,95 + 11,07 µs | 4,91 + 10,22 µs | 5,48 + 8,55 µs |
+| thread de E/S por pedido: sistema + usuário | 3,44 + 0,63 µs | 3,35 + 0,61 µs | 3,64 + 1,68 µs |
+| RSS máximo do servidor | 18,7 MB | 18,4 MB | 18,1 MB |
+| executável do servidor | 4,468 MB | 4,501 MB | 5,625 MB |
+| chamadas ao runtime por pedido (`lldb`) | ~303 | ~183 | — |
+| árvores (processo inteiro), instruções / ciclos | 5,01 G / 1,034 G | 5,01 G / 1,028 G | 5,03 G / 1,028 G |
+| árvores, ms por rodada / RSS máximo | 12,1 / 27,5 MB | 12,1 / 27,5 MB | 11,9 / 75,2 MB |
+
+O servidor passou de 91% para 94% dos pedidos/s do Dart: −6,5% de instruções e −3,7% de ciclos
+por pedido. Nos ciclos do processo já fica abaixo do Dart (72,0 contra 73,4 mil) e nas instruções
+a 2% dele; o que sobra é o tempo de usuário da thread do isolado, que fixa os pedidos/s: 10,2
+contra 8,6 µs (era 11,1). Nada desta rodada mexeu nas árvores (as instruções são as mesmas).
+
+**O que entrou** (validado na cópia limpa com os testes de `dartforge-emit-native` — 1.043
+passam — e de `dartforge-runtime`, `cargo clippy -D warnings` dos dois, o corpus nativo 160/160
+em `--optimize` com `DARTFORGE_CHECK_SHADOW=1`, em `--optimize --gc-stress`, em desenvolvimento e
+em Wasm, com `--exec-limit 60`, e 11 programas do corpus em ARC simples e preparado, com o
+berçário padrão, contra `dart run`: 22/22, em dois estados — depois de `6a717147` e no fim):
+
+- `c5664354`: `a == b` com receptor estático `String` chamava o nativo
+  `DartForge_string_equals_object` em toda comparação, inclusive `s != null` sobre `String?`
+  (as ~15 chamadas por pedido que a rodada anterior contava). A comparação com o literal `null`
+  passa a ser a identidade; um receptor não nulo usa o `@df.string_equals_object` em linha; um
+  anulável nulo só é igual a `null`.
+- `29c17042`: `StringBuffer` e o `jsonEncode` guardavam o texto num acumulador do runtime (um
+  objeto do heap com um `Vec` nativo anexado): cada `write` era uma chamada que emprestava o heap e
+  ajustava a contabilidade do anexo — 58 por pedido. O texto agora são as primeiras unidades de
+  uma string nunca publicada, que dobra ao crescer e só passa a dois bytes quando chega uma unidade
+  acima de 0xFF (`textBufferAppend`/`textBufferToString` no overlay de `dart:_internal`); a escrita
+  que cabe é uma cópia em linha (`copyStringUnits`, `@df.string_write_units`: um `memcpy` ou o laço
+  que alarga), e o `toString` uma alocação em linha e uma cópia. O `writeln` e o `writeCharCode`
+  não passam por `write`, como na VM. Também `_CopyingBytesBuilder._addCodeUnits` (os cabeçalhos
+  de `dart:_http`) copia uma string de um byte para o `Uint8List` com um `memcpy`
+  (`@df.typed_write_from_string`). O manifesto de fontes revisadas do SDK
+  (`double_identity/selected_sdk_manifest.json`) recebe os hashes novos: sem isso a prova de
+  identidade de `double` se desliga para todo programa.
+- `d9e02969`: `_TypedListBase._memMoveN` (o `setRange` entre listas tipadas do mesmo tamanho de
+  elemento, 6 por pedido) é um `memmove` em linha (`@df.typed_write_move`); o `_setRange` da VM
+  já conferiu os intervalos.
+- `f31f5447`: a busca do argumento nomeado no descritor (`dartforge_arg_index`, 16 por pedido)
+  é o laço em linha `@df.arg_index`, fora de ARC.
+- `6a717147`: o acerto de `@df.rti_set_cached` (123 por pedido, o tipo de cada objeto genérico
+  novo) fica em linha no sítio, onde a classe é constante; a falta chama o `@df.rti_set_miss`
+  frio e compartilhado. −0,4% de instruções e −1% de ciclos por pedido, +49 KB no executável
+  com símbolos (o executável sem símbolos cresce 33 KB na rodada inteira).
+- `dcdc4138`: `indexOf`, `lastIndexOf` e a comparação de trecho de `startsWith`/`endsWith`
+  (~11 por pedido) leem as strings pelos cabeçalhos, sem o empréstimo do heap.
+- `e042497a`: o `substring` de um byte e o `String.fromCharCodes` de uma lista do core (o parser
+  HTTP monta assim o método, a URI e cada nome e valor de cabeçalho) alocam a `_OneByteString`
+  em linha e a preenchem com uma folha: o `substring` com `copyStringUnits` (que ganhou o
+  deslocamento da origem), a fatia de até 120 unidades com `DartForge_string_fill_latin1`, que lê
+  a lista pelos cabeçalhos e devolve falso, deixando o Dart no caminho da VM, para o que não é
+  Latin-1. Antes eram `OneByteString_substringUnchecked` (empréstimo do heap) e
+  `DartForge_string_from_char_codes` (enraizava a lista, alocava fora da TLAB e empilhava um
+  quadro: ~10 amostras por chamada).
+
+**Como foi achado.** O `sample` da rodada anterior media o runtime pelo custo próprio de cada
+função; desta vez, pelo custo inclusivo de cada entrada chamada pelo código gerado
+(`h3/rtin.py`), e o `lldb` com `bt` no ponto de parada mostrou quem chamava cada uma. Foi assim
+que as 15 chamadas de `string_equals_object` apareceram como `s != null`: quando o `StringBuffer`
+novo passou a comparar o seu buffer com `null`, elas subiram para 61.
+
+**Medido e não feito.**
+
+- *Remover o acumulador do runtime.* Os cinco nativos `DartForge_sb_*` ficaram sem uso no Dart,
+  mas o acumulador (`TextAccumulator`, cid 15) ainda é um nó das mensagens entre isolados
+  (`ports.rs`, `GNode::Accumulator`, também usado como reserva de nó); a limpeza toca `ports.rs` e
+  os testes do heap, onde outro agente trabalhava. Fica para depois.
+- *Não zerar os `Uint8List` de 8 KiB.* `dartforge_typed_new` é 4% da thread do isolado, quase
+  todo o `memset` dos dois buffers de cada resposta em memória fria. Dar a eles memória sem zerar
+  seria observável (`chunk.buffer` alcança os bytes além da vista), e o caso geral exige o modo de
+  verificação que envenena as faixas entregues (prioridade 4); não tentado.
+- *Cache de duas vias nos sítios de RTI.* As sondas do memo depois de uma falta no sítio
+  (`rti_eval_site`, `rti_eval_probe`, `rti_is_probe`, `rti_set_miss`) somam ~2,2% da thread;
+  duas vias cortariam parte delas ao custo de dobrar as palavras de cache de cada sítio.
+- *A marcação dos sobreviventes nas árvores* (prioridade 5): o código já é o marcador sem
+  ramificação por tipo de coleta; o que sobra é o modelo (varredura sem cópia, numa thread)
+  contra o scavenger paralelo do Dart. Não mexido.
+
+**O que ainda separa do Dart, em ordem** (thread do isolado, 10,2 contra 8,6 µs de usuário):
+o código Dart compilado (~43% das amostras da thread, plano: `_HttpParser._doParse`,
+`_Future._propagateToListeners`, `_SocketStreamConsumer.write`, os `$tc` dos seletores com
+argumentos em vetor, a conferência de exceção pendente e o quadro de raízes depois de cada
+chamada); o `memset` dos buffers de 8 KiB e do refill da TLAB (~4%); as ~120 chamadas ao
+runtime exportadas que restam por pedido — `_List(length)` de `List.filled` (~1% com o cálculo
+do tipo), literais de lista, `GrowableList_setData` do `clear()` das listas do parser, `asUint8List`
+(`view_new`), as faltas de seletor (`class_method`); e as sondas do memo de RTI (~2%).
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
@@ -914,12 +1018,12 @@ auxiliares, por isso empata em ciclos do processo com 2,5% a menos de tempo de p
    nulo e elimina `boolean_selector`, `source_span`, `string_scanner` e `stream_channel`, que
    aqui somam cerca de 160 KB sem minificação. No hello o piso vem dos membros de `Object`
    tratados como universais (`universal_names`): `toString` puxa o RTI inteiro.
-2. **Vazão HTTP ~88% do Dart** (62,8 contra 71,0 mil pedidos/s; 231 contra 212 mil
-   instruções e 72,0 contra 70,7 mil ciclos por pedido, na manhã de 2026-10-28). As chamadas ao
-   sistema seguem o mesmo padrão do Dart; a diferença é tempo de usuário na thread do isolado
-   (11,2 contra 8,7 µs por pedido), quase todo no runtime: as ~308 chamadas por pedido
-   (`StringBuffer` 58), o `memset`, os auxiliares de RTI fora de linha, as chamadas indiretas
-   que ainda leem o contexto por TLS e o modelo `async` da VM (seção da manhã de 2026-10-28).
+2. **Vazão HTTP ~94% do Dart** (65,9 contra 70,1 mil pedidos/s; 215,5 contra 211,1 mil
+   instruções e 72,0 contra 73,4 mil ciclos por pedido, no fim da manhã de 2026-10-28). As
+   chamadas ao sistema seguem o mesmo padrão do Dart; a diferença é tempo de usuário na thread do
+   isolado (10,2 contra 8,6 µs por pedido): o código Dart compilado, o `memset` dos buffers de
+   8 KiB, as ~120 chamadas ao runtime que restam por pedido e as sondas do memo de RTI (seção do
+   fim da manhã de 2026-10-28).
 3. **`async` no nível do Dart** (no fim de 2026-10-27: 254 contra 249 ms, 5,22 contra
    5,30 G ciclos, com o dobro de instruções). O que sobra é a própria máquina de estados no
    estilo do dart2js (`_wrapBody` e o `guarded` por chamada, o corpo chamado pela
