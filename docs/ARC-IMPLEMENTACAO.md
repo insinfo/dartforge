@@ -675,20 +675,20 @@ vira raiz sem contagem. A preparação e a verificação dos tokens não mudam.
 
 Mac mini M4, carga 3 nas medidas finais. Núcleos de `bench/comparison/bench.dart`
 isolados, 10 rodadas por processo (mediana em ms); contadores de `time -l` do
-processo inteiro. "Antes" é `c08019c1`, "agora" é `86d0dd70`.
+processo inteiro. "Antes" é `c08019c1`, "agora" é `e2851691`.
 
 | núcleo | tracing | ARC simples | preparado antes | modo rápido | ARC real |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| árvores, ms | 12,8 | 25,3 | 168 | 26,3 | 241 |
-| árvores, ciclos / instruções | 0,54 G / 2,55 G | 1,02 G / 5,12 G | 6,82 G / 48,2 G | 1,02 G / 5,12 G | 9,75 G / 70,2 G |
-| strings, ms | 41,5 | 54,0 | 254 | 102 | 210 |
-| strings, ciclos / instruções | 1,71 G / 11,6 G | 2,24 G / 15,1 G | 10,3 G / 76,5 G | 4,14 G / 28,9 G | 8,49 G / 59,2 G |
-| JSON, ms | 67,0 | 166 | 577 | 252 | 393 |
-| JSON, ciclos / instruções | 2,73 G / 18,6 G | 6,70 G / 45,6 G | 23,2 G / 158 G | 10,1 G / 69,3 G | 16,5 G / 109 G |
+| árvores, ms | 12,8 | 25,3 | 168 | 26,3 | 249 |
+| árvores, ciclos / instruções | 0,54 G / 2,55 G | 1,02 G / 5,12 G | 6,82 G / 48,2 G | 1,02 G / 5,12 G | 9,69 G / 64,2 G |
+| strings, ms | 41,5 | 54,0 | 254 | 102 | 207 |
+| strings, ciclos / instruções | 1,71 G / 11,6 G | 2,24 G / 15,1 G | 10,3 G / 76,5 G | 4,14 G / 28,9 G | 8,40 G / 59,2 G |
+| JSON, ms | 67,0 | 166 | 577 | 252 | 390 |
+| JSON, ciclos / instruções | 2,73 G / 18,6 G | 6,70 G / 45,6 G | 23,2 G / 158 G | 10,1 G / 69,3 G | 16,4 G / 109 G |
 
 O modo rápido iguala o ARC simples nas árvores e fica a 1,5–1,9× dele em strings
 e JSON (o resto da ABI auditada: listas, caixas, escopos nativos, entrada de
-closure pelo runtime). O ARC real custa 2,4–9,6× o ARC simples em ciclos: a
+closure pelo runtime). O ARC real custa 2,4–9,7× o ARC simples em ciclos: a
 contagem em linha tirou a chamada de cada token, mas cada morte ainda passa pelo
 descarte no runtime (consulta à tabela, percurso das arestas, soltura dos filhos,
 remoção dos metadados), cada objeto novo ainda é registrado por chamada, e cada

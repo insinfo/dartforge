@@ -1003,7 +1003,7 @@ do tipo), literais de lista, `GrowableList_setData` do `clear()` das listas do p
 ## Rodada de 2026-10-28 (tarde): ARC preparado — o ARC real, com morte imediata, e o modo rápido
 
 Mesmo Mac mini M4, carga 3 nas medidas finais (outros agentes compilando antes). "Antes"
-é `c08019c1` e "agora" é `86d0dd70`, cada um compilado de uma cópia limpa (`git archive`).
+é `c08019c1` e "agora" é `e2851691`, cada um compilado de uma cópia limpa (`git archive`).
 Núcleos de `bench/comparison/bench.dart` isolados, 10 rodadas por processo (mediana em
 ms), contadores de `time -l` do processo inteiro; servidor `bench/comparison/server.dart`
 com `load_keepalive.dart` (4 × 8 conexões, 5 s), ciclos e instruções do processo servidor
@@ -1021,15 +1021,15 @@ preparado (tokens exatos sobre o berçário, morte na sincronização) fica em
 
 | medida | tracing | ARC simples | preparado antes | modo rápido | ARC real |
 |---|---:|---:|---:|---:|---:|
-| árvores, ms | 12,8 | 25,3 | 168 | 26,3 | 241 |
-| árvores, ciclos / instruções | 0,54 / 2,55 G | 1,02 / 5,12 G | 6,82 / 48,2 G | 1,02 / 5,12 G | 9,75 / 70,2 G |
-| strings, ms | 41,5 | 54,0 | 254 | 102 | 210 |
-| strings, ciclos / instruções | 1,71 / 11,6 G | 2,24 / 15,1 G | 10,3 / 76,5 G | 4,14 / 28,9 G | 8,49 / 59,2 G |
-| JSON, ms | 67,0 | 166 | 577 | 252 | 393 |
-| JSON, ciclos / instruções | 2,73 / 18,6 G | 6,70 / 45,6 G | 23,2 / 158 G | 10,1 / 69,3 G | 16,5 / 109 G |
-| servidor `/json`, pedidos/s | 65,1 mil | 46,6 mil | 9,5 mil | 29,8 mil | 10,1 mil |
-| servidor, ciclos / instruções por pedido | 69,7 / 216 mil | 90,3 / 334 mil | 393 mil / 2,22 M | 133 / 610 mil | 383 mil / 1,67 M |
-| servidor, RSS depois da carga | 17,4 MB | 19,0 MB | 19,9 MB | 19,7 MB | 70,6 MB |
+| árvores, ms | 12,8 | 25,3 | 168 | 26,3 | 249 |
+| árvores, ciclos / instruções | 0,54 / 2,55 G | 1,02 / 5,12 G | 6,82 / 48,2 G | 1,02 / 5,12 G | 9,69 / 64,2 G |
+| strings, ms | 41,5 | 54,0 | 254 | 102 | 207 |
+| strings, ciclos / instruções | 1,71 / 11,6 G | 2,24 / 15,1 G | 10,3 / 76,5 G | 4,14 / 28,9 G | 8,40 / 59,2 G |
+| JSON, ms | 67,0 | 166 | 577 | 252 | 390 |
+| JSON, ciclos / instruções | 2,73 / 18,6 G | 6,70 / 45,6 G | 23,2 / 158 G | 10,1 / 69,3 G | 16,4 / 109 G |
+| servidor `/json`, pedidos/s | 65,1 mil | 46,6 mil | 9,5 mil | 29,8 mil | 10,4 mil |
+| servidor, ciclos / instruções por pedido | 69,7 / 216 mil | 90,3 / 334 mil | 393 mil / 2,22 M | 133 / 610 mil | 365 mil / 1,66 M |
+| servidor, RSS depois da carga | 17,4 MB | 19,0 MB | 19,9 MB | 19,7 MB | 77,4 MB |
 
 (O "preparado antes", o tracing e o ARC simples de `c08019c1` deram nas árvores 168 ms,
 12,9 e 23,5 ms; o servidor de `c08019c1` em tracing e ARC simples deu 63,1 e 43,9 mil
@@ -1069,16 +1069,18 @@ depende de tempo, iguais ao tracing):
   vetor de metadados, e o código incrementa e decrementa a contagem da entrada viva,
   indo ao runtime só no zero, no novo candidato a ciclo ou numa página não publicada.
 - `86d0dd70`: a escrita que move não faz mais o par retain/release do valor.
+- `e2851691`: a alocação do ARC real sai em linha pela TLAB (e o retain registra o objeto),
+  e o nulo gravado num campo ainda não escrito do objeto novo só marca a referência.
 
 **O que falta e por quê:**
 
-1. **O ARC real ainda custa 2,4–9,6× o ARC simples** em ciclos (árvores 9,75 contra
+1. **O ARC real ainda custa 2,4–9,7× o ARC simples** em ciclos (árvores 9,69 contra
    1,02 G). O tempo está na morte (descarte no runtime: consulta à tabela, percurso das
    arestas, soltura dos filhos, remoção dos metadados), no registro de cada objeto novo
    e na escrita `Ref` contada, todos por chamada. Os próximos passos: registro e escrita
    contada em linha sobre o mesmo vetor; descarte especializado por classe e
    reutilização imediata da célula morta pela alocação seguinte do mesmo tamanho
-   (*reuse* do Perceus), que tiram a drenagem do caminho e baixam o RSS (hoje 70 MB no
+   (*reuse* do Perceus), que tiram a drenagem do caminho e baixam o RSS (hoje 77 MB no
    servidor, a memória dos mortos só volta na drenagem); elisão de pares nas leituras de
    campos `final` com receptor emprestado. A contagem dentro do objeto exigiria um
    cabeçalho maior (o de 16 bytes não tem campo livre).
