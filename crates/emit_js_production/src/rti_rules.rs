@@ -593,12 +593,26 @@ pub fn batch_program_resources(js: &str, program_start: usize) -> String {
 /// The SDK classes (before `program_start`) whose marks some runtime call
 /// copies at load: the arguments of `applyMixin`/`registerExtension` in the
 /// whole file, the classes with a `[dart.mixinOn]`, and the superclasses of
-/// all of them, read from the `N = class C extends S {` lines. `None` when a
+/// all of them, read from the `N = class C extends S {` lines of the whole
+/// file (a program's mixin application, `const C$mixin0 = class … extends
+/// core.Iterable {};`, leads back to SDK classes too). `None` when a
 /// superclass of one of them is not such a line (nothing of the SDK may
-/// move then).
+/// move then). A local name declared in two libraries (`Event$mixin0`)
+/// follows every superclass it is given.
+/// `DARTFORGE_JSPROD_BATCH_PROGRAM_SUPERS=0` reads only the SDK's lines, as
+/// before.
 fn sdk_copied_classes(js: &str, program_start: usize) -> Option<HashSet<String>> {
-    let mut supers: HashMap<&str, &str> = HashMap::new();
-    for line in js[..program_start].lines() {
+    // Every superclass a line gives the name: the same local name may be
+    // declared in two libraries' bodies (`Event$mixin0`), and following all
+    // of them only pins more.
+    let mut supers: HashMap<&str, Vec<&str>> = HashMap::new();
+    let scan_end = if std::env::var("DARTFORGE_JSPROD_BATCH_PROGRAM_SUPERS").is_ok_and(|v| v == "0")
+    {
+        program_start
+    } else {
+        js.len()
+    };
+    for line in js[..scan_end].lines() {
         let l = line
             .strip_prefix("const ")
             .or_else(|| line.strip_prefix("let "))
@@ -622,7 +636,10 @@ fn sdk_copied_classes(js: &str, program_start: usize) -> Option<HashSet<String>>
         if sup.contains(' ') {
             continue;
         }
-        supers.insert(name, sup);
+        let all = supers.entry(name).or_default();
+        if !all.contains(&sup) {
+            all.push(sup);
+        }
     }
     let mut pinned: HashSet<String> = HashSet::new();
     let mut queue: Vec<&str> = Vec::new();
@@ -651,11 +668,16 @@ fn sdk_copied_classes(js: &str, program_start: usize) -> Option<HashSet<String>>
             continue;
         }
         match supers.get(c) {
-            Some(s) => queue.push(s),
+            Some(all) => queue.extend(all.iter().copied()),
             // A program class (`L$…`) or a local has no SDK marks to keep;
             // an SDK class without a readable superclass stops the batch.
             None if c.starts_with("L$") => {}
-            None => return None,
+            None => {
+                if std::env::var("DARTFORGE_JSPROD_TRACE").is_ok() {
+                    eprintln!("[jsprod] batch: no superclass for {c}");
+                }
+                return None;
+            }
         }
     }
     Some(pinned)
@@ -842,6 +864,27 @@ mod tests {
         );
         assert!(out.contains("L$a.C39, \"|c39\"]);\nmain();"), "{out}");
         assert_eq!(out.matches("addRtiResources(L$").count(), 0, "{out}");
+    }
+
+    /// A program's mixin applications (`const C$mixin0 = class … extends S`)
+    /// lead back to SDK classes: their chains stay in place, the rest of the
+    /// SDK joins the batch. A local name declared in two libraries follows
+    /// both superclasses.
+    #[test]
+    fn program_mixin_applications_pin_their_sdk_superclasses() {
+        let mut js = "core.I = class I extends core.Object {\n};\ncore.L = class L extends core.Object {\n};\ncore.U = class U extends core.Object {\n};\ncore.V = class V extends core.Object {\n};\ndart.addRtiResources(core.I, [\"|i\"]);\ndart.addRtiResources(core.L, [\"|l\"]);\ndart.addRtiResources(core.U, [\"|u\"]);\ndart.addRtiResources(core.V, [\"|v\"]);\nEND\nconst F$mixin0 = class F$mixin0 extends core.I {};\ndart.applyMixin(F$mixin0, core.L);\nconst F$mixin0 = class F$mixin0 extends core.V {};\ndart.applyMixin(F$mixin0, L$a.M);\n".to_string();
+        for i in 0..40 {
+            js.push_str(&format!("dart.addRtiResources(L$a.C{i}, [\"|c{i}\"]);\n"));
+        }
+        js.push_str("main();\n");
+        let out = batch_program_resources(&js, js.find("END").unwrap());
+        for kept in ["core.I", "core.L", "core.V"] {
+            assert!(
+                out.contains(&format!("dart.addRtiResources({kept}, [")),
+                "{kept}: {out}"
+            );
+        }
+        assert!(out.contains("})([core.U, \"|u\", L$a.C0, \"|c0\""), "{out}");
     }
 
     #[test]
