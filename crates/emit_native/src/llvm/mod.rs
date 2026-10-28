@@ -1477,6 +1477,8 @@ impl<'a> LlvmEmitter<'a> {
 
                     } else if Self::rti_test_cached(i) {
                         Some((b.id.0, format!("rt{v}.fim")))
+                    } else if self.typed_registration_inline(i) {
+                        Some((b.id.0, format!("tn{v}.fim")))
                     } else if !self.maps && Self::list_elem_exact_cached(i) {
                         Some((b.id.0, format!("le{v}.done")))
                     } else {
@@ -2343,12 +2345,16 @@ impl<'a> LlvmEmitter<'a> {
                             .iter()
                             .map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coerce(a, *t)))
                             .collect();
-                        writeln!(
-                            self.out,
-                            "  %v{v} = call i64 @{name}_t({}, ptr @{f})",
-                            rest.join(", ")
-                        )
-                        .unwrap();
+                        if self.typed_registration_inline(inst) {
+                            self.emit_typed_registration_test(v, *c, name, &rest.join(", "), &f);
+                        } else {
+                            writeln!(
+                                self.out,
+                                "  %v{v} = call i64 @{name}_t({}, ptr @{f})",
+                                rest.join(", ")
+                            )
+                            .unwrap();
+                        }
                         let _ = ret_ty;
                     }
                     // The same through the generic Owned thunk (`optimize::arc::natives`):
@@ -6055,6 +6061,83 @@ impl<'a> LlvmEmitter<'a> {
             Operand::Val(x) if self.fresh(op) => self.fresh_maps.get(&x.0).copied(),
             _ => None,
         }
+    }
+
+    /// A typed list or view of a class with a method table whose allocation
+    /// tests the registration inline ([`Self::emit_typed_registration_test`]):
+    /// tracing memory on the shadow stack, with the context at hand.
+    fn typed_registration_inline(&self, inst: &Instruction) -> bool {
+        self.has_ctx
+            && !self.module.arc_memory
+            && !self.maps
+            && matches!(inst, Instruction::CallRuntime { name, args, .. }
+                | Instruction::DeclaredFieldCall { name, args, .. }
+                if matches!(name.as_str(), "dartforge_typed_new" | "dartforge_view_new" | "dartforge_typed_external")
+                    && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+                        if self.module.table_functions.contains_key(&(*c as u32))))
+    }
+
+    /// `name(args)` when the method table of class `c` is already registered
+    /// (the bitmap the runtime publishes in the context, offsets 48 and 56, as
+    /// in [`Self::emit_inline_allocation`]), otherwise `name_t(args, @table)`,
+    /// which registers it first. Before, every typed list went through
+    /// `dartforge_register_table`, two thread-local lookups in the runtime
+    /// for a table that production registers at startup (ten per request of the
+    /// HTTP server). The HIR block ends at the label `tn{v}.fim`.
+    fn emit_typed_registration_test(
+        &mut self,
+        v: u32,
+        c: i64,
+        name: &str,
+        args: &str,
+        table: &str,
+    ) {
+        let o = &mut self.out;
+        writeln!(
+            o,
+            "  %tn{v}np = getelementptr inbounds i8, ptr %ctx, i64 56"
+        )
+        .unwrap();
+        writeln!(o, "  %tn{v}n = load i64, ptr %tn{v}np, align 8").unwrap();
+        writeln!(o, "  %tn{v}k = icmp ugt i64 %tn{v}n, {c}").unwrap();
+        writeln!(o, "  br i1 %tn{v}k, label %tn{v}.reg, label %tn{v}.lento").unwrap();
+        writeln!(o, "tn{v}.reg:").unwrap();
+        writeln!(
+            o,
+            "  %tn{v}rp = getelementptr inbounds i8, ptr %ctx, i64 48"
+        )
+        .unwrap();
+        writeln!(o, "  %tn{v}r = load ptr, ptr %tn{v}rp, align 8").unwrap();
+        writeln!(
+            o,
+            "  %tn{v}rb = getelementptr inbounds i8, ptr %tn{v}r, i64 {c}"
+        )
+        .unwrap();
+        writeln!(o, "  %tn{v}rv = load i8, ptr %tn{v}rb, align 1").unwrap();
+        writeln!(o, "  %tn{v}rz = icmp ne i8 %tn{v}rv, 0").unwrap();
+        writeln!(
+            o,
+            "  %tn{v}x = call i1 @llvm.expect.i1(i1 %tn{v}rz, i1 true)"
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "  br i1 %tn{v}x, label %tn{v}.rapido, label %tn{v}.lento"
+        )
+        .unwrap();
+        writeln!(o, "tn{v}.rapido:").unwrap();
+        writeln!(o, "  %tn{v}a = call i64 @{name}({args})").unwrap();
+        writeln!(o, "  br label %tn{v}.fim").unwrap();
+        writeln!(o, "tn{v}.lento:").unwrap();
+        writeln!(o, "  %tn{v}b = call i64 @{name}_t({args}, ptr @{table})").unwrap();
+        writeln!(o, "  br label %tn{v}.fim").unwrap();
+        writeln!(o, "tn{v}.fim:").unwrap();
+        writeln!(
+            o,
+            "  %v{v} = phi i64 [ %tn{v}a, %tn{v}.rapido ], [ %tn{v}b, %tn{v}.lento ]"
+        )
+        .unwrap();
+        self.current_label = format!("tn{v}.fim");
     }
 
     /// Is the method table of class `c` registered before any Dart code of the
