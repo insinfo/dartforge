@@ -8,6 +8,7 @@ pub mod externs;
 mod numeric_vectors;
 mod roots;
 pub(crate) use numeric_vectors::numeric_vector_pooling_enabled;
+mod context_helpers;
 mod simd;
 mod stack_trace;
 pub mod verify_maps;
@@ -38,6 +39,14 @@ fn frame_pointers() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("DARTFORGE_FRAME_POINTERS").is_some_and(|v| v == "1"))
 }
+/// `DARTFORGE_CONTEXT_PARAMETER=0` turns off the context parameter of direct
+/// Dart calls ([`LlvmEmitter::with_context_parameter`]), for measurement. The SDK
+/// cache keys on it.
+pub(crate) fn context_parameter_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("DARTFORGE_CONTEXT_PARAMETER").is_none_or(|v| v != "0"))
+}
+
 /// The stack pointer register the stack check reads (`llvm.read_register`,
 /// [`LlvmEmitter::emit_stack_check`]) on a native target. WebAssembly has no
 /// register to read: its stack pointer is the `__stack_pointer` global of the
@@ -102,6 +111,15 @@ pub struct LlvmEmitter<'a> {
     /// The function read `%ctx` (`dartforge_context`, the thread context of the
     /// runtime) at the entry: pending exception and shadow stack without a call.
     has_ctx: bool,
+    /// The builder asked for the context parameter ([`LlvmEmitter::with_context_parameter`]).
+    context_parameter: bool,
+    /// The functions of the module whose `<symbol>$cx` takes the thread context as
+    /// its first parameter (see [`LlvmEmitter::with_context_parameter`]); empty when
+    /// the convention is off for the module.
+    context_symbols: std::collections::HashSet<String>,
+    /// The function being emitted receives `%ctx` as a parameter (its body is
+    /// `<symbol>$cx`) instead of reading the thread-local context.
+    context_in_parameter: bool,
     /// The LLVM label at which each HIR block that splits into
     /// several ends (the inline allocation, [`LlvmEmitter::inline_allocation`]): it is
     /// the predecessor that the `phi`s of the successors name.
@@ -366,6 +384,9 @@ impl<'a> LlvmEmitter<'a> {
             slots: std::collections::HashMap::new(),
             has_frame: false,
             has_ctx: false,
+            context_parameter: false,
+            context_symbols: std::collections::HashSet::new(),
+            context_in_parameter: false,
             exit_labels: std::collections::HashMap::new(),
             current_label: String::new(),
 
@@ -566,6 +587,28 @@ impl<'a> LlvmEmitter<'a> {
         self
     }
 
+    /// Direct calls between Dart functions pass the thread context as the first
+    /// argument instead of having each callee read it from thread-local storage
+    /// (five instructions per call on macOS arm64, ~1,260 calls per request
+    /// of the HTTP server and two per node of the trees benchmark).
+    ///
+    /// Every function `f` of the module also gets `f$cx(ptr %ctx, …)`. When the
+    /// body needs the context, the body is `f$cx` and `f` is a thunk that reads
+    /// the thread-local context and calls it; otherwise the body stays `f` and
+    /// `f$cx` is an `alwaysinline` thunk that drops the context. `f` keeps the
+    /// usual signature, so every address taken (method tables, closures, the
+    /// runtime's callbacks) still works without the runtime knowing; only the
+    /// direct calls of Dart code that already holds `%ctx` use `f$cx`. The
+    /// production SDK modules emit the same pairs, so a direct call to a
+    /// `df.dart$3a…` function of another module uses it too.
+    ///
+    /// Only for the production AOT of tracing memory on the shadow stack with
+    /// exceptions by check, outside WebAssembly; elsewhere the request is ignored.
+    pub fn with_context_parameter(mut self, yes: bool) -> Self {
+        self.context_parameter = yes;
+        self
+    }
+
     pub fn with_static_objects(mut self, yes: bool) -> Self {
         self.static_objects = yes;
         self
@@ -708,6 +751,14 @@ impl<'a> LlvmEmitter<'a> {
             );
         }
         self.non_collecting = self.non_collecting_functions();
+        if self.context_parameter_active() {
+            self.context_symbols = module
+                .functions
+                .iter()
+                .filter(|f| self.compact_rti_getter(f).is_none())
+                .map(|f| f.symbol.clone())
+                .collect();
+        }
         for (k, func) in module.functions.iter().enumerate() {
             self.tab = if module.table_exceptions {
                 module.tables.get(k)
@@ -747,7 +798,7 @@ impl<'a> LlvmEmitter<'a> {
             if let Some(d) = self.debug_info.take() {
                 d.finish(&mut self.out);
             }
-            return self.out;
+            return self.finish_context_parameter();
         }
 
         // 6. Polymorphic dispatch functions
@@ -788,7 +839,17 @@ impl<'a> LlvmEmitter<'a> {
         if let Some(d) = self.debug_info.take() {
             d.finish(&mut self.out);
         }
-        self.out
+        self.finish_context_parameter()
+    }
+
+    /// The text of the module, with the context helpers threaded when the module
+    /// uses the context parameter (`context_helpers.rs`).
+    fn finish_context_parameter(self) -> String {
+        if self.context_symbols.is_empty() {
+            self.out
+        } else {
+            context_helpers::thread(&self.out)
+        }
     }
 
     /// Roots by maps on Mach-O: the `__llvm_stackmaps` stays in LLVM's format
@@ -1361,13 +1422,34 @@ impl<'a> LlvmEmitter<'a> {
         } else {
             ""
         };
-        writeln!(
-            self.out,
-            "define {linkage}{ret_ty} @{}({}){attributes}{comdat}{gc}{personality} {{",
-            func.symbol, params_str
-        )
-        .unwrap();
         self.has_frame = !self.slots.is_empty() || self.check.is_some();
+        self.has_ctx = self.has_frame || Self::requires_explicit_context(func, tab);
+        // The context parameter: the body that needs the context is `<symbol>$cx`
+        // and receives it; `<symbol>` becomes the thunk (after the body).
+        self.context_in_parameter = self.has_ctx && self.context_symbols.contains(&func.symbol);
+        if self.context_in_parameter {
+            let sep = if params_str.is_empty() { "" } else { ", " };
+            writeln!(
+                self.out,
+                "define {linkage}{ret_ty} @{}$cx(ptr %ctx{sep}{}){attributes}{}{gc}{personality} {{",
+                func.symbol,
+                params_str,
+                if comdat.is_empty() {
+                    String::new()
+                } else {
+                    self.comdats.push(format!("{}$cx", func.symbol));
+                    format!(" comdat($\"{}$cx\")", func.symbol)
+                }
+            )
+            .unwrap();
+        } else {
+            writeln!(
+                self.out,
+                "define {linkage}{ret_ty} @{}({}){attributes}{comdat}{gc}{personality} {{",
+                func.symbol, params_str
+            )
+            .unwrap();
+        }
         self.exit_labels = func
             .blocks
             .iter()
@@ -1414,7 +1496,6 @@ impl<'a> LlvmEmitter<'a> {
                 }
             }
         }
-        self.has_ctx = self.has_frame || Self::requires_explicit_context(func, tab);
         self.engine_budget = false;
         // Where the roots frame opens (`frame_placement`): only a frame of plain
         // SSA roots, without parameters to store at the entry, landing pads that
@@ -1575,7 +1656,9 @@ impl<'a> LlvmEmitter<'a> {
             // The thread context (`runtime/src/heap.rs`, `Context`): the
             // pending exception at offset 0, the top of the shadow stack at 8.
             if block.id.0 == 0 && self.has_ctx {
-                writeln!(self.out, "  %ctx = call ptr @dartforge_context()").unwrap();
+                if !self.context_in_parameter {
+                    writeln!(self.out, "  %ctx = call ptr @dartforge_context()").unwrap();
+                }
                 writeln!(
                     self.out,
                     "  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8"
@@ -2113,15 +2196,26 @@ impl<'a> LlvmEmitter<'a> {
                             args_str.push(format!("{} {s}", target.llvm_ir()));
                             args_types.push(target);
                         }
-                        if target_func.is_none() {
-                            self.annotate_external(symbol, *ret_ty, &args_types);
-                        }
-                        let joined = args_str.join(", ");
                         let r = ret_ty.llvm_ir();
-                        if *ret_ty == Type::Void {
-                            writeln!(self.out, "  call {r} @{symbol}({joined})").unwrap();
+                        let callee = if self.passes_context(symbol, target_func.is_some()) {
+                            args_str.insert(0, "ptr %ctx".to_string());
+                            if target_func.is_none() {
+                                let mut external = vec![Type::Ptr];
+                                external.extend_from_slice(&args_types);
+                                self.annotate_external(&format!("{symbol}$cx"), *ret_ty, &external);
+                            }
+                            format!("{symbol}$cx")
                         } else {
-                            writeln!(self.out, "  %v{v} = call {r} @{symbol}({joined})").unwrap();
+                            if target_func.is_none() {
+                                self.annotate_external(symbol, *ret_ty, &args_types);
+                            }
+                            symbol.clone()
+                        };
+                        let joined = args_str.join(", ");
+                        if *ret_ty == Type::Void {
+                            writeln!(self.out, "  call {r} @{callee}({joined})").unwrap();
+                        } else {
+                            writeln!(self.out, "  %v{v} = call {r} @{callee}({joined})").unwrap();
                         }
                     }
                     // Field with a constant index: inline, like `GetField`.
@@ -3066,6 +3160,67 @@ impl<'a> LlvmEmitter<'a> {
             let annotated = dep.annotate(&text, func, d);
             self.out.push_str(&annotated);
             self.debug_info = Some(dep);
+        }
+        if self.context_symbols.contains(&func.symbol) {
+            self.emit_context_thunk(func, linkage, &comdat);
+        }
+    }
+
+    /// The other half of the pair of [`Self::with_context_parameter`], after the
+    /// body: `<symbol>` reading the thread-local context and calling the body
+    /// `<symbol>$cx`, or the `alwaysinline` `<symbol>$cx` that drops the context
+    /// and calls the body `<symbol>`. Each one in its own `comdat` when the body
+    /// has one (the parts of a large program may separate them).
+    fn emit_context_thunk(&mut self, func: &Function, linkage: &str, comdat: &str) {
+        let ret_ty = func.return_ty.llvm_ir();
+        let params: Vec<String> = func
+            .params
+            .iter()
+            .map(|(vid, _, ty)| format!("{} %v{}", ty.llvm_ir(), vid.0))
+            .collect();
+        let params = params.join(", ");
+        let with_context = if params.is_empty() {
+            "ptr %ctx".to_string()
+        } else {
+            format!("ptr %ctx, {params}")
+        };
+        let (call, ret) = if func.return_ty == Type::Void {
+            (String::new(), "ret void".to_string())
+        } else {
+            ("%r = ".to_string(), format!("ret {ret_ty} %r"))
+        };
+        let optsize = if self.optimize_size { " optsize" } else { "" };
+        let frame = if frame_pointers() {
+            " \"frame-pointer\"=\"non-leaf\""
+        } else {
+            ""
+        };
+        let symbol = &func.symbol;
+        if self.context_in_parameter {
+            writeln!(
+                self.out,
+                "define {linkage}{ret_ty} @{symbol}({params}){optsize}{frame}{comdat} {{\n\
+                 \x20 %ctx = call ptr @dartforge_context()\n\
+                 \x20 {call}call {ret_ty} @{symbol}$cx({with_context})\n\
+                 \x20 {ret}\n\
+                 }}\n"
+            )
+            .unwrap();
+        } else {
+            let own_comdat = if comdat.is_empty() {
+                String::new()
+            } else {
+                self.comdats.push(format!("{symbol}$cx"));
+                format!(" comdat($\"{symbol}$cx\")")
+            };
+            writeln!(
+                self.out,
+                "define {linkage}{ret_ty} @{symbol}$cx({with_context}) alwaysinline{optsize}{frame}{own_comdat} {{\n\
+                 \x20 {call}call {ret_ty} @{symbol}({params})\n\
+                 \x20 {ret}\n\
+                 }}\n"
+            )
+            .unwrap();
         }
     }
 
@@ -6208,6 +6363,30 @@ impl<'a> LlvmEmitter<'a> {
     /// roots frames. It also requires a stack check in the prologue;
     /// the ARC summaries share this decision so as not to omit unwinding.
     /// Frames computed by liveness may require additional context.
+    /// The module uses the context parameter ([`Self::with_context_parameter`]).
+    fn context_parameter_active(&self) -> bool {
+        self.context_parameter
+            && context_parameter_enabled()
+            && self.static_objects
+            && !self.module.arc_memory
+            && !self.module.table_exceptions
+            && !self.maps
+            && !crate::target::is_wasm()
+    }
+
+    /// The direct call to `symbol` passes the context (`@<symbol>$cx`): the
+    /// current function holds `%ctx` and the target has the pair, defined in this
+    /// module or in another production SDK module (`df.dart$3a…`).
+    fn passes_context(&self, symbol: &str, defined_here: bool) -> bool {
+        self.has_ctx
+            && !self.context_symbols.is_empty()
+            && if defined_here {
+                self.context_symbols.contains(symbol)
+            } else {
+                crate::source::sdk_symbol(symbol)
+            }
+    }
+
     pub(crate) fn requires_explicit_context(func: &Function, tab: Option<&FunctionTables>) -> bool {
         func.blocks.iter().any(|b| {
             b.instructions.iter().any(|(_, i, _)| {

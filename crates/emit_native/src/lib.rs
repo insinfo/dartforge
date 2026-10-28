@@ -808,7 +808,9 @@ fn emit_ir_internal(
         .with_roots_by_maps(roots_by_maps)
         .with_maps_in_jit(maps_in_jit)
         .with_stack_trace(symbolic_stack_trace)
-        .with_stack_trace_in_jit(stack_trace_in_jit);
+        .with_stack_trace_in_jit(stack_trace_in_jit)
+        // Production AOT: direct Dart calls pass the thread context.
+        .with_context_parameter(options.optimize && prune);
     let llvm_ir = emitter.emit_all();
     // The verifier of maps mode (§7.4), before the maps pass.
     if roots_by_maps {
@@ -1469,16 +1471,23 @@ Future<void> main() async {
                     };
                     let ir = emit_ir(&entry, &options).unwrap().text;
                     let headers: Vec<_> = ir.lines().filter(|l| l.starts_with("define ")).collect();
+                    // The body: `<symbol>$cx` when it takes the context parameter
+                    // (production), not its `alwaysinline` thunk.
                     let check = |symbol: &str, attribute: &str| {
                         let header = headers
                             .iter()
-                            .find(|l| l.contains(&format!("@{symbol}(")))
+                            .find(|l| {
+                                l.contains(&format!("@{symbol}$cx("))
+                                    && !l.contains(" alwaysinline")
+                            })
+                            .or_else(|| headers.iter().find(|l| l.contains(&format!("@{symbol}("))))
                             .unwrap();
                         assert!(header.contains(attribute), "{header}");
                     };
                     check("df.inline$2edart..forbidden", " noinline");
                     assert!(
-                        ir.contains("call i64 @df.inline$2edart..forbidden("),
+                        ir.contains("call i64 @df.inline$2edart..forbidden(")
+                            || ir.contains("call i64 @df.inline$2edart..forbidden$cx("),
                         "never-inline must retain the call boundary"
                     );
                     check("df.inline$2edart.C.new", " noinline");

@@ -555,6 +555,7 @@ fn emit_sdk_modules(
             .with_arc_ports_at_link(production)
             .with_roots_by_maps(roots_by_maps)
             .with_stack_trace(symbolic_stack_trace)
+            .with_context_parameter(production)
             .emit_all();
         if roots_by_maps {
             crate::llvm::verify_maps::verify(&ir).map_err(|e| format!("{uri}: {e}"))?;
@@ -754,6 +755,9 @@ fn sdk_key_with_overlay(
     }
     if !crate::llvm::numeric_vector_pooling_enabled() {
         h.update(b"aot_const_array_pooling=disabled_v1\0");
+    }
+    if !crate::llvm::context_parameter_enabled() {
+        h.update(b"context_parameter=disabled_v1\0");
     }
     // The debug trace changes the code (`llvm/mod.rs`).
     h.update(

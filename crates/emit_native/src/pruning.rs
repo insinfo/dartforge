@@ -221,13 +221,32 @@ fn constant_text(line: &str) -> Option<String> {
 /// The hash and the index of the name of a call `@df.selector(ptr …, i64 …, i64
 /// <hash>, ptr @df.seln.<k>, i64 …)`; `None` if the hash is not constant.
 fn selector_call(line: &str) -> Option<(i64, &str)> {
-    let i = line.find("@df.selector(")? + "@df.selector(".len();
+    let (i, threaded) = helper_arguments(line, "@df.selector")?;
     let mut args = line[i..].split(", ");
+    if threaded {
+        args.next()?;
+    }
     args.next()?;
     args.next()?;
     let h: i64 = args.next()?.strip_prefix("i64 ")?.trim().parse().ok()?;
     let name = args.next()?.strip_prefix("ptr @")?;
     Some((h, name.trim_end_matches(')')))
+}
+
+/// Where the arguments of a call to the helper `name` (`@df.selector`) start on
+/// `line`, and whether it is the twin that receives the thread context first
+/// (`@df.selector$ctx(ptr %ctx, …)`, `llvm/context_helpers.rs`).
+fn helper_arguments(line: &str, name: &str) -> Option<(usize, bool)> {
+    if let Some(i) = line.find(&format!("{name}(")) {
+        return Some((i + name.len() + 1, false));
+    }
+    let i = line.find(&format!("{name}$ctx("))?;
+    Some((i + name.len() + "$ctx(".len(), true))
+}
+
+/// Does `line` call the selector helper `name`, directly or through its twin?
+fn calls_helper(line: &str, name: &str) -> bool {
+    line.contains(&format!("{name}(")) || line.contains(&format!("{name}$ctx("))
 }
 
 /// The hash and the name (`@df.seln.<k>`) of the descriptor `@df.seld.<k> = …
@@ -243,8 +262,11 @@ fn selector_descriptor(rest: &str) -> Option<(i64, &str)> {
 
 /// The descriptor of the call `@df.selector_d(ptr …, i64 …, ptr @df.seld.<k>)`.
 fn compact_selector_call(line: &str) -> Option<&str> {
-    let i = line.find("@df.selector_d(")? + "@df.selector_d(".len();
+    let (i, threaded) = helper_arguments(line, "@df.selector_d")?;
     let mut args = line[i..].split(", ");
+    if threaded {
+        args.next()?;
+    }
     args.next()?;
     args.next()?;
     let d = args.next()?.strip_prefix("ptr @")?;
@@ -1031,9 +1053,9 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
                     .push(current.take().expect("current definition"));
                 continue;
             }
-            let call = if l.contains("@df.selector(") {
+            let call = if calls_helper(l, "@df.selector") {
                 selector_call(l)
-            } else if l.contains("@df.selector_d(") {
+            } else if calls_helper(l, "@df.selector_d") {
                 compact_selector_call(l).and_then(|d| descriptors.get(d).copied())
             } else {
                 None
@@ -3197,7 +3219,14 @@ mod receiver_cone_tests {
                 let hash = selector_hash("g:length");
                 let mut expected_cone = None;
                 for suffix in ["", "$g", "$c"] {
-                    let symbol = format!("df.dart$3acore.StringBuffer.isEmpty{suffix}");
+                    // With the context parameter the body is the `$cx` twin.
+                    let plain = format!("df.dart$3acore.StringBuffer.isEmpty{suffix}");
+                    let twin = format!("{plain}$cx");
+                    let symbol = if core.names.contains(&twin) {
+                        twin
+                    } else {
+                        plain
+                    };
                     let node = core.names.iter().position(|name| name == &symbol).unwrap() as u32;
                     let definition = core.definitions.iter().find(|d| d.name == node).unwrap();
                     assert!(
