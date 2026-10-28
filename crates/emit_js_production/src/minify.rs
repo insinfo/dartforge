@@ -1181,6 +1181,12 @@ pub fn minify_with_properties(
             strings.record(&n);
         }
     }
+    // The runtime's symbols without descriptions
+    // (`private_names::strip_symbol_descriptions`);
+    // `DARTFORGE_JSPROD_BARE_SYMBOLS=0` keeps them.
+    if crate::private_names::bare_storage_symbols() {
+        crate::private_names::strip_symbol_descriptions(&mut program, runtime_end);
+    }
     // The extension symbols and their aliases in one destructuring
     // (`private_names::group_extension_symbols`);
     // `DARTFORGE_JSPROD_GROUP_EXTENSION_SYMBOLS=0` turns it off.

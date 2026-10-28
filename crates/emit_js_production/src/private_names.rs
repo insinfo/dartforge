@@ -96,10 +96,17 @@ pub fn group<'a>(
                 let mut snippet = String::new();
                 if helper.is_none() {
                     helper = Some(run[0].callee.clone());
-                    snippet.push_str(&format!(
-                        "{HELPER} = (l, s) => s.split(\" \").map(n => {}(l, n)), ",
-                        run[0].callee
-                    ));
+                    snippet.push_str(&if bare_storage_symbols() {
+                        format!(
+                            "{HELPER} = (l, s) => s.split(\" \").map(n => n == \".\" ? Symbol() : {}(l, n)), ",
+                            run[0].callee
+                        )
+                    } else {
+                        format!(
+                            "{HELPER} = (l, s) => s.split(\" \").map(n => {}(l, n)), ",
+                            run[0].callee
+                        )
+                    });
                 }
                 snippet.push_str(&grouped(
                     &run,
@@ -143,9 +150,17 @@ fn grouped(run: &[&Declaration], runtime: bool, descriptions: &mut Vec<String>) 
             descriptions.push(d.description.clone());
         }
     }
+    // A storage symbol (`C.f`, the field behind a getter) is only read and
+    // written by its class's code: a fresh symbol without description
+    // (`.` in the list) is the same key.
+    let bare = bare_storage_symbols();
     let mut parts: Vec<String> = libraries
         .iter()
         .map(|(library, names, descs)| {
+            let descs: Vec<&str> = descs
+                .iter()
+                .map(|d| if bare && is_storage(d) { "." } else { *d })
+                .collect();
             format!(
                 "[{}] = {HELPER}({library}, {})",
                 names.join(", "),
@@ -155,6 +170,46 @@ fn grouped(run: &[&Declaration], runtime: bool, descriptions: &mut Vec<String>) 
         .collect();
     parts.extend(aliases.iter().map(|(name, to)| format!("{name} = {to}")));
     parts.join(", ")
+}
+
+/// Whether the storage symbols and the runtime's own symbols are created
+/// without a description (`DARTFORGE_JSPROD_BARE_SYMBOLS=0` keeps them).
+pub fn bare_storage_symbols() -> bool {
+    std::env::var("DARTFORGE_JSPROD_BARE_SYMBOLS").map_or(true, |v| v != "0")
+}
+
+/// Whether a private-name description is the storage of a field (`C.f`,
+/// `emit_js`'s virtual fields): a member name is an identifier, so only a
+/// storage name has a period. Its symbol is never a member name, so no
+/// message shows it.
+fn is_storage(description: &str) -> bool {
+    description.contains('.') && description != "."
+}
+
+/// The runtime's `Symbol("name")` keys (`Symbol("sigMethod")`,
+/// `Symbol("_thrownValue")`…) become `Symbol()`: each is a property key of
+/// the runtime, and nothing reads its description. The extension symbols
+/// (`dartx.` names) keep theirs, which `JSNoSuchMethodError` parses. Only
+/// calls that start before `runtime_end` (the SDK) change.
+pub fn strip_symbol_descriptions(program: &mut Program<'_>, runtime_end: u32) {
+    use oxc_ast_visit::VisitMut;
+    struct R {
+        end: u32,
+    }
+    impl<'a> VisitMut<'a> for R {
+        fn visit_call_expression(&mut self, it: &mut oxc_ast::ast::CallExpression<'a>) {
+            if it.span.start < self.end
+                && matches!(&it.callee, Expression::Identifier(i) if i.name == "Symbol")
+                && it.arguments.len() == 1
+                && matches!(&it.arguments[0], Argument::StringLiteral(l)
+                    if !l.value.as_str().starts_with("dartx."))
+            {
+                it.arguments.clear();
+            }
+            oxc_ast_visit::walk_mut::walk_call_expression(self, it);
+        }
+    }
+    R { end: runtime_end }.visit_program(program);
 }
 
 /// Parses `var <snippet>;` in the program's allocator and returns its
@@ -453,19 +508,23 @@ mod tests {
             ("d", "rti", "_d"),
             ("e", "core", "_e"),
             ("f", "rti", "_b"),
+            ("g", "core", "Box.value"),
         ]);
         let src = format!(
-            "(function () {{\nvar dart$$privateName = function (l, n) {{}}, {body}, z = 1;\nuse(a, f);\n}})();\n"
+            "(function () {{\nvar dart$$privateName = function (l, n) {{}}, {body}, z = 1;\nuse(a, f, g);\n}})();\n"
         );
         let (out, descs) = run(&src);
+        // A storage symbol (`Box.value`) is a fresh symbol without description.
         assert!(
-            out.contains("t$V = (l, s) => s.split(\" \").map((n) => dart$$privateName(l, n))"),
+            out.contains(
+                "t$V = (l, s) => s.split(\" \").map((n) => n == \".\" ? Symbol() : dart$$privateName(l, n))"
+            ),
             "{out}"
         );
-        assert!(out.contains("[a, c, e] = t$V(core, \"_a _c _e\")"), "{out}");
+        assert!(out.contains("[a, c, e, g] = t$V(core, \"_a _c _e .\")"), "{out}");
         assert!(out.contains("[b, d] = t$V(rti, \"_b _d\")"), "{out}");
         assert!(out.contains("f = b, z = 1"), "{out}");
-        assert_eq!(descs, ["_a", "_b", "_c", "_d", "_e"]);
+        assert_eq!(descs, ["_a", "_b", "_c", "_d", "_e", "Box.value"]);
         let allocator = Allocator::default();
         let parsed = oxc_parser::Parser::new(&allocator, &out, oxc_span::SourceType::cjs()).parse();
         assert!(parsed.diagnostics.is_empty(), "{out}");
