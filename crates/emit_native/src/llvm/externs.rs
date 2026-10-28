@@ -1257,13 +1257,23 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare i64 @dartforge_main_arguments()",
         effects: CONSERVATIVE,
     },
+    // The area is native memory (a `Vec`), never the collector's heap.
     Extern {
         decl: "declare ptr @dartforge_globals_area(ptr)",
-        effects: CONSERVATIVE,
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
     },
+    // As `dartforge_globals_area`: the table of areas is native memory.
     Extern {
         decl: "declare ptr @dartforge_globals_area_id(ptr, ptr)",
-        effects: CONSERVATIVE,
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
     },
     Extern {
         decl: "declare i32 @dartforge_init(ptr, ptr)",
@@ -1549,9 +1559,14 @@ pub const EXTERNS: &[Extern] = &[
             calls_dart: false,
         },
     },
+    // `dartforge_rti_eval` plus the use site's cache and the thread's memo.
     Extern {
         decl: "declare i64 @dartforge_rti_eval_cache(ptr, i64, i64, i64)",
-        effects: CONSERVATIVE,
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
     },
     Extern {
         decl: "declare i64 @dartforge_rti_tuple_join(i64, i64, i64, i64)",
