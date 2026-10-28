@@ -1202,10 +1202,12 @@ impl FnBuilder<'_, '_> {
     ///   runtime as the slow path (which throws the VM's `RangeError`);
     /// * the numeric `_TypedList._getX`/`_setX` (the byte accesses of
     ///   `ByteData` and of the patch's copies): the test `0 <= off`, `off + N <=
-    ///   bytes` and the load or write, with the runtime as the slow path.
+    ///   bytes` and the load or write, with the runtime as the slow path;
+    /// * `_TypedListBase._memMoveN` (`setRange` between lists of the same element
+    ///   size): `@df.typed_write_move`, one `memmove`.
     ///
     /// The results come out in the natural representation (`int` `I64`, `double`
-    /// `F64`), like `inline_string`. SIMD and `_memMove*` stay in the runtime.
+    /// `F64`), like `inline_string`. SIMD stays in the runtime.
     pub(super) fn typed_inline(
         &mut self,
         member: &str,
@@ -1226,6 +1228,33 @@ impl FnBuilder<'_, '_> {
         };
         if let Some((name_str, ret)) = helper_name {
             return Some(self.typed_helper(name_str, vec![(this, Type::Ref)], ret));
+        }
+        // `_memMoveN(start, count, from, skipCount)` of `_fastSetRange`: one inline
+        // `memmove` between the bytes of the two lists. Its only caller,
+        // `_TypedListBase._setRange`, already checked both ranges and the element
+        // size (an unmodifiable view throws before getting here).
+        if let Some(size) = member
+            .strip_prefix("_TypedListBase._memMove")
+            .and_then(|n| n.parse::<i64>().ok())
+            && args.len() == 4
+        {
+            let start = self.coerce(args[0].clone(), Type::I64);
+            let count = self.coerce(args[1].clone(), Type::I64);
+            let from = self.coerce(args[2].clone(), Type::Ref);
+            let skip = self.coerce(args[3].clone(), Type::I64);
+            self.typed_helper(
+                "df.typed_write_move",
+                vec![
+                    (this, Type::Ref),
+                    (start, Type::I64),
+                    (count, Type::I64),
+                    (from, Type::Ref),
+                    (skip, Type::I64),
+                    (Operand::Constant(Constant::Int(size)), Type::I64),
+                ],
+                Type::Void,
+            );
+            return Some(Operand::Constant(Constant::Null));
         }
         let slow = crate::natives::intrinsic(member)?;
         if let Some(class) = member.strip_suffix(".[]") {

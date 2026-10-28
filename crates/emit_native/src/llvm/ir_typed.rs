@@ -145,6 +145,21 @@ define internal i64 @df.word_ref(i64 %e, i64 %i) alwaysinline {
   %r = load i64, ptr %p, align 8
   ret i64 %r
 }
+define internal void @df.typed_write_move(i64 %d, i64 %start, i64 %count, i64 %s, i64 %skip, i64 %size) alwaysinline {
+  %da = add i64 %d, 22
+  %dq = inttoptr i64 %da to ptr
+  %dp = load ptr, ptr %dq, align 8, !invariant.load !{}
+  %sa = add i64 %s, 22
+  %sq = inttoptr i64 %sa to ptr
+  %sp = load ptr, ptr %sq, align 8, !invariant.load !{}
+  %to = mul i64 %start, %size
+  %of = mul i64 %skip, %size
+  %n = mul i64 %count, %size
+  %dst = getelementptr inbounds i8, ptr %dp, i64 %to
+  %src = getelementptr inbounds i8, ptr %sp, i64 %of
+  call void @llvm.memmove.p0.p0.i64(ptr align 1 %dst, ptr align 1 %src, i64 %n, i1 false)
+  ret void
+}
 define internal i64 @df.simd_box(<2 x i64> %v, i64 %cid) alwaysinline {
   %c = shl i64 %cid, 32
   %cab = or i64 %c, 131585
@@ -212,6 +227,7 @@ pub const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.core_len_writable", false, false),
     ("df.word_ref", false, false),
     ("df.keep_alive", false, false),
+    ("df.typed_write_move", false, false),
     ("df.simd_box", true, false),
 ];
 

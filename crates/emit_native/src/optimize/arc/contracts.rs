@@ -105,6 +105,22 @@ pub const HELPER_CONTRACTS: &[Contract] = &[
         calls_dart: false,
     },
     Contract {
+        name: "df.typed_write_move",
+        parameters: &[
+            ParamMode::Borrow,
+            ParamMode::Scalar,
+            ParamMode::Scalar,
+            ParamMode::Borrow,
+            ParamMode::Scalar,
+            ParamMode::Scalar,
+        ],
+        result: ResultMode::Void,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
         name: "df.string_hash",
         parameters: &[ParamMode::Borrow],
         result: ResultMode::ScalarI64,
