@@ -283,27 +283,32 @@ impl LlvmEmitter<'_> {
         }
     }
 
+    /// A mixed literal whose words all box without allocating: `Ref`s, `bool`s
+    /// (the context's `true`/`false`) and `int`s, which the inline path stores as
+    /// `Smi`s when they all fit one (the key-value list of a map literal such as
+    /// `{'id': n, 'active': true}`). A `double` needs a box, which may collect: that
+    /// literal stays in the runtime.
+    fn mixed_boxes_inline(tags: &[u8]) -> bool {
+        Self::literal_shape(tags).is_none() && tags.iter().all(|&t| matches!(t, 1..=3))
+    }
+
     /// Does the literal `AllocList` come out inline ([`Self::emit_alloc_list`])?
     /// Production with tracing memory, a homogeneous literal of 1 to
-    /// `TLAB_N - 1` elements (its storage fits a TLAB block). The empty literal
-    /// shares the runtime's empty storage, and the mixed one boxes in the
-    /// runtime.
+    /// `TLAB_N - 1` elements (its storage fits a TLAB block), or a mixed one
+    /// whose elements box without allocating ([`Self::mixed_boxes_inline`]). The
+    /// empty literal shares the runtime's empty storage, and a mixed one with a
+    /// `double` boxes in the runtime.
     pub(super) fn inline_list_literal(&self, inst: &Instruction) -> bool {
         let Instruction::AllocList { elements } = inst else {
             return false;
         };
+        let tags: Vec<u8> = elements.iter().map(|(op, _)| self.tag_of(op)).collect();
         self.production
             && self.has_ctx
             && !self.module.arc_memory
             && !self.out_of_line_allocation
             && (1..layout::TLAB_N).contains(&elements.len())
-            && Self::literal_shape(
-                &elements
-                    .iter()
-                    .map(|(op, _)| self.tag_of(op))
-                    .collect::<Vec<_>>(),
-            )
-            .is_some()
+            && (Self::literal_shape(&tags).is_some() || Self::mixed_boxes_inline(&tags))
     }
 
     /// The literal list: a `_GrowableList` of capacity `n` with the words
@@ -336,6 +341,39 @@ impl LlvmEmitter<'_> {
                 }
             })
             .collect();
+        // A mixed literal goes into general storage with each word boxed: a `Ref`
+        // as it is, a `bool` as the context's object, an `int` as a `Smi` — the
+        // inline path is taken only when every `int` fits one (`@df.box_int`'s
+        // test), otherwise the runtime boxes.
+        let mut fits: Vec<String> = Vec::new();
+        let stored: Vec<String> = if inline && shape.is_none() {
+            let o = &mut self.out;
+            words
+                .iter()
+                .enumerate()
+                .map(|(k, w)| match tags[k] {
+                    1 => {
+                        let _ = writeln!(o, "  %al{v}b{k}a = add i64 {w}, 4611686018427387904");
+                        let _ = writeln!(
+                            o,
+                            "  %al{v}b{k}f = icmp ult i64 %al{v}b{k}a, -9223372036854775808"
+                        );
+                        let _ = writeln!(o, "  %al{v}b{k}s = shl i64 {w}, 1");
+                        let _ = writeln!(o, "  %al{v}b{k} = or i64 %al{v}b{k}s, 1");
+                        fits.push(format!("%al{v}b{k}f"));
+                        format!("%al{v}b{k}")
+                    }
+                    2 => {
+                        let _ = writeln!(o, "  %al{v}b{k}t = icmp ne i64 {w}, 0");
+                        let _ = writeln!(o, "  %al{v}b{k} = call i64 @df.box_bool(i1 %al{v}b{k}t)");
+                        format!("%al{v}b{k}")
+                    }
+                    _ => w.clone(),
+                })
+                .collect()
+        } else {
+            words.clone()
+        };
         if inline {
             let e = dartforge_runtime::lists::Element::from_code(shape.unwrap_or(0))
                 .expect("a homogeneous literal shape");
@@ -387,10 +425,12 @@ impl LlvmEmitter<'_> {
                 let _ = writeln!(o, "  %al{v}ok2 = icmp ule ptr %al{v}gn, %al{v}ge");
                 let _ = writeln!(o, "  %al{v}ok = and i1 %al{v}ok1, %al{v}ok2");
             }
-            let _ = writeln!(
-                o,
-                "  %al{v}x = call i1 @llvm.expect.i1(i1 %al{v}ok, i1 true)"
-            );
+            let mut cond = format!("%al{v}ok");
+            for (i, f) in fits.iter().enumerate() {
+                let _ = writeln!(o, "  %al{v}okf{i} = and i1 {cond}, {f}");
+                cond = format!("%al{v}okf{i}");
+            }
+            let _ = writeln!(o, "  %al{v}x = call i1 @llvm.expect.i1(i1 {cond}, i1 true)");
             let _ = writeln!(
                 o,
                 "  br i1 %al{v}x, label %al{v}.rapido, label %al{v}.lento"
@@ -414,7 +454,7 @@ impl LlvmEmitter<'_> {
                 offsets::BODY
             );
             let _ = writeln!(o, "  store i64 {n}, ptr %al{v}sl, align 8");
-            for (k, w) in words.iter().enumerate() {
+            for (k, w) in stored.iter().enumerate() {
                 let _ = writeln!(
                     o,
                     "  %al{v}s{k} = getelementptr inbounds i8, ptr %al{v}c, i64 {}",
