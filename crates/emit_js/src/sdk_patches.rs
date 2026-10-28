@@ -311,6 +311,27 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         "  static String _objectToString(Object object) {\n    return Primitives.safeToString(object);\n  }\n",
         "  static String _objectToString(Object? object) {\n    return Primitives.safeToString(object);\n  }\n",
     ),
+    // `getInterceptorForRti` gives every branch a class (`Null`, the two
+    // number classes, `Function` or `JavaScriptFunction`, the prototype's
+    // extension type or `LegacyJavaScriptObject`): its final throw for a
+    // missing one is never reached.
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/rtti.dart",
+        "  if (classRef == null) throw 'Unknown interceptor for object: ($obj)';\n  return JS<Object>('!', '#.prototype', classRef);\n",
+        "  // Production: every branch above gives a class.\n  return JS<Object>('!', '#.prototype', classRef);\n",
+    ),
+    // With `Object`'s `dartx.toString` forwarding to the JavaScript
+    // `toString` (`module.rs::object_member_forwarders`), a tear-off through
+    // the symbol would bind the forwarder; for a Dart object it binds the
+    // JavaScript `toString` instead, the method every other tear-off of
+    // `toString` binds, so that the tear-offs stay equal.
+    (
+        Some("DARTFORGE_JSPROD_TOSTRING_FORWARDER"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "  if (obj == null ||\n      JS<bool>('!', '#[#] !== void 0', obj, extensionSymbol('toString'))) {\n    // The bind helper can handle finding the toString method for null or Dart\n    // Objects.\n    return bind(obj, extensionSymbol('toString'), null);\n  }\n",
+        "  if (obj == null ||\n      JS<bool>('!', '#[#] !== void 0 && !(# instanceof #)', obj,\n          extensionSymbol('toString'), obj, JS_CLASS_REF(Object))) {\n    // Production: a Dart object binds its JavaScript `toString`.\n    return bind(obj, extensionSymbol('toString'), null);\n  }\n",
+    ),
     // `bind` takes the tear-off's type from the class's signature table. A
     // tear-off whose type is the same for every method of that name gets it
     // from the call (`dart.tbind(o, "m", T)`, `emit_js`'s typed bind), and

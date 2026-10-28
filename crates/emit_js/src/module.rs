@@ -3334,6 +3334,22 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     ext_methods.dedup();
     ext_accessors.sort();
     ext_accessors.dedup();
+    // Production: `Object`'s `dartx.toString` forwards to the JavaScript
+    // `toString`, which is the Dart one; a class outside the prototype
+    // chains of the natives, with no ancestor inside them, needs no alias
+    // of its own (`object_member_forwarders`).
+    if object_member_forwarders(ctx) {
+        if Some(c) == ctx.object {
+            if let Some(i) = ext_methods.iter().position(|n| n == "toString") {
+                ext_methods.remove(i);
+                w.line(&format!(
+                    "{cref}.prototype[dartx.toString] = function() {{ return this.toString(); }};"
+                ));
+            }
+        } else if !in_or_under_native_chain(ctx, c) {
+            ext_methods.retain(|n| n != "toString");
+        }
+    }
     if !ext_methods.is_empty() {
         let items: Vec<String> = ext_methods.iter().map(|n| js::string_literal(n)).collect();
         w.line(&format!(
@@ -4236,6 +4252,47 @@ fn trivial_constructor(ctx: &Ctx, s: ClassId, sym: Option<dartforge_intern::Symb
     ctx.production()
         && std::env::var("DARTFORGE_JSPROD_EMPTY_SUPER_CALLS").map_or(true, |v| v != "0")
         && sym.or(ctx.empty_sym).is_some_and(|sym| go(ctx, s, sym, 0))
+}
+
+/// Production: `Object.prototype[dartx.toString]` calls `this.toString()`
+/// instead of being `Object`'s own `toString`, and the classes that cannot
+/// sit in a native prototype chain drop their `dartx.toString` alias: the
+/// runtime's `dart.str`/`dart.toString` read `o[dartx.toString]`, which then
+/// reaches the object's own JavaScript `toString` (the Dart override, or
+/// `Object`'s). A tear-off through the symbol binds the JavaScript
+/// `toString` of a Dart object (`toStringTearoff`, patched), so it equals
+/// the other tear-offs of the same method. `dartx._equals` and
+/// `dartx.hashCode` keep their aliases: the hash collections compare
+/// `o[dartx._equals]` with `Object`'s to choose identity semantics. The native chains keep their aliases, which
+/// `registerExtension` copies onto the JavaScript prototypes.
+/// `DARTFORGE_JSPROD_TOSTRING_FORWARDER=0` keeps every alias.
+fn object_member_forwarders(ctx: &Ctx) -> bool {
+    ctx.production()
+        && ctx.sdk.is_some()
+        && std::env::var("DARTFORGE_JSPROD_TOSTRING_FORWARDER").map_or(true, |v| v != "0")
+}
+
+/// `c`, one of its superclasses or one of their mixins (but `Object`) sits
+/// in the prototype chain of a native class: its `dartx` aliases stay, and so
+/// do those of its subclasses (an ancestor's alias would shadow the
+/// inherited forwarder).
+fn in_or_under_native_chain(ctx: &Ctx, c: ClassId) -> bool {
+    let mut k = Some(c);
+    let mut depth = 0;
+    while let Some(x) = k {
+        if Some(x) == ctx.object {
+            return false;
+        }
+        if depth > 256
+            || ctx.in_native_chain(x)
+            || ctx.mixins_of(x).iter().any(|m| ctx.in_native_chain(*m))
+        {
+            return true;
+        }
+        depth += 1;
+        k = ctx.superclass_of(x);
+    }
+    false
 }
 
 /// If the class has mixins, the constructor of the immediate superclass is that of the last application.
