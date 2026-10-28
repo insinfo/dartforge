@@ -772,6 +772,130 @@ conferência de exceção pendente depois de cada chamada. Nos dois processos a 
 isolado está saturada; o Dart gasta quase a mesma CPU de processo por pedido (21,8 contra
 21,5 µs), com mais tempo de sistema e menos de usuário (11,2 contra 12,2 µs).
 
+## Rodada de 2026-10-28 (manhã): onde a vazão HTTP se perde — threads, chamadas ao sistema e alocação
+
+Medido no `main`, de `f0fa1965` (início: o servidor e as árvores compilados com o compilador
+desse commit) a `d78d5196` (fim), no mesmo Mac mini M4, com outro agente compilando (as
+tabelas usam rodadas com carga entre 3,9 e 4,5). Processos alternados: mediana de 5 rodadas de
+4 s com 4 × 8 conexões de `bench/comparison/load_keepalive.dart` e contadores do processo pelo
+`time -l`; a CPU por thread vem do `ps -M` tirado depois da carga e antes do `/quit` (3 rodadas
+alternadas, todas iguais em ±2%); árvores: mediana de 7 processos e média dos 20 tempos por
+rodada que o programa imprime, em 5 execuções alternadas.
+
+| medida | início | fim | Dart AOT 3.6.2 |
+|---|---:|---:|---:|
+| servidor `/json` com keep-alive, pedidos/s | 61,4 mil | 62,8 mil | 71,0 mil |
+| instruções / ciclos por pedido (processo) | 236,2 mil / 73,4 mil | 231,1 mil / 72,0 mil | 212,2 mil / 70,7 mil |
+| thread do isolado por pedido: sistema + usuário | 4,6 + 11,7 µs | 4,6 + 11,2 µs | 5,0 + 8,7 µs |
+| thread de E/S por pedido: sistema + usuário | 3,2 + 0,6 µs | 3,2 + 0,6 µs | 3,4 + 1,5 µs |
+| RSS do servidor depois da carga | 18,4 MB | 18,1 MB | 18,1 MB |
+| executável do servidor | 4,452 MB | 4,468 MB | 5,625 MB |
+| árvores (processo inteiro), instruções / ciclos | 5,22 G / 1,125 G | 5,01 G / 1,060 G | 5,02 G / 1,011 G |
+| árvores, ms por rodada | 13,3 | 12,15 | 11,8 |
+| árvores, RSS máximo | 18,9 MB | 27,5 MB | 75,1 MB |
+
+Servidor de 86% para 88% dos pedidos/s do Dart (as medições alternadas do `ps -M`: 61,2 →
+63,1 mil contra 71,6 mil); árvores de +13% para +3% do tempo por rodada do Dart, com as
+instruções já abaixo das dele.
+
+**Por que os ciclos quase empatam e os pedidos/s não.** Os ciclos por pedido do `time -l`
+somam todas as threads. Separadas, a thread do isolado está saturada nos dois processos, e é
+ela que fixa os pedidos/s (1 / 16,3 µs = 61 mil; 1 / 13,8 µs = 72 mil). O Dart gasta mais na
+thread de E/S (4,9 contra 3,8 µs por pedido) e menos na do isolado; a soma empata. A diferença
+inteira é **tempo de usuário na thread do isolado**: 11,7 µs contra 8,7 µs no início (o
+sistema empata, 4,6 contra 5,0 µs).
+
+**Chamadas ao sistema: o mesmo padrão.** Sem `dtruss` (o SIP está ligado e não há `sudo`), um
+interpositor por `DYLD_INSERT_LIBRARIES` contou as entradas da libc por thread (3 s de carga):
+nos dois processos a thread do isolado faz por pedido 1 `read` do soquete, 2 `ioctl(FIONREAD)`
+e 2,25 `write` (2 no soquete e ~0,25 byte de interrupção no pipe do tratador de eventos), e a
+thread de E/S acorda ~0,25 vez por pedido e faz 1,1 (Dart) a 1,2 (nós) `kevent`. Não há escrita
+fragmentada, acordar extra nem espera no laço de eventos: as 32 conexões mantêm o isolado sempre
+com trabalho. As diferenças são de detalhe e todas fora da thread do isolado: a nossa thread de
+E/S drena o pipe com uma leitura a mais (que dá `EAGAIN`) e lê o relógio duas vezes por
+pedido; o Dart gasta ~1,5 µs por pedido na thread do isolado em `pthread_sigmask`,
+`sigaltstack` e `sigprocmask` (10% das amostras dela), que nós não temos.
+
+**Onde vai o tempo de usuário** (`sample` das duas threads, amostras próprias): o código Dart
+compilado custa quase o mesmo nos dois (nosso `df.dart*` mais os auxiliares `df.*`, ~7,0 µs por
+pedido; o código AOT do Dart, que inclui os stubs de alocação e de testes de tipo, ~5,9 µs); a
+diferença está no runtime: ~3,8 µs por pedido nosso (runtime + `memset`/`memmove`) contra
+~1,6 µs do C++ da VM e do `malloc`. No início, a maior fatia do runtime era memória — a coleta
+jovem (3,5% das amostras da thread, quase toda em `sweep_young`), o `memset` da TLAB e dos
+buffers de 8 KiB (2,5%) e os caminhos lentos de alocação —, e a seguir as ~365 chamadas ao
+runtime por pedido, cada uma com o empréstimo do heap por thread-local e a validação dos
+handles. Nas árvores, 26% das amostras eram coleta e zeragem: `sweep_young` 8,8%, `memset`
+7,5%, `mark_pending` 6,1%.
+
+**O que entrou** (validado no estado de cada commit, ou do conjunto quando o commit seguinte só
+mexe no runtime, com os testes de `dartforge-emit-native` — 1.182 passam — e de
+`dartforge-runtime` — 440 —, `cargo clippy -D warnings` dos dois, o corpus nativo 160/160 em
+`--optimize` com `DARTFORGE_CHECK_SHADOW=1`, em `--optimize --gc-stress`, em desenvolvimento e em
+Wasm, com `--exec-limit 60`, e 11 programas do corpus em ARC simples e preparado, com o
+berçário padrão, contra `dart run`: 22/22 em cada estado):
+
+- `5f4faf0b`: a coleta menor varre cada faixa da TLAB e cada sequência de sobreviventes por
+  palavra do mapa de bits: uma carga por palavra limpa e um passo por bloco marcado, sem a
+  divisão por trecho de 512 bytes nem o teste bloco a bloco de antes; os mortos saem da contagem
+  dos marcados. Árvores: `sweep_young` de 8,8% para 2,1% das amostras, 1,131 → 1,063 G ciclos.
+- `f0478ede`: o literal de lista homogêneo de 1 a 15 elementos sai em linha no AOT de produção
+  com memória por rastreamento: o armazenamento (`_List`) e o `_GrowableList` vêm das TLABs dos
+  seus tamanhos, com cabeçalhos, comprimento, elementos e armazenamento escritos sem barreira
+  (os dois são jovens), como a alocação em linha da VM; TLAB esgotada, literal vazio ou misto
+  continuam em `dartforge_list_new`. O runtime também passa a guardar no cache do sítio o tipo de
+  uma lista quando gravá-lo não mudou o armazenamento (a forma já certa), o que um sítio de
+  literal repete sempre; listas continuam fora do memo da thread, que outros sítios partilham.
+  Laço de três literais pequenos: 1,21 → 0,62 G ciclos.
+- `50a77bfc`: a lista tipada interna de tipo de elemento constante, com a tabela da classe já
+  registrada (o teste em linha de `f0fa1965`), sai da TLAB do seu tamanho quando o corpo cabe em
+  16 palavras (até 112 bytes), como o `TypedDataAllocationStub` da VM: cabeçalho, comprimento e
+  endereço dos bytes, que já vêm zerados. Laço de quatro listas tipadas pequenas: 0,295 → 0,221 G
+  ciclos.
+- `5f1bedfc`: o limite jovem cresce como o semiespaço da VM: a coleta menor (rastreamento, sem
+  estresse) que alcança mais de um bloco em dez dos alocados desde a anterior dobra o limite,
+  até 8 MiB; não encolhe, e `DARTFORGE_GC_YOUNG_KB` ainda o fixa. O servidor (~0,5% de
+  sobrevivência) nunca cresce e fica nos 18 MB; as árvores crescem na primeira coleta que pega
+  a árvore longa em construção: 12,45 → 12,15 ms por rodada, RSS 18,6 → 27,6 MB (o Dart usa
+  75 MB). É a política "esperta" pedida no lugar dos 8 MiB fixos, que custavam 4 MB a mais no
+  servidor.
+- `d78d5196`: `_List(length)` calcula o tipo antes (só lê e interna no universo) e aloca,
+  tipa e ajusta a forma num único empréstimo do heap, sem quadro de raízes; o `_GrowableList`
+  novo recebe comprimento e armazenamento por escrita direta, sem o `set_field` verificado.
+  Com o anterior, −2 mil instruções por pedido.
+
+As chamadas ao runtime por pedido (pontos de parada do `lldb` que só contam, 10 e 30 pedidos,
+diferença ÷ 20) caíram de ~365 para ~308: `dartforge_list_new` de 7 para 4, as listas tipadas
+pelo runtime de 10 para 4; `StringBuffer` continua com 58.
+
+**Medido e não feito.**
+
+- *Limite jovem de 16 MiB*: nas árvores, nada além dos 8 MiB (12,0 a 12,3 ms contra 12,0) com
+  39 MB de RSS. Ficou em 8 MiB.
+- *Refill maior da TLAB* (`DARTFORGE_TLAB_BLOCKS=512` e `1024`): servidor +0,4% de pedidos/s,
+  dentro do ruído. Ficou em 256.
+- *Literal vazio em linha com armazenamento próprio*: nenhuma diferença no servidor (62,9 contra
+  62,2 mil pedidos/s, ruído) nem num laço de literais vazios; descartado.
+- *Zerar na varredura em vez de no refill*: os mesmos bytes, com a localidade pior (a zeragem no
+  refill põe as linhas no cache logo antes do uso). Não tentado. O que tiraria o `memset` (6,6%
+  das árvores, 2,6% do servidor, metade disso nos dois `Uint8List` de 8 KiB por resposta, que o
+  Dart também zera) é a alocação inicializar todos os campos, como os stubs da VM, e a TLAB não
+  ser zerada — mudança em todos os caminhos de alocação do emissor e do runtime, que fica para
+  uma rodada com um modo de verificação que envenene as faixas entregues.
+- *Acerto de `df.rti_set_cached` em linha*: continua 1,6% das amostras da thread do isolado
+  (123 chamadas por pedido, ~9 ciclos cada); o gêmeo `$ctx` do auxiliar é gerado do texto dele,
+  e dividi-lo em acerto em linha e caminho lento não coube nesta rodada.
+
+**O que ainda separa do Dart, em ordem** (thread do isolado, amostras próprias no fim): as ~308
+chamadas ao runtime por pedido, cada uma com o empréstimo do heap por thread-local e handles
+validados (`StringBuffer` 58, `arg_index` 16, `string_equals_object` 15, `typed_memMove1` 6,
+`_List(length)` 4, visões tipadas 3), ~16% das amostras; o `memset` (2,6%), boa parte dele
+inerente aos buffers de 8 KiB; os auxiliares de RTI fora de linha (`rti_set_cached`,
+`rti_eval_probe`, `rti_eval_site`, `rti_is_probe`: 3,9%); as ~433 chamadas indiretas que ainda
+leem o contexto por TLS no trampolim; e o modelo `async` do dart2js (`_propagateToListeners`,
+`_RootZone.run*`, `_BufferingStreamSubscription`). Nas árvores, a marcação menor dos
+sobreviventes (7,9%) e o `memset` (6,6%); o Dart faz a coleta jovem em paralelo em threads
+auxiliares, por isso empata em ciclos do processo com 2,5% a menos de tempo de parede.
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
@@ -790,11 +914,12 @@ isolado está saturada; o Dart gasta quase a mesma CPU de processo por pedido (2
    nulo e elimina `boolean_selector`, `source_span`, `string_scanner` e `stream_channel`, que
    aqui somam cerca de 160 KB sem minificação. No hello o piso vem dos membros de `Object`
    tratados como universais (`universal_names`): `toString` puxa o RTI inteiro.
-2. **Vazão HTTP ~88% do Dart** (62,1 contra 70,5 mil pedidos/s; 236 contra 212 mil
-   instruções e 72,6 contra 71,1 mil ciclos por pedido, na madrugada de 2026-10-28).
-   Perfil achatado; o que falta está na seção da madrugada de 2026-10-28: as chamadas ao
-   runtime (literais de lista, `StringBuffer`), os auxiliares de RTI fora de linha, as
-   chamadas indiretas que ainda leem o contexto por TLS e o modelo `async` da VM.
+2. **Vazão HTTP ~88% do Dart** (62,8 contra 71,0 mil pedidos/s; 231 contra 212 mil
+   instruções e 72,0 contra 70,7 mil ciclos por pedido, na manhã de 2026-10-28). As chamadas ao
+   sistema seguem o mesmo padrão do Dart; a diferença é tempo de usuário na thread do isolado
+   (11,2 contra 8,7 µs por pedido), quase todo no runtime: as ~308 chamadas por pedido
+   (`StringBuffer` 58), o `memset`, os auxiliares de RTI fora de linha, as chamadas indiretas
+   que ainda leem o contexto por TLS e o modelo `async` da VM (seção da manhã de 2026-10-28).
 3. **`async` no nível do Dart** (no fim de 2026-10-27: 254 contra 249 ms, 5,22 contra
    5,30 G ciclos, com o dobro de instruções). O que sobra é a própria máquina de estados no
    estilo do dart2js (`_wrapBody` e o `guarded` por chamada, o corpo chamado pela
