@@ -762,6 +762,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
+    /// `@df.string_equals_object(a, b)` for a non-null string `a`.
+    fn string_equals_object(&mut self, a: Operand, b: Operand) -> Operand {
+        self.emit(
+            Instruction::CallRuntime {
+                name: "df.string_equals_object".to_string(),
+                args: vec![(a, Type::Ref), (b, Type::Ref)],
+                ret_ty: Type::I1,
+            },
+            Type::I1,
+        )
+    }
+
     /// `a == b` (or `a != b`, with `negate`) when the static type of `a` is
     /// a class whose `==` is closed ([`closed_member`]: `String`, `int`,
     /// `double`, `bool`…): the null rule of [`Self::source_equality`] and,
@@ -780,10 +792,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.in_adapter || self.operand_type(a) != Type::Ref {
             return None;
         }
-        let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(type_of_a?)
+        let dartforge_types::table::Type::Interface {
+            class, nullable, ..
+        } = self.ctx.table.get(type_of_a?)
         else {
             return None;
         };
+        let nullable = *nullable;
         let fid = self.member_in_class(*class, "==")?;
         let owner = self.ctx.program.functions[fid].class?;
         if !self
@@ -801,16 +816,49 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // (`_StringBase._equalsObject`, which already handles `null` and the other side
         // not being a `String`): one call, without the null rule or the `switch`
         // on the class — the VM's `String_equality` intrinsic.
+        // `String` compares inline (`@df.string_equals_object`, the body the
+        // native's own `_StringBase.==` lowers to, which already answers for a
+        // null or non-string `b`): `x == null` is the identity test, and a
+        // nullable `a` that is null equals only null.
         if self.ctx.core.string_class == Some(*class) {
-            let r = self.emit(
-                Instruction::CallRuntime {
-                    name: crate::natives::symbol("DartForge_string_equals_object"),
-                    args: vec![(a, Type::Ref), (b, Type::Ref)],
-                    ret_ty: Type::I8,
-                },
-                Type::I8,
-            );
-            let e = self.coerce(r, Type::I1);
+            let null_b = matches!(b, Operand::Constant(Constant::Null));
+            let e = if null_b {
+                self.emit(Instruction::ICmp(ICmpOp::Eq, a, b), Type::I1)
+            } else if nullable {
+                let null_a = self.emit(
+                    Instruction::ICmp(ICmpOp::Eq, a.clone(), Operand::Constant(Constant::Null)),
+                    Type::I1,
+                );
+                let when_null = self.new_block();
+                let when_value = self.new_block();
+                let join = self.new_block();
+                self.terminate(Terminator::CondBranch {
+                    cond: null_a,
+                    then_block: when_null,
+                    else_block: when_value,
+                });
+                self.set_block(when_null);
+                let r1 = self.emit(
+                    Instruction::ICmp(ICmpOp::Eq, b.clone(), Operand::Constant(Constant::Null)),
+                    Type::I1,
+                );
+                let end1 = self.current_block;
+                self.terminate(Terminator::Branch(join));
+                self.set_block(when_value);
+                let r2 = self.string_equals_object(a, b);
+                let end2 = self.current_block;
+                self.terminate(Terminator::Branch(join));
+                self.set_block(join);
+                self.emit(
+                    Instruction::Phi {
+                        incoming: vec![(end1, r1), (end2, r2)],
+                        ty: Type::I1,
+                    },
+                    Type::I1,
+                )
+            } else {
+                self.string_equals_object(a, b)
+            };
             return Some(if negate {
                 self.emit(Instruction::LNot(e), Type::I1)
             } else {
