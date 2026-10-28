@@ -520,6 +520,23 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
         "    if (setterType != null) {\n      return JS('', '#[#] = #.#(#)', obj, f, setterType,",
         "    if (setterType != null) {\n      if (JS_GET_FLAG('OMIT_IMPLICIT_CHECKS')) {\n        return JS('', '#[#] = #', obj, f, value);\n      }\n      return JS('', '#[#] = #.#(#)', obj, f, setterType,",
     ),
+    // The type parameters of a generic function type print as on the VM
+    // (`TypeParameter::CanonicalNameCString`): `Y0`, `Y1`… and, inside
+    // `n` enclosing type parameters, `F<n>Y0`…, where `dart2js` and DDC
+    // print `T<n + 1>`.
+    (
+        None,
+        "_internal/js_shared/lib/rti.dart",
+        "      genericContext.add('T${offset + i}');\n",
+        "      genericContext.add(offset == 0 ? 'Y${i - 1}' : 'F${offset}Y${i - 1}');\n",
+    ),
+    // The same line after the `push` patch above.
+    (
+        None,
+        "_internal/js_shared/lib/rti.dart",
+        "      JS('', '#.push(#)', genericContext, 'T${offset + i}');\n",
+        "      JS('', '#.push(#)', genericContext,\n          offset == 0 ? 'Y${i - 1}' : 'F${offset}Y${i - 1}');\n",
+    ),
 ];
 
 /// Applies `PATCHES` to `sdk` as overlay replacements. The patched files
