@@ -420,6 +420,10 @@ pub struct Options {
     /// No legacy (`T*`) type exists at run time (assumed in sound null
     /// safety, then checked against the emitted recipes).
     pub without_legacy: bool,
+    /// No dynamic call passes named arguments (assumed, then checked
+    /// against the emitted text): the `named` parameters of the runtime's
+    /// dynamic-call helpers are always `null` (`constants.rs`).
+    pub without_dynamic_named: bool,
 }
 
 /// Computes the world. Deterministic: the queue is FIFO, the roots are
@@ -795,6 +799,7 @@ impl<'a> Computation<'a> {
             if let Some(c) = &m.constants {
                 c.set_without_records(op.without_records);
                 c.set_without_legacy(op.without_legacy);
+                c.set_without_dynamic_named(op.without_dynamic_named);
             }
             if std::env::var("DARTFORGE_JSPROD_NULL_PARAMS").map_or(true, |v| v != "0") {
                 m.params = Some(params::ParamFlow::new(e, &m.universal_names));

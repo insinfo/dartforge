@@ -77,6 +77,10 @@ pub struct Constants<'a> {
     /// No legacy (`T*`) type exists at run time
     /// ([`crate::Options::without_legacy`]).
     without_legacy: std::cell::Cell<bool>,
+    /// The `named` parameters of the runtime's dynamic-call path, always
+    /// `null` when no dynamic call passes named arguments
+    /// ([`crate::Options::without_dynamic_named`]); empty otherwise.
+    dynamic_named: RefCell<HashSet<ParamKey>>,
 }
 
 impl<'a> Constants<'a> {
@@ -91,6 +95,7 @@ impl<'a> Constants<'a> {
             units: RefCell::new(HashMap::new()),
             without_records: std::cell::Cell::new(false),
             without_legacy: std::cell::Cell::new(false),
+            dynamic_named: RefCell::new(HashSet::new()),
         }
     }
 
@@ -111,6 +116,27 @@ impl<'a> Constants<'a> {
     /// [`Constants::set_without_legacy`].
     pub fn without_legacy(&self) -> bool {
         self.without_legacy.get()
+    }
+
+    /// No dynamic call passes named arguments: the `named` parameter of
+    /// `dcall`, `dgcall`, `dsend`, `dgsend`, `dsendRepl`, `dgsendRepl`,
+    /// `callMethod` and `_checkAndCall`, `namedActuals` of
+    /// `_argumentErrors`, and `namedArguments`/`namedArgs` of
+    /// `InvocationImpl` and its `_namedArgsToSymbols` (`dart:_runtime`) are
+    /// always `null`. Every value they receive comes from those helpers'
+    /// own `named` parameters, which only a dynamic call with named
+    /// arguments or `Function.apply` with a map fills.
+    pub fn set_without_dynamic_named(&self, b: bool) {
+        let mut set = self.dynamic_named.borrow_mut();
+        set.clear();
+        if b {
+            set.extend(dynamic_named_params(self.e));
+        }
+    }
+
+    /// [`Constants::set_without_dynamic_named`].
+    pub fn without_dynamic_named(&self) -> bool {
+        !self.dynamic_named.borrow().is_empty()
     }
 
     /// `JS_GET_FLAG('X')` of `dart:_foreign_helper`, with the values the
@@ -350,7 +376,12 @@ impl<'a> Constants<'a> {
     /// innermost function that contains `x` and declares `name` has it in
     /// [`Constants::null_params`].
     fn parameter(&self, u: UnitId, x: ExprId, name: SymbolId) -> Option<Value> {
-        if !self.null_names.borrow().contains_key(&name) {
+        let gated = self
+            .dynamic_named
+            .borrow()
+            .iter()
+            .any(|k| k.name == name && k.unit == u);
+        if !gated && !self.null_names.borrow().contains_key(&name) {
             return None;
         }
         let up = self.unit_params(u);
@@ -370,9 +401,7 @@ impl<'a> Constants<'a> {
             offset,
             name,
         };
-        self.null_params
-            .borrow()
-            .contains(&key)
+        (self.null_params.borrow().contains(&key) || self.dynamic_named.borrow().contains(&key))
             .then_some(Value::Null)
     }
 
@@ -670,6 +699,92 @@ fn write_target(a: &ast::Ast, x: ExprId, out: &mut Vec<(SymbolId, usize)>) {
 }
 
 /// The parameter declarations and the writes of a unit ([`UnitParams`]).
+/// The parameter keys of [`Constants::set_without_dynamic_named`]: the
+/// declared parameter `param` of each named function of `dart:_runtime`
+/// (`Class.member` for a static or constructor; `Class.` is the unnamed
+/// constructor).
+fn dynamic_named_params(e: WorldInput<'_>) -> Vec<ParamKey> {
+    const PARAMS: &[(&str, &str)] = &[
+        ("dcall", "named"),
+        ("dgcall", "named"),
+        ("dsend", "named"),
+        ("dgsend", "named"),
+        ("dsendRepl", "named"),
+        ("dgsendRepl", "named"),
+        ("callMethod", "named"),
+        ("_checkAndCall", "named"),
+        ("_argumentErrors", "namedActuals"),
+        ("InvocationImpl.", "namedArguments"),
+        ("InvocationImpl._namedArgsToSymbols", "namedArgs"),
+    ];
+    let p = e.program;
+    let Some(rt) = p.libraries.iter().position(|l| l.uri == "dart:_runtime") else {
+        return Vec::new();
+    };
+    let lib = p.library(dartforge_elements::model::LibraryId(rt as u32));
+    let mut out = Vec::new();
+    for (function, param) in PARAMS {
+        let fid = match function.split_once('.') {
+            None => e
+                .interner
+                .lookup(function)
+                .and_then(|s| lib.declared.get(&s))
+                .and_then(|b| b.getter)
+                .and_then(|el| match el {
+                    Element::Function(f) => Some(f),
+                    _ => None,
+                }),
+            Some((class, member)) => e
+                .interner
+                .lookup(class)
+                .and_then(|s| lib.declared.get(&s))
+                .and_then(|b| b.getter)
+                .and_then(|el| match el {
+                    Element::Class(c) => Some(c),
+                    _ => None,
+                })
+                .and_then(|c| {
+                    let k = p.class(c);
+                    let sym = e.interner.lookup(member)?;
+                    k.static_members
+                        .get(&sym)
+                        .or_else(|| k.constructors.get(&sym))
+                        .copied()
+                }),
+        };
+        let Some(fid) = fid else { continue };
+        let func = p.function(fid);
+        let node = func.patched_by.map_or(func.node, |q| p.function(q).node);
+        let (unit, list): (UnitId, &[ast::Parameter]) = match node {
+            dartforge_elements::model::FunctionRef::Function { unit, function } => {
+                match p.unit(unit).ast.function(function).parameters.as_deref() {
+                    Some(ps) => (unit, ps),
+                    None => continue,
+                }
+            }
+            dartforge_elements::model::FunctionRef::Constructor { unit, member } => {
+                match &p.unit(unit).ast.member(member).kind {
+                    ast::MemberKind::Constructor(k) => (unit, &k.parameters[..]),
+                    _ => continue,
+                }
+            }
+            dartforge_elements::model::FunctionRef::None => continue,
+        };
+        for prm in list {
+            if let Some(n) = prm.name
+                && e.interner.resolve(n.sym) == *param
+            {
+                out.push(ParamKey {
+                    unit,
+                    offset: n.span.start as u32,
+                    name: n.sym,
+                });
+            }
+        }
+    }
+    out
+}
+
 fn unit_params(a: &ast::Ast) -> UnitParams {
     let mut up = UnitParams::default();
     let mut declare = |start: usize, end: usize, ps: &[ast::Parameter]| {

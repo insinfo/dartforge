@@ -397,10 +397,15 @@ fn fixed_point(
         without_records: std::env::var("DARTFORGE_JSPROD_RECORDS_GATE").map_or(true, |v| v != "0"),
         // `DARTFORGE_JSPROD_LEGACY_GATE=0` assumes legacy types may exist.
         without_legacy: std::env::var("DARTFORGE_JSPROD_LEGACY_GATE").map_or(true, |v| v != "0"),
+        // No dynamic call with named arguments until the text shows one
+        // (`DARTFORGE_JSPROD_DYNAMIC_NAMED_GATE=0` assumes they may exist).
+        without_dynamic_named: std::env::var("DARTFORGE_JSPROD_DYNAMIC_NAMED_GATE")
+            .map_or(true, |v| v != "0"),
     };
     let constants = dartforge_world::Constants::new(input, !op.asserts);
     constants.set_without_records(opm.without_records);
     constants.set_without_legacy(opm.without_legacy);
+    constants.set_without_dynamic_named(opm.without_dynamic_named);
     let runtime_equals = a
         .program
         .libraries
@@ -512,6 +517,12 @@ fn fixed_point(
             computation = dartforge_world::Computation::new(input, opm);
             continue;
         }
+        if opm.without_dynamic_named && texts.iter().any(|(_, t)| passes_dynamic_named(t)) {
+            opm.without_dynamic_named = false;
+            constants.set_without_dynamic_named(false);
+            computation = dartforge_world::Computation::new(input, opm);
+            continue;
+        }
         if opm.without_legacy && texts.iter().any(|(_, t)| cites_legacy_recipe(t)) {
             opm.without_legacy = false;
             constants.set_without_legacy(false);
@@ -559,6 +570,66 @@ fn fixed_point(
         roots.selectors.extend(missing.selectors);
     }
     Ok(None)
+}
+
+/// Whether `text` calls a dynamic-call helper of the runtime with its
+/// `named` argument (`dart.dsend(o, "m", [a], {b: 1})`,
+/// `dart.dcall(f, args, map)` in `Function.apply`): one argument beyond
+/// the helper's positional ones, other than the helpers' own forwarding of
+/// their `named` parameter (`named`) or a `null`. A false positive only
+/// keeps the named-argument paths.
+fn passes_dynamic_named(text: &str) -> bool {
+    const HELPERS: &[(&str, usize)] = &[
+        ("dart.dcall(", 2),
+        ("dart.dgcall(", 3),
+        ("dart.dsend(", 3),
+        ("dart.dgsend(", 4),
+        ("dart.dsendRepl(", 3),
+        ("dart.dgsendRepl(", 4),
+    ];
+    let b = text.as_bytes();
+    for (helper, positional) in HELPERS {
+        for (p, _) in text.match_indices(helper) {
+            // The arguments at depth 0, split by commas.
+            let mut args: Vec<(usize, usize)> = Vec::new();
+            let mut depth = 0i32;
+            let mut start = p + helper.len();
+            let mut i = start;
+            let mut end = None;
+            while i < b.len() {
+                match b[i] {
+                    b'"' | b'\'' | b'`' => {
+                        let q = b[i];
+                        i += 1;
+                        while i < b.len() && b[i] != q {
+                            i += if b[i] == b'\\' { 2 } else { 1 };
+                        }
+                    }
+                    b'(' | b'[' | b'{' => depth += 1,
+                    b')' | b']' | b'}' if depth > 0 => depth -= 1,
+                    b')' => {
+                        end = Some(i);
+                        break;
+                    }
+                    b',' if depth == 0 => {
+                        args.push((start, i));
+                        start = i + 1;
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            let Some(end) = end else { return true };
+            args.push((start, end));
+            if args.len() > *positional {
+                let extra = text[args[*positional].0..args[*positional].1].trim();
+                if extra != "named" && extra != "null" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Whether `text` holds a string literal that looks like an rti recipe with
