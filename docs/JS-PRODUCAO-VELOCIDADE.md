@@ -255,14 +255,15 @@ máscaras e a ordem dos `const` encolhem. Os projetos (`limitless_ui`,
   `dart2js` escreve uma máquina de estados com `switch`. Sobra o custo do
   gerador em cada `await`, o GC das molduras dos geradores (19% do tempo) e
   as avaliações de rti por ambiente (`T[_eval]("…")`, um `Map` por rti) do
-  `_Future`. O próximo passo seria a máquina de estados na produção.
+  `_Future`. A máquina de estados veio na rodada seguinte (§9.2): 2,2×.
 * **`list_sort` (2,3×).** O `JSArray.sort` do DDC é o `Sort.sort` do Dart
   (*quicksort* de dois pivôs em Dart), com `Comparable.compare(a as
   Comparable, b as Comparable)` checado a cada comparação; o do `dart2js`
   chama o `Array.prototype.sort` nativo com o comparador. Ver §6.
 * **`map_int_object` (2,4×).** O `IdentityMap`/`LinkedMap` do runtime
   guardam em `Map` do JavaScript; o `JsLinkedHashMap` do `dart2js` guarda
-  chaves inteiras num objeto (`_nums`) com células encadeadas.
+  chaves inteiras num objeto (`_nums`) com células encadeadas. Medido na
+  §9.5.
 * **`collatz` (1,5×).** `x >> 1` com `x` de sinal desconhecido é
   `x > 0 ? x >>> 1 : x >> 1 >>> 0` (`dart.shrCount`); a inferência do
   `dart2js` prova `x` não negativo e escreve `x >>> 1`. Precisaria de uma
@@ -281,10 +282,11 @@ máscaras e a ordem dos `const` encolhem. Os projetos (`limitless_ui`,
   do DDC checa no chamado, e o `dart2js` só no chamador quando o tipo
   estático não é exato.
 
-Defeito encontrado e **não** corrigido: o `main(List<String> args)` recebe
-`undefined` nos dois perfis (`m.main()` sem argumentos, `bundle.rs` e
-`module.rs`); a VM e o `dart2js` passam uma lista vazia. O
-`bench/comparison/json_encode.dart` cai em `for (… in arguments)`.
+Defeito encontrado e **não** corrigido nesta rodada: o `main(List<String>
+args)` recebia `undefined` nos dois perfis (`m.main()` sem argumentos,
+`bundle.rs` e `module.rs`); a VM e o `dart2js` passam uma lista vazia. O
+`bench/comparison/json_encode.dart` caía em `for (… in arguments)`.
+Corrigido na rodada seguinte (§9.1).
 
 ## 8. Validação
 
@@ -302,3 +304,232 @@ Defeito encontrado e **não** corrigido: o `main(List<String> args)` recebe
   de produção: o texto do perfil de desenvolvimento é o mesmo.
 * Cada commit foi validado numa exportação limpa (`git archive` do HEAD
   mais o *patch*) com `CARGO_TARGET_DIR` próprio.
+
+## 9. Segunda rodada: `main(args)` e `async` como máquina de estados
+
+Rodada de 2026-10-28, fim da tarde. Mesma máquina, mesmos motores e o mesmo
+método da §1 (mediana de 5 execuções no Node `-O4`, 3 no Chrome e no
+`-O2`); a carga da máquina ficou entre 3 e 6. “Antes” é o `fb01240b`, o fim
+da §3.
+
+### 9.1 `main(List<String> args)`
+
+O `dart2js` 3.6 chama `callMain([])`, e o `callMain` passa
+`convertMainArgumentList(args)`: um `JSArray<String>` vazio e crescível —
+**não** lê `process.argv` nem sob o Node (só um `dartMainRunner` global
+mudaria isso). Um segundo parâmetro posicional recebe `undefined`, lido
+como `null`. A VM sem argumentos passa uma lista vazia (não modificável).
+
+Agora a entrada passa `_interceptors.JSArray.of(<rti de JSArray<String>>,
+[])` e, se `main` tem dois parâmetros posicionais, `null` no segundo
+(`emit_js/src/module.rs`, `main_arguments`; a produção lê a chamada do
+`main.mjs`, `bundle::entry_from_mjs`). Vale nos dois perfis: no de
+desenvolvimento muda só o `main.mjs` de um `main` com parâmetros, que
+passa a importar `_interceptors` e `dart_rti`. O
+`bench/comparison/json_encode.dart` roda sem modificação nos dois.
+
+Testes: `emit_js/tests/programs/main_arguments.dart` e
+`main_arguments_message.dart`, contra a VM no desenvolvimento
+(`tests/basic.rs`) e em `-O1`, `-O2` e `-O4`
+(`emit_js_production/tests/main_arguments.rs`).
+
+### 9.2 `async` como máquina de estados
+
+`emit_js/src/async_machine.rs`, só na produção, chave
+`DARTFORGE_JSPROD_ASYNC_MACHINE` (`=0` volta ao gerador;
+`DARTFORGE_JSPROD_ASYNC_MACHINE_DEBUG=1` diz quais funções ficaram com o
+gerador e por quê).
+
+O emissor continua escrevendo o corpo do gerador (cada `await` é um
+`yield`); o texto é analisado pelo `oxc` (com o `oxc_semantic` para os
+escopos) e reescrito por emenda, como o `dart2js` escreve o seu:
+
+```js
+mid(i) {
+  let t$completer = async._makeAsyncAwaitCompleter(T), t$goto = 0, a, b;
+  let t$body = async._wrapJsFunctionForAsync((t$code, t$res) => {
+    if (t$code === 1) return async._asyncRethrow(t$res, t$completer);
+    switch (t$goto) {
+      case 0: t$goto = 1; return async._asyncAwait(leaf(i), t$body);
+      case 1: a = t$res; t$goto = 2; return async._asyncAwait(leaf(i + 1), t$body);
+      case 2: b = t$res; return async._asyncReturn(a + b, t$completer);
+    }
+  });
+  return async._asyncStartSync(t$body, t$completer);
+}
+```
+
+* **Os mesmos auxiliares do runtime**, na mesma ordem: o mesmo *completer*,
+  o mesmo passo registrado na zona (`_wrapJsFunctionForAsync`), o mesmo
+  `_asyncStartSync` (o primeiro passo síncrono, o `isSync` depois dele), o
+  mesmo `_asyncAwait` (um `then` por `await`, o `await` de um não-*future*
+  por um `_Future` já completo), o mesmo `_asyncReturn` (completa síncrono
+  depois do primeiro `await`, como o `dart2js`). A ordem do laço de eventos
+  é a do gerador, que já era a da VM: some só o objeto gerador, os
+  resultados `{value, done}` e as molduras.
+* **Código sem `yield` é copiado como está**, renomeando só as variáveis
+  içadas; `return`, `break` e `continue` que saem da parte copiada viram
+  saltos (`t$goto = N; break;`, ou `continue t$sm` de dentro de um laço ou
+  `switch` copiado).
+* **As declarações dos blocos que têm `yield` sobem para a função** (têm
+  de sobreviver aos passos), renomeadas se o nome já existe (parâmetro,
+  outra variável, nome livre); uma sem inicializador dentro de um laço
+  volta a `undefined` a cada volta.
+* **Ordem de avaliação**: numa expressão com `await`, o que é avaliado antes
+  dele vai a um temporário, a menos que nada possa mudá-lo — literal,
+  `this`, variável nunca reatribuída, nome de módulo, a rti de uma receita;
+  um local de uma função envolvente (que uma *closure* compartilha) é
+  sempre guardado. `x + await f()` lê `x` antes, como a VM.
+* **Controle**: laços, `if`, `switch` (os testes em sequência, com `===`),
+  rótulos, `&&`/`||`/`??` e `?:` com `await` viram estados. `try`/`catch`/
+  `finally` seguem o esquema do `dart2js`: `t$handler` é o estado do
+  tratador corrente (um erro lançado num passo volta pelo laço protegido do
+  `_wrapJsFunctionForAsync` com o código 1 e vai a ele), e um `finally`
+  continua nos estados empilhados em `t$next` (o fim normal, um `return`,
+  um `break` que o atravessa, ou o relançamento do erro pendente).
+* **A IIFE do emissor dentro de um gerador**
+  (`yield* (function*() {…}).call(this)`, usada por coleções com `for`/`if`)
+  é embutida: o seu `return` vira atribuição e salto.
+* **Recusas** (fica o gerador): uma variável de laço capturada por uma
+  *closure* (perderia a ligação por iteração), declaração por padrão,
+  outro `yield*`, `yield` em *template*, em chave computada, em `delete`,
+  em atribuição lógica ou em chamada opcional, `for-in` com `yield`,
+  `arguments`, `new.target`, `return`/`break` que saem de um corpo de
+  `finally` com estados.
+
+Cobertura: no corpus, todos os corpos `async` com `await` viram máquina
+(no programa de teste, só o da variável de laço capturada fica com o
+gerador); no `new_sali`, 1.067 viram máquina e sobram os geradores de
+`async*`/`sync*`. `async*` e `sync*` continuam com
+o gerador: têm outro protocolo (`_asyncStarHelper`, `_IterationMarker`) e
+nenhum dos *kernels* depende deles.
+
+Testes: `emit_js/tests/programs/async_state_machine.dart` (laços,
+`switch`, rótulos, `try`/`catch`/`finally` com `await` em cada parte,
+`return` e `break` através de `finally`, erro antes do primeiro `await`,
+`rethrow`, erro de `finally` substituindo o pendente, ordem de avaliação,
+*closures*, parâmetro capturado mudado durante o `await`, microtarefas,
+*timers*, `then`, `Completer`, `Future.wait`, `async*`, zona) contra a VM
+no desenvolvimento e em `-O1`, `-O2`, `-O4`, com a chave ligada e
+desligada (`emit_js_production/tests/async_state_machine.rs`); testes de
+unidade da reescrita no próprio módulo.
+
+### 9.3 As receitas repetidas do runtime avaliadas uma vez
+
+Com a máquina de estados, o perfil do `async_await` passou a ter o `t$R`
+no topo (15%): cada `await` avalia ~4 receitas do runtime (`~(@)`,
+`|b(@,|B)`, `|X<@>`… no `_awaitOnObject`, no `_wrapJsFunctionForAsync`, nos
+ouvintes do `_Future`), cada uma uma busca no `Map` do §3. As receitas
+repetidas **do programa** já eram variáveis declaradas logo depois do
+runtime (`shapes.rs`); agora as chamadas **dentro de funções do runtime**
+também contam: uma função roda depois de o arquivo carregar. O corpo de
+uma IIFE roda enquanto o runtime carrega e mantém o `t$R`. Chave
+`DARTFORGE_JSPROD_SDK_FIXED_RECIPES`; vale onde o arquivo é minificado
+(`-O2` em diante).
+
+O efeito vai além do `async`: o `Sort.sort` (`Comparable.compare(a as
+Comparable, b as Comparable)`) e a codificação de JSON avaliavam receitas
+a cada passo.
+
+### 9.4 Resultado
+
+Node, `-O4` contra `dart2js -O4` (ms; mediana de 5). “Máquina” é o commit
+da §9.2; “receitas”, o da §9.3:
+
+| kernel | antes | máquina | receitas | `dart2js -O4` | receitas/`dart2js` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `async_await` | 1165,5 | 672,0 | 538,5 | 245,0 | 2,20 |
+| `collections/list_sort` | 321,6 | 316,3 | 225,5 | 120,0 | 1,88 |
+| `json/encode_small` | 20,8 | 20,7 | 19,2 | 14,2 | 1,35 |
+| `json/encode_large` | 64,4 | 65,3 | 61,3 | 49,9 | 1,23 |
+| `json/decode_large` | 29,8 | 29,9 | 27,7 | 29,6 | 0,94 |
+| `json/utf8_bytes` | 29,2 | 29,1 | 26,7 | 21,3 | 1,25 |
+| `json_encode/ascii_json` (µs/op) | 27,9 | 27,9 | 25,3 | 17,8 | 1,42 |
+| `json_encode/mixed_utf16_json` (µs/op) | 43,0 | 42,9 | 40,4 | 33,2 | 1,22 |
+| `objects_in_collections/map_int_object` | 10,8 | 11,1 | 10,7 | 3,7 | 2,89 |
+
+Os demais *kernels* da §4.1 ficaram no ruído (±5%). O `json_encode` desta
+tabela ainda é a variante com `main()` (a mesma do §4, para comparar); o
+original agora roda igual.
+
+Chrome headless, `-O4` (ms; mediana de 3):
+
+| kernel | antes | máquina | receitas | `dart2js -O4` |
+| --- | ---: | ---: | ---: | ---: |
+| `async_await` | 1020,5 | 597,0 | 522,0 | 226,0 |
+| `collections/list_sort` | 283,9 | 283,3 | 213,5 | 128,3 |
+| `json/encode_small` / `encode_large` | 11,2 / 62,1 | 11,1 / 60,8 | 10,2 / 59,6 | 6,8 / 48,3 |
+| `json/utf8_bytes` | 22,2 | 21,8 | 20,8 | 16,8 |
+| `objects_in_collections/map_int_object` | 9,6 | 9,4 | 9,5 | 2,7 |
+
+Node, nosso `-O2` contra o `dart2js` padrão (`-O1`) (ms; mediana de 3):
+
+| kernel | antes | depois | `dart2js` (`-O1`) | depois/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| `async_await` | 1500,5 | 845,0 | 754,5 | 1,12 |
+| `collections/list_sort` | 535,6 | 404,7 | 224,2 | 1,81 |
+| `collections/sieve` | 73,8 | 46,5 | 33,0 | 1,41 |
+| `collections/list_add` | 19,7 | 12,0 | 9,1 | 1,32 |
+| `json/encode_medium` | 35,2 | 32,4 | 26,1 | 1,24 |
+| `json/utf8_bytes` | 35,1 | 32,0 | 24,6 | 1,30 |
+
+(No `-O2` o `[]=` e o `add` de `JSArray` checam a covariância com uma
+receita do runtime: o `sieve` e o `list_add` ganham com a §9.3.)
+
+### 9.5 `map_int_object`: medido, não feito
+
+O *kernel* faz 200 mil `m[k] = v` e 200 mil `m[i]` num `Map<int, Item>`.
+O nosso `IdentityMap` guarda num `Map` do JavaScript; o `JsLinkedHashMap`
+do `dart2js` guarda as chaves inteiras num objeto (`_nums`) apontando para
+células encadeadas (a ordem de inserção fica na lista das células). No
+mesmo padrão de acesso, em JavaScript puro (Node, ms):
+
+| representação | ms |
+| --- | ---: |
+| `Map` (a nossa) | 10,3 |
+| `Map` para a ordem + objeto `_nums` para a busca | 8,9 |
+| objeto `_nums` + lista de células (a do `dart2js`) | 3,7 |
+
+Só a representação do `dart2js` paga, e ela troca o `IdentityMap` inteiro:
+iteração pelas células (as chaves de um objeto iteram em ordem numérica,
+não na de inserção), `remove`, `clear`, `putIfAbsent`, os iteráveis de
+`keys`/`values` e a checagem de modificação concorrente — todo mapa de
+chave primitiva do programa passa por ela. Não coube nesta rodada; é o
+próximo passo para este *kernel*.
+
+### 9.6 Tamanho
+
+Corpus `corpus/js`, como na §5 (`gzip -9`):
+
+| nível | antes | máquina | receitas | `dart2js` do nível | depois/`dart2js` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `-O2` | 10.362.665 (gz 3.509.656) | 10.365.671 (gz 3.512.315) | 10.341.152 (gz 3.519.114) | 12.416.485 (gz 4.047.873) | 0,833× (gz 0,869×) |
+| `-O4` | 10.241.372 (gz 3.475.268) | 10.244.385 (gz 3.478.020) | 10.224.278 (gz 3.485.084) | 11.024.980 (gz 3.582.721) | 0,927× (gz 0,973×) |
+
+A máquina custa 3 KB no corpus (gz +2,7 KB): poucos programas têm `async`
+com `await`, e o texto da máquina substitui o do gerador. As receitas
+encolhem o arquivo (−20 a −25 KB) e crescem o gzip (+7 KB, +0,2%): o nome
+curto da variável comprime pior que a receita repetida.
+
+Projetos (`-O2`, o padrão): `limitless_ui` 3.354.408 → 3.349.301 (gz
+942.210 → 944.878); `new_sali` 7.155.083 → 7.178.083 (gz 1.912.077 →
+1.937.907, +1,4%): é o projeto com mais `async` (1.067 funções), e cada
+`await` custa ~18 bytes a mais minificado (`n=7;return Rr(x,a);case 7:`
+contra `(yield x)`). Continua em 0,895× do `dart2js -O2` (gz 0,918×).
+
+### 9.7 Validação
+
+* A cada commit, numa exportação limpa (`git archive` mais o *patch*) com
+  `CARGO_TARGET_DIR` próprio: *build*, `clippy -D warnings`, testes de
+  unidade de `emit_js` e `emit_js_production`, os ignorados
+  `optimization_levels`, `int_parity`, `printed_names`, `native_members`,
+  `main_arguments` e `async_state_machine`.
+* `dartforge-differential --production`: `corpus/js` 274/274 em `-O1` e
+  `-O2`, 258/258 em `-O3` e 254/254 em `-O4` (os excluídos de
+  `production_levels.tsv`); desenvolvimento 274/274; `corpus/modern` 26/26
+  em `-O2` (desenvolvimento 24/26, os mesmos dois de antes).
+* `limitless_ui`: e2e 15/15 e as 48 rotas sem erro no Chrome; `new_sali`
+  carrega sem erro — os dois com a máquina e as receitas.
+* O `crates/emit_js` mudou fora de `ctx.production()` só no `main.mjs` do
+  desenvolvimento (§9.1); a máquina de estados e as suas dependências do
+  `oxc` só mudam o texto da produção.
