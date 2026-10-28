@@ -1,4 +1,6 @@
-//! Indexed writes snapshot operands before user code can rebind their names.
+//! Indexed writes keep the VM's evaluation order, written as one call
+//! (`emit_index_set_with`) and, with `DARTFORGE_JSPROD_COMPACT_INDEX_SET=0`,
+//! with every operand in a temporary.
 use std::path::Path;
 use std::process::Command;
 
@@ -21,7 +23,7 @@ fn indexed_assignments_match_vm_and_o2() {
         String::from_utf8_lossy(&vm.stderr)
     );
     let expected = String::from_utf8(vm.stdout).unwrap().replace("\r\n", "\n");
-    for profile in ["O2", "raw", "min"] {
+    for profile in ["O2", "raw", "min", "temps"] {
         let artifact = directory.join(format!("{profile}.js"));
         let mut compile = if profile == "O2" {
             let mut c = Command::new("dart");
@@ -31,6 +33,9 @@ fn indexed_assignments_match_vm_and_o2() {
             let mut c = Command::new(env!("CARGO_BIN_EXE_dartforge-jsprod"));
             if profile == "raw" {
                 c.arg("--no-minify");
+            }
+            if profile == "temps" {
+                c.env("DARTFORGE_JSPROD_COMPACT_INDEX_SET", "0");
             }
             c
         };

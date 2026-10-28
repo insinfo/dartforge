@@ -162,6 +162,10 @@ pub struct FnEmitter<'m, 'a> {
     /// Depth of speculative emission (`type_of`): language errors count only
     /// outside it.
     pub speculating: u32,
+    /// The `x[i]` target of an `x[i] = v` whose value is discarded (an
+    /// expression statement): [`FnEmitter::emit_index_set`] then needs no
+    /// temporary for the value.
+    pub discarded_index_target: Option<ExprId>,
     /// Type parameters of local generic functions in scope, from the `TypeTable`
     /// (the ones the shared inference uses) to the `Ty::Param` with its own id
     /// that the emitter created ([`Ctx::fresh_param`]): translates the shared
@@ -275,6 +279,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 .has(dartforge_frontend::Feature::DotShorthands),
             shorthand_contexts: HashMap::new(),
             speculating: 0,
+            discarded_index_target: None,
             shared_params: HashMap::new(),
             in_foreign_js: false,
             typed_loop_raw: HashMap::new(),

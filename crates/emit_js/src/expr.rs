@@ -4745,7 +4745,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             };
             return self.emit_unary(prefix, operand, e).0;
         }
-        self.emit_expr(e, None).0
+        let saved = self.discarded_index_target;
+        if let ExprKind::Assign {
+            op: AssignOp::Assign,
+            target,
+            ..
+        } = &self.expr(e).kind
+            && matches!(self.expr(*target).kind, ExprKind::Index { .. })
+        {
+            self.discarded_index_target = Some(*target);
+        }
+        let js = self.emit_expr(e, None).0;
+        self.discarded_index_target = saved;
+        js
     }
 
     fn emit_unary(&mut self, op: UnaryOp, operand: ExprId, e: ExprId) -> (Js, Ty) {
@@ -6002,7 +6014,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let forced = self.forced_ext.take();
                 let (ijs, _) = self.emit_expr(*index, None);
                 self.forced_ext = forced;
-                let js = self.emit_index_set(&recv_js, &recv_ty, &ijs, v);
+                let discarded = self.discarded_index_target == Some(target);
+                let js = self.emit_index_set_with(&recv_js, &recv_ty, &ijs, v, discarded);
                 (self.wrap_guards(js, guards), vty.clone())
             }
             ExprKind::Parenthesized(inner) => self.emit_assign_to(*inner, v, vty),
@@ -6206,6 +6219,76 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// `recv[i] = v`; the expression evaluates to `v`.
     pub fn emit_index_set(&mut self, recv: &Js, recv_ty: &Ty, idx: &Js, v: &Js) -> Js {
+        self.emit_index_set_with(recv, recv_ty, idx, v, false)
+    }
+
+    /// [`Self::emit_index_set`]; `discarded` when the assignment's value is
+    /// not used.
+    ///
+    /// Production: the call itself keeps the order, `R[m](I, t = V), t`
+    /// (`R[m](I, V)` when the value is discarded). JavaScript evaluates the
+    /// receiver, reads the method, then the index and the value: the method
+    /// read before `I` and `V` can only differ for a `null` receiver, which a
+    /// non-nullable static type (the only one that gets here; `dynamic` goes
+    /// through `dsend`, whose arguments are evaluated in order too) rules out.
+    /// A receiver variable reassigned by `I` or `V` still receives the call
+    /// (the old value was read first). `DARTFORGE_JSPROD_COMPACT_INDEX_SET=0`
+    /// keeps every operand in a temporary.
+    pub fn emit_index_set_with(
+        &mut self,
+        recv: &Js,
+        recv_ty: &Ty,
+        idx: &Js,
+        v: &Js,
+        discarded: bool,
+    ) -> Js {
+        if self.ctx.production()
+            && std::env::var("DARTFORGE_JSPROD_COMPACT_INDEX_SET").map_or(true, |x| x != "0")
+        {
+            let (value, tail) = if discarded {
+                (v.at(P_ASSIGN).into_owned(), None)
+            } else {
+                let t = self.temp();
+                (format!("{t} = {}", v.at(P_ASSIGN)), Some(t))
+            };
+            let index = idx.at(P_ASSIGN).into_owned();
+            let recv_js = recv.at(P_PRIMARY).into_owned();
+            let call = if recv_ty.is_dynamic() {
+                format!(
+                    "dart.dsend({}, '_set', [{index}, {value}])",
+                    recv.at(P_ASSIGN)
+                )
+            } else if self.forced_ext.is_none()
+                && self.ctx.lookup_member(recv_ty, "[]=", false).is_some()
+            {
+                let access = self.member_access(recv_ty, "[]=", false);
+                format!("{recv_js}{access}({index}, {value})")
+            } else if let Some((ext, _, subst)) = {
+                let found = self.find_extension_member(recv_ty, "[]=", false);
+                self.forced_ext = None;
+                found
+            } {
+                let e = self.ctx.program.extension(ext);
+                let lib_var = self.lib_var(e.library);
+                let ext_name = self.extension_js_name(ext);
+                let mut args = self.ext_type_args(ext, &subst);
+                args.extend([recv.at(P_ASSIGN).into_owned(), index, value]);
+                format!(
+                    "{lib_var}[{}]({})",
+                    js::string_literal(&format!("{ext_name}|[]=")),
+                    args.join(", ")
+                )
+            } else {
+                format!(
+                    "dart.dsend({}, '_set', [{index}, {value}])",
+                    recv.at(P_ASSIGN)
+                )
+            };
+            return match tail {
+                None => Js::prim(call),
+                Some(t) => Js::new(format!("{call}, {t}"), P_COMMA).paren(),
+            };
+        }
         // An identifier is cheap to read, but its binding can change while the
         // index or RHS runs. Snapshot both operands before evaluating the RHS.
         let mut parts = Vec::new();
@@ -6609,6 +6692,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let (res, _) =
                 self.emit_binop_values(bop, Js::prim(old.clone()), &read_ty, v, &vty, Some(node));
             let assign = write(self, &res);
+            // Production: `x++` of a local number that the emitter reads and
+            // writes as a plain JavaScript variable with the JavaScript
+            // operator is the JavaScript `x++` (the old number, then
+            // `x = old + 1`). `DARTFORGE_JSPROD_COMPACT_INDEX_SET=0` keeps
+            // the temporary.
+            let op = if bop == BinaryOp::Add { "+" } else { "-" };
+            if self.ctx.production()
+                && std::env::var("DARTFORGE_JSPROD_COMPACT_INDEX_SET").map_or(true, |x| x != "0")
+                && prefix_parts.is_empty()
+                && matches!(bop, BinaryOp::Add | BinaryOp::Sub)
+                && matches!(self.expr(target).kind, ExprKind::Identifier(_))
+                && read.code != "this"
+                && is_simple(&read.code)
+                && !read.code.starts_with(|c: char| c.is_ascii_digit())
+                && !read_ty.is_nullable()
+                && self.ctx.is_num_like(&read_ty)
+                && res.code == format!("{old} {op} 1")
+                && assign.code == format!("{} = {}", read.code, res.code)
+            {
+                return (Js::new(format!("{}{op}{op}", read.code), P_UNARY), read_ty);
+            }
             let mut parts = prefix_parts;
             parts.push(format!("{old} = {}", read.code));
             parts.push(assign.code);
