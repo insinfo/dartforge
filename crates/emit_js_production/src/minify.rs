@@ -1192,6 +1192,7 @@ pub fn minify_with_properties(
     // `DARTFORGE_JSPROD_GROUP_EXTENSION_SYMBOLS=0` turns it off.
     if std::env::var("DARTFORGE_JSPROD_GROUP_EXTENSION_SYMBOLS").map_or(true, |v| v != "0") {
         crate::private_names::group_extension_symbols(&allocator, &mut program);
+        crate::private_names::drop_bare_extension_reads(&mut program);
     }
     let mut free: Vec<&str> = names
         .renamable

@@ -55,6 +55,11 @@ pub fn group<'a>(
         return descriptions;
     }
     let mut helper: Option<String> = None;
+    // Every grouped pair, with the variable that holds its symbol: a later
+    // declarator of the same pair (`_as = dart$$privateName(dart_rti,
+    // "_as")`, hoisted by the emitter) becomes an alias.
+    let mut seen: std::collections::HashMap<(String, String), String> =
+        std::collections::HashMap::new();
     for s in body.iter_mut() {
         let Statement::VariableDeclaration(v) = s else {
             continue;
@@ -77,20 +82,31 @@ pub fn group<'a>(
             }
             i = j;
         }
-        if runs.is_empty() {
+        let aliased = |seen: &std::collections::HashMap<(String, String), String>, k: usize| {
+            found[k]
+                .as_ref()
+                .and_then(|d| seen.get(&(d.library.clone(), d.description.clone())))
+                .map(|first| format!("{} = {first}", found[k].as_ref().map_or("", |d| &d.name)))
+        };
+        if runs.is_empty() && !(0..found.len()).any(|k| aliased(&seen, k).is_some()) {
             continue;
         }
         let old = std::mem::replace(&mut v.declarations, oxc_allocator::Vec::new_in(&allocator));
         let mut next_run = 0;
         for (k, d) in old.into_iter().enumerate() {
-            let Some(&(start, end)) = runs.get(next_run) else {
-                v.declarations.push(d);
-                continue;
-            };
-            if k < start {
-                v.declarations.push(d);
+            let in_run = runs.get(next_run).is_some_and(|&(start, _)| k >= start);
+            if !in_run {
+                match aliased(&seen, k) {
+                    Some(alias) => {
+                        for g in parse_declarators(allocator, &alias) {
+                            v.declarations.push(g);
+                        }
+                    }
+                    None => v.declarations.push(d),
+                }
                 continue;
             }
+            let (start, end) = runs[next_run];
             if k == start {
                 let run: Vec<&Declaration> = found[start..end].iter().flatten().collect();
                 let mut snippet = String::new();
@@ -113,6 +129,10 @@ pub fn group<'a>(
                     d.span.start < runtime_end,
                     &mut descriptions,
                 ));
+                for d in &run {
+                    seen.entry((d.library.clone(), d.description.clone()))
+                        .or_insert_with(|| d.name.clone());
+                }
                 for g in parse_declarators(allocator, &snippet) {
                     v.declarations.push(g);
                 }
@@ -297,6 +317,20 @@ fn declaration(d: &VariableDeclarator<'_>) -> Option<Declaration> {
         library: library.name.to_string(),
         description: description.to_string(),
     })
+}
+
+/// Drops the top-level statements that only read an extension symbol
+/// (`dartx.markFixedList;`, left by an alias nobody reads): `dartx` is a
+/// plain object of symbols, and reading one of them does nothing.
+pub fn drop_bare_extension_reads(program: &mut Program<'_>) {
+    let Some(body) = outer_body(program) else {
+        return;
+    };
+    body.retain(|s| {
+        !matches!(s, Statement::ExpressionStatement(e)
+            if matches!(&e.expression, Expression::StaticMemberExpression(m)
+                if matches!(&m.object, Expression::Identifier(o) if o.name == "dartx")))
+    });
 }
 
 /// Name of the helper of [`group_extension_symbols`].
@@ -521,7 +555,10 @@ mod tests {
             ),
             "{out}"
         );
-        assert!(out.contains("[a, c, e, g] = t$V(core, \"_a _c _e .\")"), "{out}");
+        assert!(
+            out.contains("[a, c, e, g] = t$V(core, \"_a _c _e .\")"),
+            "{out}"
+        );
         assert!(out.contains("[b, d] = t$V(rti, \"_b _d\")"), "{out}");
         assert!(out.contains("f = b, z = 1"), "{out}");
         assert_eq!(descs, ["_a", "_b", "_c", "_d", "_e", "Box.value"]);
