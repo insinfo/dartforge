@@ -182,9 +182,21 @@ pub fn sdk_without_export(sdk: &str) -> String {
     out
 }
 
-/// Name of the entry library's namespace variable and whether `main` is
-/// `async`, read from the `main.mjs` the emitter generated (`import { X as m } from './p.js'`).
+/// The call that starts the program (`L$x.main(…)`), read from the
+/// `main.mjs` the emitter generated (`import { X as m } from './p.js'`).
 pub fn entry_from_mjs(mjs: &str, modules: &[Module]) -> Option<String> {
+    let ns = entry_namespace(mjs, modules)?;
+    // The arguments `m.main(…)` receives in the development entry
+    // (`emit_js::module::main_arguments`): the same text runs here.
+    let args = mjs
+        .lines()
+        .find_map(|l| l.strip_prefix("m.main(")?.strip_suffix(");"))
+        .unwrap_or("");
+    Some(format!("{ns}.main({args})"))
+}
+
+/// The namespace variable of the module that exports `main`.
+fn entry_namespace(mjs: &str, modules: &[Module]) -> Option<String> {
     let line = mjs.lines().find(|l| l.contains(" as m } from './"))?;
     let ident = line
         .split("import { ")
@@ -216,8 +228,9 @@ pub fn entry_from_mjs(mjs: &str, modules: &[Module]) -> Option<String> {
 /// and go on with different behavior.
 pub const STUB_PREAMBLE: &str = "function dart_podado(nome) {\n  const m = 'DARTFORGE-PODADO: ' + nome;\n  if (typeof process !== 'undefined') { process.stderr.write(m + '\\n'); process.exit(97); }\n  throw new Error(m);\n}\n";
 
-/// Assembles the single file. `preamble` goes right after the header (empty
-/// in normal mode).
+/// Assembles the single file; `entry` is the call that starts the program
+/// ([`entry_from_mjs`]). `preamble` goes right after the header (empty in
+/// normal mode).
 pub fn assemble(sdk: &str, modules: &[Module], entry: &str, preamble: &str) -> String {
     let mut out =
         String::with_capacity(sdk.len() + modules.iter().map(|m| m.body.len() + 64).sum::<usize>());
@@ -256,7 +269,7 @@ pub fn assemble(sdk: &str, modules: &[Module], entry: &str, preamble: &str) -> S
         out.push_str("})();\n");
     }
     out.push_str(entry);
-    out.push_str(".main();\n");
+    out.push_str(";\n");
     out
 }
 
@@ -289,7 +302,7 @@ mod tests {
             "main.js",
             "var L$main = Object.create(dart.library);\nL$main.main = function () {};\n",
         );
-        let js = assemble("var dart = {};\n", &[m], "L$main", "");
+        let js = assemble("var dart = {};\n", &[m], "L$main.main()", "");
         let bridge = js
             .find("dart.registerExtension('NodeList', _interceptors.JSArray)")
             .unwrap();

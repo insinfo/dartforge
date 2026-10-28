@@ -96,6 +96,11 @@ fn p6_async() {
     check("p6_async");
 }
 #[test]
+fn main_arguments() {
+    check("main_arguments");
+    check("main_arguments_message");
+}
+#[test]
 fn p7_dynamic() {
     check("p7_dynamic");
 }

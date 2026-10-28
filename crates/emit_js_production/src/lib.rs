@@ -521,8 +521,8 @@ pub fn assemble_with_index(
         .map(|(p, t)| bundle::split(p, t))
         .collect();
     let (modules, cycles) = bundle::order(modules);
-    let entry =
-        bundle::entry_from_mjs(&emitted.entry, &modules).unwrap_or_else(|| "L$main".to_string());
+    let entry = bundle::entry_from_mjs(&emitted.entry, &modules)
+        .unwrap_or_else(|| "L$main.main()".to_string());
 
     let sdk_before = sdk_text.len();
     let t = Instant::now();

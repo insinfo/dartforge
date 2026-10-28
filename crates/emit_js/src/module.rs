@@ -287,6 +287,7 @@ pub fn emit_with_cache(
     let mut entry_ident = String::from("main");
     let mut entry_path = String::from("main.js");
     let mut main_async = false;
+    let mut main_args = String::new();
     // The library of the `main` the entry library exports: its own, or one it
     // re-exports (`export 'other.dart';`), as the VM finds it.
     let main_library = entry_main_library(ctx.program, ctx.interner).or(ctx.program.entry);
@@ -311,6 +312,7 @@ pub fn emit_with_cache(
                 entry_ident = ctx.libs[g.0 as usize].ident.clone();
                 entry_path = info.module_path.clone();
                 main_async = lib_main_is_async(ctx, g);
+                main_args = main_arguments(ctx, g);
             }
         }
     }
@@ -327,8 +329,13 @@ pub fn emit_with_cache(
         "preambulo.js".to_string(),
         "if (typeof self === 'undefined') globalThis.self = globalThis;\n".to_string(),
     ));
+    let sdk_imports = if main_args.is_empty() {
+        "dart"
+    } else {
+        "_interceptors, dart, dart_rti"
+    };
     let entry = format!(
-        "if (typeof process !== 'undefined') process.on('uncaughtException', (e) => {{\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n}});\nimport './preambulo.js';\nimport {{ dart }} from './dart_sdk.js';\nimport {{ {entry_ident} as m }} from './{entry_path}';\nm.main();\n"
+        "if (typeof process !== 'undefined') process.on('uncaughtException', (e) => {{\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n}});\nimport './preambulo.js';\nimport {{ {sdk_imports} }} from './dart_sdk.js';\nimport {{ {entry_ident} as m }} from './{entry_path}';\nm.main({main_args});\n"
     );
     Ok(Emitted { modules, entry })
 }
@@ -366,6 +373,51 @@ fn lib_main_is_async(ctx: &Ctx, lib: LibraryId) -> bool {
         return af.modifier == ast::AsyncModifier::Async;
     }
     false
+}
+
+/// The arguments the entry passes to `main`, as the VM and `dart2js` do:
+/// an empty growable `List<String>` for the first positional parameter
+/// (`dart2js` passes no process arguments, not even under Node) and `null`
+/// for a second one. Empty when `main` declares no positional parameter.
+fn main_arguments(ctx: &Ctx, lib: LibraryId) -> String {
+    let Some(sym) = ctx.sym("main") else {
+        return String::new();
+    };
+    let Some(Element::Function(fid)) = ctx
+        .program
+        .library(lib)
+        .declared
+        .get(&sym)
+        .and_then(|b| b.getter)
+    else {
+        return String::new();
+    };
+    let FunctionRef::Function { unit, function } = ctx.program.function(fid).node else {
+        return String::new();
+    };
+    let af = ctx.program.unit(unit).ast.function(function);
+    let positional = af
+        .parameters
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter(|p| p.kind != ast::ParameterKind::Named)
+        .count();
+    let (Some(array), Some(string)) = (ctx.js_array, ctx.string_) else {
+        return String::new();
+    };
+    if positional == 0 {
+        return String::new();
+    }
+    let m = ModState::new(lib);
+    let e = FnEmitter::new(ctx, &m, unit, None, true);
+    let rti = e.rti(&Ty::iface_args(array, vec![Ty::iface(string)]));
+    let list = format!("_interceptors.JSArray.of({rti}, [])");
+    if positional == 1 {
+        list
+    } else {
+        format!("{list}, null")
+    }
 }
 
 /// Orders classes: superclasses and mixins before subclasses.

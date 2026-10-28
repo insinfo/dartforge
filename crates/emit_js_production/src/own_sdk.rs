@@ -1631,8 +1631,8 @@ pub fn assemble(
     } else {
         String::new()
     };
-    let entry =
-        bundle::entry_from_mjs(&e.emitted.entry, &modules).unwrap_or_else(|| "L$main".to_string());
+    let entry = bundle::entry_from_mjs(&e.emitted.entry, &modules)
+        .unwrap_or_else(|| "L$main.main()".to_string());
     // The SDK module in an IIFE, like the program's: the `var`s of its
     // prelude (`dartx` aliases, private names) are locals; what is shared
     // (`dart`, the namespaces, `dartx`) is in the *bootstrap*.
