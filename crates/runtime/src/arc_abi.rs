@@ -1116,9 +1116,10 @@ pub extern "C" fn dartforge_arc_write_field_ref_v1(object: i64, ix: i64, value: 
 pub extern "C" fn dartforge_arc_write_field_ref_move_v1(object: i64, ix: i64, value: i64) {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        write_audited_field(&mut heap, object, ix, value, true)
-            .expect("ARC Ref write contract violated");
-        heap.release_code_owner(value);
+        let view = heap.object(object).expect("ARC Ref write contract violated: receiver is not a live object");
+        let ix = usize::try_from(ix).ok().filter(|&i| i < view.len())
+            .expect("ARC Ref write contract violated: index outside the object");
+        heap.set_field_moving(object, ix, value);
         heap.arc_settle();
     });
 }

@@ -3669,6 +3669,59 @@ impl Heap {
     ///
     /// # Panics
     /// If `h` is not a live object or `i` is outside it.
+    /// The real ARC's move of a code token into the `Ref` field `i` of `h`: the
+    /// token becomes the field's occurrence (no retain for the field, no release of
+    /// the token) and the previous reference is released. A snapshotted owner, whose
+    /// counts the next settle point recomputes, and the inventory of the audit take
+    /// the general path ([`Heap::set_field`] and the token's release).
+    pub(crate) fn set_field_moving(&mut self, h: i64, i: usize, bits: i64) {
+        let direct = self.prompt_death
+            && !self.code_inventory()
+            && smi::e_handle(bits)
+            && self
+                .arc
+                .as_ref()
+                .is_some_and(|a| a.pure && !a.snapshots.contains_key(&h));
+        if !direct {
+            self.set_field(h, i, bits, true);
+            self.release_code_owner(bits);
+            return;
+        }
+        self.check_live(bits);
+        let b = self.live_block(h);
+        Self::check_writable(b);
+        // SAFETY: live block.
+        #[allow(unsafe_code)]
+        let instance = unsafe { shape(b) } == block_flags::INSTANCE;
+        assert!(
+            instance,
+            "runtime bug: set_field on an object that is not INSTANCIA"
+        );
+        self.objects.remember(b);
+        // SAFETY: live block; `i` checked against the number of fields.
+        #[allow(unsafe_code)]
+        let old = unsafe {
+            let c = body(b);
+            assert!(
+                i < usize::from((*c).n),
+                "field {i} outside the object of {} fields",
+                (*c).n
+            );
+            let old = if is_reference(c, i) {
+                *fields_of(c).add(i)
+            } else {
+                0
+            };
+            *fields_of(c).add(i) = bits;
+            mark_reference(c, i, true);
+            old
+        };
+        if old != 0 {
+            let arc = self.arc.as_deref_mut().expect("ARC on");
+            arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
+        }
+    }
+
     pub fn set_field(&mut self, h: i64, i: usize, bits: i64, is_ref_kind: bool) {
         if is_ref_kind && smi::e_handle(bits) {
             self.check_live(bits);
