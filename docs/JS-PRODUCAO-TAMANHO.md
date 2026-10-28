@@ -2332,3 +2332,264 @@ A meta de total e mediana abaixo de 1,0× **não** foi alcançada (§18.11).
   VM, sem regressão; as mudanças do `emit_js` são todas do perfil de
   produção (filtro presente, `Ctx::production` ou remendos do SDK, que só o
   perfil de produção compila).
+
+## 19. Rodada de 2026-10-28 (macOS): total e mediana abaixo do `dart2js -O4`
+
+Medido antes de mexer (o `main` em `04ccfc78`, o fim da §18; macOS arm64,
+Node 24.21, SDK 3.6.2, `gzip -9`; os mesmos `dart2js -O4` da §16):
+
+| alvo | nosso | `dart2js -O4` |
+| --- | ---: | ---: |
+| corpus (273 programas com saída do `dart2js`) | 11.929.493 (gz 4.006.053) | 11.024.980 (gz 3.582.721) |
+| mediana nosso/`dart2js` | 1,036× (gz 1,083×) | |
+| `print('hi')` | 2.443 (gz 1.130) | 5.074 (gz 1.801) |
+| `01_print` | 33.564 (gz 11.750) | 34.926 (gz 11.543) |
+| `limitless_ui/example` | 3.397.391 (gz 958.177) | 3.704.125 (gz 982.814) |
+| `new_sali/frontend` | 7.292.089 (gz 1.954.844) | 7.614.136 (gz 2.018.523) |
+
+Cada passo abaixo foi validado antes do seu *commit*: corpus diferencial
+`corpus/js` 274/274 em desenvolvimento e produção e `corpus/modern` 26/26
+em produção (24/26 em desenvolvimento, as duas falhas antigas da §15.12),
+testes (inclusive os ignorados) de `world`, `emit_js` e
+`emit_js_production`, `clippy -D warnings` e `rustfmt`, `limitless_ui` com o
+e2e 15/15 e as 48 rotas sem erro no Chrome e `new_sali` carregando sem erro
+(a mesma página de 6.087 caracteres). Cada otimização tem o seu
+`DARTFORGE_JSPROD_*=0` e, onde muda o que o programa calcula, um teste que
+compara com a VM (com a chave ligada e desligada).
+
+Ferramentas novas de medida (no *scratchpad*, não versionadas): `attr.py`
+alinha o arquivo minificado com o `DARTFORGE_JSPROD_MANGLE=0` *token* a
+*token* (corrigindo as chaves abreviadas `{x}` que o renomeio expande) e dá
+os bytes minificados de cada instrução do topo; `libcmp.py` soma isso por
+biblioteca e compara com o *source map* do `dart2js`. No corpus inteiro, no
+início: `core` +790 KB, `_interceptors` +540 KB e `_internal` +377 KB acima
+do `dart2js`, enquanto o rti (−486 KB) e runtime+`js_helper` (−545 KB)
+ficavam abaixo.
+
+### 19.1 Variáveis de tipo pela posição (`emit_js`, `sdk_patches.rs`)
+
+As regras rti listavam, para cada classe, a substituição de cada variável de
+tipo dela e dos supertipos (`"|h.E": "1"` ao lado de `"|c": ["1"]`). As
+entradas repetem o que as regras já têm: o parâmetro `i` da própria classe é
+sempre a receita `i + 1` no ambiente dela, e o herdado é o argumento
+correspondente da entrada do supertipo (`module.rs::emit_rules_with` monta
+as duas coisas dos mesmos argumentos). Em produção a variável é nomeada pela
+posição (`|h.0`), as regras não levam substituições, e um remendo de
+`_Universe.evalTypeVariable` (`_positionalTypeVariable`) deriva a receita do
+nome. A entrada do supertipo que ele lê fica porque a receita `|h.0` cita
+`|h`. Mais corpos de regra ficam idênticos e passam a ser compartilhados
+(§18.7, por objeto). `DARTFORGE_JSPROD_POSITIONAL_TYPE_VARIABLES=0`. Corpus
+−108 KB. Teste `positional_type_variables` (ordem trocada entre subclasse e
+superclasse, *mixin*, classe sem supertipo, chamada dinâmica, corpos
+compartilhados).
+
+### 19.2 Busca em `String` e `isEven`/`isOdd` no lugar (`emit_js`, `world`)
+
+* `s.startsWith(t)`, `endsWith`, `contains`, `indexOf` e `lastIndexOf` com
+  receptor e argumento `String` não anuláveis e um só argumento posicional
+  chamam o método do JavaScript (`includes` para `contains`): com padrão
+  `String` e sem índice de início o corpo do `JSString` é esse método, e o
+  `RangeError` de índice não acontece. O mundo espelha a regra sobre os
+  tipos estáticos do analisador. `DARTFORGE_JSPROD_STRING_SEARCH=0`. Teste
+  `string_search`.
+* `i.isEven`/`i.isOdd` num `int` não anulável são `(i & 1) === 0`/`=== 1` (o
+  `&` do `JSNumber` é `(a & b) >>> 0`). O *getter* instalado no `Number`
+  trazia a instalação dos nativos e com ela o rti: `20_if_else_encadeado`
+  31.676 → **3.250** bytes (`dart2js`: 6.393). `DARTFORGE_JSPROD_INT_PARITY=0`.
+  Teste `int_parity`.
+
+### 19.3 Símbolos sem descrição (`private_names.rs`)
+
+Um símbolo de armazenamento (`"ArgumentError.message"`, o campo atrás de um
+*getter*) só é lido e escrito pelo código da classe, e nenhuma mensagem o
+mostra (nome de membro é identificador; só o de armazenamento tem ponto).
+Na lista agrupada ele vira `.`, para o qual o ajudante cria um `Symbol()`
+novo em vez do `privateName` em cache. Os símbolos do próprio runtime
+(`Symbol("sigMethod")`, `Symbol("_thrownValue")`…) também perdem a
+descrição; os `dartx.`, que o `JSNoSuchMethodError` lê, ficam.
+`DARTFORGE_JSPROD_BARE_SYMBOLS=0`. Corpus **−134 KB** (gz −44 KB). Teste
+`bare_symbols`.
+
+### 19.4 Piso do runtime (`sdk_patches.rs`, `emit_js`)
+
+* `_applyExtension` recusava instalar uma classe no `Object` do JavaScript;
+  o `registerExtension` nunca o passa (os nomes `@Native` do SDK), e a
+  checagem foi para `applyExtension`/`applyExtensionForTesting`. O
+  `dart.global` caía em `new Function('return this;')()` sem `window`,
+  `global` ou `self`; o arquivo define `self` antes de tudo.
+* O `throw` final de `getInterceptorForRti` é inalcançável (todo ramo
+  escolhe uma classe).
+* `Error.safeToString` testava primitivos e *strings* e chamava
+  `_objectToString`, isto é `Primitives.safeToString`, que repete os mesmos
+  testes com os mesmos resultados; a primeira cópia saiu (`_objectToString`
+  recebe `Object?`).
+* Chamadas `super()` sem argumentos a um construtor que não faz nada (sem
+  parâmetros, inicializadores, corpo, campos de instância, argumentos de tipo
+  nem *mixins*, e cujo `super()` implícito também não faz nada) não são
+  escritas: `Error`, `Interceptor` e as classes numéricas nativas eram
+  chamadas por toda subclasse (~3.700 chamadas no corpus).
+  `DARTFORGE_JSPROD_EMPTY_SUPER_CALLS=0`. Teste `empty_super_calls`.
+
+Os remendos ficam sob `DARTFORGE_JSPROD_FLOOR_PATCHES`. Juntos, ~−600 bytes
+por programa com rti.
+
+### 19.5 Atribuição indexada numa chamada (`emit_js`)
+
+`x[i] = v` punha receptor, índice e valor em temporários antes de chamar
+`[]=`. A própria chamada mantém a ordem: o JavaScript avalia o receptor, lê
+o método, depois o índice e o valor; em produção sai `R[m](I, t = V), t`, e
+`R[m](I, V)` como instrução. A leitura do método antes de `I` e `V` só
+difere para receptor `null`, que o tipo estático não anulável exclui
+(`dynamic` vai por `dsend`, cujos argumentos também são avaliados em
+ordem). `x++` de um local numérico lido e escrito como variável simples com
+o `+` do JavaScript é o `x++` do JavaScript.
+`DARTFORGE_JSPROD_COMPACT_INDEX_SET=0`. Corpus −38 KB, **`new_sali` −79 KB**;
+o teste `index_assignment_order` roda com e sem a chave.
+
+### 19.6 Tabela de nomes e constantes (`own_sdk.rs`, `rti_rules.rs`)
+
+* `t$I` decodifica o id com um alfabeto só (o do primeiro caractere é
+  prefixo do dos demais). `DARTFORGE_JSPROD_ONE_ID_ALPHABET=0`.
+* Classe cuja receita só é alvo de `is` (`t$R("|X")[_is]`) ou lado de um
+  teste de identidade não chega a mensagem nenhuma: sai da tabela de nomes.
+  `DARTFORGE_JSPROD_IS_ONLY_NAMES=0`.
+* Uma `const` de *string* que só interpola constantes `int` escritas como
+  literal (`'$pushNeverExtension'` do `dart:_recipe_syntax`) são os dígitos
+  decimais em toda plataforma: emissor e mundo a dobram como literal e o
+  *static* preguiçoso some. `DARTFORGE_JSPROD_FOLD_CONST_STRINGS=0`. Teste
+  `is_only_names`.
+* Declarações `privateName` repetidas (os `_as`/`_bind`/`_eval`/`_is` que o
+  emissor iça) viram apelido do grupo, e leituras soltas `dartx.x;` saem.
+
+### 19.7 `dartx.toString` encaminhado (`module.rs`)
+
+Toda classe que sobrescreve `toString` definia `C.prototype[dartx.toString]
+= C.prototype.toString`, porque `dart.str`/`dart.toString` leem
+`o[dartx.toString]`. Em produção a entrada do `Object` chama
+`this.toString()` — o `toString` Dart de qualquer objeto Dart —, e as classes
+fora das cadeias de protótipo dos nativos (sem ancestral dentro delas)
+perdem o apelido; as cadeias nativas mantêm os seus, que o
+`registerExtension` copia para os protótipos do JavaScript. A *tear-off*
+pelo símbolo liga o `toString` do JavaScript de um objeto Dart
+(`toStringTearoff`, remendado), e as *tear-offs* de `toString` por qualquer
+tipo estático continuam iguais entre si. `DARTFORGE_JSPROD_TOSTRING_FORWARDER=0`.
+Corpus −72 KB; a mediana passa abaixo de 1,0 (0,991). Teste
+`object_member_forwarders`.
+
+### 19.8 Chamadas dinâmicas sem nomeados (`world`, `own_sdk.rs`)
+
+Todo programa com chamada dinâmica levava a maquinaria de argumentos
+nomeados do runtime: o `InvocationImpl` montava `namedArguments` com um
+mapa literal num `UnmodifiableMapView` (`LinkedMap`, `MapBase`, `MapView`
+e os iteráveis), e `_checkAndCall`/`_argumentErrors` percorriam os nomes.
+Os valores vêm todos do parâmetro `named` de `dcall`, `dgcall`, `dsend`,
+`dgsend` e das formas `Repl`, que só uma chamada dinâmica com nomeados ou
+o `Function.apply` com mapa preenchem. Como para *records* e tipos legados,
+a produção supõe que não há: mundo e emissor tratam esses parâmetros (e os
+que eles alimentam: `callMethod`, `_checkAndCall`, `_argumentErrors`,
+`InvocationImpl`, `_namedArgsToSymbols`) como sempre `null`
+(`Constants::set_without_dynamic_named`), e os ramos dobram. Se o texto
+emitido passa um nomeado a um desses ajudantes, a rodada recomeça sem a
+suposição. `DARTFORGE_JSPROD_DYNAMIC_NAMED_GATE=0`. Corpus **−97 KB** (até
+−4,8 KB por programa). Teste `dynamic_named_gate` (os dois casos).
+
+### 19.9 Correções do verificador com o tipo de acesso (`world`)
+
+Cada correção do verificador diz se é leitura (`nome`) ou escrita
+(`nome_=`), mas as raízes registravam toda correção como os dois tipos,
+como os nomes que o runtime chama: a leitura de `dartx.arrayRti` reavivava
+o *setter* que lança do `JSArray` em todo programa. As correções vão para
+`Roots::exact_selectors` e entram como são. `DARTFORGE_JSPROD_EXACT_FIXES=0`.
+Corpus −18 KB.
+
+### 19.10 O rti sem tipos de função (`world`, `own_sdk.rs`)
+
+Um programa sem *closures*, *tear-offs* nem tipos de função ainda levava
+tudo o que o rti tem para eles: o *parse* das receitas, a busca, o
+`toString`, a subtipagem de funções e a substituição que só funções
+genéricas usam (~5,6 KB). A produção supõe que não há tipo de função: as
+espécies de função do `Rti` e a sintaxe de receita de função (`(`, `)`,
+`[`, `]`, `{`, `}`, `:`, `!`, `^`) viram comparações e `case`s mortos no
+mundo e no emissor (`Constants::set_without_functions`, o mesmo mecanismo
+dos *records*). Se o texto cria um tipo de função (`dart.fn`, `dart.bind`,
+`tbind`, `gbind`, `bindCall`, os `fnType`) ou tem uma receita com um
+(`"~()"`, `"|p(|o)"`, também dentro do JSON das regras), a rodada recomeça.
+A primeira versão da checagem tomava qualquer literal com letra antes de
+parêntese por receita (`'Cor('` de um `toString` de usuário); a final exige
+parênteses balanceados e um tipo antes do primeiro (`|p`, `1`, `0^`, `~`,
+`@`, `>`…). `DARTFORGE_JSPROD_FUNCTIONS_GATE=0`. Corpus **−274 KB** (49
+programas, ~5,6 KB cada): o total do corpus fica abaixo do `dart2js -O4`.
+Teste `functions_gate` (programa sem tipo de função e programa cujo único
+tipo de função é argumento de supertipo, que precisa manter as espécies).
+
+### 19.11 Medidos e descartados
+
+* Operadores do `JSNumber` no próprio código dele (`this < other`) como os
+  do JavaScript: −12 KB, mas o teste `native_number_ranges` exige que um
+  `this` estrangeiro (`Number.prototype[dartx["%"]].call(7n, 3n)`) mantenha o
+  despacho original. Revertido.
+* Encaminhar também `dartx._equals` e `dartx.hashCode` pelo `Object`:
+  quebrava os mapas e conjuntos (`{p, q}` com pontos iguais dava 2), porque
+  as coleções comparam `o[dartx._equals]` com o do `Object` para escolher a
+  semântica de identidade. Os dois apelidos ficam.
+* Mensagem curta para a guarda do construtor de `Object` (−44 bytes por
+  programa): só aparece num `new` de classe Dart feito pelo JavaScript, mas
+  é a mensagem que explica o erro. Não feito.
+* *Statics* preguiçosos puros (`Symbol()`) como atribuição direta: poucos
+  bytes enquanto o `toStringVisiting` e o `_RootZone` mantêm o
+  `defineLazy`. Não feito.
+
+### 19.12 Resultado
+
+| alvo | início | agora | `dart2js -O4` | agora/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| `print('hi')` | 2.443 (gz 1.130) | **2.128** (gz **967**) | 5.074 (gz 1.801) | **0,42×** (gz 0,54×) |
+| `01_print` | 33.564 (gz 11.750) | **32.138** (gz **11.332**) | 34.926 (gz 11.543) | **0,920×** (gz 0,982×) |
+| os 25 programas de < 12 KB no `dart2js` | 96.286 (gz 40.796) | **60.017** (gz 27.012) | 133.147 (gz 47.898) | **0,451×** (gz 0,564×) |
+| corpus (273) | 11.929.493 (gz 4.006.053) | **10.967.007** (gz **3.724.303**) | 11.024.980 (gz 3.582.721) | **0,995×** (gz 1,040×) |
+| mediana nosso/`dart2js` | 1,036× (gz 1,083×) | **0,976×** (gz **1,032×**) | | |
+| programas abaixo do `dart2js` | 113 (gz 59) | **151** (gz **122**) | | |
+| `limitless_ui/example` | 3.397.391 (gz 958.177) | **3.369.232** (gz **946.380**) | 3.704.125 (gz 982.814) | **0,910×** (gz 0,963×) |
+| `new_sali/frontend` | 7.292.089 (gz 1.954.844) | **7.178.421** (gz **1.915.145**) | 7.614.136 (gz 2.018.523) | **0,943×** (gz 0,949×) |
+
+O corpus caiu 8,1% (−962 KB brutos, −282 KB gzip). **O total e a mediana
+do corpus ficaram abaixo do `dart2js -O4` no bruto**; no gzip os dois ainda
+estão acima (1,040× e 1,032×). Os dois projetos reais continuam abaixo no
+bruto e no gzip.
+
+### 19.13 O que falta, por ganho esperado
+
+1. **`_isFunctionSubtype` com *closures***: ~180 programas têm tipos de
+   função só como tipo de *closure* ou de *tear-off* (lado `S`), nunca como
+   alvo de teste (`T`). Sem alvo de função, os blocos de função de
+   `_isSubtype` e o `_isFunctionSubtype` (~1,1 KB) estão mortos, mas provar
+   isso pede classificar cada receita do texto pelo contexto (assinatura de
+   `dart.fn` × alvo de `is`/`as` × argumento de tipo × assinatura de
+   *setter*/campo, que o `dput` checa).
+2. **`const {}` do `InvocationImpl`**: com a §19.8 os nomeados sempre vazios
+   ainda são o `const {}`, um `ImmutableMap` que traz `LinkedMap`, `MapBase`
+   e os iteráveis (~2,8 KB) a todo programa com chamada dinâmica e sem
+   outros mapas.
+3. **Campos públicos virtuais do SDK** (`AssertionError.message`,
+   `UnsupportedError.message`…): *getter* sobre símbolo de armazenamento
+   onde nenhuma classe os sobrescreve (~30 KB no corpus); `non_virtual_field`
+   ainda exclui o SDK inteiro.
+4. **Código de biblioteca nos programas médios** (1,3–1,6×): o restante da
+   maquinaria dinâmica (`_checkAndCall`, `_argumentErrors`,
+   `NoSuchMethodError`, `Symbol`), as assinaturas para `dsend`, `Uri`
+   (~20 KB contra ~13 KB em 4 programas) e `_internal` (`Sort`, iteráveis).
+5. **Gzip**: o total ainda está 4% acima; as *strings* (tabela de nomes,
+   JSON das regras, listas de nomes privados) e a maior variedade de
+   identificadores pesam mais no gzip que no bruto.
+
+### 19.14 Observações da validação
+
+* O teste ignorado `tests/identity.rs` continua falhando como antes
+  (`p3_classes.dart`, §15.12).
+* Uma execução do e2e do `limitless_ui` falhou por instabilidade do
+  servidor de teste; o mesmo *bundle* passou 15/15 ao repetir.
+* O compilador de desenvolvimento do diferencial foi construído à parte
+  (`target/r19-cli`): `emit_native` e `runtime` estavam sendo editados por
+  outro agente na mesma árvore.
+* Suíte `tests/language` (desenvolvimento, com esse CLI): 2756/2863 iguais à
+  VM, sem regressão; as mudanças do `emit_js` são do perfil de produção.
