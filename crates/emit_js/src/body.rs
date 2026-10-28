@@ -178,6 +178,9 @@ pub struct FnEmitter<'m, 'a> {
     pub(crate) fresh_list_append: HashMap<ExprId, crate::fresh_list_append::FreshList>,
     /// Modulo nodes certified in the current unescaped nonnegative counter.
     pub(crate) counter_modulo: HashSet<ExprId>,
+    /// The list literal that a `for-in` iterates directly (production): it
+    /// never escapes the loop, so it is a bare JavaScript array.
+    pub(crate) bare_list: Option<ExprId>,
 }
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
@@ -278,6 +281,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             sdk_number_comparison: None,
             fresh_list_append: HashMap::new(),
             counter_modulo: HashSet::new(),
+            bare_list: None,
         }
     }
 
@@ -2239,7 +2243,20 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         iterable: ExprId,
         body: StmtId,
     ) {
+        // Production: `for (x in [a, b])` iterates a list nobody else can
+        // see; without its reified type it is the same JavaScript array,
+        // iterated the same way (`DARTFORGE_JSPROD_BARE_LOOP_LISTS=0` keeps
+        // `JSArray.of`).
+        let saved_bare = self.bare_list;
+        if !await_
+            && self.ctx.production()
+            && matches!(self.expr(iterable).kind, ast::ExprKind::List { .. })
+            && std::env::var("DARTFORGE_JSPROD_BARE_LOOP_LISTS").map_or(true, |v| v != "0")
+        {
+            self.bare_list = Some(iterable);
+        }
         let (ijs, ity) = self.emit_expr(iterable, None);
+        self.bare_list = saved_bare;
         let (ijs, ity) = self.checked_iterable(ijs, ity, await_);
         let elem_ty = if await_ {
             self.ctx

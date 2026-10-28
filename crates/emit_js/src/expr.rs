@@ -1698,7 +1698,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     list_ty,
                 );
             }
-            if elem_ty.is_dynamic() {
+            if elem_ty.is_dynamic() || self.bare_list == Some(node) {
                 return (Js::prim(format!("[{}]", items.join(", "))), list_ty);
             }
             let jsarr = self
