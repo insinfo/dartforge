@@ -832,11 +832,23 @@ fn name_table(js: &str, rti: &HashMap<String, String>) -> String {
     let first = std::str::from_utf8(dartforge_emit_js::ID_FIRST).unwrap_or_default();
     let others = std::str::from_utf8(dartforge_emit_js::ID_NEXT).unwrap_or_default();
     let mut out = String::with_capacity(js.len() + list.len() + 400);
-    out.push_str(&format!(
-        "var t$N = {table};\nvar t$I = function(id) {{ let a = \"{first}\", b = \"{others}\", n = a.indexOf(id[1]), p = {}; for (let i = 2; i < id.length; i++) {{ n += (b.indexOf(id[i]) + 1) * p; p *= {}; }} return n; }};\n",
-        first.len(),
-        others.len(),
-    ));
+    // The first characters are a prefix of the following ones: one alphabet
+    // serves both (`DARTFORGE_JSPROD_ONE_ID_ALPHABET=0` writes both).
+    if others.starts_with(first)
+        && std::env::var("DARTFORGE_JSPROD_ONE_ID_ALPHABET").map_or(true, |v| v != "0")
+    {
+        out.push_str(&format!(
+            "var t$N = {table};\nvar t$I = function(id) {{ let b = \"{others}\", n = b.indexOf(id[1]), p = {}; for (let i = 2; i < id.length; i++) {{ n += (b.indexOf(id[i]) + 1) * p; p *= {}; }} return n; }};\n",
+            first.len(),
+            others.len(),
+        ));
+    } else {
+        out.push_str(&format!(
+            "var t$N = {table};\nvar t$I = function(id) {{ let a = \"{first}\", b = \"{others}\", n = a.indexOf(id[1]), p = {}; for (let i = 2; i < id.length; i++) {{ n += (b.indexOf(id[i]) + 1) * p; p *= {}; }} return n; }};\n",
+            first.len(),
+            others.len(),
+        ));
+    }
     out.push_str(&js[..p]);
     out.push_str(&UNMANGLE.replace(
         "return null;",
