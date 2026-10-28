@@ -255,6 +255,39 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
 
 "##,
     ),
+    // `_applyExtension` refuses to install a class onto the JavaScript
+    // `Object`, with a warning. `registerExtension` passes `global[name]`
+    // for the names of the SDK's `@Native` classes, never `Object`; only
+    // `applyExtension` (a native object's constructor) and
+    // `applyExtensionForTesting` can pass it, and the check moves there.
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/classes.dart",
+        "  if (JS('!', '# === #.Object', jsType, global_)) {\n    var extName = JS<String>('!', '#.name', dartExtType);\n    _warn(\n        \"Attempting to install properties from non-Object type '$extName' onto the native JS Object.\");\n    return;\n  }\n",
+        "  // Production: `_ontoObject` checks the JavaScript `Object` in the callers\n  // that can pass it.\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/classes.dart",
+        "  var jsType = JS('', '#.constructor', nativeObject);\n  _applyExtension(jsType, dartExtType);\n",
+        "  var jsType = JS('', '#.constructor', nativeObject);\n  if (_ontoObject(jsType, dartExtType)) return;\n  _applyExtension(jsType, dartExtType);\n}\n\n/// `_applyExtension`'s refusal to install a class onto the JavaScript\n/// `Object` (production: only these callers can pass it).\nbool _ontoObject(jsType, dartExtType) {\n  if (jsType == null) return false;\n  if (JS<Object?>('', '#.prototype', jsType) == null) return false;\n  if (JS('!', '# === #', dartExtType, JS_CLASS_REF(Object))) return false;\n  if (JS('!', '# === #.Object', jsType, global_)) {\n    var extName = JS<String>('!', '#.name', dartExtType);\n    _warn(\n        \"Attempting to install properties from non-Object type '$extName' onto the native JS Object.\");\n    return true;\n  }\n  return false;\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/classes.dart",
+        "applyExtensionForTesting(name) {\n  var dartExtType = JS('', '#.get(#)', _extensionMap, name);\n  var jsType = JS('', '#[#]', global_, name);\n  _applyExtension(jsType, dartExtType);\n",
+        "applyExtensionForTesting(name) {\n  var dartExtType = JS('', '#.get(#)', _extensionMap, name);\n  var jsType = JS('', '#[#]', global_, name);\n  if (_ontoObject(jsType, dartExtType)) return;\n  _applyExtension(jsType, dartExtType);\n",
+    ),
+    // `dart.global` falls back to `new Function('return this;')()` when no
+    // `window`, `global` or `self` exists; the production file defines
+    // `self` before anything else runs (`bundle.rs`), so the fallback is
+    // never taken.
+    (
+        Some("DARTFORGE_JSPROD_FLOOR_PATCHES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/runtime.dart",
+        "      : (typeof self != \"undefined\") ? self : null;\n    if (!globalState) {\n      // Some platforms (e.g., d8) do not define any of the above.  The\n      // following is a non-CSP safe way to access the global object:\n      globalState = new Function('return this;')();\n    }\n",
+        "      : self; // Production: the file defines `self` first.\n",
+    ),
     // `bind` takes the tear-off's type from the class's signature table. A
     // tear-off whose type is the same for every method of that name gets it
     // from the call (`dart.tbind(o, "m", T)`, `emit_js`'s typed bind), and
