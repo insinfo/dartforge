@@ -96,6 +96,10 @@ fn p6_async() {
     check("p6_async");
 }
 #[test]
+fn async_state_machine() {
+    check("async_state_machine");
+}
+#[test]
 fn main_arguments() {
     check("main_arguments");
     check("main_arguments_message");

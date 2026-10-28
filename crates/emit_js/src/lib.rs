@@ -7,6 +7,7 @@
     clippy::collapsible_else_if
 )]
 
+mod async_machine;
 pub mod body;
 pub mod call;
 pub mod checks;

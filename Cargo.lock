@@ -586,6 +586,13 @@ dependencies = [
  "dartforge-intern",
  "dartforge-macros-host",
  "dartforge-types",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_ast_visit",
+ "oxc_parser",
+ "oxc_semantic",
+ "oxc_span",
+ "oxc_syntax",
  "sha2",
  "tempfile",
 ]

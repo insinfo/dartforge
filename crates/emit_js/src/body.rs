@@ -1553,6 +1553,34 @@ return async._asyncStartSync(t$body, t$completer);\n}}"
             AsyncKind::Async => {
                 self.m.use_sdk("async");
                 let rti = self.rti(&inner_ty);
+                // Production: a state machine instead of the generator
+                // (`crate::async_machine`); what it does not handle keeps
+                // the generator. `DARTFORGE_JSPROD_ASYNC_MACHINE=0` keeps
+                // them all.
+                if self.ctx.production()
+                    && !mentions_js_arguments(body)
+                    && std::env::var("DARTFORGE_JSPROD_ASYNC_MACHINE").map_or(true, |v| v != "0")
+                {
+                    // Locals of the enclosing functions a closure here may
+                    // share: a value read from one before an `await` is kept.
+                    // Its own parameters change only in its body.
+                    let own = head_parameters(head);
+                    let mutable_free: HashSet<String> = self
+                        .scopes
+                        .iter()
+                        .flat_map(|s| s.values().map(|l| l.js.clone()))
+                        .filter(|n| !own.contains(&n.as_str()))
+                        .collect();
+                    let outer = format!("{head}\n{prologue}");
+                    match crate::async_machine::lower_async(body, &rti, &outer, &mutable_free) {
+                        Ok(lowered) => return format!("{head}\n{prologue}{lowered}}}"),
+                        Err(why) => {
+                            if std::env::var("DARTFORGE_JSPROD_ASYNC_MACHINE_DEBUG").is_ok() {
+                                eprintln!("async machine: generator kept ({why}): {head}");
+                            }
+                        }
+                    }
+                }
                 format!(
                     "{head}\n{prologue}let t$completer = async._makeAsyncAwaitCompleter({rti});\n\
 let t$gen = (function*() {{\n{body}}}).call(this);\n\
@@ -2970,6 +2998,21 @@ fn always_true(value: &Js) -> Js {
 /// Whether `text` may read the JavaScript `arguments` of its function: the
 /// word not followed by `$` or an identifier character (the emitter renames a
 /// Dart `arguments` to `arguments$`).
+/// The parameter names of a function head (`function f(a, b) {`,
+/// `(a) => {`, `m(a, opts) {`): the words of its last parenthesized group.
+fn head_parameters(head: &str) -> Vec<&str> {
+    let Some(close) = head.rfind(')') else {
+        return Vec::new();
+    };
+    let Some(open) = head[..close].rfind('(') else {
+        return Vec::new();
+    };
+    head[open + 1..close]
+        .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+        .filter(|w| !w.is_empty())
+        .collect()
+}
+
 fn mentions_js_arguments(text: &str) -> bool {
     text.match_indices("arguments").any(|(i, w)| {
         !text[i + w.len()..]

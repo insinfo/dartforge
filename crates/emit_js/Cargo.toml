@@ -17,6 +17,14 @@ dartforge-types = { path = "../types" }
 dartforge-macros-host = { path = "../macros_host" }
 
 sha2 = "0.10"
+# Production: `async` bodies lowered to a state machine (`async_machine.rs`).
+oxc_allocator = "0.152"
+oxc_parser = "0.152"
+oxc_span = "0.152"
+oxc_ast = "0.152"
+oxc_ast_visit = "0.152"
+oxc_syntax = "0.152"
+oxc_semantic = "0.152"
 
 [dev-dependencies]
 tempfile = "3"
