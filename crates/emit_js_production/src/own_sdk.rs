@@ -1010,7 +1010,19 @@ fn name_table(js: &str, rti: &HashMap<String, String>) -> String {
     let mut out = String::with_capacity(js.len() + list.len() + 400);
     // The first characters are a prefix of the following ones: one alphabet
     // serves both (`DARTFORGE_JSPROD_ONE_ID_ALPHABET=0` writes both).
-    if others.starts_with(first)
+    if first == ARITHMETIC_FIRST
+        && others == ARITHMETIC_NEXT
+        && std::env::var("DARTFORGE_JSPROD_ARITHMETIC_IDS").map_or(true, |v| v != "0")
+    {
+        // The alphabet's characters are three runs of character codes plus
+        // `_` and `$`: their positions come from arithmetic on the code
+        // instead of a 64-character literal, which gzip cannot compress.
+        out.push_str(&format!(
+            "var t$N = {table};\nvar t$I = function(id) {{ let d = (i) => (i = id.charCodeAt(i), {ARITHMETIC_POSITION}), n = d(1), p = {}; for (let i = 2; i < id.length; i++) {{ n += (d(i) + 1) * p; p *= {}; }} return n; }};\n",
+            first.len(),
+            others.len(),
+        ));
+    } else if others.starts_with(first)
         && std::env::var("DARTFORGE_JSPROD_ONE_ID_ALPHABET").map_or(true, |v| v != "0")
     {
         out.push_str(&format!(
@@ -1032,6 +1044,32 @@ fn name_table(js: &str, rti: &HashMap<String, String>) -> String {
     ));
     out.push_str(&js[p + UNMANGLE.len()..]);
     out
+}
+
+/// The id alphabets [`name_table`] decodes by arithmetic
+/// (`dartforge_emit_js::ID_FIRST` and `ID_NEXT`).
+const ARITHMETIC_FIRST: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$";
+const ARITHMETIC_NEXT: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$0123456789";
+
+/// A character code `i` → its position in [`ARITHMETIC_NEXT`] (a JS
+/// expression; [`arithmetic_position`] is the same in Rust).
+const ARITHMETIC_POSITION: &str =
+    "i > 96 ? i - 97 : i == 95 ? 52 : i > 64 ? i - 39 : i == 36 ? 53 : i + 6";
+
+/// [`ARITHMETIC_POSITION`] in Rust, for the test.
+#[cfg(test)]
+fn arithmetic_position(i: u32) -> u32 {
+    if i > 96 {
+        i - 97
+    } else if i == 95 {
+        52
+    } else if i > 64 {
+        i - 39
+    } else if i == 36 {
+        53
+    } else {
+        i + 6
+    }
 }
 
 /// The digits of the shared prefix length in [`front_coded`].
@@ -1376,6 +1414,15 @@ mod front_coding_tests {
                 prev.clone()
             })
             .collect()
+    }
+
+    #[test]
+    fn arithmetic_positions_match_the_id_alphabets() {
+        assert_eq!(ARITHMETIC_FIRST.as_bytes(), dartforge_emit_js::ID_FIRST);
+        assert_eq!(ARITHMETIC_NEXT.as_bytes(), dartforge_emit_js::ID_NEXT);
+        for (k, c) in ARITHMETIC_NEXT.bytes().enumerate() {
+            assert_eq!(arithmetic_position(u32::from(c)), k as u32, "{}", c as char);
+        }
     }
 
     #[test]
