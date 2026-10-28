@@ -207,6 +207,10 @@ pub struct Roots {
     /// Names called from outside the program (`dart.dsend(o, "toJson")` in
     /// the runtime): they apply to every instantiated class.
     pub selectors: Vec<String>,
+    /// Selectors whose kind is known (`name` for a read or call, `name_=`
+    /// for a write: the production verifier's fixes), recorded as they are
+    /// rather than as both kinds like [`Roots::selectors`].
+    pub exact_selectors: Vec<String>,
     /// Constructors whose static tearoff is referenced from outside.
     pub tearoffs: Vec<FunctionElementId>,
     /// The interceptors of JavaScript's own errors (`Error`, `TypeError`,
@@ -830,6 +834,14 @@ fn seed(m: &mut Engine<'_>, r: &Roots) {
         v
     } {
         m.new_external_selector(&s);
+    }
+    for s in {
+        let mut v = r.exact_selectors.clone();
+        v.sort();
+        v
+    } {
+        m.poison_name_str(s.strip_suffix("_=").unwrap_or(&s));
+        m.new_selector(&s);
     }
     let mut all: Vec<ClassId> = r.all_members_classes.clone();
     all.sort();

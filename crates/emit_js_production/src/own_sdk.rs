@@ -567,7 +567,14 @@ fn fixed_point(
             .instantiated_classes
             .extend(missing.instantiated_classes);
         roots.tearoffs.extend(missing.tearoffs);
-        roots.selectors.extend(missing.selectors);
+        // The verifier gives each fix its kind (a read, or `name_=` for a
+        // write): a read does not revive a setter.
+        // `DARTFORGE_JSPROD_EXACT_FIXES=0` records both kinds.
+        if std::env::var("DARTFORGE_JSPROD_EXACT_FIXES").map_or(true, |v| v != "0") {
+            roots.exact_selectors.extend(missing.selectors);
+        } else {
+            roots.selectors.extend(missing.selectors);
+        }
     }
     Ok(None)
 }
