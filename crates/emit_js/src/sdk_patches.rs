@@ -281,6 +281,30 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
     // `SystemHash.hashN` alive. One function per arity, called directly by
     // the production profile at each call site
     // (`Ctx::arity_specialization`); the original stays for tear-offs.
+    // `strSafe` (the interpolation of a number) calls the number's Dart
+    // `toString` through its extension symbol and throws an `ArgumentError`
+    // when the result is not a `String`, which a number's never is not: the
+    // error path, the installed `toString` and with them the universal
+    // `toString` stayed in every program that interpolates an `int`.
+    // `strNum` is `JSNumber.toString` itself, called directly by the
+    // production profile for a non-nullable `int`, `double` or `num`.
+    (
+        Some("DARTFORGE_JSPROD_STR_PRIMITIVES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "/// Helper method for `.noSuchMethod` used when the receiver isn't statically\n",
+        "/// `JSNumber.toString` of a number (the production profile's interpolation\n/// of a non-nullable `int`, `double` or `num`).\n@notNull\nString strNum(@notNull num n) =>\n    JS<String>('!', '# === 0 && 1 / # < 0 ? \"-0.0\" : \"\" + #', n, n, n);\n\n/// Helper method for `.noSuchMethod` used when the receiver isn't statically\n",
+    ),
+    // `print` converts its argument with the interpolation's generic
+    // `dart.str`, whose `toString` reaches every class. The conversion moves
+    // to the call site (`emit_js`'s print specialization calls `_printLine`
+    // with the argument converted as an interpolation would, by its static
+    // type); `print` itself stays for tear-offs.
+    (
+        Some("DARTFORGE_JSPROD_PRINT_LINE"),
+        "core/print.dart",
+        "void print(Object? object) {\n  String line = \"$object\";\n  var toZone = printToZone;",
+        "void print(Object? object) {\n  _printLine(\"$object\");\n}\n\n/// `print` of a line already converted (the production profile's call\n/// sites of `print`).\nvoid _printLine(String line) {\n  var toZone = printToZone;",
+    ),
     (
         Some("DARTFORGE_JSPROD_HASH_ARITY"),
         "core/object.dart",

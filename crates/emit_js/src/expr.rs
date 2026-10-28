@@ -1549,6 +1549,44 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     // Literals
     // -----------------------------------------------------------------------
 
+    /// The text of an interpolated value `v` of static type `vty` (`"…$v…"`),
+    /// to be joined with `+` after a string (`alone`: the whole line, which
+    /// must itself be a string): a `String` as it is, a number or `bool`
+    /// through `dart.strSafe`, anything else through `dart.str`. The
+    /// production profile converts a non-nullable number with `dart.strNum`
+    /// (`JSNumber.toString` without the extension call and its error path)
+    /// and a non-nullable `bool` with the JavaScript `+`, which gives the
+    /// same `true`/`false` as `JSBool.toString`
+    /// (`DARTFORGE_JSPROD_STR_PRIMITIVES=0` keeps `dart.strSafe`).
+    pub(crate) fn interpolation_part(&mut self, v: Js, vty: &Ty, alone: bool) -> String {
+        if self.ctx.is_string(vty) {
+            return if alone {
+                v.into_at(P_ASSIGN)
+            } else {
+                v.into_at(P_ADD)
+            };
+        }
+        if self.ctx.production() && self.ctx.str_num_patch() {
+            if self.ctx.is_num_like(vty) {
+                return format!("dart.strNum({})", v.into_at(P_ASSIGN));
+            }
+            if self.ctx.is_bool(vty) {
+                // `+` is left-associative and the caller starts every
+                // concatenation with a string.
+                return if alone {
+                    format!("\"\" + {}", v.into_at(P_ADD + 1))
+                } else {
+                    v.into_at(P_ADD + 1)
+                };
+            }
+        }
+        if self.ctx.is_num_like(vty) && !vty.is_class(self.ctx.num_) || self.ctx.is_bool(vty) {
+            format!("dart.strSafe({})", v.code)
+        } else {
+            format!("dart.str({})", v.code)
+        }
+    }
+
     fn emit_string_lit(&mut self, lit: &ast::StringLit) -> (Js, Ty) {
         let mut parts: Vec<String> = Vec::new();
         let mut pending: Vec<u16> = Vec::new();
@@ -1560,15 +1598,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         parts.push(js::string_literal_units(pending.drain(..)));
                     }
                     let (v, vty) = self.emit_expr(*e, None);
-                    if self.ctx.is_string(&vty) {
-                        parts.push(v.into_at(P_ADD));
-                    } else if self.ctx.is_num_like(&vty) && !vty.is_class(self.ctx.num_)
-                        || self.ctx.is_bool(&vty)
-                    {
-                        parts.push(format!("dart.strSafe({})", v.code));
-                    } else {
-                        parts.push(format!("dart.str({})", v.code));
-                    }
+                    // A lone interpolation (`"$b"`) is the whole string.
+                    let alone = lit.parts.len() == 1;
+                    parts.push(self.interpolation_part(v, &vty, alone));
                 }
             }
         }

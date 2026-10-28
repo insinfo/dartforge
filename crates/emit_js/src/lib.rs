@@ -236,6 +236,39 @@ pub fn arity_specialization(
     }
 }
 
+/// The `dart:core` function a production SDK patch provides for a call of
+/// the top-level `print` with one positional argument: `_printLine`, which
+/// takes the line already converted (the emitter converts the argument as
+/// an interpolation would, by its static type). The closed world
+/// (`dartforge_world`) uses the same rule. `None` when `fid` is not
+/// `print` or the patch is absent (`DARTFORGE_JSPROD_PRINT_LINE=0`).
+pub fn print_line_specialization(
+    program: &dartforge_elements::model::Program,
+    interner: &dartforge_intern::Interner,
+    fid: dartforge_elements::model::FunctionElementId,
+    positional: usize,
+) -> Option<dartforge_elements::model::FunctionElementId> {
+    use dartforge_elements::model::Element;
+    let core = program.core?;
+    let f = program.function(fid);
+    if f.library != core
+        || f.class.is_some()
+        || positional != 1
+        || interner.resolve(f.name) != "print"
+    {
+        return None;
+    }
+    match program
+        .library(core)
+        .declared
+        .get(&interner.lookup("_printLine")?)?
+        .getter?
+    {
+        Element::Function(g) if program.function(g).library == core => Some(g),
+        _ => None,
+    }
+}
+
 /// Short library tag in the rti recipes of the production profile
 /// (`Ctx::class_recipe` in SDK mode): `$` + the id in base 36. It starts with
 /// `$`, which no SDK library identifier uses.

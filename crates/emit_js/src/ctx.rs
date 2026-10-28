@@ -1837,6 +1837,30 @@ impl<'a> Ctx<'a> {
         crate::arity_specialization(self.program, self.interner, fid, positional)
     }
 
+    /// The production SDK patch that gives `dart:_runtime` its `strNum`
+    /// (`sdk_patches.rs`) is applied.
+    pub fn str_num_patch(&self) -> bool {
+        let Some(rt) = self.sdk.as_ref().and_then(|s| s.runtime) else {
+            return false;
+        };
+        self.interner.lookup("strNum").is_some_and(|sym| {
+            self.program
+                .library(rt)
+                .declared
+                .get(&sym)
+                .is_some_and(|b| b.getter.is_some())
+        })
+    }
+
+    /// `print(x)` → `_printLine` ([`crate::print_line_specialization`]).
+    pub fn print_line_specialization(
+        &self,
+        fid: FunctionElementId,
+        positional: usize,
+    ) -> Option<FunctionElementId> {
+        crate::print_line_specialization(self.program, self.interner, fid, positional)
+    }
+
     /// Interfaces of the class from the outline.
     pub fn interfaces_of(&self, c: ClassId) -> Vec<ClassId> {
         let data = &self.outline.classes[c.0 as usize];

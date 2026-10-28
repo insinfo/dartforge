@@ -1024,8 +1024,10 @@ fn static_interface(m: &Engine<'_>, ctx: &Context, x: ExprId) -> Option<(ClassId
 }
 
 /// The `dart:core` function a production SDK patch provides for the call
-/// `id` (`Object.hash(a, b)` → `_hash2`): the emitter calls it instead of the
-/// static (`dartforge_emit_js::arity_specialization`, the same rule).
+/// `id` (`Object.hash(a, b)` → `_hash2`, `print(x)` → `_printLine`): the
+/// emitter calls it instead of the static
+/// (`dartforge_emit_js::arity_specialization` and
+/// `print_line_specialization`, the same rules).
 fn arity_specialization(
     m: &Engine<'_>,
     ctx: &Context,
@@ -1041,8 +1043,24 @@ fn arity_specialization(
     let p = m.e.program;
     let core = p.core?;
     let func = p.function(f);
-    let class = func.class?;
     let n = a.args.len();
+    // `print(x)` → `_printLine` (`dartforge_emit_js::print_line_specialization`).
+    if func.library == core
+        && func.class.is_none()
+        && n == 1
+        && m.e.interner.resolve(func.name) == "print"
+    {
+        return match p
+            .library(core)
+            .declared
+            .get(&m.e.interner.lookup("_printLine")?)?
+            .getter?
+        {
+            Element::Function(g) if p.function(g).library == core => Some(g),
+            _ => None,
+        };
+    }
+    let class = func.class?;
     if func.library != core
         || !func.static_
         || m.e.interner.resolve(p.class(class).name) != "Object"
@@ -1058,6 +1076,48 @@ fn arity_specialization(
         .getter?
     {
         Element::Function(g) if p.function(g).library == core => Some(g),
+        _ => None,
+    }
+}
+
+/// The receiver `x` of a call `x.toString()` that the production emitter
+/// converts in place (`emit_js`'s `interpolation_part`): no arguments, not
+/// null-aware, a non-nullable `String`, `int`, `double`, `num` or `bool`.
+/// `DARTFORGE_JSPROD_STR_PRIMITIVES=0` (no `strNum` in the runtime) keeps
+/// numbers and booleans as calls.
+fn primitive_to_string(
+    m: &Engine<'_>,
+    ctx: &Context,
+    target: ExprId,
+    a: &ast::Arguments,
+) -> Option<ExprId> {
+    if !m.include_sdk || !a.args.is_empty() || !a.type_args.is_empty() {
+        return None;
+    }
+    let ast = &m.e.program.unit(ctx.unit).ast;
+    let ExprKind::Property {
+        target: r,
+        name,
+        null_aware: false,
+    } = &ast.expr(target).kind
+    else {
+        return None;
+    };
+    if m.e.interner.resolve(name.sym) != "toString" || matches!(ast.expr(*r).kind, ExprKind::Super)
+    {
+        return None;
+    }
+    let (c, nullable) = static_interface(m, ctx, *r)?;
+    if nullable {
+        return None;
+    }
+    let p = m.e.program;
+    if Some(p.class(c).library) != p.core {
+        return None;
+    }
+    match m.e.interner.resolve(p.class(c).name) {
+        "String" => Some(*r),
+        "int" | "double" | "num" | "bool" if m.str_num => Some(*r),
         _ => None,
     }
 }
@@ -2224,7 +2284,13 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             } else {
                 folded_enum_argument(m, ctx, *target, arguments)
             };
-            if folded.is_none() && special.is_none() {
+            // Production: `x.toString()` on a non-nullable `String`, number or
+            // `bool` is converted in place by the emitter (its interpolation
+            // conversion), without calling any `toString`.
+            let primitive_to_string = primitive_to_string(m, ctx, *target, arguments);
+            if let Some(r) = primitive_to_string {
+                expr(m, ctx, r);
+            } else if folded.is_none() && special.is_none() {
                 m.call_target = Some(*target);
                 let saved = m.invoked.replace(unwrapped_callee(ast, *target));
                 expr(m, ctx, *target);

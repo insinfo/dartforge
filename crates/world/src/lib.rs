@@ -664,6 +664,26 @@ fn int_num(e: &WorldInput<'_>) -> Option<(ClassId, ClassId)> {
     Some((class_named("int")?, class_named("num")?))
 }
 
+/// Whether `dart:_runtime` declares `strNum` (`emit_js`'s
+/// `Ctx::str_num_patch`, the same test).
+fn has_str_num(e: &WorldInput<'_>) -> bool {
+    let Some(rt) = e
+        .program
+        .libraries
+        .iter()
+        .position(|l| l.uri == "dart:_runtime")
+    else {
+        return false;
+    };
+    e.interner.lookup("strNum").is_some_and(|sym| {
+        e.program
+            .library(LibraryId(rt as u32))
+            .declared
+            .get(&sym)
+            .is_some_and(|b| b.getter.is_some())
+    })
+}
+
 /// Like [`compute`], with [`Options`].
 pub fn compute_with(e: WorldInput<'_>, r: &Roots, op: Options) -> World {
     let mut c = Computation::new(e, op);
@@ -687,6 +707,7 @@ impl<'a> Computation<'a> {
             m.include_sdk = true;
             m.natives = native_classes(&e);
             m.int_num = int_num(&e);
+            m.str_num = has_str_num(&e);
             m.natives_by_interface = natives_by_interface(&e, &m.natives);
             m.dartx_classes = dartx_classes(&e, &m.natives);
             m.constants = Some(Constants::new(e, op.without_asserts));
@@ -806,6 +827,7 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
         m.include_sdk = true;
         m.natives = native_classes(&e);
         m.int_num = int_num(&e);
+        m.str_num = has_str_num(&e);
         m.natives_by_interface = natives_by_interface(&e, &m.natives);
         m.dartx_classes = dartx_classes(&e, &m.natives);
         m.object_selectors = object_selectors_enabled();
@@ -1020,7 +1042,10 @@ pub(crate) struct Engine<'a> {
     /// instantiated, because the object is born in the browser.
     natives: HashSet<ClassId>,
     /// `(int, num)` from `dart:core`, with the SDK in the world.
-    int_num: Option<(ClassId, ClassId)>,
+    pub(crate) int_num: Option<(ClassId, ClassId)>,
+    /// `dart:_runtime` has the production patch's `strNum`: the emitter
+    /// converts a number or `bool` receiver of `toString()` in place.
+    pub(crate) str_num: bool,
     /// Interface (outside `core`/`_interceptors`/`collection`) → native
     /// classes that implement it: a live `ByteBuffer` may be a JS `ArrayBuffer`.
     natives_by_interface: HashMap<ClassId, Vec<ClassId>>,
@@ -1224,6 +1249,7 @@ impl<'a> Engine<'a> {
             include_sdk: false,
             natives: HashSet::new(),
             int_num: None,
+            str_num: false,
             natives_by_interface: HashMap::new(),
             foreign_open: std::env::var("DARTFORGE_JSPROD_NATIVE_GATE").is_ok_and(|v| v == "0"),
             held_natives: Vec::new(),

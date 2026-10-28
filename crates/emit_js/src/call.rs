@@ -749,6 +749,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let user = (self.is_user_class_ty(&recv_nn) && !recv_ty.is_nullable()) || is_super;
         match name {
             "toString" if !user && arguments.args.is_empty() => {
+                // Production: a non-nullable `String`, number or `bool`
+                // converts as an interpolation does (`interpolation_part`).
+                if self.ctx.production()
+                    && arguments.type_args.is_empty()
+                    && (self.ctx.is_string(recv_ty)
+                        || (self.ctx.str_num_patch()
+                            && (self.ctx.is_num_like(recv_ty) || self.ctx.is_bool(recv_ty))))
+                {
+                    let code = self.interpolation_part(recv.clone(), recv_ty, true);
+                    return (Js::new(code, P_ASSIGN), self.ctx.t_string());
+                }
                 return (
                     Js::prim(format!("dart.toString({})", recv.code)),
                     self.ctx.t_string(),
@@ -1533,6 +1544,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         })
                         .expect("getter");
                     return self.emit_fn_value_call(&g, &gty, arguments, expected);
+                }
+                // Production: `print(x)` converts `x` here, as an
+                // interpolation would, and calls the patched `_printLine`
+                // (`Ctx::print_line_specialization`); the world makes the
+                // same choice.
+                if self.ctx.production()
+                    && arguments.type_args.is_empty()
+                    && arguments.args.iter().all(|a| a.name.is_none())
+                    && let Some(g) = self
+                        .ctx
+                        .print_line_specialization(fid, arguments.args.len())
+                    && let Some((js, _)) = self.element_ref(Element::Function(g))
+                {
+                    let param = match self.element_ref(el) {
+                        Some((_, Ty::Fn { pos, .. })) => pos.first().cloned(),
+                        _ => None,
+                    };
+                    let (v, vty) = self.emit_expr(arguments.args[0].value, param.as_ref());
+                    let line = self.interpolation_part(v, &vty, true);
+                    return (Js::prim(format!("{js}({line})")), Ty::Void);
                 }
                 let (js, fty) = self.element_ref(el).expect("function");
                 if self.ctx.is_js_member(fid) {
