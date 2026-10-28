@@ -542,21 +542,53 @@ pub struct Context {
     /// stack (the VM's `stack_overflow_check`). 0 = not computed yet
     /// (fragment `gc_roots.rs`, `dartforge_context`); 1 = no known limit.
     pub stack_limit: Slot<std::cell::Cell<usize>>,
-    /// The type-check memo (offset 384, `layout::rti_memo`): written by the
-    /// runtime's cached `is`, `P<i>` and stored-type paths, read by the
-    /// generated code when its per-site cache misses. Zeroed with the
-    /// runtime's memos.
+    /// The thread's [`ThreadTables`] (offset 384, `layout::context::TABLES`),
+    /// set by the first `dartforge_context` of the thread, before any generated
+    /// code reads it.
+    pub tables: Slot<std::cell::Cell<*const ThreadTables>>,
+}
+
+/// The lookup tables of a thread that the generated code reads through
+/// [`Context::tables`] (`layout::thread_tables`): a thread-local apart from the
+/// [`Context`], all zeros at the start, so that it stays out of the executable's
+/// thread-local template.
+#[repr(C)]
+pub struct ThreadTables {
+    /// The type-check memo (`layout::rti_memo`): written by the runtime's cached
+    /// `is`, `P<i>` and stored-type paths (and by the generated `P<i>` with a
+    /// tuple), read by the generated code when its per-site cache misses.
+    /// Zeroed with the runtime's memos.
     pub rti_memo: [[std::cell::Cell<i64>; 4]; crate::layout::rti_memo::N],
     /// The one-character Latin-1 strings already returned by `String_charAt` on
-    /// this thread (`layout::context::ONE_CHAR`): the canonical literals
-    /// (`Heap::string_literal`, permanent), 0 = not requested yet. The generated
-    /// `String.[]` reads them inline (`@df.string_one_char`) and only calls the
-    /// native for an empty entry, a non-Latin-1 unit or an index out of range.
+    /// this thread: the canonical literals (`Heap::string_literal`, permanent),
+    /// 0 = not requested yet. The generated `String.[]` reads them inline
+    /// (`@df.string_one_char`) and only calls the native for an empty entry, a
+    /// non-Latin-1 unit or an index out of range.
     pub one_char: [std::cell::Cell<i64>; 256],
 }
 
-impl Context {
-    /// Stores `[a, b, kind] -> answer` in [`Context::rti_memo`].
+const _: () = {
+    use crate::layout::thread_tables as t;
+    assert!(std::mem::offset_of!(ThreadTables, rti_memo) == t::RTI_MEMO);
+    assert!(std::mem::offset_of!(ThreadTables, one_char) == t::ONE_CHAR);
+    assert!(
+        std::mem::size_of::<[[std::cell::Cell<i64>; 4]; crate::layout::rti_memo::N]>()
+            == crate::layout::rti_memo::N * crate::layout::rti_memo::ENTRY
+    );
+};
+
+thread_local! {
+    /// This thread's [`ThreadTables`].
+    pub static TABLES: ThreadTables = const {
+        ThreadTables {
+            rti_memo: [const { [const { std::cell::Cell::new(0) }; 4] }; crate::layout::rti_memo::N],
+            one_char: [const { std::cell::Cell::new(0) }; 256],
+        }
+    };
+}
+
+impl ThreadTables {
+    /// Stores `[a, b, kind] -> answer` in [`ThreadTables::rti_memo`].
     #[inline]
     pub(crate) fn rti_memo_store(&self, a: i64, b: i64, kind: i64, answer: i64) {
         use crate::layout::rti_memo::{WAYS, set};
@@ -571,7 +603,7 @@ impl Context {
         }
     }
 
-    /// Empties [`Context::rti_memo`].
+    /// Empties [`ThreadTables::rti_memo`].
     pub(crate) fn rti_memo_clear(&self) {
         for e in &self.rti_memo {
             for w in e {
@@ -606,12 +638,7 @@ const _: () = {
     assert!(std::mem::offset_of!(Context, true_value) == c::TRUE);
     assert!(std::mem::offset_of!(Context, false_value) == c::FALSE);
     assert!(std::mem::offset_of!(Context, stack_limit) == c::STACK_LIMIT);
-    assert!(std::mem::offset_of!(Context, rti_memo) == c::RTI_MEMO);
-    assert!(std::mem::offset_of!(Context, one_char) == c::ONE_CHAR);
-    assert!(
-        std::mem::size_of::<[[std::cell::Cell<i64>; 4]; crate::layout::rti_memo::N]>()
-            == crate::layout::rti_memo::N * crate::layout::rti_memo::ENTRY
-    );
+    assert!(std::mem::offset_of!(Context, tables) == c::TABLES);
 };
 
 thread_local! {
@@ -632,8 +659,7 @@ thread_local! {
             true_value: Slot::new((&raw const dartforge_true).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize)),
             false_value: Slot::new((&raw const dartforge_false).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize)),
             stack_limit: Slot::new(std::cell::Cell::new(0)),
-            rti_memo: [const { [const { std::cell::Cell::new(0) }; 4] }; crate::layout::rti_memo::N],
-            one_char: [const { std::cell::Cell::new(0) }; 256],
+            tables: Slot::new(std::cell::Cell::new(std::ptr::null())),
         }
     };
 }

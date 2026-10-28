@@ -7494,13 +7494,14 @@ done:\n\
     )
 }
 
-/// The probe of the thread's type-check memo (`layout::rti_memo`) for
+/// The probe of the thread's type-check memo (`layout::rti_memo`, in the tables
+/// the context points to, `layout::context::TABLES`) for
 /// `[a, b, kind]`, as instructions of a helper body: `%mfound` (an `i1`) and,
 /// when it is set, `%manswer`. The set hash is the runtime's
 /// (`rti_memo::set`); both ways are read without branches. `kind` may be a
 /// constant or a value.
 fn rti_memo_lookup(a: &str, b: &str, kind: &str) -> String {
-    use dartforge_runtime::layout::{context, rti_memo};
+    use dartforge_runtime::layout::{context, rti_memo, thread_tables};
     const _: () = assert!(rti_memo::WAYS == 2);
     let way = |w: usize| {
         let o = w * rti_memo::ENTRY;
@@ -7526,6 +7527,8 @@ fn rti_memo_lookup(a: &str, b: &str, kind: &str) -> String {
     };
     format!(
         "  %mctx = call ptr @dartforge_context()\n\
+  %mtp = getelementptr inbounds i8, ptr %mctx, i64 {tables}\n\
+  %mtb = load ptr, ptr %mtp, align 8, !invariant.load !{{}}\n\
   %mh1 = mul i64 {a}, {k1}\n\
   %mh2 = mul i64 {b}, {k2}\n\
   %mh3 = mul i64 {kind}, {k3}\n\
@@ -7534,7 +7537,7 @@ fn rti_memo_lookup(a: &str, b: &str, kind: &str) -> String {
   %mix = lshr i64 %mh, {shift}\n\
   %moff = shl i64 %mix, {set_shift}\n\
   %mo = add i64 %moff, {base}\n\
-  %me = getelementptr inbounds i8, ptr %mctx, i64 %mo\n\
+  %me = getelementptr inbounds i8, ptr %mtb, i64 %mo\n\
 {way0}{way1}  %mfound = or i1 %mfound0, %mfound1\n\
   %manswer = select i1 %mfound0, i64 %mr0, i64 %mr1\n",
         k1 = rti_memo::K1 as i64,
@@ -7542,7 +7545,8 @@ fn rti_memo_lookup(a: &str, b: &str, kind: &str) -> String {
         k3 = rti_memo::K3 as i64,
         shift = rti_memo::SHIFT,
         set_shift = (rti_memo::ENTRY * rti_memo::WAYS).trailing_zeros(),
-        base = context::RTI_MEMO,
+        tables = context::TABLES,
+        base = thread_tables::RTI_MEMO,
         way0 = way(0),
         way1 = way(1),
     )
@@ -7551,7 +7555,7 @@ fn rti_memo_lookup(a: &str, b: &str, kind: &str) -> String {
 /// The insertion into the thread's type-check memo after [`rti_memo_lookup`]
 /// missed, in a block it dominates: way 0 moves to way 1 (its words were loaded by
 /// the lookup) and `[a, b, kind] -> answer` takes way 0, as the runtime's
-/// `Context::rti_memo_store` does.
+/// `ThreadTables::rti_memo_store` does.
 fn rti_memo_insert(a: &str, b: &str, kind: &str, answer: &str) -> String {
     use dartforge_runtime::layout::rti_memo;
     let e = rti_memo::ENTRY;

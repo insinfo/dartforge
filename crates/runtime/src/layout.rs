@@ -380,12 +380,9 @@ pub mod context {
     pub const FALSE: usize = 368;
     /// The thread's native stack limit (`Context::stack_limit`).
     pub const STACK_LIMIT: usize = 376;
-    /// The thread's type-check memo (`Context::rti_memo`): [`super::rti_memo::SETS`]
-    /// sets of [`super::rti_memo::WAYS`] entries of four words.
-    pub const RTI_MEMO: usize = 384;
-    /// The canonical one-character Latin-1 strings (`Context::one_char`): 256
-    /// handles, 0 = not requested yet.
-    pub const ONE_CHAR: usize = RTI_MEMO + super::rti_memo::N * super::rti_memo::ENTRY;
+    /// The address of the thread's lookup tables (`Context::tables`,
+    /// [`super::thread_tables`]).
+    pub const TABLES: usize = 384;
 
     /// The cursor of the TLAB of `w` words.
     pub const fn tlab_cursor(w: usize) -> usize {
@@ -400,7 +397,21 @@ pub mod context {
     const _: () = assert!(tlab_end(super::TLAB_N) + 8 == SUBTYPES);
 }
 
-/// The thread's type-check memo (`Context::rti_memo`), shared by every use site
+/// Offsets in the thread's lookup tables (`heap::ThreadTables`), which the
+/// generated code reaches through the pointer at [`context::TABLES`]. They are a
+/// thread-local of their own, all zeros at the start, so that they take no room
+/// in the executable's thread-local template (the `Context` has non-zero fields
+/// and is copied whole to each new thread).
+pub mod thread_tables {
+    /// The type-check memo ([`super::rti_memo`]): [`super::rti_memo::SETS`] sets of
+    /// [`super::rti_memo::WAYS`] entries of four words.
+    pub const RTI_MEMO: usize = 0;
+    /// The canonical one-character Latin-1 strings: 256 handles, 0 = not
+    /// requested yet.
+    pub const ONE_CHAR: usize = RTI_MEMO + super::rti_memo::N * super::rti_memo::ENTRY;
+}
+
+/// The thread's type-check memo (`ThreadTables::rti_memo`), shared by every use site
 /// of `is T`, of `P<i>` and of the reified type of a new object: two-way sets of
 /// entries `[a, b, kind, answer]`, the set a hash of the first three words (a
 /// new entry takes way 0 and moves the old one to way 1). The

@@ -25,6 +25,10 @@ fn with_roots<R>(handles: &[i64], f: impl FnOnce() -> R) -> R {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_context() -> *const crate::heap::Context {
     crate::heap::CONTEXT.with(|c| {
+        if c.tables.get().is_null() {
+            c.tables
+                .set(crate::heap::TABLES.with(|t| std::ptr::from_ref(t)));
+        }
         if c.stack_limit.get() == 0 {
             c.stack_limit.set(thread_stack_limit());
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

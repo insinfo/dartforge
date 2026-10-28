@@ -36,8 +36,9 @@ use std::fmt::Write;
 /// * `@df.string_write(s, i, u)`: the `writeInto*String` (writes without a barrier: the
 ///   string is `RAW` and has not been published yet);
 /// * `@df.string_one_char(u)`: the canonical one-character string of the Latin-1
-///   unit `u` from the thread context (`layout::context::ONE_CHAR`), or 0 before
-///   the runtime's `String_charAt` has returned it once;
+///   unit `u` from the thread's tables (`layout::context::TABLES`,
+///   `layout::thread_tables::ONE_CHAR`), or 0 before the runtime's `String_charAt`
+///   has returned it once;
 /// * `@df.string_hash(s)`: the hash in the header, or `@dartforge_string_hash` on the
 ///   first query;
 /// * `@df.string_equals(a, b)`: `==` between two strings (identity; different lengths and
@@ -119,9 +120,11 @@ dois:
 }
 define internal i64 @df.string_one_char(i64 %u) alwaysinline nounwind {
   %ctx = call ptr @dartforge_context()
+  %tp = getelementptr inbounds i8, ptr %ctx, i64 384
+  %t = load ptr, ptr %tp, align 8, !invariant.load !{}
   %o = shl i64 %u, 3
-  %a = add i64 %o, 33152
-  %p = getelementptr inbounds i8, ptr %ctx, i64 %a
+  %a = add i64 %o, 32768
+  %p = getelementptr inbounds i8, ptr %t, i64 %a
   %r = load i64, ptr %p, align 8
   ret i64 %r
 }
@@ -483,7 +486,14 @@ mod tests {
             assert_eq!(1 + (((len << u32::from(two)) + 7) >> 3), w);
         }
         // The table of `@df.string_one_char`.
-        assert!(HELPERS.contains(&format!("%a = add i64 %o, {}", layout::context::ONE_CHAR)));
+        assert!(HELPERS.contains(&format!(
+            "%tp = getelementptr inbounds i8, ptr %ctx, i64 {}",
+            layout::context::TABLES
+        )));
+        assert!(HELPERS.contains(&format!(
+            "%a = add i64 %o, {}",
+            layout::thread_tables::ONE_CHAR
+        )));
         for (name, _, _) in HELPER_EFFECTS {
             assert!(
                 HELPERS.contains(&format!("@{name}(")),
