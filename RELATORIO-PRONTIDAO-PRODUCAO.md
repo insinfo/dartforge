@@ -1000,6 +1000,96 @@ runtime exportadas que restam por pedido — `_List(length)` de `List.filled` (~
 do tipo), literais de lista, `GrowableList_setData` do `clear()` das listas do parser, `asUint8List`
 (`view_new`), as faltas de seletor (`class_method`); e as sondas do memo de RTI (~2%).
 
+## Rodada de 2026-10-28 (tarde): ARC preparado — o ARC real, com morte imediata, e o modo rápido
+
+Mesmo Mac mini M4, carga 3 nas medidas finais (outros agentes compilando antes). "Antes"
+é `c08019c1` e "agora" é `86d0dd70`, cada um compilado de uma cópia limpa (`git archive`).
+Núcleos de `bench/comparison/bench.dart` isolados, 10 rodadas por processo (mediana em
+ms), contadores de `time -l` do processo inteiro; servidor `bench/comparison/server.dart`
+com `load_keepalive.dart` (4 × 8 conexões, 5 s), ciclos e instruções do processo servidor
+por pedido e o RSS máximo dele.
+
+O ARC preparado (`DARTFORGE_ARC_PREPARED=1`) passou a ser o **ARC real**: tokens
+exatos sobre o ARC puro (toda referência contada desde a primeira gravação, também
+num jovem), e o objeto morre na liberação que zera a contagem — no próprio
+`dartforge_arc_release` do código, no fim das escritas de campo e de lista da ABI, no
+fechamento de escopo nativo, ou na leitura de uma `WeakReference`/`Expando` —, não na
+coleta seguinte. Os ciclos continuam com a coleta de ciclos da completa. O antigo
+preparado (tokens exatos sobre o berçário, morte na sincronização) fica em
+`DARTFORGE_ARC_PROMPT=0`; o **modo rápido sem morte imediata** é
+`DARTFORGE_ARC_TOKENS=virtual`. Detalhes em docs/ARC-IMPLEMENTACAO.md §8.
+
+| medida | tracing | ARC simples | preparado antes | modo rápido | ARC real |
+|---|---:|---:|---:|---:|---:|
+| árvores, ms | 12,8 | 25,3 | 168 | 26,3 | 241 |
+| árvores, ciclos / instruções | 0,54 / 2,55 G | 1,02 / 5,12 G | 6,82 / 48,2 G | 1,02 / 5,12 G | 9,75 / 70,2 G |
+| strings, ms | 41,5 | 54,0 | 254 | 102 | 210 |
+| strings, ciclos / instruções | 1,71 / 11,6 G | 2,24 / 15,1 G | 10,3 / 76,5 G | 4,14 / 28,9 G | 8,49 / 59,2 G |
+| JSON, ms | 67,0 | 166 | 577 | 252 | 393 |
+| JSON, ciclos / instruções | 2,73 / 18,6 G | 6,70 / 45,6 G | 23,2 / 158 G | 10,1 / 69,3 G | 16,5 / 109 G |
+| servidor `/json`, pedidos/s | 65,1 mil | 46,6 mil | 9,5 mil | 29,8 mil | 10,1 mil |
+| servidor, ciclos / instruções por pedido | 69,7 / 216 mil | 90,3 / 334 mil | 393 mil / 2,22 M | 133 / 610 mil | 383 mil / 1,67 M |
+| servidor, RSS depois da carga | 17,4 MB | 19,0 MB | 19,9 MB | 19,7 MB | 70,6 MB |
+
+(O "preparado antes", o tracing e o ARC simples de `c08019c1` deram nas árvores 168 ms,
+12,9 e 23,5 ms; o servidor de `c08019c1` em tracing e ARC simples deu 63,1 e 43,9 mil
+pedidos/s.)
+
+**Quando um objeto é liberado agora.** No ARC real, na liberação que zera a contagem:
+as fracas leem nulo, o finalizador vai à fila (o nativo roda na hora) e os filhos perdem
+a ocorrência e morrem em cascata na mesma chamada, sem coleta no meio — os testes
+`heap::prompt_death_tests` e um programa com `WeakReference` sobre um local, um campo,
+uma posição de lista, um valor de mapa, uma closure capturada e uma cascata mostram a
+morte imediata em todos, e em nenhum no ARC simples. A memória do morto volta na
+drenagem seguinte. Um zero que um quadro observacional de nativo ainda vê espera o
+quadro fechar. No ARC simples e no modo rápido, como antes: o jovem na coleta menor, o
+velho na sincronização depois que a contagem chega a zero.
+
+**O que entrou** (cada passo validado com os testes de `dartforge-emit-native` — 1.044
+— e de `dartforge-runtime` — 332 —, `clippy -D warnings`, o corpus nativo pelo harness
+em 160/160 nos quatro modos — `--optimize` com `DARTFORGE_CHECK_SHADOW=1`,
+`--gc-stress`, desenvolvimento e Wasm — e os 152 programas `.dart` do corpus comparados
+com `dart run` em ARC simples, real e rápido, cada um normal, com `DARTFORGE_GC_STRESS=1`
+e com `DARTFORGE_ARC_CHECK=1`: todos iguais menos o 158, que liga asserts, e o 33, que
+depende de tempo, iguais ao tracing):
+
+- `03cacd38`: a tabela de instâncias canônicas é dona, mas a inserção não contava a
+  ocorrência — o berçário recontava na promoção, o ARC puro nunca (a auditoria achava
+  uma lista constante com RC 1 e duas ocorrências).
+- `d70dfd4b`: o ARC real e o modo rápido. Tokens sem o inventário por `HashMap` (a
+  auditoria o mantém), pontos de assentamento (`Heap::arc_settle`), a pilha-sombra fora
+  das raízes no ARC real (os tokens possuem o que ela guarda; uma posição velha dela
+  mantinha o handle de um morto), as marcas `late` e os índices de identidade do morto
+  limpos antes de o bloco voltar, a escrita que move o token para o campo, chamadas
+  uniformes diretas (o recurso `noSuchMethod` copia o próprio resultado), leituras e
+  escritas escalares de campo em linha. No modo rápido: nenhum retain/release, escritas
+  com a divisão do berçário, alocação com dono pela TLAB, `ArcCopy`/`ArcDrop` fora dos
+  pontos de coleta.
+- `e5d899fc`: o retain e o release do ARC real em linha: cada página publica na cabeça o
+  vetor de metadados, e o código incrementa e decrementa a contagem da entrada viva,
+  indo ao runtime só no zero, no novo candidato a ciclo ou numa página não publicada.
+- `86d0dd70`: a escrita que move não faz mais o par retain/release do valor.
+
+**O que falta e por quê:**
+
+1. **O ARC real ainda custa 2,4–9,6× o ARC simples** em ciclos (árvores 9,75 contra
+   1,02 G). O tempo está na morte (descarte no runtime: consulta à tabela, percurso das
+   arestas, soltura dos filhos, remoção dos metadados), no registro de cada objeto novo
+   e na escrita `Ref` contada, todos por chamada. Os próximos passos: registro e escrita
+   contada em linha sobre o mesmo vetor; descarte especializado por classe e
+   reutilização imediata da célula morta pela alocação seguinte do mesmo tamanho
+   (*reuse* do Perceus), que tiram a drenagem do caminho e baixam o RSS (hoje 70 MB no
+   servidor, a memória dos mortos só volta na drenagem); elisão de pares nas leituras de
+   campos `final` com receptor emprestado. A contagem dentro do objeto exigiria um
+   cabeçalho maior (o de 16 bytes não tem campo livre).
+2. **O modo rápido a 1,5–1,9× o ARC simples** em strings e JSON e a 64% dele no servidor:
+   o resto da ABI auditada (listas, caixas, escopos nativos em cada nativo que chama
+   Dart, entrada de closure pelo runtime) e as otimizações que a preparação desliga.
+3. **Padrão.** Nenhum dos dois modos preparados alcança o ARC simples nos quatro núcleos:
+   o padrão do ARC continua o simples.
+4. O harness não tem modo ARC: a comparação dos três regimes de ARC com `dart run` é
+   feita por script, programa a programa.
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).

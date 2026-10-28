@@ -585,6 +585,119 @@ O desenho da §2 voltou a ser o padrão do modo `arc`, preparado ou não
 | Código preparado | Os tokens de código são raízes da coleta menor e donos contados na promoção; o código preparado não muda. | `heap.rs` |
 | Ponto fixo | O alcance da completa marca o mapa de bits em vez de um conjunto por hash; as arestas percorridas espaçam as completas sob `--gc-stress`. | `heap.rs` (`mark_reachable`) |
 
+## 8. ARC preparado: o ARC real com morte imediata e o modo rápido (2026-10-28)
+
+O ARC preparado (`DARTFORGE_ARC_PREPARED=1`, os donos na HIR da §20) passou a ter
+dois regimes de execução. O padrão é o **ARC real**: tokens exatos, toda
+referência contada desde a primeira gravação, e o objeto morre na liberação que
+leva a contagem a zero. O outro, opcional, é o **modo rápido sem morte imediata**
+(`DARTFORGE_ARC_TOKENS=virtual`): os mesmos corpos preparados e verificados, sem
+custo de token em execução, com a morte na sincronização como no ARC simples.
+
+| Compilação | Regime | Entrada do isolado |
+| --- | --- | --- |
+| `--memory arc` | ARC simples (berçário, §7) | `dartforge_memory_arc_nursery_v1` |
+| `DARTFORGE_ARC_PREPARED=1` | ARC real: tokens exatos, ARC puro, morte imediata | `dartforge_memory_arc_prompt_v1` |
+| `DARTFORGE_ARC_PREPARED=1 DARTFORGE_ARC_TOKENS=virtual` | modo rápido: tokens virtuais sobre o berçário | `…_nursery_v1` e `dartforge_arc_virtual_tokens_v1` |
+| `DARTFORGE_ARC_PREPARED=1 DARTFORGE_ARC_PROMPT=0` | o preparado anterior: tokens exatos sobre o berçário | `…_nursery_v1` |
+| `DARTFORGE_ARC_AUDITED_ABI=1` (com qualquer preparado) | toda leitura e escrita de campo pela ABI auditada | — |
+
+As variáveis entram na chave do SDK compilado (`arc=prompt_v1`,
+`arc_tokens=virtual_v1`, `arc_abi=audited_v1`).
+
+### 8.1 Quando um objeto é liberado
+
+| Regime | Morte lógica (fracas nulas, finalizador na fila, filhos soltos) | Memória devolvida |
+| --- | --- | --- |
+| tracing | coleta (menor ou completa) que não o alcança | a varredura |
+| ARC simples, modo rápido, preparado com `DARTFORGE_ARC_PROMPT=0` | jovem: a coleta menor que não o alcança; velho: a sincronização (fim da coleta menor) depois que a contagem chega a zero e nenhuma raiz o vê | a varredura dos jovens / a sincronização |
+| ARC real | **no ponto de assentamento** depois da liberação que zera a contagem: a própria liberação de token do código (`dartforge_arc_release`), o fim das escritas de campo e de lista da ABI, o fechamento de escopo nativo e as leituras que observam a morte (`WeakReference.target`, `Expando`); a cascata segue na mesma chamada por uma fila iterativa | a drenagem seguinte (a coleta disparada pela alocação) |
+| ARC real, ciclo | a rodada de ciclos da coleta completa (*trial deletion*, §22) | a mesma coleta |
+
+No ARC real, uma raiz observacional do runtime (o quadro não proprietário de um
+nativo que chama Dart, as raízes de rascunho) ainda protege um zero: ele espera
+até o quadro fechar e o próximo assentamento. A pilha-sombra do código gerado
+**não** é raiz no ARC real (`Heap::root_list`): os tokens possuem o que ela
+guarda, e uma posição dela pode manter o handle de um objeto que já morreu na
+liberação. Os testes `heap::prompt_death_tests` provam a morte sem coleta entre a
+última liberação e a observação: token local, campo, posição de lista, cascata,
+finalizador, adiamento pelo quadro de um nativo e o ciclo que espera o coletor. O
+programa de aceitação (local, campo, lista, valor de mapa, closure capturada e
+cascata, cada um observado por `WeakReference` logo depois da última referência
+sumir) dá a morte imediata em todos no ARC real e em nenhum no ARC simples.
+
+### 8.2 Como funciona o ARC real
+
+| Parte | Como funciona | Arquivo |
+| --- | --- | --- |
+| Contagem | O ARC puro da §6: toda gravação de referência conta na hora, também num jovem; o destino sem metadados é registrado antes da primeira ocorrência. | `heap.rs` |
+| Tokens | Exatos: o retain do código conta mais uma ocorrência (sem o inventário por `HashMap` de antes; o registro do objeto novo já sai com RC 1, uma inserção na tabela). Com `DARTFORGE_ARC_CHECK=1` o inventário volta, para a auditoria recontar cada token. Mover um token para um slot ou global transfere a contagem. | `heap.rs` (`retain_code_owner`, `code_inventory`) |
+| Contagem em linha | Cada página do espaço publica nas duas primeiras palavras da cabeça (bits do mapa de marcas que cobrem a própria cabeça, nunca marcados) o endereço do vetor de metadados por bloco e `tamanho \| blocos << 32`; cada `MetaArc` tem layout C de 32 bytes com o RC primeiro e os bytes presente/estado/imortal/candidato/sem ciclo juntos. O retain e o release do código incrementam e decrementam em linha a entrada presente, viva e não imortal; o objeto estático não é contado; o release que chegaria a zero, ou criaria um candidato a ciclo, e a página não publicada vão ao runtime. Com a auditoria as páginas não são publicadas. | `arc.rs` (`inline`), `llvm/arc_tag_guards.rs` (`prompt_helpers`) |
+| Morte | `Heap::arc_settle`: assenta as fotos de escrita crua e os efêmeros, drena os zeros (cascata iterativa), limpa as fracas, efêmeros, anexos e finalizáveis dos mortos e dispara finalizadores. As marcas `late` e os índices de identidade dos mortos saem na drenagem seguinte, antes de os blocos voltarem. | `heap.rs` |
+| Escrita que move | Uma escrita de campo `Ref` cujo token é solto adiante na mesma linha reta de código (o bloco e os sucessores únicos) entrega o token ao campo (`dartforge_arc_write_field_ref_move_v1`): grava, solta a referência anterior e não mexe na contagem do valor. | `llvm/mod.rs` (`moves_into_fields`), `heap.rs` (`set_field_moving`) |
+| Chamadas uniformes | Diretas para a entrada, como no tracing, em vez de `dartforge_arc_invoke_uniform_v1` (escopo nativo, registro de portas com mutex): toda entrada uniforme devolve Owned, e o recurso `noSuchMethod` copia o próprio resultado no ARC real. | `llvm/selectors.rs`, `selectors.rs` |
+| Leituras | As leituras de campo da ABI auditada saem em linha (um load) em todo preparado; as escritas escalares também. | `llvm/mod.rs` (`prepared_inline_field`) |
+
+Correções que a morte imediata expôs no ARC puro (valem também para
+`DARTFORGE_ARC_NURSERY=0`): a tabela de instâncias canônicas é dona
+(`owning_roots`), mas a inserção não contava a ocorrência — o berçário a recontava
+na promoção, o ARC puro nunca (`IMMUTABLE_LIST` canônica com RC 1 e duas
+ocorrências na auditoria). E a marca `late` de um morto no assentamento ficava no
+bloco reusado quando a drenagem não achava morte nova.
+
+### 8.3 O modo rápido (tokens virtuais)
+
+Sob o berçário, um zero nunca mata um objeto que uma raiz (a pilha-sombra incluída)
+ainda vê, e as arestas jovem→velho e as escritas cruas só contam na
+sincronização. A contagem dos tokens não muda nada observável ali: o modo rápido não
+a faz. O código preparado não emite retain/release (`ArcCopy`/`ArcDrop` sem
+chamada, e deixam de ser pontos de coleta), as gravações saem em linha com a
+divisão do berçário como no código não preparado, a alocação com dono sai em
+linha pela TLAB e as chamadas uniformes vão direto à entrada. Mover um token para um
+slot dono ou global retém ali; o resultado de uma porta que um escopo nativo guarda
+vira raiz sem contagem. A preparação e a verificação dos tokens não mudam.
+
+### 8.4 Otimizações de ARC: o que entrou e o que não
+
+| Técnica | Situação |
+| --- | --- |
+| Inferência de empréstimo (parâmetros e locais emprestados, Perceus/Lobster) | já existia na preparação (parâmetros `Borrowed` do chamador, leituras de campo emprestadas); não ampliada |
+| Elisão de dup/drop por último uso e movimento | parcial: a escrita que move o token para o campo; o movimento para slots e globais já existia |
+| Eliminação de pares retain/release | o modo rápido elimina todos; no ARC real, os da escrita que move |
+| inc/dec em linha, caminho lento só no zero | feito no ARC real (contagem pelo vetor publicado na cabeça da página) |
+| Reuso da célula liberada (Perceus *reuse*) | não: a memória do morto só volta na drenagem |
+| Descarte especializado por classe | não: o descarte segue o mapa de referências do cabeçalho |
+| Alocação por lista livre por thread | a TLAB por tamanho já existe; o ARC real não a alimenta com o morto imediato |
+| Contagem dentro do objeto | não: o cabeçalho de 16 bytes não tem campo livre (§19.1); a contagem fica no vetor denso por página, publicado na cabeça dela |
+| OSSA do Swift | modelo de referência para os donos/empréstimos da HIR; nada novo desta rodada |
+
+### 8.5 Medidas (2026-10-28)
+
+Mac mini M4, carga 3 nas medidas finais. Núcleos de `bench/comparison/bench.dart`
+isolados, 10 rodadas por processo (mediana em ms); contadores de `time -l` do
+processo inteiro. "Antes" é `c08019c1`, "agora" é `86d0dd70`.
+
+| núcleo | tracing | ARC simples | preparado antes | modo rápido | ARC real |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| árvores, ms | 12,8 | 25,3 | 168 | 26,3 | 241 |
+| árvores, ciclos / instruções | 0,54 G / 2,55 G | 1,02 G / 5,12 G | 6,82 G / 48,2 G | 1,02 G / 5,12 G | 9,75 G / 70,2 G |
+| strings, ms | 41,5 | 54,0 | 254 | 102 | 210 |
+| strings, ciclos / instruções | 1,71 G / 11,6 G | 2,24 G / 15,1 G | 10,3 G / 76,5 G | 4,14 G / 28,9 G | 8,49 G / 59,2 G |
+| JSON, ms | 67,0 | 166 | 577 | 252 | 393 |
+| JSON, ciclos / instruções | 2,73 G / 18,6 G | 6,70 G / 45,6 G | 23,2 G / 158 G | 10,1 G / 69,3 G | 16,5 G / 109 G |
+
+O modo rápido iguala o ARC simples nas árvores e fica a 1,5–1,9× dele em strings
+e JSON (o resto da ABI auditada: listas, caixas, escopos nativos, entrada de
+closure pelo runtime). O ARC real custa 2,4–9,6× o ARC simples em ciclos: a
+contagem em linha tirou a chamada de cada token, mas cada morte ainda passa pelo
+descarte no runtime (consulta à tabela, percurso das arestas, soltura dos filhos,
+remoção dos metadados), cada objeto novo ainda é registrado por chamada, e cada
+escrita `Ref` ainda vai ao runtime. Os próximos passos do ARC real, em ordem de
+ganho esperado: o registro e a escrita contada em linha sobre o mesmo vetor; o
+descarte especializado por classe e a reutilização imediata da célula morta pela
+próxima alocação do mesmo tamanho (*reuse* do Perceus), que tiram a drenagem do
+caminho; a elisão de pares nas leituras de campos `final` com receptor emprestado.
+
 ## 5. Pendências
 
 O lowering registra nominalmente os retornos Ref de corpos tipados Dart
