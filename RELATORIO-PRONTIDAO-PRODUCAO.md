@@ -569,6 +569,103 @@ de `dartforge-runtime`, `clippy -D warnings`):
    programa com o mesmo programa em ARC puro (que confere com `dart run` em
    150/152, os dois restantes explicados na seção de testes de ARC acima).
 
+## Rodada de 2026-10-27 (noite): vazão HTTP — caches de RTI, `String.[]` e strings
+
+Medido no `main`, de `69c77488` (início: o servidor compilado com o compilador desse
+commit no começo da rodada) a `326fce46` (fim), no mesmo Mac mini M4. A carga da máquina
+oscilou entre 4 e 30 (outro agente compilando); a tabela usa as rodadas sem
+interferência — processos alternados, 4 × 8 conexões com
+`bench/comparison/load_keepalive.dart`, 4 s cada, contadores do processo inteiro pelo
+`time -l` — e vale pelos ciclos e instruções por pedido, que mudam pouco com a carga.
+
+| medida | início | fim | Dart AOT 3.6.2 |
+|---|---:|---:|---:|
+| servidor `/json` com keep-alive, pedidos/s | 55,6 mil | 60,8 mil | 72,4 mil |
+| instruções / ciclos por pedido | 271,3 mil / 78,9 mil | 244,0 mil / 74,0 mil | 212,0 mil / 69,3 mil |
+| executável do servidor | 4,419 MB | 4,435 MB | 5,625 MB |
+| árvores (só o núcleo, 20 rodadas), ciclos / instruções | 1,15 G / 5,52 G¹ | 1,16 G / 5,52 G | 1,03 G / 5,02 G |
+| árvores, ms por rodada (com carga) | — | 13,8 | 11,6 |
+
+¹ Da segunda continuação (`348d1e94`); o binário das árvores não foi recompilado com o
+compilador do início desta rodada.
+
+O servidor passou de 77% para 84% dos pedidos/s do Dart: −10% de instruções e −6% de
+ciclos por pedido. Falta +15% de instruções e +7% de ciclos. Nada desta rodada mexeu nas
+árvores (as instruções são as mesmas, 5,52 G).
+
+**Como foi medido onde vai o tempo.** Além do `sample` (thread principal: chamadas ao
+sistema 35–45%, código Dart ~30%, runtime ~15–20%), contagens exatas por pedido com pontos de
+parada do `lldb` que só contam (`breakpoint set -r '^df\.dart' -G true`), com 10 e 30
+pedidos numa conexão e a diferença dividida por 20: **~1.260 chamadas de funções Dart
+por pedido** e **~430 chamadas ao runtime**. O mesmo método, com um script Python no
+ponto de parada, registrou cada falta dos caches de RTI por sítio com a chave: ~180 por
+pedido, com 5 a 8 chaves distintas no mesmo sítio (as instâncias de `Future<T>` e
+`Stream<T>` de cada pedido), cada uma a ~100 instruções no runtime.
+
+**O que entrou** (cada um validado com os testes de `dartforge-emit-native` e
+`dartforge-runtime` — 1.179 e todos os do runtime passam —, `cargo clippy -D warnings`,
+o corpus nativo 160/160 em `--optimize` com `DARTFORGE_CHECK_SHADOW=1`, em
+`--optimize --gc-stress`, em desenvolvimento e em Wasm — os poucos `timed out (5 s)`
+das rodadas com a máquina carregada passam com `--exec-limit 60`, como
+`91_textos_grandes_e_interpolacao` já fazia no início —, e de 6 a 14 programas do corpus
+em ARC simples e preparado, com o berçário padrão, contra `dart run`):
+
+- `7a87ec4b`: `LoadGlobal`, `StoreGlobal` (sem raiz registrada), `EnvGet`, `CellGet` e
+  a caixa de um `bool` deixam de ser pontos de coleta. Todo getter de tipo preguiçoso
+  (`df.rti.*`) começa lendo a flag de pronto: inlinado, fazia de cada método genérico um
+  ponto de coleta que enraizava tudo o que estava vivo (`o is T` empurrava um quadro de
+  raízes por chamada). Laço polimórfico de `is T`: 174 → 158 instruções por iteração.
+- `1e1bb1f3`: um memo de RTI por thread, de 1.024 entradas em conjuntos de duas vias,
+  atrás dos caches de uma entrada de cada sítio (`is T`, `P<i>` e o tipo de um objeto
+  novo). A falta no sítio consulta o memo em código gerado (`@df.rti_is_probe`,
+  `@df.rti_eval_probe`, o caminho lento de `@df.rti_set_cached`); só a falta nas duas
+  vias entra no runtime, que preenche os dois. Laço com duas instâncias alternadas: 373 →
+  228 instruções por iteração; servidor −3% de instruções.
+- `0f2868ab`: `String.[]` Latin-1 em linha, com as strings de um caractere numa tabela
+  da thread (como o intrínseco da VM devolve o símbolo predefinido), e `s[i]` sobre
+  `String` como chamada direta ao `operator []` de `_StringBase`, em vez do seletor e da
+  entrada tipada. Servidor −2,7% de instruções.
+- `0d4bd90e`: `==` entre duas strings da mesma classe compara as unidades sem o runtime
+  (o caso de `s[i] != " "`, cujo hash ainda não foi calculado), e `StringBuffer.write`
+  de uma string lê os cabeçalhos do acumulador e da string direto, sem o empréstimo do
+  heap nem a validação do handle.
+- `68c186a0`: as avaliações de tipo com tupla (`@df.rti_eval_site`) também consultam e
+  preenchem o memo. Com o anterior: −2,6% de instruções e −1,7% de ciclos.
+- `855474f2`: uma única chamada por falta em cada sítio de RTI (chave 0 quando o valor
+  não tem chave) e o laço de comparação de strings fora de linha: o texto do servidor,
+  que tinha crescido 39 KB, fica 5 KB acima do início.
+- `326fce46`: as tabelas da thread (memo e strings de um caractere) saem do `Context`,
+  cujo modelo de thread-local ia inteiro para o executável (`__thread_data` +34 KB) e era
+  copiado a cada thread nova: viram um thread-local próprio, zerado (`__thread_bss`),
+  com o endereço no contexto.
+
+**Medido e não feito.**
+
+- *Contexto da thread em registrador* (item 4 da lista). Com ~1.260 chamadas Dart por
+  pedido, as cinco instruções da leitura do contexto por TLS somam ~6 mil instruções
+  por pedido (2,5%). Nas árvores pesa mais: duas chamadas por nó, e é a maior parte das
+  0,5 G instruções de diferença para o Dart. Exige reservar um registrador (`x28`) e
+  preparar o contexto em toda entrada que o runtime chama (closures, tabelas de
+  métodos, callbacks), ou passar o contexto como argumento — uma mudança de ABI que não
+  cabia nesta rodada.
+- *Quadro de raízes em funções folha* (item 3): depois do `7a87ec4b`, nas funções quentes
+  examinadas (`_StreamController.add`, `_CopyingBytesBuilder.add`) o quadro que sobra
+  guarda valores vivos através de chamadas que coletam de fato.
+- *Buffers de resposta pela TLAB* (item 2): o caminho de 8 KiB custa ~1,6% da thread
+  principal além do `memset`, que o Dart também paga (zera o `Uint8List` na alocação).
+- *Leituras extras com `EAGAIN`* (item 6): no `sample`, os `read` fora da thread principal
+  são da thread de E/S (20 de 3.061 amostras); não investigado além disso.
+- *Entrada direta por aridade* (item 7): o perfil não mudou o diagnóstico; não revisitada.
+
+**O que ainda separa do Dart, em ordem:** a cópia de `codeUnits` byte a byte em
+`_CopyingBytesBuilder.add` com o teste de classe refeito a cada iteração (4,7% das
+amostras em código do executável); o `memset` dos dois `Uint8List` de 8 KiB e do refill
+da TLAB (~2,7% da thread principal); os
+literais de lista e `List.filled` pelo runtime (~50 chamadas por pedido: `list_literal`,
+`adjust_list_shape`, `set_list_type`); getters de listas tipadas chamados sem inlining
+(`length`, `elementSizeInBytes`, ~66 chamadas por pedido); o contexto da thread por TLS
+e a conferência de exceção pendente depois de cada chamada.
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
@@ -587,10 +684,11 @@ de `dartforge-runtime`, `clippy -D warnings`):
    nulo e elimina `boolean_selector`, `source_span`, `string_scanner` e `stream_channel`, que
    aqui somam cerca de 160 KB sem minificação. No hello o piso vem dos membros de `Object`
    tratados como universais (`universal_names`): `toString` puxa o RTI inteiro.
-2. **Vazão HTTP ~77% do Dart** (55,6 contra 72,0 mil pedidos/s no fim de 2026-10-27).
-   Perfil achatado; os ganhos estruturais são o prólogo das funções (contexto da thread
-   em registrador, quadro de raízes só nos caminhos lentos), o modelo `async` da VM e
-   menos chamadas ao runtime em Rust.
+2. **Vazão HTTP ~84% do Dart** (60,8 contra 72,4 mil pedidos/s; 244 contra 212 mil
+   instruções e 74,0 contra 69,3 mil ciclos por pedido, na noite de 2026-10-27).
+   Perfil achatado; o que falta está na seção da noite de 2026-10-27: a cópia de
+   `codeUnits` nos cabeçalhos, o contexto da thread em registrador, os literais de lista
+   pelo runtime e o modelo `async` da VM.
 3. **`async` no nível do Dart** (no fim de 2026-10-27: 254 contra 249 ms, 5,22 contra
    5,30 G ciclos, com o dobro de instruções). O que sobra é a própria máquina de estados no
    estilo do dart2js (`_wrapBody` e o `guarded` por chamada, o corpo chamado pela
