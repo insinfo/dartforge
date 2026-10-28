@@ -1,20 +1,28 @@
 // Replaces `_internal/vm_shared/lib/string_buffer_patch.dart` (overlay
 // `native_sdk/`, P5c). The VM's joins the parts in a list and the loose units
 // in a `Uint16List`, compacts the list from time to time and creates the
-// string through a native. Here the written units go straight to a runtime
-// accumulator (`_AcumuladorDeTexto`, an object with the units vector
-// attached, released by the collector with it; `natives_strings.rs`): one
-// call per `write`, without an object per part and without the covariance
-// check of the list's `add`; `toString` copies what was accumulated into a new
-// string (the `StringBuffer` can keep growing). What the program observes —
-// the text, `length`, `isEmpty` — is the same.
+// string through a native. Here the written units go straight into a text
+// buffer (`dart:_internal`, `textBufferAppend`): a string that is never
+// published, whose first `_units` code units are the text, grown by doubling.
+// A `write` of a string that fits is one inline copy (`copyStringUnits`)
+// without a runtime call, an object per part or the covariance check of the
+// list's `add`; `toString` copies the text into a new string (the
+// `StringBuffer` can keep growing). What the program observes — the text,
+// `length`, `isEmpty` — is the same.
 
-import "dart:_internal" show patch;
+import "dart:_internal"
+    show
+        copyStringUnits,
+        patch,
+        textBufferAppend,
+        textBufferToString,
+        writeIntoOneByteString,
+        writeIntoTwoByteString;
 
 @patch
 class StringBuffer {
-  /// The runtime accumulator; `null` while empty.
-  Object? _accumulator;
+  /// The text buffer; null while nothing was written.
+  String? _buffer;
 
   /// The code units written.
   int _units = 0;
@@ -29,39 +37,51 @@ class StringBuffer {
 
   @patch
   void write(Object? obj) {
-    // The string goes to the accumulator in a single call (the `is String` test,
-    // `isEmpty` and `length` stay in the runtime); the rest goes through
-    // `toString`, as on the VM.
-    final int n = _writeIfString(_accumulator ??= _create(), obj);
-    if (n >= 0) {
-      _units += n;
+    final String str = obj is String ? obj : "$obj";
+    final int count = str.length;
+    final int at = _units;
+    final String? buffer = _buffer;
+    if (buffer != null &&
+        at + count <= buffer.length &&
+        copyStringUnits(buffer, at, str, count)) {
+      _units = at + count;
       return;
     }
-    String str = "$obj";
-    if (str.isEmpty) return;
-    _write(_accumulator!, str);
-    _units += str.length;
+    if (count == 0) return;
+    _buffer = textBufferAppend(buffer, at, str);
+    _units = at + count;
   }
 
-  // The units go straight to the accumulator, without the one-character string
-  // that `String.fromCharCode` allocated (the `writeCharCode` of
-  // `_JsonStringifier` and of `_JsonStringParser` writes through here); the
-  // checks and the `RangeError` are the VM's.
+  // The unit goes straight into the buffer, without the one-character string
+  // that `String.fromCharCode` allocates (the `writeCharCode` of
+  // `_JsonStringParser` writes through here); the checks and the `RangeError`
+  // are the VM's.
   @patch
   void writeCharCode(int charCode) {
-    if (charCode <= 0xFFFF) {
+    if (charCode <= 0xFF) {
       if (charCode < 0) {
         throw new RangeError.range(charCode, 0, 0x10FFFF);
       }
-      _writeCharCodeNative(_accumulator ??= _create(), charCode);
-      _units += 1;
-    } else {
-      if (charCode > 0x10FFFF) {
-        throw new RangeError.range(charCode, 0, 0x10FFFF);
+      final int at = _units;
+      final String? buffer = _buffer;
+      if (buffer != null && at < buffer.length) {
+        if (buffer is _OneByteString) {
+          writeIntoOneByteString(buffer, at, charCode);
+        } else {
+          writeIntoTwoByteString(buffer, at, charCode);
+        }
+        _units = at + 1;
+        return;
       }
-      _writeCharCodeNative(_accumulator ??= _create(), charCode);
-      _units += 2;
+    } else if (charCode > 0x10FFFF) {
+      throw new RangeError.range(charCode, 0, 0x10FFFF);
     }
+    // No room, or a unit above 0xFF: the buffer grows or widens (not through
+    // `write`, which a subclass may override).
+    final String str = new String.fromCharCode(charCode);
+    final int at = _units;
+    _buffer = textBufferAppend(_buffer, at, str);
+    _units = at + str.length;
   }
 
   @patch
@@ -81,41 +101,22 @@ class StringBuffer {
     }
   }
 
+  // The line terminator is not written through `write` (which a subclass may
+  // override), as on the VM.
   @patch
   void writeln([Object? obj = ""]) {
     write(obj);
-    write("\n");
+    final int at = _units;
+    _buffer = textBufferAppend(_buffer, at, "\n");
+    _units = at + 1;
   }
 
   @patch
   void clear() {
-    _accumulator = null;
+    _buffer = null;
     _units = 0;
   }
 
   @patch
-  String toString() {
-    final accumulator = _accumulator;
-    if (accumulator == null) return "";
-    return _toStringNative(accumulator);
-  }
-
-  @pragma("vm:external-name", "DartForge_sb_new")
-  external static Object _create();
-
-  @pragma("vm:external-name", "DartForge_sb_write")
-  external static void _write(Object accumulator, String str);
-
-  /// If `obj` is a `String`, appends its units and returns how many; otherwise
-  /// -1 (changing nothing).
-  @pragma("vm:external-name", "DartForge_sb_write_if_string")
-  external static int _writeIfString(Object accumulator, Object? obj);
-
-  /// Appends the code point `code` (0..0x10FFFF, checked by Dart): one unit, or
-  /// the surrogate pair above 0xFFFF.
-  @pragma("vm:external-name", "DartForge_sb_write_char_code")
-  external static void _writeCharCodeNative(Object accumulator, int code);
-
-  @pragma("vm:external-name", "DartForge_sb_to_string")
-  external static String _toStringNative(Object accumulator);
+  String toString() => textBufferToString(_buffer, _units);
 }

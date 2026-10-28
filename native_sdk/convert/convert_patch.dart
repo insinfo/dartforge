@@ -22,6 +22,8 @@ import "dart:_internal"
         copyRangeFromUint8ListToOneByteString,
         patch,
         POWERS_OF_TEN,
+        textBufferAppend,
+        textBufferToString,
         unsafeCast,
         writeIntoOneByteString,
         writeIntoTwoByteString,
@@ -44,6 +46,14 @@ dynamic _parseJson(
   parser.close();
   return listener.result;
 }
+
+@patch
+String _textBufferAppend(String? buffer, int units, String source) =>
+    textBufferAppend(buffer, units, source);
+
+@patch
+String _textBufferToString(String? buffer, int units) =>
+    textBufferToString(buffer, units);
 
 @patch
 class Utf8Decoder {

@@ -338,6 +338,7 @@ dartforge_native_DartForge_sb_write_char_code	1	1	0
 dartforge_native_DartForge_sb_write_if_string	1	1	0
 dartforge_native_DartForge_scheduleImmediate	1	1	0
 dartforge_native_DartForge_string_codeUnitAt	1	1	1
+dartforge_native_DartForge_string_copy_units	0	0	0
 dartforge_native_DartForge_string_equals	1	1	0
 dartforge_native_DartForge_string_equals_object	0	0	0
 dartforge_native_DartForge_string_from_char_codes	1	1	0
@@ -391,6 +392,7 @@ dartforge_native_DartForge_typed_memMove16	1	1	0
 dartforge_native_DartForge_typed_memMove2	1	1	0
 dartforge_native_DartForge_typed_memMove4	1	1	0
 dartforge_native_DartForge_typed_memMove8	1	1	0
+dartforge_native_DartForge_typed_set_from_string	0	0	0
 dartforge_native_DartForge_typed_setInt16	1	1	1
 dartforge_native_DartForge_typed_setInt32	1	1	1
 dartforge_native_DartForge_typed_setInt64	1	1	1

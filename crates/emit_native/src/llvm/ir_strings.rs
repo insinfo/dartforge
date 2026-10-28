@@ -48,7 +48,16 @@ use std::fmt::Write;
 ///   `@df.string_units_equal`, out of line so that each comparison site stays
 ///   small; only a one-byte string against a two-byte one goes to the runtime);
 /// * `@df.string_equals_object(a, b)`: `==` of a string with an `Object?` (the
-///   overlay's `_StringBase.==`): what is not a string is different.
+///   overlay's `_StringBase.==`): what is not a string is different;
+/// * `@df.string_write_units(d, at, s, n)`: the first `n` units of `s` into `d`
+///   from unit `at` (`copyStringUnits` of the text buffers, `dart:_internal`;
+///   the caller checked the room): one `memcpy` between strings of the same
+///   width, a widening loop from one byte to two, and false, copying nothing,
+///   from two bytes to one;
+/// * `@df.typed_write_from_string(t, at, s, n)`: the first `n` units of the
+///   one-byte string `s` into the bytes of typed list `t` from byte `at` (the
+///   caller checked the room), one `memcpy`; false, copying nothing, when `s` is
+///   two-byte.
 pub const HELPERS: &str = "\
 define internal i64 @df.string_len(i64 %s) alwaysinline nounwind {
   %p = inttoptr i64 %s to ptr
@@ -239,6 +248,68 @@ sim:
 nao:
   ret i1 false
 }
+define internal i1 @df.string_write_units(i64 %d, i64 %at, i64 %s, i64 %n) alwaysinline nounwind {
+entry:
+  %pd = inttoptr i64 %d to ptr
+  %ps = inttoptr i64 %s to ptr
+  %pdc = getelementptr inbounds i8, ptr %pd, i64 2
+  %psc = getelementptr inbounds i8, ptr %ps, i64 2
+  %dc = load i32, ptr %pdc, align 4, !invariant.load !{}
+  %sc = load i32, ptr %psc, align 4, !invariant.load !{}
+  %ud = getelementptr inbounds i8, ptr %pd, i64 22
+  %us = getelementptr inbounds i8, ptr %ps, i64 22
+  %d1 = icmp eq i32 %dc, 6
+  %s1 = icmp eq i32 %sc, 6
+  br i1 %d1, label %one, label %two
+one:
+  br i1 %s1, label %copy1, label %no
+copy1:
+  %a1 = getelementptr inbounds i8, ptr %ud, i64 %at
+  call void @llvm.memcpy.p0.p0.i64(ptr align 1 %a1, ptr align 1 %us, i64 %n, i1 false)
+  ret i1 true
+two:
+  %a2 = getelementptr inbounds i16, ptr %ud, i64 %at
+  br i1 %s1, label %widen, label %copy2
+copy2:
+  %b2 = shl i64 %n, 1
+  call void @llvm.memcpy.p0.p0.i64(ptr align 2 %a2, ptr align 2 %us, i64 %b2, i1 false)
+  ret i1 true
+widen:
+  %empty = icmp eq i64 %n, 0
+  br i1 %empty, label %yes, label %loop
+loop:
+  %i = phi i64 [ 0, %widen ], [ %i1, %loop ]
+  %x = getelementptr inbounds i8, ptr %us, i64 %i
+  %b = load i8, ptr %x, align 1
+  %w = zext i8 %b to i16
+  %y = getelementptr inbounds i16, ptr %a2, i64 %i
+  store i16 %w, ptr %y, align 2
+  %i1 = add i64 %i, 1
+  %end = icmp eq i64 %i1, %n
+  br i1 %end, label %yes, label %loop
+yes:
+  ret i1 true
+no:
+  ret i1 false
+}
+define internal i1 @df.typed_write_from_string(i64 %t, i64 %at, i64 %s, i64 %n) alwaysinline nounwind {
+entry:
+  %ps = inttoptr i64 %s to ptr
+  %psc = getelementptr inbounds i8, ptr %ps, i64 2
+  %sc = load i32, ptr %psc, align 4, !invariant.load !{}
+  %one = icmp eq i32 %sc, 6
+  br i1 %one, label %copy, label %no
+copy:
+  %pt = inttoptr i64 %t to ptr
+  %pdp = getelementptr inbounds i8, ptr %pt, i64 22
+  %pd = load ptr, ptr %pdp, align 8, !invariant.load !{}
+  %dst = getelementptr inbounds i8, ptr %pd, i64 %at
+  %us = getelementptr inbounds i8, ptr %ps, i64 22
+  call void @llvm.memcpy.p0.p0.i64(ptr align 1 %dst, ptr align 1 %us, i64 %n, i1 false)
+  ret i1 true
+no:
+  ret i1 false
+}
 ";
 
 /// The effects of each `@df.*` helper of this file called by
@@ -253,6 +324,8 @@ pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.string_hash", false, false),
     ("df.string_equals", false, false),
     ("df.string_equals_object", false, false),
+    ("df.string_write_units", false, false),
+    ("df.typed_write_from_string", false, false),
 ];
 
 /// The per-module emission state of strings.

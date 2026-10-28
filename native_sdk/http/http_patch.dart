@@ -2,7 +2,8 @@
 // `libraries.json`): the VM has none. `_CopyingBytesBuilder.add` copies a
 // `String.codeUnits` (the header names and values of `_HttpHeaders._build`, the
 // status line) with the string's own code units instead of indexing the
-// `CodeUnits` list, whose class the loop retested at every byte. The result is the
+// `CodeUnits` list, whose class the loop retested at every byte, and a one-byte
+// string (every header the server writes) in a single copy. The result is the
 // same: the list's units are the string's, and the `Uint8List` keeps the low
 // eight bits of each.
 
@@ -41,8 +42,16 @@ class _CopyingBytesBuilder {
   void _addCodeUnits(String string, int count) {
     final Uint8List buffer = _buffer;
     final int start = _length;
+    if (_copyFromString(buffer, start, string, count)) return;
     for (int i = 0; i < count; i++) {
       buffer[start + i] = string.codeUnitAt(i);
     }
   }
+
+  /// The first [count] units of [source] into [target] from byte [at], which
+  /// has room for them, when [source] is a one-byte string (one `memcpy`, done
+  /// inline by the native backend); false, copying nothing, otherwise.
+  @pragma("vm:external-name", "DartForge_typed_set_from_string")
+  external static bool _copyFromString(
+      Uint8List target, int at, String source, int count);
 }

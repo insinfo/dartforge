@@ -14,7 +14,12 @@
 //! * `writeIntoOneByteString`/`writeIntoTwoByteString` → `@df.string_write`;
 //! * `hashCode` (`String_getHashCode`) → `@df.string_hash`;
 //! * `==` (`DartForge_string_equals_object`, `DartForge_string_equals`) →
-//!   `@df.string_equals_object`/`@df.string_equals`.
+//!   `@df.string_equals_object`/`@df.string_equals`;
+//! * `copyStringUnits` of the text buffers (`DartForge_string_copy_units`) →
+//!   `@df.string_write_units`;
+//! * the copy of a one-byte string into a `Uint8List`
+//!   (`DartForge_typed_set_from_string`, the header writer of `dart:_http`) →
+//!   `@df.typed_write_from_string`.
 //!
 //! The block does not move and the code units of a published string do not change, so
 //! there is no cache per read point: LLVM merges repeated loads and hoists them
@@ -78,6 +83,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::Void,
                 );
                 Some(Operand::Constant(Constant::Null))
+            }
+            (_, Some(n @ ("DartForge_string_copy_units" | "DartForge_typed_set_from_string")), None)
+                if args.len() == 4 =>
+            {
+                let target = self.coerce(args[0].clone(), Type::Ref);
+                let at = self.coerce(args[1].clone(), Type::I64);
+                let source = self.coerce(args[2].clone(), Type::Ref);
+                let count = self.coerce(args[3].clone(), Type::I64);
+                let name = if n == "DartForge_string_copy_units" {
+                    "df.string_write_units"
+                } else {
+                    "df.typed_write_from_string"
+                };
+                Some(self.helper(
+                    name,
+                    vec![
+                        (target, Type::Ref),
+                        (at, Type::I64),
+                        (source, Type::Ref),
+                        (count, Type::I64),
+                    ],
+                    Type::I1,
+                ))
             }
             (
                 _,

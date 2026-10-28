@@ -953,23 +953,24 @@ class _JsonStringStringifier extends _JsonStringifier {
   /// The sink of [printOn]; null when the stringifier owns its output.
   final StringSink? _sink;
 
-  /// DartForge: the runtime text accumulator — the storage of `StringBuffer`,
-  /// through the same natives — when the stringifier owns its output
-  /// ([stringify], the path of `jsonEncode`): each piece is one direct call
-  /// into the runtime, instead of `_sink.write` through the selector, the
-  /// uniform entry of `StringBuffer.write` and then the native (`StringBuffer`
-  /// is not a closed class, so the lowering cannot call it directly). Null
-  /// when writing to a caller's sink.
-  final Object? _accumulator;
+  /// DartForge: the text buffer when the stringifier owns its output
+  /// ([stringify], the path of `jsonEncode`; `_sink` is null): its first
+  /// [_textUnits] code units are the text, the storage of `StringBuffer`
+  /// (`dart:_internal`, `textBufferAppend`). Each piece that fits is one inline
+  /// copy, instead of `_sink.write` through the selector and the uniform entry
+  /// of `StringBuffer.write` (`StringBuffer` is not a closed class, so the
+  /// lowering cannot call it directly). Unused when writing to a caller's sink.
+  String? _text;
+
+  /// The code units in [_text].
+  int _textUnits = 0;
 
   _JsonStringStringifier(
       this._sink, dynamic Function(dynamic object)? _toEncodable)
-      : _accumulator = null,
-        super(_toEncodable);
+      : super(_toEncodable);
 
   _JsonStringStringifier._owned(dynamic Function(dynamic object)? _toEncodable)
       : _sink = null,
-        _accumulator = _newAccumulator(),
         super(_toEncodable);
 
   /// Convert object to a string.
@@ -983,13 +984,13 @@ class _JsonStringStringifier extends _JsonStringifier {
   /// characters (space, tab, carriage return or line feed).
   static String stringify(
       Object? object, dynamic toEncodable(dynamic object)?, String? indent) {
-    // DartForge: the output is the stringifier's own accumulator (the text a
+    // DartForge: the output is the stringifier's own text buffer (the text a
     // `StringBuffer` would hold), read once at the end.
     final _JsonStringStringifier stringifier = indent == null
         ? _JsonStringStringifier._owned(toEncodable)
         : _JsonStringStringifierPretty._owned(toEncodable, indent);
     stringifier.writeObject(object);
-    return _accumulatorText(stringifier._accumulator!);
+    return _textBufferToString(stringifier._text, stringifier._textUnits);
   }
 
   /// Convert object to a string, and write the result to the [output] sink.
@@ -1007,9 +1008,8 @@ class _JsonStringStringifier extends _JsonStringifier {
   }
 
   String? get _partialResult {
-    final accumulator = _accumulator;
-    if (accumulator != null) return _accumulatorText(accumulator);
     final sink = _sink;
+    if (sink == null) return _textBufferToString(_text, _textUnits);
     return sink is StringBuffer ? sink.toString() : null;
   }
 
@@ -1018,12 +1018,23 @@ class _JsonStringStringifier extends _JsonStringifier {
   }
 
   void writeString(String string) {
-    final accumulator = _accumulator;
-    if (accumulator != null) {
-      _writeToAccumulator(accumulator, string);
-    } else {
-      _sink!.write(string);
+    final sink = _sink;
+    if (sink != null) {
+      sink.write(string);
+      return;
     }
+    final int count = string.length;
+    final int at = _textUnits;
+    final String? text = _text;
+    if (text != null &&
+        at + count <= text.length &&
+        _copyStringUnits(text, at, string, count)) {
+      _textUnits = at + count;
+      return;
+    }
+    if (count == 0) return;
+    _text = _textBufferAppend(text, at, string);
+    _textUnits = at + count;
   }
 
   void writeStringSlice(String string, int start, int end) {
@@ -1031,33 +1042,26 @@ class _JsonStringStringifier extends _JsonStringifier {
   }
 
   void writeCharCode(int charCode) {
-    final accumulator = _accumulator;
-    if (accumulator != null) {
-      // Only the JSON escapes reach here (ASCII), within the range the native
-      // expects; `StringBuffer.writeCharCode` checks it for arbitrary callers.
-      assert(charCode >= 0 && charCode <= 0x10FFFF);
-      _writeCharCodeToAccumulator(accumulator, charCode);
+    final sink = _sink;
+    if (sink != null) {
+      sink.writeCharCode(charCode);
     } else {
-      _sink!.writeCharCode(charCode);
+      // Only the JSON escapes reach here (ASCII).
+      writeString(String.fromCharCode(charCode));
     }
   }
-
-  // The natives of `StringBuffer` (`string_buffer_patch.dart`,
-  // `natives_strings.rs`): a fresh accumulator, the units of a string, a code
-  // point, and the text accumulated so far (the accumulator keeps growing).
-  @pragma("vm:external-name", "DartForge_sb_new")
-  external static Object _newAccumulator();
-
-  @pragma("vm:external-name", "DartForge_sb_write")
-  external static void _writeToAccumulator(Object accumulator, String text);
-
-  @pragma("vm:external-name", "DartForge_sb_write_char_code")
-  external static void _writeCharCodeToAccumulator(
-      Object accumulator, int code);
-
-  @pragma("vm:external-name", "DartForge_sb_to_string")
-  external static String _accumulatorText(Object accumulator);
 }
+
+// DartForge: the text buffer of `dart:_internal` (`copyStringUnits`,
+// `textBufferAppend`, `textBufferToString`), which this library does not
+// import: the copy is the native itself (done inline), the other two are
+// patched in `convert_patch.dart`.
+@pragma("vm:external-name", "DartForge_string_copy_units")
+external bool _copyStringUnits(String target, int at, String source, int count);
+
+external String _textBufferAppend(String? buffer, int units, String source);
+
+external String _textBufferToString(String? buffer, int units);
 
 class _JsonStringStringifierPretty extends _JsonStringStringifier
     with _JsonPrettyPrintMixin {

@@ -309,12 +309,8 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("DartForge_regexp_n_names"),
     runtime("DartForge_regexp_name"),
     runtime("DartForge_regexp_name_index"),
-    runtime("DartForge_sb_new"),
-    runtime("DartForge_sb_to_string"),
-    runtime("DartForge_sb_write"),
-    runtime("DartForge_sb_write_char_code"),
-    runtime("DartForge_sb_write_if_string"),
     runtime("DartForge_scheduleImmediate"),
+    runtime("DartForge_string_copy_units"),
     runtime("DartForge_string_equals"),
     runtime("DartForge_string_equals_object"),
     runtime("DartForge_string_from_char_codes"),
@@ -351,6 +347,7 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("DartForge_tls_x509_sha1"),
     runtime("DartForge_tls_x509_start"),
     runtime("DartForge_tls_x509_subject"),
+    runtime("DartForge_typed_set_from_string"),
     runtime("DartForge_uri_base"),
     runtime("DartNativeApiFunctionPointer"),
     runtime("DateTime_currentTimeMicros"),
@@ -806,7 +803,8 @@ pub fn in_unified_space(name: &str) -> Option<(Package, bool)> {
         | "Internal_writeIntoOneByteString"
         | "Internal_writeIntoTwoByteString"
         | "String_getHashCode"
-        | "DartForge_string_codeUnitAt" => (P1, true),
+        | "DartForge_string_codeUnitAt"
+        | "DartForge_string_copy_units" => (P1, true),
         "String_charAt"
         | "String_concat"
         | "StringBase_substringUnchecked"

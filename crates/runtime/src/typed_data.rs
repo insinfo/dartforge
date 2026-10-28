@@ -426,6 +426,31 @@ pub extern "C" fn dartforge_native_DartForge_typed_memMove1(this: i64, start: i6
     relocate(this, start, count, from, skip, 1);
 }
 
+/// `_CopyingBytesBuilder._copyFromString(target, at, source, count)` of the
+/// `dart:_http` patch: the first `count` units of the one-byte string `source`
+/// into the bytes of typed list `target` from byte `at`, which has room for
+/// them (the caller checked); 0, copying nothing, when `source` is two-byte.
+/// The native backend does it inline (`@df.typed_write_from_string`); this is
+/// the same copy for any other caller. Neither allocates nor throws.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_native_DartForge_typed_set_from_string(target: i64, at: i64, source: i64, count: i64) -> u8 {
+    use crate::layout::{HANDLE_OFFSET, Header, cid, offsets};
+    let s = (source - HANDLE_OFFSET) as *const u8;
+    let t = (target - HANDLE_OFFSET) as *const u8;
+    // SAFETY: a live string and a live typed list the generated code passed,
+    // each handle pointing to its block header; the list's bytes have room for
+    // `at + count` (the caller's check). Neither moves and nothing here collects.
+    #[allow(unsafe_code)]
+    unsafe {
+        if (*s.cast::<Header>()).class_id != cid::ONE_BYTE_STRING {
+            return 0;
+        }
+        let data = *t.add(offsets::DATA).cast::<*mut u8>();
+        std::ptr::copy_nonoverlapping(s.add(offsets::UNITS), data.add(at as usize), count as usize);
+    }
+    1
+}
+
 /// `_memMove2`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_typed_memMove2(this: i64, start: i64, count: i64, from: i64, skip: i64) {

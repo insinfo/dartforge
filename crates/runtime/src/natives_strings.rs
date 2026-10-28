@@ -211,6 +211,41 @@ pub extern "C" fn dartforge_native_DartForge_string_split_by_code(this: i64, lis
     }
 }
 
+/// `copyStringUnits(target, at, source, count)` of the text buffers
+/// (`dart:_internal`, the storage of `StringBuffer`): the first `count` units of
+/// string `source` into string `target` from unit `at`, which has room for
+/// them (the caller checked); 0, copying nothing, when `target` is one-byte and
+/// `source` two-byte. The native backend does it inline
+/// (`@df.string_write_units`); this is the same copy for any other caller.
+/// Neither allocates nor throws.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_native_DartForge_string_copy_units(target: i64, at: i64, source: i64, count: i64) -> u8 {
+    use crate::layout::{HANDLE_OFFSET, Header, cid, offsets};
+    let (at, count) = (at as usize, count as usize);
+    let t = (target - HANDLE_OFFSET) as *mut u8;
+    let s = (source - HANDLE_OFFSET) as *const u8;
+    // SAFETY: two live strings the generated code passed, each handle pointing
+    // to its block header; `target` has room for `at + count` units (the
+    // caller's check) and is not `source` (a text buffer is never published).
+    // Strings do not move and nothing here collects.
+    #[allow(unsafe_code)]
+    unsafe {
+        let (tc, sc) = ((*t.cast::<Header>()).class_id, (*s.cast::<Header>()).class_id);
+        let (tu, su) = (t.add(offsets::UNITS), s.add(offsets::UNITS));
+        match (tc == cid::ONE_BYTE_STRING, sc == cid::ONE_BYTE_STRING) {
+            (true, true) => std::ptr::copy_nonoverlapping(su, tu.add(at), count),
+            (true, false) => return 0,
+            (false, false) => std::ptr::copy_nonoverlapping(su.cast::<u16>(), tu.cast::<u16>().add(at), count),
+            (false, true) => {
+                for i in 0..count {
+                    *tu.cast::<u16>().add(at + i) = u16::from(*su.add(i));
+                }
+            }
+        }
+    }
+    1
+}
+
 /// The overlay's `_StringBase._equalStrings(other)` (`string_patch.dart`): the same UTF-16
 /// units (the loop of the VM's `==`, done here).
 #[unsafe(no_mangle)]

@@ -7,6 +7,10 @@
 // (index out of range…) built as the source's Dart objects: the
 // `dart:_internal` registration hands their addresses to the runtime
 // (`dartforge_register_helper`, `crates/runtime/src/natives_lists.rs`).
+//
+// The `textBuffer*` functions are the text storage shared by `StringBuffer`
+// (`core/string_buffer_patch.dart`) and the JSON stringifier that owns its
+// output (`convert/json.dart`).
 
 part of "internal_patch.dart";
 
@@ -30,3 +34,75 @@ Object _dartforgeLateError(String nameArg, int code) {
 
 @pragma("vm:entry-point")
 Object _dartforgeStackOverflowError() => const StackOverflowError();
+
+// ─── Text buffers ───────────────────────────────────────────────────────────
+//
+// The text written so far is the first `units` code units of a string that is
+// never published: a `_OneByteString` until a unit above 0xFF arrives, then a
+// `_TwoByteString`, so `toString` yields the same canonical form as the VM's
+// `StringBuffer`. The owner keeps the buffer and the count in its own fields
+// and copies a string into the room left inline ([copyStringUnits], one
+// `memcpy`); these functions are the rest: growing, widening and the result.
+
+/// The capacity of a buffer's first string, in code units (the first nine words
+/// fit the generated code's inline allocation).
+const int _textBufferFirstCapacity = 64;
+
+/// Copies the first [count] code units of [source] into [target] from unit
+/// [at], which must have room for them, and answers true; answers false,
+/// copying nothing, when [target] is one-byte and [source] two-byte. Done
+/// inline by the native backend (`@df.string_write_units`).
+@pragma("vm:external-name", "DartForge_string_copy_units")
+external bool copyStringUnits(String target, int at, String source, int count);
+
+/// [buffer] — or the larger or wider string that replaces it, with its first
+/// [units] code units — with [source] written after those units.
+String textBufferAppend(String? buffer, int units, String source) {
+  final int count = source.length;
+  final int end = units + count;
+  final bool wasTwo =
+      buffer != null && ClassID.getID(buffer) == ClassID.cidTwoByteString;
+  final bool two = wasTwo ||
+      (ClassID.getID(source) == ClassID.cidTwoByteString &&
+          !_fitsOneByte(source, count));
+  String target;
+  if (buffer == null || end > buffer.length || two != wasTwo) {
+    final int old = buffer == null ? 0 : buffer.length;
+    int capacity = old * 2;
+    if (capacity < _textBufferFirstCapacity) {
+      capacity = _textBufferFirstCapacity;
+    }
+    if (capacity < end) capacity = end;
+    target =
+        two ? allocateTwoByteString(capacity) : allocateOneByteString(capacity);
+    if (buffer != null && units > 0) {
+      copyStringUnits(target, 0, buffer, units);
+    }
+  } else {
+    target = buffer;
+  }
+  if (!copyStringUnits(target, units, source, count)) {
+    // A two-byte source whose units all fit in one byte.
+    for (int i = 0; i < count; i++) {
+      writeIntoOneByteString(target, units + i, source.codeUnitAt(i));
+    }
+  }
+  return target;
+}
+
+bool _fitsOneByte(String source, int count) {
+  for (int i = 0; i < count; i++) {
+    if (source.codeUnitAt(i) > 0xFF) return false;
+  }
+  return true;
+}
+
+/// A new string with the first [units] code units of [buffer] (in its width).
+String textBufferToString(String? buffer, int units) {
+  if (buffer == null || units == 0) return "";
+  final String result = ClassID.getID(buffer) == ClassID.cidTwoByteString
+      ? allocateTwoByteString(units)
+      : allocateOneByteString(units);
+  copyStringUnits(result, 0, buffer, units);
+  return result;
+}
