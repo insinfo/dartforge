@@ -232,6 +232,7 @@ dartforge_native_DartForge_regexp_name_index	ref:borrow,i64:scalar	i64:scalar	1	
 dartforge_native_DartForge_regexp_n_names	ref:borrow	i64:scalar	1	1	pending
 dartforge_native_DartForge_sb_write_if_string	ref:borrow,ref:borrow	i64:scalar	1	1	pending
 dartforge_native_DartForge_string_equals_object	ref:borrow,ref:borrow	u8:scalar	1	1	normal
+dartforge_native_DartForge_string_fill_latin1	ref:borrow,ref:borrow,i64:scalar,i64:scalar	u8:scalar	1	1	normal
 dartforge_native_DartForge_string_index_of	ref:borrow,ref:borrow,i64:scalar	i64:scalar	1	1	pending
 dartforge_native_DartForge_string_region_equals	ref:borrow,i64:scalar,ref:borrow	u8:scalar	1	1	pending
 dartforge_native_DartForge_string_last_index_of	ref:borrow,ref:borrow,i64:scalar	i64:scalar	1	1	pending

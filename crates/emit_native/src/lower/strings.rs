@@ -84,20 +84,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
                 Some(Operand::Constant(Constant::Null))
             }
-            (_, Some(n @ ("DartForge_string_copy_units" | "DartForge_typed_set_from_string")), None)
-                if args.len() == 4 =>
-            {
+            (_, Some("DartForge_string_copy_units"), None) if args.len() == 5 => {
+                let target = self.coerce(args[0].clone(), Type::Ref);
+                let at = self.coerce(args[1].clone(), Type::I64);
+                let source = self.coerce(args[2].clone(), Type::Ref);
+                let from = self.coerce(args[3].clone(), Type::I64);
+                let count = self.coerce(args[4].clone(), Type::I64);
+                Some(self.helper(
+                    "df.string_write_units",
+                    vec![
+                        (target, Type::Ref),
+                        (at, Type::I64),
+                        (source, Type::Ref),
+                        (from, Type::I64),
+                        (count, Type::I64),
+                    ],
+                    Type::I1,
+                ))
+            }
+            (_, Some("DartForge_typed_set_from_string"), None) if args.len() == 4 => {
                 let target = self.coerce(args[0].clone(), Type::Ref);
                 let at = self.coerce(args[1].clone(), Type::I64);
                 let source = self.coerce(args[2].clone(), Type::Ref);
                 let count = self.coerce(args[3].clone(), Type::I64);
-                let name = if n == "DartForge_string_copy_units" {
-                    "df.string_write_units"
-                } else {
-                    "df.typed_write_from_string"
-                };
                 Some(self.helper(
-                    name,
+                    "df.typed_write_from_string",
                     vec![
                         (target, Type::Ref),
                         (at, Type::I64),

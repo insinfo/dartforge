@@ -1028,7 +1028,7 @@ class _JsonStringStringifier extends _JsonStringifier {
     final String? text = _text;
     if (text != null &&
         at + count <= text.length &&
-        _copyStringUnits(text, at, string, count)) {
+        _copyStringUnits(text, at, string, 0, count)) {
       _textUnits = at + count;
       return;
     }
@@ -1057,7 +1057,8 @@ class _JsonStringStringifier extends _JsonStringifier {
 // import: the copy is the native itself (done inline), the other two are
 // patched in `convert_patch.dart`.
 @pragma("vm:external-name", "DartForge_string_copy_units")
-external bool _copyStringUnits(String target, int at, String source, int count);
+external bool _copyStringUnits(
+    String target, int at, String source, int from, int count);
 
 external String _textBufferAppend(String? buffer, int units, String source);
 

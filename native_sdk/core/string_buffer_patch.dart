@@ -43,7 +43,7 @@ class StringBuffer {
     final String? buffer = _buffer;
     if (buffer != null &&
         at + count <= buffer.length &&
-        copyStringUnits(buffer, at, str, count)) {
+        copyStringUnits(buffer, at, str, 0, count)) {
       _units = at + count;
       return;
     }

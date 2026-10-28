@@ -341,6 +341,7 @@ dartforge_native_DartForge_string_codeUnitAt	1	1	1
 dartforge_native_DartForge_string_copy_units	0	0	0
 dartforge_native_DartForge_string_equals	1	1	0
 dartforge_native_DartForge_string_equals_object	0	0	0
+dartforge_native_DartForge_string_fill_latin1	0	0	0
 dartforge_native_DartForge_string_from_char_codes	1	1	0
 dartforge_native_DartForge_string_index_of	1	1	0
 dartforge_native_DartForge_string_last_index_of	1	1	0

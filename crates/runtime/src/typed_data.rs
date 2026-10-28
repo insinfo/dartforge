@@ -433,7 +433,12 @@ pub extern "C" fn dartforge_native_DartForge_typed_memMove1(this: i64, start: i6
 /// The native backend does it inline (`@df.typed_write_from_string`); this is
 /// the same copy for any other caller. Neither allocates nor throws.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_DartForge_typed_set_from_string(target: i64, at: i64, source: i64, count: i64) -> u8 {
+pub extern "C" fn dartforge_native_DartForge_typed_set_from_string(
+    target: i64,
+    at: i64,
+    source: i64,
+    count: i64,
+) -> u8 {
     use crate::layout::{HANDLE_OFFSET, Header, cid, offsets};
     let s = (source - HANDLE_OFFSET) as *const u8;
     let t = (target - HANDLE_OFFSET) as *const u8;
@@ -446,7 +451,11 @@ pub extern "C" fn dartforge_native_DartForge_typed_set_from_string(target: i64, 
             return 0;
         }
         let data = *t.add(offsets::DATA).cast::<*mut u8>();
-        std::ptr::copy_nonoverlapping(s.add(offsets::UNITS), data.add(at as usize), count as usize);
+        std::ptr::copy_nonoverlapping(
+            s.add(offsets::UNITS),
+            data.add(at as usize),
+            count as usize,
+        );
     }
     1
 }

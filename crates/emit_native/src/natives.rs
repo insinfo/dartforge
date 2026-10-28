@@ -313,6 +313,7 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("DartForge_string_copy_units"),
     runtime("DartForge_string_equals"),
     runtime("DartForge_string_equals_object"),
+    runtime("DartForge_string_fill_latin1"),
     runtime("DartForge_string_from_char_codes"),
     runtime("DartForge_string_index_of"),
     runtime("DartForge_string_last_index_of"),

@@ -48,12 +48,13 @@ Object _dartforgeStackOverflowError() => const StackOverflowError();
 /// fit the generated code's inline allocation).
 const int _textBufferFirstCapacity = 64;
 
-/// Copies the first [count] code units of [source] into [target] from unit
-/// [at], which must have room for them, and answers true; answers false,
-/// copying nothing, when [target] is one-byte and [source] two-byte. Done
-/// inline by the native backend (`@df.string_write_units`).
+/// Copies the [count] code units of [source] from unit [from] into [target]
+/// from unit [at], which must have room for them, and answers true; answers
+/// false, copying nothing, when [target] is one-byte and [source] two-byte.
+/// Done inline by the native backend (`@df.string_write_units`).
 @pragma("vm:external-name", "DartForge_string_copy_units")
-external bool copyStringUnits(String target, int at, String source, int count);
+external bool copyStringUnits(
+    String target, int at, String source, int from, int count);
 
 /// [buffer] — or the larger or wider string that replaces it, with its first
 /// [units] code units — with [source] written after those units.
@@ -76,12 +77,12 @@ String textBufferAppend(String? buffer, int units, String source) {
     target =
         two ? allocateTwoByteString(capacity) : allocateOneByteString(capacity);
     if (buffer != null && units > 0) {
-      copyStringUnits(target, 0, buffer, units);
+      copyStringUnits(target, 0, buffer, 0, units);
     }
   } else {
     target = buffer;
   }
-  if (!copyStringUnits(target, units, source, count)) {
+  if (!copyStringUnits(target, units, source, 0, count)) {
     // A two-byte source whose units all fit in one byte.
     for (int i = 0; i < count; i++) {
       writeIntoOneByteString(target, units + i, source.codeUnitAt(i));
@@ -103,6 +104,6 @@ String textBufferToString(String? buffer, int units) {
   final String result = ClassID.getID(buffer) == ClassID.cidTwoByteString
       ? allocateTwoByteString(units)
       : allocateOneByteString(units);
-  copyStringUnits(result, 0, buffer, units);
+  copyStringUnits(result, 0, buffer, 0, units);
   return result;
 }

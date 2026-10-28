@@ -163,11 +163,18 @@ abstract final class _StringBase implements String {
     final typedCharCodes = unsafeCast<List<int>>(charCodes);
 
     // DartForge: a runtime list entirely in Latin-1 becomes the string in a
-    // single copy (`_fromCharCodes`); the rest (a unit above 0xFF or not a `Smi`,
-    // `Uint16List`) follows the VM's path, with its errors.
+    // single copy — a short one allocated inline and filled by a leaf native
+    // (`_fillLatin1`), a long one built by the runtime (`_fromCharCodes`); the
+    // rest (a unit above 0xFF or not a `Smi`, `Uint16List`) follows the VM's
+    // path, with its errors.
     if (limit == null || limit <= _maxLatin1) {
-      final s = _fromCharCodes(typedCharCodes, start, end);
-      if (s != null) return s;
+      if (len <= _inlineLatin1Units) {
+        final s = _OneByteString._allocate(len);
+        if (_fillLatin1(s, typedCharCodes, start, end)) return s;
+      } else {
+        final s = _fromCharCodes(typedCharCodes, start, end);
+        if (s != null) return s;
+      }
     }
 
     final int actualLimit = limit ?? _scanCodeUnits(typedCharCodes, start, end);
@@ -189,6 +196,14 @@ abstract final class _StringBase implements String {
 
   @pragma("vm:external-name", "DartForge_string_from_char_codes")
   external static String? _fromCharCodes(List<int> codes, int begin, int end);
+
+  /// The longest `_OneByteString` the generated code allocates inline (16
+  /// words with the header).
+  static const int _inlineLatin1Units = 120;
+
+  @pragma("vm:external-name", "DartForge_string_fill_latin1")
+  external static bool _fillLatin1(
+      String target, List<int> codes, int begin, int end);
 
   static int _scanCodeUnits(List<int> charCodes, int start, int end) {
     int bits = 0;
@@ -427,8 +442,22 @@ abstract final class _StringBase implements String {
     if ((startIndex + 1) == endIndex) {
       return this[startIndex];
     }
+    // DartForge: a one-byte substring is an inline allocation and one copy,
+    // without the runtime call (the two-byte one goes on through the native,
+    // which narrows a result that fits in one byte).
+    if (this is _OneByteString) {
+      final int count = endIndex - startIndex;
+      final String result = _OneByteString._allocate(count);
+      _copyUnits(result, 0, this, startIndex, count);
+      return result;
+    }
     return _substringUncheckedNative(startIndex, endIndex);
   }
+
+  /// `copyStringUnits` of `dart:_internal` (done inline).
+  @pragma("vm:external-name", "DartForge_string_copy_units")
+  external static bool _copyUnits(
+      String target, int at, String source, int from, int count);
 
   @pragma("vm:external-name", "StringBase_substringUnchecked")
   external String _substringUncheckedNative(int startIndex, int endIndex);

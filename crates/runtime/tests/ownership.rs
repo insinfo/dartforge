@@ -205,6 +205,7 @@ const SCALAR_NATIVES: &[&str] = &[
     "dartforge_native_DartForge_regexp_n_names",
     "dartforge_native_DartForge_sb_write_if_string",
     "dartforge_native_DartForge_string_equals_object",
+    "dartforge_native_DartForge_string_fill_latin1",
     "dartforge_native_DartForge_string_index_of",
     "dartforge_native_DartForge_string_region_equals",
     "dartforge_native_DartForge_string_last_index_of",

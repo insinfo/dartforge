@@ -83,6 +83,7 @@ pub const HELPER_CONTRACTS: &[Contract] = &[
             ParamMode::Scalar,
             ParamMode::Borrow,
             ParamMode::Scalar,
+            ParamMode::Scalar,
         ],
         result: ResultMode::ScalarI1,
         persistent_retention: false,

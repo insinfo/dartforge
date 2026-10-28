@@ -49,11 +49,12 @@ use std::fmt::Write;
 ///   small; only a one-byte string against a two-byte one goes to the runtime);
 /// * `@df.string_equals_object(a, b)`: `==` of a string with an `Object?` (the
 ///   overlay's `_StringBase.==`): what is not a string is different;
-/// * `@df.string_write_units(d, at, s, n)`: the first `n` units of `s` into `d`
-///   from unit `at` (`copyStringUnits` of the text buffers, `dart:_internal`;
-///   the caller checked the room): one `memcpy` between strings of the same
-///   width, a widening loop from one byte to two, and false, copying nothing,
-///   from two bytes to one;
+/// * `@df.string_write_units(d, at, s, from, n)`: the `n` units of `s` from
+///   unit `from` into `d` from unit `at` (`copyStringUnits` of the text
+///   buffers, `dart:_internal`, and the one-byte substring; the caller checked
+///   the room): one `memcpy` between strings of the same width, a widening
+///   loop from one byte to two, and false, copying nothing, from two bytes to
+///   one;
 /// * `@df.typed_write_from_string(t, at, s, n)`: the first `n` units of the
 ///   one-byte string `s` into the bytes of typed list `t` from byte `at` (the
 ///   caller checked the room), one `memcpy`; false, copying nothing, when `s` is
@@ -248,7 +249,7 @@ sim:
 nao:
   ret i1 false
 }
-define internal i1 @df.string_write_units(i64 %d, i64 %at, i64 %s, i64 %n) alwaysinline nounwind {
+define internal i1 @df.string_write_units(i64 %d, i64 %at, i64 %s, i64 %from, i64 %n) alwaysinline nounwind {
 entry:
   %pd = inttoptr i64 %d to ptr
   %ps = inttoptr i64 %s to ptr
@@ -257,9 +258,13 @@ entry:
   %dc = load i32, ptr %pdc, align 4, !invariant.load !{}
   %sc = load i32, ptr %psc, align 4, !invariant.load !{}
   %ud = getelementptr inbounds i8, ptr %pd, i64 22
-  %us = getelementptr inbounds i8, ptr %ps, i64 22
+  %u0 = getelementptr inbounds i8, ptr %ps, i64 22
   %d1 = icmp eq i32 %dc, 6
   %s1 = icmp eq i32 %sc, 6
+  %fb = zext i1 %s1 to i64
+  %fs = xor i64 %fb, 1
+  %fo = shl i64 %from, %fs
+  %us = getelementptr inbounds i8, ptr %u0, i64 %fo
   br i1 %d1, label %one, label %two
 one:
   br i1 %s1, label %copy1, label %no

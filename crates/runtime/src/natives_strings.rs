@@ -227,34 +227,43 @@ pub extern "C" fn dartforge_native_DartForge_string_split_by_code(this: i64, lis
     }
 }
 
-/// `copyStringUnits(target, at, source, count)` of the text buffers
-/// (`dart:_internal`, the storage of `StringBuffer`): the first `count` units of
-/// string `source` into string `target` from unit `at`, which has room for
-/// them (the caller checked); 0, copying nothing, when `target` is one-byte and
+/// `copyStringUnits(target, at, source, from, count)` of the text buffers
+/// (`dart:_internal`, the storage of `StringBuffer`) and of the one-byte
+/// substring: the `count` units of string `source` from unit `from` into
+/// string `target` from unit `at`, which has room for them (the caller checked); 0, copying nothing, when `target` is one-byte and
 /// `source` two-byte. The native backend does it inline
 /// (`@df.string_write_units`); this is the same copy for any other caller.
 /// Neither allocates nor throws.
 #[unsafe(no_mangle)]
-pub extern "C" fn dartforge_native_DartForge_string_copy_units(target: i64, at: i64, source: i64, count: i64) -> u8 {
+pub extern "C" fn dartforge_native_DartForge_string_copy_units(
+    target: i64,
+    at: i64,
+    source: i64,
+    from: i64,
+    count: i64,
+) -> u8 {
     use crate::layout::{HANDLE_OFFSET, Header, cid, offsets};
-    let (at, count) = (at as usize, count as usize);
+    let (at, from, count) = (at as usize, from as usize, count as usize);
     let t = (target - HANDLE_OFFSET) as *mut u8;
     let s = (source - HANDLE_OFFSET) as *const u8;
     // SAFETY: two live strings the generated code passed, each handle pointing
     // to its block header; `target` has room for `at + count` units (the
-    // caller's check) and is not `source` (a text buffer is never published).
+    // caller's check), `source` has `from + count`, and the two do not overlap
+    // (a text buffer is never published; a substring is a new string).
     // Strings do not move and nothing here collects.
     #[allow(unsafe_code)]
     unsafe {
         let (tc, sc) = ((*t.cast::<Header>()).class_id, (*s.cast::<Header>()).class_id);
         let (tu, su) = (t.add(offsets::UNITS), s.add(offsets::UNITS));
         match (tc == cid::ONE_BYTE_STRING, sc == cid::ONE_BYTE_STRING) {
-            (true, true) => std::ptr::copy_nonoverlapping(su, tu.add(at), count),
+            (true, true) => std::ptr::copy_nonoverlapping(su.add(from), tu.add(at), count),
             (true, false) => return 0,
-            (false, false) => std::ptr::copy_nonoverlapping(su.cast::<u16>(), tu.cast::<u16>().add(at), count),
+            (false, false) => {
+                std::ptr::copy_nonoverlapping(su.cast::<u16>().add(from), tu.cast::<u16>().add(at), count)
+            }
             (false, true) => {
                 for i in 0..count {
-                    *tu.cast::<u16>().add(at + i) = u16::from(*su.add(i));
+                    *tu.cast::<u16>().add(at + i) = u16::from(*su.add(from + i));
                 }
             }
         }
@@ -708,6 +717,59 @@ pub extern "C" fn dartforge_native_DartForge_sb_to_string(accumulator: i64) -> i
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_string_from_char_codes(list: i64, start: i64, end: i64) -> i64 {
     HEAP.with(|heap| latin1_core_list(&mut heap.borrow_mut(), list, start, end).unwrap_or(0))
+}
+
+/// `_StringBase._fillLatin1(target, list, start, end)` (DartForge, the
+/// `createFromCharCodes` of `string_patch.dart` for a short slice): the units
+/// `[start, end)` of a core list (`_List`, `_ImmutableList`, `_GrowableList`),
+/// all `int`s in `0..=0xFF`, written into the new `_OneByteString` `target` of
+/// `end - start` units that Dart allocated inline. Anything else (a unit above
+/// 0xFF, negative or not an `int`, an invalid range, another list): 0, and Dart
+/// drops `target` and goes on through the VM's path. The list is read from its
+/// block headers, without the heap's borrow; nothing here allocates or throws.
+#[unsafe(no_mangle)]
+#[allow(unsafe_code)]
+pub extern "C" fn dartforge_native_DartForge_string_fill_latin1(target: i64, list: i64, start: i64, end: i64) -> u8 {
+    use crate::layout::{HANDLE_OFFSET, Header, cid, offsets};
+    if !crate::layout::is_object(list) {
+        return 0;
+    }
+    let b = (list - HANDLE_OFFSET) as *const u8;
+    // SAFETY: the handles of live objects the generated code passed point to
+    // their block headers; a core list's length and storage (its own elements,
+    // or the `_List` of a `_GrowableList`) follow the header, and `target` has
+    // `end - start` units (Dart allocated it so). Nothing moves or collects.
+    unsafe {
+        let storage = match (*b.cast::<Header>()).class_id {
+            cid::LIST | cid::IMMUTABLE_LIST => b,
+            cid::GROWABLE_LIST => {
+                let s = *b.add(offsets::GROWABLE_DATA).cast::<i64>();
+                if !crate::layout::is_object(s) {
+                    return 0;
+                }
+                (s - HANDLE_OFFSET) as *const u8
+            }
+            _ => return 0,
+        };
+        let len = *b.add(offsets::LENGTH).cast::<i64>();
+        if start < 0 || start > end || end > len {
+            return 0;
+        }
+        let shape = crate::lists::Element::from_flags(*storage.add(offsets::FLAGS));
+        let elements = storage.add(offsets::ELEMENTS).cast::<i64>();
+        let units = ((target - HANDLE_OFFSET) as *mut u8).add(offsets::UNITS);
+        for i in start..end {
+            let w = *elements.add(i as usize);
+            let v = match shape {
+                crate::lists::Element::Int => w,
+                crate::lists::Element::General if crate::layout::smi::is_smi(w) => crate::layout::smi::value(w),
+                _ => return 0,
+            };
+            let Ok(u) = u8::try_from(v) else { return 0 };
+            *units.add((i - start) as usize) = u;
+        }
+    }
+    1
 }
 
 fn latin1_unit(value: crate::heap::Value) -> Option<u8> {
