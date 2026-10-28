@@ -1229,6 +1229,23 @@ pub fn emit(
 /// The prefix of every closed rti recipe the emitter writes.
 const RTI_PREFIX: &str = "dart_rti._Universe.eval(dart_rti._theUniverse(), ";
 
+/// `t$R`, the evaluation of a closed recipe ([`alias_recipes`]). It keeps
+/// what it evaluated in a `Map` of its own: `_Universe.eval` keeps the same
+/// canonical objects, but reaches its cache through four calls
+/// (`_theUniverse`, `evalCache`, `_Utils.mapGet`, `_Utils.asRti`), and the
+/// runtime's recipes sit on hot paths (every `Future`, every `await`, the
+/// `is` tests and casts of the SDK). `DARTFORGE_JSPROD_RECIPE_CACHE=0`
+/// evaluates every time, as before.
+fn recipe_function() -> String {
+    if std::env::var("DARTFORGE_JSPROD_RECIPE_CACHE").is_ok_and(|v| v == "0") {
+        format!("const t$R = r => {RTI_PREFIX}r, true);\n")
+    } else {
+        format!(
+            "const t$M = new Map(), t$R = r => {{ let t = t$M.get(r); if (t === void 0) t$M.set(r, t = {RTI_PREFIX}r, true)); return t; }};\n"
+        )
+    }
+}
+
 /// Replaces `dart_rti._Universe.eval(dart_rti._theUniverse(), "R", true)` with
 /// `t$R("R")` (§6.3 of the specification): the same call, through a function
 /// declared once. `t$` is a prefix reserved by the emitter (a Dart identifier
@@ -1630,8 +1647,10 @@ pub fn assemble(
         String::new()
     };
     let sdk = format!(
-        "{}const t$R = r => {RTI_PREFIX}r, true);\n{hoisted}(function () {{\n{}}})();\n{marker}",
-        e.bootstrap, sdk_body
+        "{}{}{hoisted}(function () {{\n{}}})();\n{marker}",
+        e.bootstrap,
+        recipe_function(),
+        sdk_body
     );
     let user = modules
         .iter()
