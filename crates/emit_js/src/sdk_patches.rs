@@ -537,6 +537,17 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
         "      JS('', '#.push(#)', genericContext, 'T${offset + i}');\n",
         "      JS('', '#.push(#)', genericContext,\n          offset == 0 ? 'Y${i - 1}' : 'F${offset}Y${i - 1}');\n",
     ),
+    // A dynamic call names a program library's private member by its
+    // production property (`_other$1c`, the library tag after the name,
+    // `crate::production_private_name`): the `Symbol` of the
+    // `NoSuchMethodError` and of `Invocation.memberName` shows the Dart
+    // name, as on the VM.
+    (
+        None,
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "      if ($name[0] === '_') {\n        // Inverse of\n",
+        "      if ($name[0] === '_') {\n        // A program library's private name in production: `_name` and\n        // the library tag (`\\$` and `[0-9a-z]`). Indexing only: a method\n        // called in a template is a live selector for the closed world.\n        let end = $name.length;\n        while (end > 2 && ($name[end - 1] >= '0' && $name[end - 1] <= '9' ||\n            $name[end - 1] >= 'a' && $name[end - 1] <= 'z')) end--;\n        if (end > 2 && end < $name.length && $name[end - 1] === '\\$') {\n          return $name.substring(0, end - 1);\n        }\n        // Inverse of\n",
+    ),
 ];
 
 /// Applies `PATCHES` to `sdk` as overlay replacements. The patched files

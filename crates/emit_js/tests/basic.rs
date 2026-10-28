@@ -142,3 +142,10 @@ fn indexed_assignment_order() {
 fn property_assignment_order() {
     check("property_assignment_order");
 }
+
+/// A dynamic call of a private name shows the Dart name in the
+/// `NoSuchMethodError` and in `Invocation.memberName`.
+#[test]
+fn private_dynamic_names() {
+    check("private_dynamic_names");
+}
