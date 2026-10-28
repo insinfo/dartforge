@@ -141,6 +141,16 @@ impl Adapter<'_> {
             _ => false,
         }
     }
+
+    /// Every class instantiated below `c` passes `test` or has no instances
+    /// of its own, and there is at least one.
+    fn instances_all(&self, c: ClassId, test: impl Fn(ClassId) -> bool) -> bool {
+        let subs = self.world.instantiated_subtypes(c);
+        !subs.is_empty()
+            && subs
+                .iter()
+                .all(|&k| test(k) || self.without_own_instances(k))
+    }
 }
 
 impl Liveness for Adapter<'_> {
@@ -269,11 +279,14 @@ impl Liveness for Adapter<'_> {
         self.omit_late_names
     }
     fn indexable_primitive(&self, c: ClassId) -> bool {
-        let subs = self.world.instantiated_subtypes(c);
-        !subs.is_empty()
-            && subs
-                .iter()
-                .all(|&k| self.is_indexable_primitive_class(k) || self.without_own_instances(k))
+        self.instances_all(c, |k| self.is_indexable_primitive_class(k))
+    }
+    fn typed_array_class(&self, c: ClassId) -> bool {
+        self.instances_all(c, |k| {
+            self.is_indexable_primitive_class(k)
+                && self.program.library(self.program.class(k).library).uri
+                    == "dart:_native_typed_data"
+        })
     }
     fn named_table(&self) -> Option<String> {
         self.named_args.filter(|n| n.table).map(|n| n.json())

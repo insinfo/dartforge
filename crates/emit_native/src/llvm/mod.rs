@@ -308,7 +308,7 @@ pub struct LlvmEmitter<'a> {
     /// The layout of the area of the running generation (hot reload): the slots that
     /// remain keep their index, the new ones come after (`emit_globals`).
     previous_area: Option<Vec<i64>>,
-    /// The area descriptor without the slot names (`[key, -n]`): the
+    /// The area descriptor without the slot names (`[key, -n, m, slot…]`): the
     /// production executable, which never reloads (`with_lean_area`).
     lean_area: bool,
     /// J05: the debug metadata, when some function has positions.
@@ -782,8 +782,9 @@ impl<'a> LlvmEmitter<'a> {
         self
     }
 
-    /// The area descriptor with only the key and the number of slots, `[key, -n]`
-    /// (the sign marks the lean form for `dartforge_globals_area`): the
+    /// The area descriptor with only the key, the number of slots and the `Ref`
+    /// slots, `[key, -n, m, slot…]` (the sign marks the lean form for
+    /// `dartforge_globals_area`): the
     /// hashes of the names only serve reload (the migration of the area and the
     /// extension of the layout), and the production executable never reloads. The
     /// JIT and the development DLL keep the complete descriptor.
@@ -4203,7 +4204,7 @@ impl<'a> LlvmEmitter<'a> {
     /// selector cache slots have [`CACHE_BIT`] in the name: they do not migrate to a
     /// new area and the publication of a reload zeroes them (they keep code
     /// addresses, and the method tables have just changed). In production,
-    /// `[key, -n]` ([`LlvmEmitter::with_lean_area`]).
+    /// `[key, -n, m, slot…]` ([`LlvmEmitter::with_lean_area`]).
     fn emit_area_descriptor(&mut self) {
         let key = self
             .module

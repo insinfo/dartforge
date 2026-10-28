@@ -2387,6 +2387,25 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         crate::emit_line!(self.w, "{};", ljs.code);
                     }
                 }
+                None if self.indexable_receiver(&ity).is_some()
+                    && std::env::var("DARTFORGE_JSPROD_INDEXED_LOOPS")
+                        .map_or(true, |v| v != "0") =>
+                {
+                    // Production: an iterable the world proves a JavaScript
+                    // array (or typed array) is walked by index, as the
+                    // `for…of` it replaces does (the length is read at every
+                    // step), without the iterator protocol
+                    // (`DARTFORGE_JSPROD_INDEXED_LOOPS=0` keeps the `for…of`).
+                    let (list, i) = (self.temp(), self.temp());
+                    crate::open_block!(
+                        self.w,
+                        "for ({list} = {}, {i} = 0; {i} < {list}.length; {i}++) {{",
+                        ijs.at(P_ASSIGN)
+                    );
+                    let value =
+                        self.checked_loop_value(&format!("{list}[{i}]"), &elem_ty, &decl_ty);
+                    crate::emit_line!(self.w, "let {var_js} = {value};");
+                }
                 None => {
                     crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code);
                     let value = self.checked_loop_value(&var_js, &elem_ty, &decl_ty);

@@ -3179,6 +3179,52 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         ))
     }
 
+    /// The receiver's static class is one the world proves an indexable
+    /// primitive (`JSArray`, `JSString`, a native typed array): what
+    /// [`Self::native_length_get`] and the trusted index writes test.
+    pub(crate) fn indexable_receiver(
+        &self,
+        recv_ty: &Ty,
+    ) -> Option<dartforge_elements::model::ClassId> {
+        let Ty::Iface {
+            class,
+            nullable: false,
+            ..
+        } = recv_ty
+        else {
+            return None;
+        };
+        (self.ctx.production()
+            && self
+                .ctx
+                .filter
+                .is_some_and(|f| f.indexable_primitive(*class)))
+        .then_some(*class)
+    }
+
+    /// Production: `r.length`, `r.isEmpty` and `r.isNotEmpty` on a receiver
+    /// the world proves an indexable primitive are the JavaScript `length`
+    /// (what the getters of `JSArray`, `JSString` and the typed arrays
+    /// return), without the call of the extension getter. No check is
+    /// involved, so every level does it. `DARTFORGE_JSPROD_NATIVE_LENGTH=0`
+    /// keeps the getters.
+    fn native_length_get(&self, recv: &Js, recv_ty: &Ty, name: &str) -> Option<(Js, Ty)> {
+        if !matches!(name, "length" | "isEmpty" | "isNotEmpty")
+            || std::env::var("DARTFORGE_JSPROD_NATIVE_LENGTH").is_ok_and(|v| v == "0")
+        {
+            return None;
+        }
+        self.indexable_receiver(recv_ty)?;
+        let length = format!("{}.length", recv.at(P_PRIMARY));
+        Some(match name {
+            "length" => (Js::prim(length), self.ctx.t_int()),
+            // In parentheses: a condition goes out as text (`emit_cond`),
+            // and `!` takes it as a primary.
+            "isEmpty" => (Js::prim(format!("({length} === 0)")), self.ctx.t_bool()),
+            _ => (Js::prim(format!("({length} !== 0)")), self.ctx.t_bool()),
+        })
+    }
+
     pub fn emit_member_get(
         &mut self,
         recv: &Js,
@@ -3204,6 +3250,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             self.forced_ext = None;
         }
         if let Some(r) = self.parity_get(recv, recv_ty, name) {
+            return r;
+        }
+        if let Some(r) = self.native_length_get(recv, recv_ty, name) {
             return r;
         }
         let member = member.or_else(|| self.ctx.lookup_member(recv_ty, name, false));
@@ -4702,6 +4751,29 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     );
                 }
                 let access = self.member_access(recv_ty, "[]", false);
+                // Checked bounds (`-O1` to `-O3`) on the same receivers, with a
+                // receiver and an index without effects: the JavaScript
+                // element, and the checked `[]` only when that is `undefined`
+                // or `null` — out of range, where it throws the `RangeError`,
+                // or a `null` element, which it returns again
+                // (`DARTFORGE_JSPROD_CHECKED_READS=0` keeps the call).
+                if self.checks.index_bounds
+                    && self.indexable_receiver(recv_ty).is_some()
+                    && recv.code != "super"
+                    && is_pure_operand(&recv.code)
+                    && is_pure_operand(&idx.code)
+                    && std::env::var("DARTFORGE_JSPROD_CHECKED_READS").map_or(true, |v| v != "0")
+                {
+                    let r = recv.at(P_PRIMARY);
+                    return (
+                        Js::prim(format!(
+                            "({r}[{}] ?? {r}{access}({}))",
+                            idx.at(P_ASSIGN),
+                            idx.code
+                        )),
+                        ty,
+                    );
+                }
                 (
                     Js::prim(format!("{}{access}({})", recv.at(P_PRIMARY), idx.code)),
                     ty,
@@ -6253,6 +6325,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         v: &Js,
         discarded: bool,
     ) -> Js {
+        if let Some(js) = self.trusted_index_set(recv, recv_ty, idx, v) {
+            return js;
+        }
         if self.ctx.production()
             && std::env::var("DARTFORGE_JSPROD_COMPACT_INDEX_SET").map_or(true, |x| x != "0")
         {
@@ -6343,6 +6418,71 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // Assignment expressions yield the RHS, regardless of setter return.
         parts.push(value);
         Js::new(parts.join(", "), P_COMMA).paren()
+    }
+
+    /// `r[i] = v` with trusted index bounds (`-O4`, `dart2js:index-bounds:trust`)
+    /// and without parameter checks in the SDK (`-O3` up: `JSArray.[]=` and
+    /// the typed arrays' do not check the value against the element type),
+    /// on a receiver the world proves an indexable primitive: the JavaScript
+    /// element write. A typed array has nothing else to check; a `JSArray`
+    /// keeps the unmodifiable-list check (`immutable$list`, which the const
+    /// lists carry), through its own `checkMutable` when it is set. The
+    /// receiver is read twice only when it is a name or `this`; the check
+    /// runs before the index and the value, so they must have no effects
+    /// (otherwise everything goes through temporaries, in order).
+    /// `DARTFORGE_JSPROD_INDEX_SET=0` keeps the call.
+    fn trusted_index_set(&mut self, recv: &Js, recv_ty: &Ty, idx: &Js, v: &Js) -> Option<Js> {
+        if self.checks.index_bounds
+            || self.forced_ext.is_some()
+            || crate::checks::Checks::level_default(self.ctx).parameters
+            || std::env::var("DARTFORGE_JSPROD_INDEX_SET").is_ok_and(|v| v == "0")
+        {
+            return None;
+        }
+        let class = self.indexable_receiver(recv_ty)?;
+        let filter = self.ctx.filter?;
+        if filter.typed_array_class(class) {
+            return Some(Js::new(
+                format!(
+                    "{}[{}] = {}",
+                    recv.at(P_PRIMARY),
+                    idx.at(P_ASSIGN),
+                    v.at(P_ASSIGN)
+                ),
+                P_ASSIGN,
+            ));
+        }
+        let check = |r: &str, me: &mut Self| {
+            format!(
+                "{r}.immutable$list && {r}[{}](\"indexed set\")",
+                me.dartx("checkMutable")
+            )
+        };
+        if is_simple(&recv.code) && is_pure_operand(&idx.code) && is_pure_operand(&v.code) {
+            let r = recv.code.clone();
+            let c = check(&r, self);
+            return Some(
+                Js::new(
+                    format!("{c}, {r}[{}] = {}", idx.at(P_ASSIGN), v.at(P_ASSIGN)),
+                    P_COMMA,
+                )
+                .paren(),
+            );
+        }
+        let (r, i, x) = (self.temp(), self.temp(), self.temp());
+        let c = check(&r, self);
+        Some(
+            Js::new(
+                format!(
+                    "{r} = {}, {i} = {}, {x} = {}, {c}, {r}[{i}] = {x}",
+                    recv.at(P_ASSIGN),
+                    idx.at(P_ASSIGN),
+                    v.at(P_ASSIGN)
+                ),
+                P_COMMA,
+            )
+            .paren(),
+        )
     }
 
     /// `x op= v`, `++x`, `x++`.
@@ -7390,6 +7530,51 @@ fn parse_int(text: &str) -> String {
             t.to_string()
         }
     }
+}
+
+/// JavaScript text that reads and computes without effects: names,
+/// literals, operators, plain property and element reads. No call (a `(`
+/// right after a name or a closing bracket), no assignment, `++` or `--`, no
+/// read through a symbol key (`[$…]`, possibly a getter), no string or
+/// template literal (whose text is not inspected), no `new`, `yield`,
+/// `await`, `delete` or function.
+pub(crate) fn is_pure_operand(code: &str) -> bool {
+    let b = code.as_bytes();
+    if code.contains("++")
+        || code.contains("--")
+        || code.contains("[$")
+        || code.contains("=>")
+        || code.contains(">>=")
+        || code.contains("<<=")
+        || ["new ", "yield", "await", "function", "delete"]
+            .iter()
+            .any(|w| code.contains(w))
+    {
+        return false;
+    }
+    for (k, &c) in b.iter().enumerate() {
+        match c {
+            b'"' | b'\'' | b'`' | b'{' | b'}' | b';' => return false,
+            b'(' => {
+                let before = code[..k].trim_end().bytes().last();
+                if before.is_some_and(|p| {
+                    p.is_ascii_alphanumeric() || matches!(p, b'_' | b'$' | b')' | b']')
+                }) {
+                    return false;
+                }
+            }
+            b'=' => {
+                let prev = if k > 0 { b[k - 1] } else { b' ' };
+                let next = b.get(k + 1).copied().unwrap_or(b' ');
+                // `==`, `===`, `!=`, `!==`, `<=`, `>=` compare.
+                if !(matches!(prev, b'=' | b'!' | b'<' | b'>') || next == b'=') {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    true
 }
 
 pub fn is_simple(code: &str) -> bool {

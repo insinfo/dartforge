@@ -383,7 +383,8 @@ fn new_slots(n: usize) -> Vec<i64> {
 ///
 /// # Safety
 /// `descriptor` points to a module's `@df.area`: `n + 2` words (`[key, n, names…]`),
-/// or 2 (`[key, -n]`, the lean production one), constant for the whole process.
+/// or `m + 3` (`[key, -n, m, slot_1…slot_m]`, the lean production one, with the
+/// `m` slots that hold `Ref` globals), constant for the whole process.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_globals_area(descriptor: *const i64) -> *mut i64 {
     let d = descriptor as usize;
@@ -614,9 +615,12 @@ mod tests_gc_roots {
     #[test]
     fn lean_descriptor_gives_n_zeroed_slots_and_same_area() {
         std::thread::spawn(|| {
-            // `[key, -n]` (production) and `[key, n, names…]` (reload), from
-            // different modules, in the same isolate.
-            static LEAN: [i64; 2] = [0x1234, -3];
+            // `[key, -n, m, slot…]` (production) and `[key, n, names…]`
+            // (reload), from different modules, in the same isolate. The lean
+            // form always carries `m`, the count of `Ref` slots, even when it
+            // is 0: without it the runtime reads the word after the descriptor
+            // as `m` and walks that many words past it.
+            static LEAN: [i64; 4] = [0x1234, -3, 1, 1];
             static COMPLETE: [i64; 4] = [0x5678, 2, 11, 12];
             // SAFETY: constant descriptors for the whole process.
             let (a, b, c) = unsafe {

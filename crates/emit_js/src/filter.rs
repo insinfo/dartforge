@@ -162,6 +162,12 @@ pub trait Liveness {
     fn indexable_primitive(&self, _c: ClassId) -> bool {
         false
     }
+    /// Every class the world has instantiated below `c` is a native typed
+    /// array of numbers (no immutability flag to check on a write). Without a
+    /// filter, never.
+    fn typed_array_class(&self, _c: ClassId) -> bool {
+        false
+    }
     /// Whether the emission makes the production profile's choices that are
     /// not pruning (eager static literals, short signatures, chained `null`
     /// initializations). [`AllLive`] says no: with it the text is the one
