@@ -1,5 +1,108 @@
 # Estado do DartForge — 2026-10-28
 
+## 28/10/2026, fim do dia: níveis -O1..-O4 do JS, ARC de verdade, HTTP a 94% do Dart
+
+Commits até `fb01240b`, validados localmente e enviados. A suíte
+`tests/language` foi rodada num export recompilado de cada HEAD que mexia no
+JS e ficou em **2756/2863** em todas as rodadas.
+
+**JS de produção: os quatro níveis do `dart2js`.** Decisão do proprietário.
+- `-O1`: sem minificação e mantendo os nomes de `late`.
+- `-O2`: o padrão, igual ao perfil anterior.
+- `-O3` (`--omit-implicit-checks`): omite as checagens implícitas.
+- `-O4` (`--trust-primitives`): confia nos primitivos.
+- Os pragmas `dart2js:as`, `downcast`, `parameter`, `types` e `index-bounds`
+  (`trust`/`check`) valem em todos os níveis.
+- `-O1` e `-O2` batem com a VM no corpus. `-O3` e `-O4` são validados nos
+  programas que não dependem das checagens removidas; a lista de exclusão é
+  `crates/differential/production_levels.tsv`.
+
+| tamanho contra `dart2js -O4` | nosso `-O4` | razão | gzip -9 |
+|---|---:|---:|---:|
+| corpus (273) | 10,2 MB | 0,929× | 0,970× |
+| `limitless_ui` | 3,34 MB | 0,90× | |
+| `new_sali` | 7,09 MB | 0,93× | |
+
+**Velocidade do JS contra `dart2js -O4`** (Node, ms; detalhes em
+`docs/JS-PRODUCAO-VELOCIDADE.md`):
+- **Causa principal da lentidão anterior:** os protótipos de `Number` e
+  `String` viravam dicionários lentos no V8. Isso foi corrigido.
+- **Também entraram:**
+  - cache próprio de receitas RTI;
+  - `async` sem `await` executado como função comum;
+  - `length`/`isEmpty` nativos;
+  - `for-in` em laço indexado.
+- **Bug corrigido:** `!i.isEven` era sempre falso.
+- **Empatados ou à frente:** cerca de metade dos kernels.
+- **Mais lentos:**
+  - `async_await` (4,6×): usamos geradores, o `dart2js` usa máquina de
+    estados;
+  - `list_sort` (2,3×);
+  - `map_int_object` (2,4×);
+  - `collatz` (1,5×).
+- **Bug encontrado:** `main(List<String> args)` recebia `undefined`.
+- Uma rodada nova trata desse bug e do `async`.
+
+| kernel | antes | agora | dart2js |
+|---|---:|---:|---:|
+| point_sum | 33,6 | 3,4 | 3,5 |
+| strings/hashes | 33,1 | 11,0 | 10,6 |
+| sieve | 21,9 | 7,9 | 8,5 |
+| shapes | 2,5 | 1,4 | 3,9 |
+| list_sort | 578 | 324 | 139 |
+| async_await | 2132 | 1154 | 250 |
+
+**HTTP nativo (modo padrão)**, rodadas 4 e 5:
+- `==` de String, StringBuffer e `jsonEncode` sem chamadas ao runtime.
+- `memcpy`/`memmove` direto no código gerado.
+- Memo de RTI de duas vias.
+- `_List(length)` e literais mistos alocados no código gerado.
+- Chamadas ao runtime por requisição: ~303 → ~100.
+
+| | início (27/10) | agora | Dart 3.6.2 |
+|---|---:|---:|---:|
+| req/s | 55,6k | 65,8k | 69,8k |
+| instruções por requisição | 271k | 207k | 211k |
+| ciclos por requisição | 79k | 71,7k | 73,1k |
+| CPU do isolate por requisição | — | 9,9 µs | 8,6 µs |
+| executável | — | 4,52 MB | 5,63 MB |
+
+A diferença que resta está no código compilado: o quadro raiz e a checagem
+de exceção pendente em volta das chamadas, e os seletores com argumentos em
+array.
+
+**ARC de verdade** (`DARTFORGE_ARC_PREPARED=1`). O objeto morre no
+*release* que zera a contagem, sem coleta no meio. Os testes provam isso para
+local, campo, lista, valor de mapa, closure, cascata e finalizador.
+- **O que entrou:**
+  - retain/release e escritas em campos contadas direto no código gerado;
+  - alocação pelo TLAB;
+  - ciclos liberados nas drenagens: RSS do HTTP de 77 para 39–57 MB.
+- **Modos alternativos:**
+  - `DARTFORGE_ARC_TOKENS=virtual`: modo rápido, sem morte imediata;
+  - `DARTFORGE_ARC_PROMPT=0`: o preparado antigo.
+- **Bugs corrigidos:**
+  - o ARC puro não contava instâncias canônicas novas;
+  - a flag dos prefixos `deferred` quebrava a preparação ARC (programa 147);
+  - o teste `lean_descriptor_gives_n_zeroed_slots_and_same_area` usava o
+    formato antigo de descritor e lia fora dos limites.
+
+| ciclos, ARC de verdade ÷ ARC simples | trees | strings | JSON | HTTP |
+|---|---:|---:|---:|---:|
+| razão | 11,6× | 3,6× | 2,5× | 3,8× |
+
+O ARC simples continua o padrão. O tempo do ARC de verdade está em faltas de
+cache nos metadados por objeto: 45% na morte em cascata, 13% na drenagem e 9%
+no registro. A contagem em si fica abaixo de 10%. Chegar a cerca de 2–3× exige
+reescrever o núcleo, com estes quatro passos juntos:
+- contagem no objeto;
+- metadados preguiçosos;
+- *drop* por classe;
+- reuso imediato da célula.
+
+O estudo está em `docs/ARC-IMPLEMENTACAO.md` §8.6. Falta a decisão do
+proprietário.
+
 ## 27–28/10/2026: ARC com nursery, HTTP nativo e tamanho do JS de produção
 
 Commits até `4a8143dc`, validados localmente e enviados. A suíte
