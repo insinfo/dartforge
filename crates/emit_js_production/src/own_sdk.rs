@@ -397,6 +397,10 @@ fn fixed_point(
         without_records: std::env::var("DARTFORGE_JSPROD_RECORDS_GATE").map_or(true, |v| v != "0"),
         // `DARTFORGE_JSPROD_LEGACY_GATE=0` assumes legacy types may exist.
         without_legacy: std::env::var("DARTFORGE_JSPROD_LEGACY_GATE").map_or(true, |v| v != "0"),
+        // No function type until the text shows one
+        // (`DARTFORGE_JSPROD_FUNCTIONS_GATE=0` assumes they may exist).
+        without_functions: std::env::var("DARTFORGE_JSPROD_FUNCTIONS_GATE")
+            .map_or(true, |v| v != "0"),
         // No dynamic call with named arguments until the text shows one
         // (`DARTFORGE_JSPROD_DYNAMIC_NAMED_GATE=0` assumes they may exist).
         without_dynamic_named: std::env::var("DARTFORGE_JSPROD_DYNAMIC_NAMED_GATE")
@@ -406,6 +410,7 @@ fn fixed_point(
     constants.set_without_records(opm.without_records);
     constants.set_without_legacy(opm.without_legacy);
     constants.set_without_dynamic_named(opm.without_dynamic_named);
+    constants.set_without_functions(opm.without_functions);
     let runtime_equals = a
         .program
         .libraries
@@ -517,6 +522,12 @@ fn fixed_point(
             computation = dartforge_world::Computation::new(input, opm);
             continue;
         }
+        if opm.without_functions && texts.iter().any(|(_, t)| cites_function_type(t)) {
+            opm.without_functions = false;
+            constants.set_without_functions(false);
+            computation = dartforge_world::Computation::new(input, opm);
+            continue;
+        }
         if opm.without_dynamic_named && texts.iter().any(|(_, t)| passes_dynamic_named(t)) {
             opm.without_dynamic_named = false;
             constants.set_without_dynamic_named(false);
@@ -577,6 +588,75 @@ fn fixed_point(
         }
     }
     Ok(None)
+}
+
+/// Whether `text` may create a function type at run time: a closure or a
+/// tear-off (`dart.fn`, `dart.bind`, `dart.tbind`, `dart.gbind`, the
+/// `fnType` helpers) or a string literal that looks like an rti recipe with
+/// a parenthesis (`"~()"`, `"|p(|o)"`, a record's `"+(…)"` too). A false
+/// positive only keeps the function branches.
+fn cites_function_type(text: &str) -> bool {
+    const CREATORS: &[&str] = &[
+        "dart.fn(",
+        "dart.bind(",
+        "dart.tbind(",
+        "dart.gbind(",
+        "dart.fnType(",
+        "dart.gFnType(",
+        "dart.bindCall(",
+    ];
+    if CREATORS.iter().any(|c| text.contains(c)) {
+        return true;
+    }
+    // The rules' JSON sits in a string literal (`JSON.parse("{\"|a\":
+    // [\"|o()\"]}")`): every piece between its escaped quotes is checked.
+    for (p, _) in text.match_indices("JSON.parse(\"") {
+        let start = p + "JSON.parse(\"".len();
+        let Some(len) = text[start..].find("\")") else {
+            continue;
+        };
+        if text[start..start + len]
+            .split("\\\"")
+            .any(|piece| function_recipe(piece.as_bytes()))
+        {
+            return true;
+        }
+    }
+    function_recipe_literal(text)
+}
+
+/// A recipe-like literal (only recipe characters) with a function type (a
+/// type followed by its parameter list: `~(`, `|p(`, `1(`, a record's
+/// `+(`); a lone `"("` or `"(s)"` is text.
+fn function_recipe(lit: &[u8]) -> bool {
+    let recipe = |c: u8| c.is_ascii_alphanumeric() || b"_$|&@~#*?/<>(),;:!^+[]{}.".contains(&c);
+    lit.iter().all(|&c| recipe(c))
+        && lit.windows(2).any(|w| {
+            w[1] == b'(' && (w[0].is_ascii_alphanumeric() || b"_$~@>?&+*/".contains(&w[0]))
+        })
+}
+
+/// [`cites_function_type`]'s literal scan.
+fn function_recipe_literal(text: &str) -> bool {
+    let b = text.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'"' && b[i] != b'`' && b[i] != b'\'' {
+            i += 1;
+            continue;
+        }
+        let q = b[i];
+        let start = i + 1;
+        let mut j = start;
+        while j < b.len() && b[j] != q && b[j] != b'\n' {
+            j += if b[j] == b'\\' { 2 } else { 1 };
+        }
+        if function_recipe(&b[start..j.min(b.len())]) {
+            return true;
+        }
+        i = j + 1;
+    }
+    false
 }
 
 /// Whether `text` calls a dynamic-call helper of the runtime with its
