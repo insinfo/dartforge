@@ -2348,7 +2348,15 @@ impl<'a> LlvmEmitter<'a> {
                             .map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coerce(a, *t)))
                             .collect();
                         if self.typed_registration_inline(inst) {
-                            self.emit_typed_registration_test(v, *c, name, &rest.join(", "), &f);
+                            let small = self.inline_typed_list(name, args);
+                            self.emit_typed_registration_test(
+                                v,
+                                *c,
+                                name,
+                                &rest.join(", "),
+                                &f,
+                                small,
+                            );
                         } else {
                             writeln!(
                                 self.out,
@@ -6093,6 +6101,7 @@ impl<'a> LlvmEmitter<'a> {
         name: &str,
         args: &str,
         table: &str,
+        small: Option<(u8, String)>,
     ) {
         let o = &mut self.out;
         writeln!(
@@ -6128,18 +6137,129 @@ impl<'a> LlvmEmitter<'a> {
         )
         .unwrap();
         writeln!(o, "tn{v}.rapido:").unwrap();
+        let called = if let Some((ty, n)) = &small {
+            Self::emit_small_typed_list(o, v, c, *ty, n);
+            format!("tn{v}.chama")
+        } else {
+            format!("tn{v}.rapido")
+        };
         writeln!(o, "  %tn{v}a = call i64 @{name}({args})").unwrap();
         writeln!(o, "  br label %tn{v}.fim").unwrap();
         writeln!(o, "tn{v}.lento:").unwrap();
         writeln!(o, "  %tn{v}b = call i64 @{name}_t({args}, ptr @{table})").unwrap();
         writeln!(o, "  br label %tn{v}.fim").unwrap();
         writeln!(o, "tn{v}.fim:").unwrap();
+        let inline = if small.is_some() {
+            format!(", [ %tn{v}h, %tn{v}.tlab ]")
+        } else {
+            String::new()
+        };
         writeln!(
             o,
-            "  %v{v} = phi i64 [ %tn{v}a, %tn{v}.rapido ], [ %tn{v}b, %tn{v}.lento ]"
+            "  %v{v} = phi i64 [ %tn{v}a, %{called} ], [ %tn{v}b, %tn{v}.lento ]{inline}"
         )
         .unwrap();
         self.current_label = format!("tn{v}.fim");
+    }
+
+    /// An internal typed list (`dartforge_typed_new(c, ty, n)` with a constant
+    /// element type) small enough for a TLAB block when `n` is: the element type
+    /// and the IR of `n` for [`Self::emit_small_typed_list`].
+    fn inline_typed_list(&mut self, name: &str, args: &[(Operand, Type)]) -> Option<(u8, String)> {
+        if name != "dartforge_typed_new" || args.len() != 3 || self.out_of_line_allocation {
+            return None;
+        }
+        let Operand::Constant(Constant::Int(ty)) = args[1].0 else {
+            return None;
+        };
+        let ty = u8::try_from(ty).ok()?;
+        if i32::from(ty) >= layout::cid::ELEMENT_TYPES {
+            return None;
+        }
+        Some((ty, self.coerce(&args[2].0, Type::I64)))
+    }
+
+    /// The inline allocation of an internal typed list of `n` elements of type
+    /// `ty` (class `c`) from the TLAB of its size, like the VM's
+    /// `TypedDataAllocationStub`: body of `2 + ceil(n·size/8)` words (the length,
+    /// the address of the bytes and the zeroed bytes, as `Heap::new_typed`) when
+    /// that fits [`TLAB_N`] words; a larger `n`, a negative one (the `RangeError`)
+    /// or an exhausted TLAB go to `tn{v}.chama`, the runtime call that follows.
+    /// The handle comes out as `%tn{v}h` from the label `tn{v}.tlab`.
+    fn emit_small_typed_list(o: &mut String, v: u32, c: i64, ty: u8, n: &str) {
+        let size = dartforge_runtime::typed_lists::element_size(ty) as i64;
+        let max = (TLAB_N - 2) * 8 / size;
+        let header =
+            layout::header_word(layout::state::YOUNG, layout::flags::RAW, 0, c as i32) as i64;
+        let _ = writeln!(o, "  %tn{v}sm = icmp ule i64 {n}, {max}");
+        let _ = writeln!(
+            o,
+            "  br i1 %tn{v}sm, label %tn{v}.pequena, label %tn{v}.chama"
+        );
+        let _ = writeln!(o, "tn{v}.pequena:");
+        let _ = writeln!(o, "  %tn{v}by = mul i64 {n}, {size}");
+        let _ = writeln!(o, "  %tn{v}b7 = add i64 %tn{v}by, 7");
+        let _ = writeln!(o, "  %tn{v}bw = lshr i64 %tn{v}b7, 3");
+        let _ = writeln!(o, "  %tn{v}w = add i64 %tn{v}bw, 2");
+        let _ = writeln!(o, "  %tn{v}wo = shl i64 %tn{v}w, 4");
+        let _ = writeln!(
+            o,
+            "  %tn{v}co = add i64 %tn{v}wo, {}",
+            layout::context::tlab_cursor(0)
+        );
+        let _ = writeln!(
+            o,
+            "  %tn{v}ca = getelementptr inbounds i8, ptr %ctx, i64 %tn{v}co"
+        );
+        let _ = writeln!(o, "  %tn{v}cu = load ptr, ptr %tn{v}ca, align 8");
+        let _ = writeln!(
+            o,
+            "  %tn{v}ea = getelementptr inbounds i8, ptr %tn{v}ca, i64 8"
+        );
+        let _ = writeln!(o, "  %tn{v}en = load ptr, ptr %tn{v}ea, align 8");
+        let _ = writeln!(o, "  %tn{v}w8 = shl i64 %tn{v}w, 3");
+        let _ = writeln!(
+            o,
+            "  %tn{v}sz = add i64 %tn{v}w8, {}",
+            layout::block_bytes(0)
+        );
+        let _ = writeln!(
+            o,
+            "  %tn{v}nx = getelementptr i8, ptr %tn{v}cu, i64 %tn{v}sz"
+        );
+        let _ = writeln!(o, "  %tn{v}ok = icmp ule ptr %tn{v}nx, %tn{v}en");
+        let _ = writeln!(
+            o,
+            "  %tn{v}ox = call i1 @llvm.expect.i1(i1 %tn{v}ok, i1 true)"
+        );
+        let _ = writeln!(o, "  br i1 %tn{v}ox, label %tn{v}.tlab, label %tn{v}.chama");
+        let _ = writeln!(o, "tn{v}.tlab:");
+        let _ = writeln!(o, "  store ptr %tn{v}nx, ptr %tn{v}ca, align 8");
+        // The header with `n` = the body words (`Heap::allocate`).
+        let _ = writeln!(o, "  %tn{v}wh = shl i64 %tn{v}w, 16");
+        let _ = writeln!(o, "  %tn{v}hd = or i64 %tn{v}wh, {header}");
+        let _ = writeln!(o, "  store i64 %tn{v}hd, ptr %tn{v}cu, align 8");
+        let _ = writeln!(
+            o,
+            "  %tn{v}lp = getelementptr inbounds i8, ptr %tn{v}cu, i64 {}",
+            layout::offsets::LENGTH
+        );
+        let _ = writeln!(o, "  store i64 {n}, ptr %tn{v}lp, align 8");
+        let _ = writeln!(
+            o,
+            "  %tn{v}dp = getelementptr inbounds i8, ptr %tn{v}cu, i64 {}",
+            layout::offsets::DATA
+        );
+        let _ = writeln!(
+            o,
+            "  %tn{v}bp = getelementptr inbounds i8, ptr %tn{v}cu, i64 {}",
+            layout::offsets::INTERNAL_BYTES
+        );
+        let _ = writeln!(o, "  store ptr %tn{v}bp, ptr %tn{v}dp, align 8");
+        let _ = writeln!(o, "  %tn{v}hi = ptrtoint ptr %tn{v}cu to i64");
+        let _ = writeln!(o, "  %tn{v}h = add i64 %tn{v}hi, 2");
+        let _ = writeln!(o, "  br label %tn{v}.fim");
+        let _ = writeln!(o, "tn{v}.chama:");
     }
 
     /// Is the method table of class `c` registered before any Dart code of the
