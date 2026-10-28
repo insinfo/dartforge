@@ -1301,6 +1301,40 @@ fn list_shape_already(heap: &mut Heap, h: i64) -> bool {
     false
 }
 
+/// The storage of the core list `obj` (the list itself for `_List` and
+/// `_ImmutableList`, field 1 of an inline `_GrowableList`) and its flags, read from
+/// the headers; `None` for anything else, or under ARC or handle validation.
+#[allow(unsafe_code)]
+fn list_storage_state(obj: i64) -> Option<(i64, u8)> {
+    use crate::layout::{HANDLE_OFFSET, Header, cid, flags};
+    if !crate::layout::is_object(obj) {
+        return None;
+    }
+    let b = (obj - HANDLE_OFFSET) as *const Header;
+    // SAFETY: an object handle the generated code passed: a live block.
+    let (class, f) = unsafe { ((*b).class_id, (*b).flags) };
+    let storage = match class {
+        cid::GROWABLE_LIST if f & flags::OUT_OF_LINE == 0 => {
+            // SAFETY: a `_GrowableList` has two inline fields; field 1 is its storage.
+            unsafe { *crate::space::fields_of(b.cast_mut()).add(1) }
+        }
+        cid::LIST | cid::IMMUTABLE_LIST => obj,
+        _ => return None,
+    };
+    if !crate::layout::is_object(storage) {
+        return None;
+    }
+    if HEAP.with(|h| {
+        let h = h.borrow();
+        h.arc.is_some() || h.validate_handles
+    }) {
+        return None;
+    }
+    // SAFETY: the storage of a live list is a live `_List`.
+    let storage_flags = unsafe { (*((storage - HANDLE_OFFSET) as *const Header)).flags };
+    Some((storage, storage_flags))
+}
+
 /// Stores the reified type `meta` (the metadata, `type + 1`) of the list `h` and
 /// puts it in its shape ([`adjust_list_shape`]).
 pub(crate) fn set_list_type(h: i64, meta: i64) {
@@ -1583,6 +1617,7 @@ pub unsafe extern "C" fn dartforge_rti_eval_cache(
 #[unsafe(no_mangle)]
 #[allow(unsafe_code)]
 pub unsafe extern "C" fn dartforge_rti_set_cache(cache: *mut i64, obj: i64, ty: i64) {
+    let storage_before = list_storage_state(obj);
     dartforge_rti_set(obj, ty);
     if !crate::layout::is_object(obj) || !(0..i64::from(i32::MAX)).contains(&ty) {
         return;
@@ -1591,13 +1626,26 @@ pub unsafe extern "C" fn dartforge_rti_set_cache(cache: *mut i64, obj: i64, ty: 
     // SAFETY: the handle of a live object points to its header.
     let (state, cid, metadata) =
         unsafe { ((*header).state, (*header).class_id, (*header).metadata) };
-    if state == crate::layout::state::PERMANENT || crate::layout::cid::is_list(cid) || cid < 0 {
+    if state == crate::layout::state::PERMANENT || cid < 0 {
+        return;
+    }
+    let list = crate::layout::cid::is_list(cid);
+    // A list joins the cache of the site only when storing its type left its
+    // storage as it was (the shape already right): a literal site builds its
+    // storage in the same shape every time (`llvm/ir_lists.rs`), so the next list
+    // of the site with the same type needs only the metadata. A shape that
+    // changed (an `<int>[]` that takes the shared empty `int` storage) keeps
+    // calling. Lists never enter the thread's memo, which other sites share.
+    if list && (storage_before.is_none() || storage_before != list_storage_state(obj)) {
         return;
     }
     // SAFETY: the contract above; only the isolate's thread writes the area.
     unsafe {
         *cache = (i64::from(cid) << 32) | ty;
         *cache.add(1) = i64::from(metadata);
+    }
+    if list {
+        return;
     }
     crate::heap::TABLES.with(|c| {
         c.rti_memo_store(
@@ -1878,7 +1926,12 @@ pub extern "C" fn dartforge_rti_bound(s: i64, t: i64, name: i64) {
         (!u.sub(s, t)).then(|| (u.text(s), u.text(t)))
     });
     if let Some((s, t)) = failure {
-        let name = HEAP.with(|h| h.borrow().text(name).map(|t| t.to_dart_string()).unwrap_or_default());
+        let name = HEAP.with(|h| {
+            h.borrow()
+                .text(name)
+                .map(|t| t.to_dart_string())
+                .unwrap_or_default()
+        });
         let msg = format!("type '{s}' is not a subtype of type '{t}' of '{name}'");
         let m = HEAP.with(|h| h.borrow_mut().allocate_str(&msg));
         let e = with_roots(&[m], || dartforge_type_error_with_message(m));

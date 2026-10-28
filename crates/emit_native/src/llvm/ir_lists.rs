@@ -268,15 +268,10 @@ impl LlvmEmitter<'_> {
         writeln!(self.out, "  %list_tags_{v} = alloca [{n} x i8], align 1").unwrap();
     }
 
-    /// The literal list: a `_GrowableList` of capacity `n` with the words
-    /// of the elements (`dartforge_list_new(words, n, cid, shape)`).
-    pub(super) fn emit_alloc_list(&mut self, v: u32, elements: &[(Operand, u8)]) {
-        let n = elements.len();
-        let width = n.max(1);
-        let tags: Vec<u8> = elements.iter().map(|(op, _)| self.tag_of(op)).collect();
-        // The shape by the code of `lists::Elemento` (0 general, 1 int, 2 double,
-        // 3 bool); `None`: mixed.
-        let shape: Option<i64> = match tags.first() {
+    /// The shape code of a literal (that of `lists::Element`: 0 general, 1 `int`,
+    /// 2 `double`, 3 `bool`) from the tags of its elements; `None`: mixed.
+    fn literal_shape(tags: &[u8]) -> Option<i64> {
+        match tags.first() {
             None => Some(0),
             Some(&t) if tags.iter().all(|&x| x == t) => Some(match t {
                 1 => 1,
@@ -285,15 +280,181 @@ impl LlvmEmitter<'_> {
                 _ => 0,
             }),
             _ => None,
+        }
+    }
+
+    /// Does the literal `AllocList` come out inline ([`Self::emit_alloc_list`])?
+    /// Production with tracing memory, a homogeneous literal of 1 to
+    /// `TLAB_N - 1` elements (its storage fits a TLAB block). The empty literal
+    /// shares the runtime's empty storage, and the mixed one boxes in the
+    /// runtime.
+    pub(super) fn inline_list_literal(&self, inst: &Instruction) -> bool {
+        let Instruction::AllocList { elements } = inst else {
+            return false;
         };
-        for (k, (elem, _)) in elements.iter().enumerate() {
-            // The word in the representation of the element: the `Ref`, the `i64`, the bits
-            // of the `double` (`bitcast`) or 0/1 (`zext`).
-            let word = if tags[k] == TAG_REF {
-                self.coerce(elem, Type::Ref)
+        self.production
+            && self.has_ctx
+            && !self.module.arc_memory
+            && !self.out_of_line_allocation
+            && (1..layout::TLAB_N).contains(&elements.len())
+            && Self::literal_shape(
+                &elements
+                    .iter()
+                    .map(|(op, _)| self.tag_of(op))
+                    .collect::<Vec<_>>(),
+            )
+            .is_some()
+    }
+
+    /// The literal list: a `_GrowableList` of capacity `n` with the words
+    /// of the elements (`dartforge_list_new(words, n, cid, shape)`).
+    ///
+    /// Inline ([`Self::inline_list_literal`]), like the VM's inline allocation of a
+    /// literal (`AllocateArray` + `AllocateObject`): the storage (`_List`,
+    /// `list_words(n)` words) and the `_GrowableList` (two fields) come from the
+    /// TLABs of their sizes; both are young and zeroed, so the length, the
+    /// elements and the storage go in without barriers. When either TLAB is out
+    /// of room, the runtime builds it. The HIR block then ends at `al{v}.fim`.
+    pub(super) fn emit_alloc_list(&mut self, v: u32, elements: &[(Operand, u8)]) {
+        let n = elements.len();
+        let width = n.max(1);
+        let tags: Vec<u8> = elements.iter().map(|(op, _)| self.tag_of(op)).collect();
+        let shape = Self::literal_shape(&tags);
+        let inline = self.inline_list_literal(&Instruction::AllocList {
+            elements: elements.to_vec(),
+        });
+        // The word in the representation of each element: the `Ref`, the `i64`, the
+        // bits of the `double` (`bitcast`) or 0/1 (`zext`).
+        let words: Vec<String> = elements
+            .iter()
+            .enumerate()
+            .map(|(k, (elem, _))| {
+                if tags[k] == TAG_REF {
+                    self.coerce(elem, Type::Ref)
+                } else {
+                    self.coerce(elem, Type::I64)
+                }
+            })
+            .collect();
+        if inline {
+            let e = dartforge_runtime::lists::Element::from_code(shape.unwrap_or(0))
+                .expect("a homogeneous literal shape");
+            let ws = layout::list_words(n);
+            let wg = layout::instance_words(2);
+            let (ss, sg) = (layout::block_bytes(ws), layout::block_bytes(wg));
+            let storage_header =
+                layout::header_word(layout::state::YOUNG, e.flags(), ws, cid::LIST);
+            let list_header =
+                layout::header_word(layout::state::YOUNG, flags::INSTANCE, 2, cid::GROWABLE_LIST);
+            let o = &mut self.out;
+            let _ = writeln!(
+                o,
+                "  %al{v}ca = getelementptr inbounds i8, ptr %ctx, i64 {}",
+                layout::context::tlab_cursor(ws)
+            );
+            let _ = writeln!(o, "  %al{v}c = load ptr, ptr %al{v}ca, align 8");
+            let _ = writeln!(
+                o,
+                "  %al{v}ea = getelementptr inbounds i8, ptr %ctx, i64 {}",
+                layout::context::tlab_end(ws)
+            );
+            let _ = writeln!(o, "  %al{v}e = load ptr, ptr %al{v}ea, align 8");
+            if ws == wg {
+                // Both blocks from the same TLAB: the storage, then the list.
+                let _ = writeln!(
+                    o,
+                    "  %al{v}n = getelementptr i8, ptr %al{v}c, i64 {}",
+                    ss + sg
+                );
+                let _ = writeln!(o, "  %al{v}ok = icmp ule ptr %al{v}n, %al{v}e");
+                let _ = writeln!(o, "  %al{v}g = getelementptr i8, ptr %al{v}c, i64 {ss}");
             } else {
-                self.coerce(elem, Type::I64)
-            };
+                let _ = writeln!(o, "  %al{v}n = getelementptr i8, ptr %al{v}c, i64 {ss}");
+                let _ = writeln!(o, "  %al{v}ok1 = icmp ule ptr %al{v}n, %al{v}e");
+                let _ = writeln!(
+                    o,
+                    "  %al{v}ga = getelementptr inbounds i8, ptr %ctx, i64 {}",
+                    layout::context::tlab_cursor(wg)
+                );
+                let _ = writeln!(o, "  %al{v}g = load ptr, ptr %al{v}ga, align 8");
+                let _ = writeln!(
+                    o,
+                    "  %al{v}gea = getelementptr inbounds i8, ptr %ctx, i64 {}",
+                    layout::context::tlab_end(wg)
+                );
+                let _ = writeln!(o, "  %al{v}ge = load ptr, ptr %al{v}gea, align 8");
+                let _ = writeln!(o, "  %al{v}gn = getelementptr i8, ptr %al{v}g, i64 {sg}");
+                let _ = writeln!(o, "  %al{v}ok2 = icmp ule ptr %al{v}gn, %al{v}ge");
+                let _ = writeln!(o, "  %al{v}ok = and i1 %al{v}ok1, %al{v}ok2");
+            }
+            let _ = writeln!(
+                o,
+                "  %al{v}x = call i1 @llvm.expect.i1(i1 %al{v}ok, i1 true)"
+            );
+            let _ = writeln!(
+                o,
+                "  br i1 %al{v}x, label %al{v}.rapido, label %al{v}.lento"
+            );
+            let _ = writeln!(o, "al{v}.rapido:");
+            if ws == wg {
+                let _ = writeln!(o, "  store ptr %al{v}n, ptr %al{v}ca, align 8");
+            } else {
+                let _ = writeln!(o, "  store ptr %al{v}n, ptr %al{v}ca, align 8");
+                let _ = writeln!(o, "  store ptr %al{v}gn, ptr %al{v}ga, align 8");
+            }
+            // The storage: header, length (word 0) and the elements.
+            let _ = writeln!(
+                o,
+                "  store i64 {}, ptr %al{v}c, align 8",
+                storage_header as i64
+            );
+            let _ = writeln!(
+                o,
+                "  %al{v}sl = getelementptr inbounds i8, ptr %al{v}c, i64 {}",
+                offsets::BODY
+            );
+            let _ = writeln!(o, "  store i64 {n}, ptr %al{v}sl, align 8");
+            for (k, w) in words.iter().enumerate() {
+                let _ = writeln!(
+                    o,
+                    "  %al{v}s{k} = getelementptr inbounds i8, ptr %al{v}c, i64 {}",
+                    offsets::BODY + 8 * (1 + k)
+                );
+                let _ = writeln!(o, "  store i64 {w}, ptr %al{v}s{k}, align 8");
+            }
+            // The `_GrowableList`: header, the map (field 1, the storage, is a
+            // `Ref`), the length and the storage.
+            let _ = writeln!(
+                o,
+                "  store i64 {}, ptr %al{v}g, align 8",
+                list_header as i64
+            );
+            let _ = writeln!(
+                o,
+                "  %al{v}gm = getelementptr inbounds i8, ptr %al{v}g, i64 {}",
+                offsets::MAP
+            );
+            let _ = writeln!(o, "  store i32 2, ptr %al{v}gm, align 4");
+            let _ = writeln!(
+                o,
+                "  %al{v}gl = getelementptr inbounds i8, ptr %al{v}g, i64 {}",
+                offsets::LENGTH
+            );
+            let _ = writeln!(o, "  store i64 {n}, ptr %al{v}gl, align 8");
+            let _ = writeln!(o, "  %al{v}si = ptrtoint ptr %al{v}c to i64");
+            let _ = writeln!(o, "  %al{v}sh = add i64 %al{v}si, 2");
+            let _ = writeln!(
+                o,
+                "  %al{v}gd = getelementptr inbounds i8, ptr %al{v}g, i64 {}",
+                offsets::GROWABLE_DATA
+            );
+            let _ = writeln!(o, "  store i64 %al{v}sh, ptr %al{v}gd, align 8");
+            let _ = writeln!(o, "  %al{v}gi = ptrtoint ptr %al{v}g to i64");
+            let _ = writeln!(o, "  %al{v}h = add i64 %al{v}gi, 2");
+            let _ = writeln!(o, "  br label %al{v}.fim");
+            let _ = writeln!(o, "al{v}.lento:");
+        }
+        for (k, word) in words.iter().enumerate() {
             writeln!(
                 self.out,
                 "  %lp{v}_{k} = getelementptr [{width} x i64], ptr %list_buf_{v}, i64 0, i64 {k}"
@@ -312,9 +473,14 @@ impl LlvmEmitter<'_> {
                 format!("%ltp{v}")
             }
         };
+        let result = if inline {
+            format!("%al{v}l")
+        } else {
+            format!("%v{v}")
+        };
         writeln!(
             self.out,
-            "  %v{v} = call i64 @{}(ptr %list_buf_{v}, i64 {n}, i64 {}, i64 {shape})",
+            "  {result} = call i64 @{}(ptr %list_buf_{v}, i64 {n}, i64 {}, i64 {shape})",
             if self.arc_owned_factories() {
                 "dartforge_arc_list_new_owned_v1"
             } else {
@@ -323,5 +489,15 @@ impl LlvmEmitter<'_> {
             cid::GROWABLE_LIST
         )
         .unwrap();
+        if inline {
+            let o = &mut self.out;
+            let _ = writeln!(o, "  br label %al{v}.fim");
+            let _ = writeln!(o, "al{v}.fim:");
+            let _ = writeln!(
+                o,
+                "  %v{v} = phi i64 [ %al{v}h, %al{v}.rapido ], [ %al{v}l, %al{v}.lento ]"
+            );
+            self.current_label = format!("al{v}.fim");
+        }
     }
 }

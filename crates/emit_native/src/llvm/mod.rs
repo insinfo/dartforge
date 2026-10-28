@@ -1463,6 +1463,8 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("ao{v}.fim")))
                     } else if self.inline_closure_entry(i) {
                         Some((b.id.0, format!("ce{v}.fim")))
+                    } else if self.inline_list_literal(i) {
+                        Some((b.id.0, format!("al{v}.fim")))
                     } else if self.inline_barrier(i) {
                         Some((b.id.0, format!("wb{v}.fim")))
                     } else if !self.static_objects && matches!(i, Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))) {
@@ -6490,6 +6492,9 @@ impl<'a> LlvmEmitter<'a> {
                 *index < INLINE_FIELDS
             }
             Instruction::AllocObject { fields, .. } => !fields.is_empty(),
+            // The inline literal ([`Self::inline_list_literal`]); counting a mixed one
+            // only loads the context.
+            Instruction::AllocList { elements } => (1..layout::TLAB_N).contains(&elements.len()),
             Instruction::CallRuntime { name, args, .. }
             | Instruction::DeclaredFieldCall { name, args, .. } => {
                 Self::inline_allocation(inst).is_some()
