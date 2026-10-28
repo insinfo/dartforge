@@ -3173,8 +3173,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         {
             return None;
         }
+        // In parentheses: a condition goes out as text (`emit_cond`), and
+        // `!` takes it as a primary (`!i.isEven` was `!(i & 1) === 0`).
         Some((
-            Js::new(format!("({} & 1) === {bit}", recv.at(P_BITAND)), P_EQ),
+            Js::prim(format!("(({} & 1) === {bit})", recv.at(P_BITAND))),
             self.ctx.t_bool(),
         ))
     }
@@ -5192,6 +5194,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     )),
                     ctx.t_int(),
                 ),
+                // Production: with a literal mask from 0 to 2^31 - 1 the
+                // JavaScript `&` is already non-negative, the `>>> 0` of
+                // `JSNumber.&` changes nothing (`DARTFORGE_JSPROD_MASK=0`
+                // keeps it).
+                BinaryOp::BitAnd
+                    if self.ctx.production()
+                        && (literal_mask(&rn.code) || literal_mask(&ln.code))
+                        && std::env::var("DARTFORGE_JSPROD_MASK").map_or(true, |v| v != "0") =>
+                {
+                    (
+                        Js::new(
+                            format!("{} & {}", ln.at(P_BITAND), rn.at(P_BITAND + 1)),
+                            P_BITAND,
+                        ),
+                        ctx.t_int(),
+                    )
+                }
                 BinaryOp::BitAnd => (
                     Js::new(
                         format!("({} & {}) >>> 0", ln.at(P_BITAND), rn.at(P_BITAND + 1)),
@@ -7616,6 +7635,11 @@ pub(crate) fn literal_modulus(code: &str) -> Option<u32> {
     code.parse::<u32>()
         .ok()
         .filter(|k| *k >= 1 && *k <= 0x7fff_ffff)
+}
+
+/// A decimal literal from 0 to 2^31 - 1: `x & k` is non-negative.
+pub(crate) fn literal_mask(code: &str) -> bool {
+    literal_shift(code).is_some()
 }
 
 /// The shift count of the production profile's literal shifts

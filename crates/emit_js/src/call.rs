@@ -804,6 +804,34 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         ))
     }
 
+    /// Production: `n.toDouble()` on a non-nullable number and `i.toInt()` on
+    /// a non-nullable `int` are `n` itself (`JSNumber.toDouble` and
+    /// `JSInt.toInt` return `this`: one JavaScript number type), without the
+    /// extension method call on a number. `DARTFORGE_JSPROD_NUMBER_IDENTITY=0`
+    /// keeps the call.
+    fn number_identity_call(
+        &mut self,
+        recv: &Js,
+        recv_ty: &Ty,
+        name: &str,
+        arguments: &ast::Arguments,
+    ) -> Option<(Js, Ty)> {
+        let ty = match name {
+            "toDouble" if self.ctx.is_num_like(recv_ty) => self.ctx.t_double(),
+            "toInt" if self.ctx.is_int(recv_ty) => self.ctx.t_int(),
+            _ => return None,
+        };
+        if !self.ctx.production()
+            || recv_ty.is_nullable()
+            || !arguments.args.is_empty()
+            || !arguments.type_args.is_empty()
+            || std::env::var("DARTFORGE_JSPROD_NUMBER_IDENTITY").is_ok_and(|v| v == "0")
+        {
+            return None;
+        }
+        Some((recv.clone(), ty))
+    }
+
     /// Call of the instance method `recv.name(args)`.
     ///
     /// `node` is the `recv.name` access in the source, when there is one: the
@@ -862,6 +890,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return r;
         }
         if !is_super && let Some(r) = self.string_search_call(recv, recv_ty, name, arguments) {
+            return r;
+        }
+        if !is_super && let Some(r) = self.number_identity_call(recv, recv_ty, name, arguments) {
             return r;
         }
         if recv_ty.is_dynamic() {
