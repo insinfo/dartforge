@@ -156,6 +156,17 @@ pub fn prune(js: &str) -> String {
 /// becomes an rti object, and `_rtiToString` never shows it (§9.5 of
 /// `docs/JS-PRODUCAO-TAMANHO.md`).
 pub fn displayable(js: &str) -> HashSet<String> {
+    // A recipe of a single class used only as the target of an `is` test
+    // (`t$R("|X")[_is](o)`) never reaches a message: the test returns a
+    // `bool`. Masked (same length), those sites cite nothing here.
+    // `DARTFORGE_JSPROD_IS_ONLY_NAMES=0` keeps them.
+    let masked;
+    let js = if std::env::var("DARTFORGE_JSPROD_IS_ONLY_NAMES").map_or(true, |v| v != "0") {
+        masked = mask_is_only_recipes(js);
+        masked.as_str()
+    } else {
+        js
+    };
     let Some((mut cited, _, lists)) = citations(js) else {
         let mut all = HashSet::new();
         class_names(js, &mut all);
@@ -167,6 +178,50 @@ pub fn displayable(js: &str) -> HashSet<String> {
         }
     }
     cited
+}
+
+/// `js` with the class recipe of each `t$R("|X")[_is]` (or `"|X?"`)
+/// blanked out, keeping every position.
+fn mask_is_only_recipes(js: &str) -> String {
+    // The emitter's form (`dart_rti._Universe.eval(dart_rti._theUniverse(),
+    // "R", true)`, `own_sdk::RTI_PREFIX`) and the aliased one (`t$R("R")`).
+    const FORMS: &[(&str, &str)] = &[
+        (
+            "dart_rti._Universe.eval(dart_rti._theUniverse(), \"",
+            "\", true)",
+        ),
+        ("t$R(\"", "\")"),
+    ];
+    let b = js.as_bytes();
+    let mut out = b.to_vec();
+    for (open, close) in FORMS {
+        for (p, _) in js.match_indices(open) {
+            let start = p + open.len();
+            let Some(len) = js[start..].find('"') else {
+                continue;
+            };
+            let end = start + len;
+            if !js[end..].starts_with(close) {
+                continue;
+            }
+            let after = &js[end + close.len()..];
+            // The target of an `is` test, or one side of an identity test
+            // (`_Utils.isIdentical(t, rti)`).
+            let test = after.starts_with("[_is](")
+                || (after.starts_with(')') && js[..p].ends_with(", ") && {
+                    let before = &js[p.saturating_sub(48)..p];
+                    before
+                        .rfind("isIdentical(")
+                        .is_some_and(|k| !before[k..].contains(')'))
+                });
+            if test {
+                for c in &mut out[start..end] {
+                    *c = b' ';
+                }
+            }
+        }
+    }
+    String::from_utf8(out).unwrap_or_else(|_| js.to_string())
 }
 
 type Found = Vec<(usize, usize, serde_json::Value)>;

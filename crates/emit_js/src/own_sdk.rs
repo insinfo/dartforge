@@ -784,6 +784,9 @@ fn inline_constant_depth(e: &FnEmitter, vid: VariableId, depth: usize) -> Option
         },
         _ => return None,
     };
+    if let Some(s) = const_string_value(e.ctx.program, vid).filter(|s| s.len() < 32) {
+        return Some(Js::prim(js::string_literal(&s)));
+    }
     if !inlinable_literal(&e.ctx.program.unit(unit).ast, init) {
         let target = const_alias(e.ctx.program, vid, &e.ctx.program.unit(unit).ast, init)?;
         return inline_constant_depth(e, target, depth + 1);
@@ -792,6 +795,87 @@ fn inline_constant_depth(e: &FnEmitter, vid: VariableId, depth: usize) -> Option
     let ty = e.ctx.var_ty(vid);
     let (js, _) = sub.emit_expr(init, Some(&ty));
     Some(js)
+}
+
+/// The value of a `const` string whose initializer only interpolates `int`
+/// constants written as decimal or hexadecimal literals (`'$pushNeverExtension'`
+/// in `dart:_recipe_syntax`), with ASCII text around them: Dart's
+/// `int.toString()` of such a value is its decimal digits, on every
+/// platform. `None` for anything else. `DARTFORGE_JSPROD_FOLD_CONST_STRINGS=0`
+/// leaves them alone. The same rule is `dartforge_world::const_string_value`.
+pub fn const_string_value(p: &dartforge_elements::model::Program, v: VariableId) -> Option<String> {
+    if std::env::var("DARTFORGE_JSPROD_FOLD_CONST_STRINGS").is_ok_and(|x| x == "0") {
+        return None;
+    }
+    let (unit, x) = const_initializer(p, v)?;
+    let a = &p.unit(unit).ast;
+    let ast::ExprKind::String(lit) = &a.expr(x).kind else {
+        return None;
+    };
+    let mut out = String::new();
+    let mut interpolated = false;
+    for part in lit.parts.iter() {
+        match part {
+            ast::StringPart::Text(t) => out.push_str(t.as_str().filter(|s| s.is_ascii())?),
+            ast::StringPart::Interpolation(e) => {
+                let mut target = const_alias(p, v, a, *e)?;
+                let mut depth = 0;
+                let value = loop {
+                    let (u, init) = const_initializer(p, target)?;
+                    let ia = &p.unit(u).ast;
+                    match &ia.expr(init).kind {
+                        ast::ExprKind::Int(span) => {
+                            break int_literal_value(&p.unit(u).source[span.start..span.end])?;
+                        }
+                        _ if depth < 8 => {
+                            target = const_alias(p, target, ia, init)?;
+                            depth += 1;
+                        }
+                        _ => return None,
+                    }
+                };
+                out.push_str(&value.to_string());
+                interpolated = true;
+            }
+        }
+    }
+    interpolated.then_some(out)
+}
+
+/// The unit and initializer of the `const` variable `v`.
+fn const_initializer(
+    p: &dartforge_elements::model::Program,
+    v: VariableId,
+) -> Option<(dartforge_elements::model::UnitId, ast::ExprId)> {
+    let var = p.variable(v);
+    if !var.const_ || var.extension.is_some() {
+        return None;
+    }
+    match var.node {
+        VariableRef::TopLevel { unit, decl, index } => match &p.unit(unit).ast.decl(decl).kind {
+            ast::DeclKind::Variables(l) => Some((unit, l.variables.get(index)?.initializer?)),
+            _ => None,
+        },
+        VariableRef::Field {
+            unit,
+            member,
+            index,
+        } => match &p.unit(unit).ast.member(member).kind {
+            ast::MemberKind::Field(l) => Some((unit, l.variables.get(index)?.initializer?)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// A decimal or `0x` hexadecimal `int` literal without separators, if it fits
+/// in 53 bits.
+fn int_literal_value(text: &str) -> Option<i64> {
+    let v = match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+        Some(h) => i64::from_str_radix(h, 16).ok()?,
+        None => text.parse::<i64>().ok()?,
+    };
+    (v < (1i64 << 53)).then_some(v)
 }
 
 /// The constant variable that the initializer `x` of `v` names with a plain
