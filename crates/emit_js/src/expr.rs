@@ -4905,6 +4905,54 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 ctx.t_int(),
             );
         }
+        // Production: a shift of a non-nullable `int` by a non-negative
+        // decimal literal is the body of `JSNumber.<<`/`>>`/`>>>` with the
+        // count known: the negative-count `ArgumentError` cannot happen and
+        // the `> 31` branch is decided (`DARTFORGE_JSPROD_LITERAL_SHIFTS=0` keeps the
+        // call). The world registers no shift operator here either.
+        if matches!(op, BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr)
+            && ctx.production()
+            && ctx.is_int(lt)
+            && !lt.is_nullable()
+            && let Some(k) = literal_shift(&r.code)
+            && std::env::var("DARTFORGE_JSPROD_LITERAL_SHIFTS").map_or(true, |v| v != "0")
+        {
+            let simple = is_simple(&l.code) || literal_shift(&l.code).is_some();
+            let (code, prec) = match op {
+                BinaryOp::Shl | BinaryOp::UShr if k > 31 => {
+                    // JavaScript only reads the low five bits of the count:
+                    // `JSNumber` answers 0 itself.
+                    if simple {
+                        ("0".to_string(), P_PRIMARY)
+                    } else {
+                        (format!("({}, 0)", l.at(P_ASSIGN)), P_PRIMARY)
+                    }
+                }
+                BinaryOp::Shl => (format!("{} << {k} >>> 0", l.at(P_SHIFT)), P_SHIFT),
+                BinaryOp::UShr => (format!("{} >>> {k}", l.at(P_SHIFT)), P_SHIFT),
+                _ => {
+                    // `this > 0 ? this >>> k : (this >> k) >>> 0`, the count
+                    // clamped to 31 on the negative side.
+                    let (prefix, x) = if simple {
+                        (String::new(), l.at(P_UNARY).to_string())
+                    } else {
+                        let t = self.temp();
+                        (format!("{t} = {}, ", l.at(P_ASSIGN)), t)
+                    };
+                    let positive = if k > 31 {
+                        "0".to_string()
+                    } else {
+                        format!("{x} >>> {k}")
+                    };
+                    let negative = k.min(31);
+                    (
+                        format!("({prefix}{x} > 0 ? {positive} : {x} >> {negative} >>> 0)"),
+                        P_PRIMARY,
+                    )
+                }
+            };
+            return (Js::new(code, prec), ctx.t_int());
+        }
         let num_l = ctx.is_num_like_nullable(lt);
         let num_r = ctx.is_num_like_nullable(rt) || matches!(rt, Ty::Dynamic);
         if num_l
@@ -7236,4 +7284,17 @@ pub(crate) fn literal_modulus(code: &str) -> Option<u32> {
     code.parse::<u32>()
         .ok()
         .filter(|k| *k >= 1 && *k <= 0x7fff_ffff)
+}
+
+/// The shift count of the production profile's literal shifts
+/// (`emit_binop_values`): a decimal literal from 0 to 2^31 - 1.
+/// `dartforge_world` applies the same rule to the source literal.
+pub(crate) fn literal_shift(code: &str) -> Option<u32> {
+    if code.is_empty()
+        || !code.bytes().all(|b| b.is_ascii_digit())
+        || (code.len() > 1 && code.starts_with('0'))
+    {
+        return None;
+    }
+    code.parse::<u32>().ok().filter(|k| *k <= 0x7fff_ffff)
 }

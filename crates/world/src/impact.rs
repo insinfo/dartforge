@@ -1207,6 +1207,35 @@ fn num_like(m: &Engine<'_>, c: Option<ClassId>) -> bool {
     })
 }
 
+/// `r` is an `int` literal the emitter takes as a shift count: written in
+/// decimal, from 0 to 2^31 - 1 (`emit_js`'s `literal_shift`).
+fn literal_shift(m: &Engine<'_>, ctx: &Context, r: ExprId) -> bool {
+    let unit = m.e.program.unit(ctx.unit);
+    let ExprKind::Int(span) = unit.ast.expr(r).kind else {
+        return false;
+    };
+    let text = &unit.source[span.start..span.end];
+    !text.is_empty()
+        && !(text.len() > 1 && text.starts_with('0'))
+        && text.bytes().all(|b| b.is_ascii_digit())
+        && text.parse::<u32>().is_ok_and(|k| k <= 0x7fff_ffff)
+}
+
+/// `x` is an `int` literal, possibly negated (`-8`): the static type the
+/// emitter sees is `int` even where the bodies record none.
+fn int_literal(m: &Engine<'_>, ctx: &Context, x: ExprId) -> bool {
+    let ast = &m.e.program.unit(ctx.unit).ast;
+    match &ast.expr(x).kind {
+        ExprKind::Int(_) => true,
+        ExprKind::Parenthesized(y) => int_literal(m, ctx, *y),
+        ExprKind::Unary {
+            op: UnaryOp::Neg,
+            operand,
+        } => int_literal(m, ctx, *operand),
+        _ => false,
+    }
+}
+
 /// `r` is an `int` literal the emitter takes as a literal modulus: written in
 /// decimal, from 1 to 2^31 - 1 (`emit_js`'s `literal_modulus`).
 fn literal_modulo(m: &Engine<'_>, ctx: &Context, r: ExprId) -> bool {
@@ -1273,6 +1302,19 @@ fn operator_selector(
                 && m.int_num.is_some_and(|(int, _)| int == c)
                 && std::env::var("DARTFORGE_JSPROD_LITERAL_MODULO").map_or(true, |v| v != "0")
         })
+    {
+        return;
+    }
+    // `i << k`, `i >> k`, `i >>> k` with a non-nullable `int` and a
+    // non-negative literal count: the emitter writes the shift inline
+    // (`emit_js`'s `literal_shift`).
+    if matches!(op, B::Shl | B::Shr | B::UShr)
+        && m.include_sdk
+        && right.is_some_and(|r| literal_shift(m, ctx, r))
+        && (exact
+            .is_some_and(|(c, nullable)| !nullable && m.int_num.is_some_and(|(int, _)| int == c))
+            || int_literal(m, ctx, left))
+        && std::env::var("DARTFORGE_JSPROD_LITERAL_SHIFTS").map_or(true, |v| v != "0")
     {
         return;
     }
@@ -2378,8 +2420,9 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             }
             if m.operators_by_selector() && matches!(op, UnaryOp::Neg | UnaryOp::BitNot) {
                 let receiver = receiver_class(m, ctx, *operand);
-                // The emitter writes `-x` and `~x >>> 0` for numbers.
-                if !num_like(m, receiver) {
+                // The emitter writes `-x` and `~x >>> 0` for numbers (a
+                // literal operand, `-8`, may carry no recorded type).
+                if !num_like(m, receiver) && !int_literal(m, ctx, *operand) {
                     m.new_selector_with_receiver(
                         if *op == UnaryOp::Neg { "unary-" } else { "~" },
                         receiver,
