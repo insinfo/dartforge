@@ -2593,3 +2593,185 @@ bruto e no gzip.
   outro agente na mesma árvore.
 * Suíte `tests/language` (desenvolvimento, com esse CLI): 2756/2863 iguais à
   VM, sem regressão; as mudanças do `emit_js` são do perfil de produção.
+
+## 20. Rodada de 2026-10-28, manhã (macOS): o gzip abaixo do `dart2js -O4`
+
+Medido antes de mexer (o `main` em `4a8143dc`, o fim da §19; macOS arm64,
+Node 24.21, SDK 3.6.2, `gzip -9`; os mesmos `dart2js -O4` da §16): corpus
+10.967.007 (gz 3.724.303), 0,995× no bruto e **1,040× no gzip**; mediana
+0,976× (gz 1,032×).
+
+Cada passo abaixo foi validado antes do seu *commit*: corpus diferencial
+`corpus/js` 274/274 em desenvolvimento e produção e `corpus/modern` 26/26
+em produção (24/26 em desenvolvimento, as duas falhas antigas da §15.12),
+testes (inclusive os ignorados) de `world`, `emit_js` e
+`emit_js_production` (só falha o `tests/identity.rs` de `p3_classes`, como
+antes), `clippy -D warnings` e `rustfmt`. O `limitless_ui` passou o e2e
+15/15 e as 48 rotas sem erro no Chrome, e o `new_sali` carrega sem erro (a
+mesma página de 6.087 caracteres). Cada otimização tem o seu
+`DARTFORGE_JSPROD_*=0` e um teste que compara com a VM com a chave ligada e
+desligada. Nenhuma mexe em primitivos, *casts*, checagens de índice ou de
+argumento, nem no `sort`.
+
+### 20.1 Onde o gzip perde
+
+Ferramentas novas (no *scratchpad*, não versionadas): `gzcost.py` é um
+*inflater* que atribui a cada byte de entrada os bits que o fluxo `deflate`
+(nível 9) gasta com ele (o código do literal, ou os bits do *match*
+divididos pelos bytes que ele copia); `gzcorpus.py` soma isso por categoria
+de *token* no corpus inteiro, e `strdiff.py` por *string*, contra o
+`dart2js`. No início:
+
+| categoria | nosso bruto | nosso gz | `dart2js` bruto | `dart2js` gz | gz a mais |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| outras *strings* (mensagens, receitas) | 1.074.824 | 451.910 | 799.092 | 339.809 | +112.101 |
+| pontuação | 3.410.787 | 1.189.135 | 3.260.314 | 1.093.935 | +95.200 |
+| listas de nomes privados (`t$V`) | 186.238 | 86.787 | 0 | 0 | +86.787 |
+| tabela de nomes de classe (`t$N`) | 184.395 | 85.114 | 0 | 0 | +85.114 |
+| identificadores | 2.392.229 | 940.279 | 2.450.720 | 880.440 | +59.839 |
+| alfabeto dos ids (`t$I`) | 15.708 | 15.335 | 0 | 0 | +15.335 |
+| JSON das regras | 167.988 | 42.637 | 99.608 | 29.856 | +12.781 |
+| nomes de propriedade | 706.065 | 226.226 | 1.324.261 | 447.715 | −221.489 |
+
+Não há uma única causa: o nosso arquivo leva texto que o do `dart2js` não
+tem (as descrições dos símbolos privados, a tabela de nomes que as
+mensagens mostram, o alfabeto de 64 caracteres, que o `deflate` grava a ~8
+bits por byte) e código de biblioteca a mais; o que ganhamos nas
+propriedades não cobre. Os nomes de classe ficam: a VM mostra o nome real
+onde o `dart2js -O4` mostra `minified:…`.
+
+### 20.2 Símbolos de membro sem descrição (`private_names.rs`)
+
+A descrição de um símbolo privado só é lida por quem recebe o símbolo como
+valor: os caminhos de chamada dinâmica (`_toSymbolName` em `_dartSymbol`,
+para o `NoSuchMethodError` e o `Invocation.memberName`), o campo
+preguiçoso (cujo `LateError` mostra o nome), `defineAccessor`, `bind`…
+Todos o recebem como argumento ou como chave de objeto literal, nunca como
+chave de membro. Sobre a árvore comprimida, com a semântica do `oxc`, um
+nome privado agrupado cuja referência é sempre chave de acesso computado
+(`o[s]`, também como alvo de atribuição) ou de membro de classe
+(`[s]() {}`), direto ou por um apelido de topo que nada reatribui, vira
+`.` na lista (um `Symbol()` novo). Um par que outra chamada `privateName`
+ainda cria fica com a descrição. A primeira versão quebrava
+`87_sync_star`: dois grupos criavam o mesmo par (`_eval` de `dart_rti`) e
+dependiam do *cache* de `privateName`; agora o par repetido em outro grupo
+vira apelido da primeira variável, e o passo exige o par único.
+`DARTFORGE_JSPROD_BARE_MEMBER_SYMBOLS=0`. Corpus **−115 KB** (gz **−60
+KB**). Teste `bare_member_symbols` (chamadas dinâmicas de privados,
+`noSuchMethod` com `memberName`, *tear-offs*, *mixins*, estáticos
+preguiçosos, `sync*`).
+
+Os grupos que ficam só com `.` viram uma desestruturação de
+`Array.from(Array(n), Symbol)` (cada `Symbol(undefined, i)` é um símbolo
+sem descrição) no lugar do primeiro — e não no fim da declaração: uma
+classe com chave computada na mesma declaração já os lê (a primeira versão
+quebrou 62 programas assim). O ajudante `t$V` sai quando não sobra
+chamada. `DARTFORGE_JSPROD_MERGE_BARE_SYMBOLS=0`. Corpus −52 KB (gz −10
+KB).
+
+### 20.3 Ids por aritmética (`own_sdk.rs`)
+
+O alfabeto dos ids de classe são três faixas de código de caractere mais
+`_` e `$`: `t$I` calcula a posição com `charCodeAt`
+(`i > 96 ? i - 97 : i == 95 ? 52 : i > 64 ? i - 39 : i == 36 ? 53 : i + 6`)
+em vez de indexar o literal de 64 caracteres.
+`DARTFORGE_JSPROD_ARITHMETIC_IDS=0`. Corpus −6 KB (gz −5 KB). Teste
+`arithmetic_ids` (o `241_class_name_table_front_coding`, com ids de mais de
+um caractere).
+
+### 20.4 Subtipagem de funções só com assinaturas (`world`, `own_sdk.rs`)
+
+O item 1 da §19.13. O tipo de uma *closure* só é o lado `s` de
+`_isSubtype`: testado contra tipos de interface, impresso, comparado. Um
+remendo do SDK de produção dá nomes próprios (`kindFunctionTarget`,
+`kindGenericFunctionTarget`, iguais aos originais) aos dois testes do tipo
+de `t` contra as espécies de função em `_isSubtype`; quando nenhum tipo de
+função é alvo, o mundo e o emissor dobram exatamente esses dois testes
+(`Constants::set_without_function_targets`) e o `_isFunctionSubtype` sai.
+A verificação (`targets_function_type`, com o *parser* do `oxc` sobre o
+texto de cada rodada) aceita como assinatura o segundo argumento de
+`dart.fn(f, R)` e os valores de `dart.setMethodSignature` (o tipo de uma
+*tear-off* ou aquele contra o qual a chamada dinâmica checa os
+argumentos), escritos como `_Universe.eval(…, "R", true)` ou
+`env[_eval]("R")`, **sem** tipo de função aninhado (um parâmetro de tipo
+função é alvo da checagem de uma chamada dinâmica). Qualquer outra receita
+com tipo de função — argumento de tipo, alvo de `is`/`as`, assinatura de
+campo ou *setter* (que o `dput` checa), JSON das regras — recomeça a rodada
+sem a suposição; uma receita de *record* (`+(…)`) não é tipo de função.
+`DARTFORGE_JSPROD_FUNCTION_TARGETS_GATE=0`; `DARTFORGE_JSPROD_TRACE` mostra
+a receita que desliga. Corpus −110 KB (gz −35 KB). Teste
+`function_targets_gate` (só assinaturas, com chamada dinâmica, *tear-off*
+e *record*; e um programa com `is`/`as` contra tipos de função, que mantém
+o `_isFunctionSubtype`).
+
+Os ~86 programas que mantêm têm alvos de verdade: o `onError is … Function
+(Object, StackTrace)` do `dart:async`, as checagens de covariância de
+parâmetros do tipo função (`firstWhere(orElse:)`, `sort(compare)`),
+campos e argumentos de tipo com funções.
+
+### 20.5 Sem tipos de função genéricos (`world`, `own_sdk.rs`)
+
+Tipos de função genéricos só nascem de receitas com parâmetros de tipo
+(`0^`) ou limites (`)<`) e de instanciação genérica (`gbind`). Sem nada
+disso no texto (`cites_generic_function_type`, também dentro do JSON das
+regras), o remendo do SDK nomeia o `case` do *parser* que lê uma função
+seguida de argumentos de tipo (`kindGenericFunctionHead`), e mundo e
+emissor dobram esse `case`, as espécies `kindGenericFunction` e
+`kindGenericFunctionParameter` e a sintaxe `^`
+(`Constants::set_without_generic_functions`): a substituição de tipos de
+função genéricos (`_substitute`, `_substituteFunctionParameters`,
+`_substituteNamed`, `_substituteArray`), `_createGenericFunctionRti` e a
+impressão de limites saem. Com chamadas dinâmicas, o
+`rti.isGenericFunctionType(ftype)` de `_checkAndCall` e vizinhos dobra para
+`false` também (e saem a instanciação do método genérico e a checagem de
+limites). `DARTFORGE_JSPROD_GENERIC_FUNCTIONS_GATE=0`. Corpus **−393 KB**
+(gz **−128 KB**; 170 programas, ~2 KB cada). Teste `generic_functions_gate`
+(tipos de função sem parâmetros de tipo, com chamada dinâmica; e um
+programa com função genérica, instanciada e chamada dinamicamente).
+
+### 20.6 Resultado
+
+| alvo | início | agora | `dart2js -O4` | agora/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| `print('hi')` | 2.128 (gz 967) | 2.128 (gz 967) | 5.074 (gz 1.801) | 0,42× (gz 0,54×) |
+| `01_print` | 32.138 (gz 11.332) | **28.536** (gz **10.094**) | 34.926 (gz 11.543) | **0,817×** (gz **0,874×**) |
+| corpus (273) | 10.967.007 (gz 3.724.303) | **10.290.100** (gz **3.485.609**) | 11.024.980 (gz 3.582.721) | **0,933×** (gz **0,973×**) |
+| mediana nosso/`dart2js` | 0,976× (gz 1,032×) | **0,894×** (gz **0,946×**) | | |
+| programas abaixo do `dart2js` | 151 (gz 122) | **190** (gz **176**) | | |
+| `limitless_ui/example` | 3.369.232 (gz 946.380) | 3.365.133 (gz 944.872) | 3.704.125 (gz 982.814) | 0,908× (gz 0,961×) |
+| `new_sali/frontend` | 7.178.421 (gz 1.915.145) | 7.172.263 (gz 1.911.962) | 7.614.136 (gz 2.018.523) | 0,942× (gz 0,947×) |
+
+O corpus caiu 6,2% no bruto (−677 KB) e 6,4% no gzip (−239 KB): **o total
+e a mediana ficaram abaixo do `dart2js -O4` também no gzip**. Os dois
+projetos quase não mudam (têm funções genéricas e alvos de tipo função;
+os símbolos privados pesam pouco num arquivo de MBs).
+
+### 20.7 O que falta
+
+1. **Tabela de nomes** (~85 KB gz no corpus): as mensagens mostram os
+   nomes reais. Classes cujas instâncias nunca se reificam com o próprio
+   nome (`JSInt`, `JSNumNotInt`, `JSBool`, `JSString`,
+   `LegacyJavaScriptObject`…: os primitivos se reificam como `int`,
+   `String`…) poderiam sair, mas falta provar caso a caso (o `_Type`, por
+   exemplo, aparece em `1.runtimeType.runtimeType`, como na VM).
+2. **`const {}` do `InvocationImpl`** (§19.13.2): continua; trocar o mapa
+   muda a identidade e o `runtimeType` de `Invocation.namedArguments`.
+3. **`_isFunctionSubtype` com alvos reais** (~86 programas, §20.4) e as
+   mensagens e *strings* do runtime (+108 KB gz contra o `dart2js`).
+4. Campos públicos virtuais do SDK e o resto da maquinaria dinâmica
+   (§19.13.3–4), sem mudança nesta rodada.
+
+### 20.8 Observações da validação
+
+* Divergências antigas encontradas pelos testes novos (iguais com as chaves
+  ligadas e desligadas, fora do corpus): o tipo de função impresso mostra o
+  nome renomeado de um parâmetro nomeado (`{int? $Ta}` em vez de
+  `{int? start}`, o `named_args.rs`); os parâmetros de tipo de função
+  genérica saem `T1` onde a VM mostra `Y0`; a chamada dinâmica de um nome
+  privado que nenhuma classe declara mostra `Symbol("_other$1")`.
+* O compilador de desenvolvimento do diferencial foi construído à parte
+  (`target/r19-cli`): `emit_native` e `runtime` estavam sendo editados por
+  outro agente. Suíte `tests/language` (desenvolvimento, com esse CLI):
+  2756/2863 iguais à VM, as mesmas falhas de antes.
+* Uma execução do e2e do `limitless_ui` falhou por instabilidade do
+  servidor de teste; o mesmo *bundle* passou 15/15 ao repetir.
