@@ -452,6 +452,9 @@ fn fixed_point(
             _ => None,
         }
     });
+    // The shortened named keys the text's function types cite: the
+    // printer translates them (`JS_GET_FLAG('NAMED_SOURCE_NAMES')`).
+    let mut named_source_keys: Option<std::collections::BTreeSet<String>> = None;
     let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_ROUNDS")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -510,6 +513,7 @@ fn fixed_point(
             omit_late_names: op.omit_late_names,
             identity_hash,
             runtime_equals,
+            named_source_keys: named_source_keys.as_ref(),
             rti_live: filter::rti_live(&world, a.program, a.interner),
         };
         let t = Instant::now();
@@ -562,6 +566,30 @@ fn fixed_point(
             constants.set_without_dynamic_named(false);
             computation = dartforge_world::Computation::new(input, opm);
             continue;
+        }
+        // A function type cites a shortened named key: the printer needs the
+        // table (and its helpers, which the world folded away without it).
+        if let Some(n) = named_args.as_ref().filter(|n| !n.map.is_empty()) {
+            let shortened: HashSet<&str> = n.map.values().map(String::as_str).collect();
+            let mut cited = std::collections::BTreeSet::new();
+            for (_, t) in &texts {
+                named_keys_in_recipes(t, &shortened, &mut cited);
+            }
+            if !cited.is_empty()
+                && named_source_keys
+                    .as_ref()
+                    .is_none_or(|k| !cited.is_subset(k))
+            {
+                let first = named_source_keys.is_none();
+                named_source_keys
+                    .get_or_insert_with(Default::default)
+                    .extend(cited);
+                if first {
+                    constants.set_named_source_names(true);
+                    computation = dartforge_world::Computation::new(input, opm);
+                }
+                continue;
+            }
         }
         if opm.without_legacy && texts.iter().any(|(_, t)| cites_legacy_recipe(t)) {
             opm.without_legacy = false;
@@ -652,6 +680,68 @@ fn cites_function_type(text: &str) -> bool {
         }
     }
     function_recipe_literal(text)
+}
+
+/// Adds to `out` the keys of `shortened` that a function-type recipe in a
+/// string literal of `text` (or in the rules' JSON) names in its named group
+/// (`{$a:…}`, `$b!…`).
+fn named_keys_in_recipes(
+    text: &str,
+    shortened: &HashSet<&str>,
+    out: &mut std::collections::BTreeSet<String>,
+) {
+    use oxc_ast_visit::Visit;
+    fn scan(lit: &str, shortened: &HashSet<&str>, out: &mut std::collections::BTreeSet<String>) {
+        let b = lit.as_bytes();
+        if !function_recipe(b) || !b.contains(&b'{') {
+            return;
+        }
+        let id = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+        let mut i = 0;
+        while i < b.len() {
+            if (b[i] == b'{' || b[i] == b',') && b.get(i + 1) == Some(&b'$') {
+                let start = i + 1;
+                let mut end = start + 1;
+                while end < b.len() && id(b[end]) {
+                    end += 1;
+                }
+                if matches!(b.get(end), Some(b':' | b'!')) && shortened.contains(&lit[start..end]) {
+                    out.insert(lit[start..end].to_string());
+                }
+                i = end;
+            } else {
+                i += 1;
+            }
+        }
+    }
+    struct V<'s, 'o> {
+        shortened: &'s HashSet<&'s str>,
+        out: &'o mut std::collections::BTreeSet<String>,
+    }
+    impl<'a> Visit<'a> for V<'_, '_> {
+        fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
+            let v = it.value.as_str();
+            scan(v, self.shortened, self.out);
+            if v.contains('"') {
+                for piece in v.split('"') {
+                    scan(piece, self.shortened, self.out);
+                }
+            }
+        }
+        fn visit_template_literal(&mut self, it: &oxc_ast::ast::TemplateLiteral<'a>) {
+            for q in &it.quasis {
+                scan(q.value.raw.as_str(), self.shortened, self.out);
+            }
+            oxc_ast_visit::walk::walk_template_literal(self, it);
+        }
+    }
+    if !text.contains("{$") && !text.contains(",$") {
+        return;
+    }
+    let allocator = oxc_allocator::Allocator::default();
+    let parsed = oxc_parser::Parser::new(&allocator, text, oxc_span::SourceType::mjs()).parse();
+    let mut v = V { shortened, out };
+    v.visit_program(&parsed.program);
 }
 
 /// Whether `text` may create a generic function type at run time: a

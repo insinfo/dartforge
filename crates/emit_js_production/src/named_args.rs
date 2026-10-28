@@ -23,8 +23,9 @@
 //! `Function.apply` builds the keys from the name's `Symbol`: with it live,
 //! the map also goes to the runtime (`dart.nomeadoJS`).
 //!
-//! What visibly changes: the `toString` of a function type with named
-//! parameters shows the short key.
+//! A function type's `toString` shows the source names: when the runtime's
+//! printer of named parameters is live, the reverse table goes with it
+//! (`dart.namedSourceName`, `NamedArgs::reverse_json`).
 
 use dartforge_elements::model::{ClassKind, Element, FunctionElementId};
 use dartforge_types::table::{Type, TypeId};
@@ -153,6 +154,23 @@ pub struct NamedArgs {
 }
 
 impl NamedArgs {
+    /// The key → name JSON of the `keys` (`dart.namedSourceName`,
+    /// deterministic).
+    pub fn reverse_json(&self, keys: &std::collections::BTreeSet<String>) -> String {
+        let mut v: Vec<(&String, &String)> = self
+            .map
+            .iter()
+            .filter(|(_, k)| keys.contains(*k))
+            .map(|(n, k)| (k, n))
+            .collect();
+        v.sort();
+        let items: Vec<String> = v
+            .iter()
+            .map(|(k, n)| format!("{}:{}", json_str(k), json_str(n)))
+            .collect();
+        format!("{{{}}}", items.join(","))
+    }
+
     /// The name → key JSON, for `dart.nomeadoJS` (deterministic).
     pub fn json(&self) -> String {
         let mut v: Vec<(&String, &String)> = self.map.iter().collect();

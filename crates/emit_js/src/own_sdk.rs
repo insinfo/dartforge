@@ -2059,9 +2059,15 @@ pub fn emit_intrinsic(
             {
                 false
             } else if name == "OMIT_IMPLICIT_CHECKS" {
-                // The production patches' flag (`crate::sdk_patches`): the
-                // level's `--omit-implicit-checks`.
+                // The production patches' flags (`crate::sdk_patches`): the
+                // level's `--omit-implicit-checks`, and the table of the
+                // shortened named keys.
                 e.ctx.production() && e.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+            } else if name == "NAMED_SOURCE_NAMES" {
+                e.ctx.production()
+                    && e.ctx
+                        .filter
+                        .is_some_and(|f| f.named_source_table().is_some())
             } else {
                 SdkMode::flag(&name)?
             };
@@ -2370,6 +2376,12 @@ pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, late_fields: bool) -> Stri
     out.push_str(
         "const _privateNames = Symbol(\"_privateNames\");\ndart.privateName = function(library, name) {\n  let names = library[_privateNames];\n  if (names == null) names = library[_privateNames] = new Map();\n  let symbol = names.get(name);\n  if (symbol == null) names.set(name, symbol = Symbol(name));\n  return symbol;\n};\n",
     );
+    if let Some(t) = ctx.filter.and_then(|f| f.named_source_table()) {
+        out.push_str(&format!(
+            "dart.namedSourceName = (function () {{\n  const t = JSON.parse({});\n  return k => t[k] !== void 0 ? t[k] : k;\n}})();\n",
+            js::string_literal(&t)
+        ));
+    }
     if let Some(t) = ctx.filter.and_then(|f| f.named_table()) {
         out.push_str(&format!(
             "dart.nomeadoJS = (function () {{\n  const t = JSON.parse({});\n  return n => t[n] !== void 0 ? t[n] : n;\n}})();\n",

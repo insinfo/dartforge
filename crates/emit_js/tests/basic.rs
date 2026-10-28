@@ -149,3 +149,12 @@ fn property_assignment_order() {
 fn private_dynamic_names() {
     check("private_dynamic_names");
 }
+
+/// Printed function types as on the VM: the type parameters of generic
+/// function types are `Y0`, `F1Y0`… (DDC's runtime prints `T1`, corrected in
+/// the copied `dart_sdk.js`, `patch_dart_sdk`) and named parameters keep
+/// their source names.
+#[test]
+fn function_type_names() {
+    check("function_type_names");
+}

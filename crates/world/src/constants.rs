@@ -93,6 +93,9 @@ pub struct Constants<'a> {
     /// The level omits implicit checks (`-O3`/`-O4`):
     /// `JS_GET_FLAG('OMIT_IMPLICIT_CHECKS')` of the production SDK patches.
     omit_implicit_checks: std::cell::Cell<bool>,
+    /// `JS_GET_FLAG('NAMED_SOURCE_NAMES')` of the production SDK patches: a
+    /// printable function type cites a shortened named-parameter key.
+    named_source_names: std::cell::Cell<bool>,
 }
 
 impl<'a> Constants<'a> {
@@ -112,6 +115,7 @@ impl<'a> Constants<'a> {
             without_function_targets: std::cell::Cell::new(false),
             without_generic_functions: std::cell::Cell::new(false),
             omit_implicit_checks: std::cell::Cell::new(false),
+            named_source_names: std::cell::Cell::new(false),
         }
     }
 
@@ -120,6 +124,13 @@ impl<'a> Constants<'a> {
     /// `true`, as the emitter writes it.
     pub fn set_omit_implicit_checks(&self, b: bool) {
         self.omit_implicit_checks.set(b);
+    }
+
+    /// Some function type in the text cites a shortened named-parameter
+    /// key: the production SDK patches' `JS_GET_FLAG('NAMED_SOURCE_NAMES')`
+    /// is `true` (the printer translates the keys back).
+    pub fn set_named_source_names(&self, b: bool) {
+        self.named_source_names.set(b);
     }
 
     /// No record type or value exists at run time: `k == Rti.kindRecord`
@@ -218,6 +229,7 @@ impl<'a> Constants<'a> {
             )),
             "DEV_COMPILER" | "SOUND_NULL_SAFETY" => Some(Value::Bool(true)),
             "OMIT_IMPLICIT_CHECKS" => Some(Value::Bool(self.omit_implicit_checks.get())),
+            "NAMED_SOURCE_NAMES" => Some(Value::Bool(self.named_source_names.get())),
             "MINIFIED" | "LEGACY" | "EXTRA_NULL_SAFETY_CHECKS" | "PRINT_LEGACY_STARS" => {
                 Some(Value::Bool(false))
             }

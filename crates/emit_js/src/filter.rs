@@ -128,6 +128,12 @@ pub trait Liveness {
     fn named_table(&self) -> Option<String> {
         None
     }
+    /// The shortened keys of named parameters as JSON (key → name), when a
+    /// function type with named parameters may be printed (the runtime's
+    /// `dart.namedSourceName`).
+    fn named_source_table(&self) -> Option<String> {
+        None
+    }
     /// `-O3` and `-O4` (the `--omit-implicit-checks` of `dart2js`,
     /// `options.dart`, `deriveOptions`): implicit downcasts, conditions and
     /// parameter checks (covariance, the arguments of dynamic calls) are not

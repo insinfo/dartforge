@@ -376,6 +376,7 @@ pub fn emit_with_world(
             omit_late_names: op.omit_late_names,
             identity_hash: None,
             runtime_equals: None,
+            named_source_keys: None,
             rti_live: true,
         };
         let t = Instant::now();

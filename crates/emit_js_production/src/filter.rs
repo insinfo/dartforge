@@ -63,6 +63,10 @@ pub struct Adapter<'m> {
     pub identity_hash: Option<FunctionElementId>,
     /// `equals` of `dart:_runtime` (`None`: unknown, assumed live).
     pub runtime_equals: Option<FunctionElementId>,
+    /// The shortened named-parameter keys the text's function types cite
+    /// (`own_sdk::named_keys_in_recipes`): the runtime's printer translates
+    /// them back (`dart.namedSourceName`). `None`: none, no table.
+    pub named_source_keys: Option<&'m std::collections::BTreeSet<String>>,
     /// [`rti_live`] of the round's world.
     pub rti_live: bool,
 }
@@ -273,5 +277,9 @@ impl Liveness for Adapter<'_> {
     }
     fn named_table(&self) -> Option<String> {
         self.named_args.filter(|n| n.table).map(|n| n.json())
+    }
+    fn named_source_table(&self) -> Option<String> {
+        let keys = self.named_source_keys?;
+        Some(self.named_args?.reverse_json(keys))
     }
 }

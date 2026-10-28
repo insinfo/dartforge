@@ -548,6 +548,30 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
         "      if ($name[0] === '_') {\n        // Inverse of\n",
         "      if ($name[0] === '_') {\n        // A program library's private name in production: `_name` and\n        // the library tag (`\\$` and `[0-9a-z]`). Indexing only: a method\n        // called in a template is a live selector for the closed world.\n        let end = $name.length;\n        while (end > 2 && ($name[end - 1] >= '0' && $name[end - 1] <= '9' ||\n            $name[end - 1] >= 'a' && $name[end - 1] <= 'z')) end--;\n        if (end > 2 && end < $name.length && $name[end - 1] === '\\$') {\n          return $name.substring(0, end - 1);\n        }\n        // Inverse of\n",
     ),
+    // The production profile shortens the keys of named parameters
+    // (`emit_js_production`'s `named_args`), and a function type's recipe
+    // carries the key (sorted by key): when a function type the program may
+    // print cites a shortened key, `JS_GET_FLAG('NAMED_SOURCE_NAMES')` is
+    // true and the printer shows the source names, in their order, through
+    // the bootstrap's table of those keys (`dart.namedSourceName`).
+    (
+        None,
+        "_internal/js_shared/lib/rti.dart",
+        "              _Utils.asRti(_Utils.arrayAt(named, i + 2)), genericContext) +\n          ' ' +\n          _Utils.asString(_Utils.arrayAt(named, i));\n",
+        "              _Utils.asRti(_Utils.arrayAt(named, i + 2)), genericContext) +\n          ' ' +\n          (JS_GET_FLAG('NAMED_SOURCE_NAMES')\n              ? _namedParameterName(_Utils.asString(_Utils.arrayAt(named, i)))\n              : _Utils.asString(_Utils.arrayAt(named, i)));\n",
+    ),
+    (
+        None,
+        "_internal/js_shared/lib/rti.dart",
+        "    for (int i = 0; i < namedLength; i += 3) {\n      argumentsText += sep;\n",
+        "    for (int k = 0; k < namedLength; k += 3) {\n      int i = JS_GET_FLAG('NAMED_SOURCE_NAMES') ? _namedParameterAt(named, k) : k;\n      argumentsText += sep;\n",
+    ),
+    (
+        None,
+        "_internal/js_shared/lib/rti.dart",
+        "String _functionRtiToString(Rti functionType, List<String>? genericContext,\n",
+        "/// The source name of a named parameter whose key the production profile\n/// shortened (`dart.namedSourceName`).\nString _namedParameterName(String key) =>\n    JS('String', 'dart.namedSourceName(#)', key);\n\n/// The position (`0, 3, 6…`) in `named` (triples of key, `required` and\n/// type, sorted by key) of the `k ~/ 3`-th named parameter in the order of\n/// the source names, the order the VM prints (an insertion sort: a method\n/// called in a template is a live selector for the closed world).\nint _namedParameterAt(Object named, int k) => JS('int', '''(() => {\n  let order = [], n = 0;\n  for (let i = 0; i < $named.length; i += 3) {\n    let x = dart.namedSourceName($named[i]), j = n++;\n    while (j > 0 && dart.namedSourceName($named[order[j - 1]]) > x) {\n      order[j] = order[j - 1];\n      j--;\n    }\n    order[j] = i;\n  }\n  return order[$k / 3];\n})()''');\n\nString _functionRtiToString(Rti functionType, List<String>? genericContext,\n",
+    ),
 ];
 
 /// Applies `PATCHES` to `sdk` as overlay replacements. The patched files
