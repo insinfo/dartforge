@@ -23,6 +23,11 @@
 //! entry whose name no recipe of the file writes is never read and goes too.
 //! The rule values never cite a type variable by name (they use the indexes
 //! `"1"`, `"2"`… of `module.rs::rule_recipe`).
+//!
+//! With positional type variables (`Ctx::positional_type_variables`) the
+//! emitter writes no substitutions: the patched `evalTypeVariable` reads
+//! `|h.0` from the `|h` supertype entry, which stays because the recipe
+//! `|h.0` cites `|h` ([`class_names`] stops at the period).
 
 use std::collections::{HashMap, HashSet};
 

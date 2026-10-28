@@ -143,6 +143,8 @@ pub struct Ctx<'a> {
     /// The classes in the prototype chain of a native peer (the peer, its
     /// superclasses and their mixins), computed on first use.
     native_chain: std::cell::OnceCell<HashSet<ClassId>>,
+    /// [`Ctx::positional_type_variables`], computed on first use.
+    positional_type_variables: std::cell::OnceCell<bool>,
     /// `DARTFORGE_JSPROD_SHORT_RECIPE=0` keeps the library in every recipe.
     short_recipe: bool,
     /// Per unit, the nodes that are the target of a compound assignment or of
@@ -265,6 +267,7 @@ impl<'a> Ctx<'a> {
             recipe_ids: std::cell::OnceCell::new(),
             mixed_in: std::cell::OnceCell::new(),
             native_chain: std::cell::OnceCell::new(),
+            positional_type_variables: std::cell::OnceCell::new(),
             short_recipe: std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0"),
             write_targets: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
@@ -2722,7 +2725,19 @@ impl<'a> Ctx<'a> {
     /// identifier with a period as a type variable, and only the rules give
     /// it meaning. `DARTFORGE_JSPROD_SHORT_TYPE_VARIABLES=0` keeps the class
     /// name.
+    ///
+    /// With [`Ctx::positional_type_variables`] the variable is named by its
+    /// position among the class's type parameters (`|h.0`), and the rules
+    /// carry no substitution entries: the patched `evalTypeVariable` derives
+    /// them (`sdk_patches.rs`).
     pub fn type_var_key(&self, c: ClassId, name: &str) -> String {
+        if self.positional_type_variables()
+            && let Some(i) = self.class_params[c.0 as usize]
+                .iter()
+                .position(|p| p.name == name)
+        {
+            return format!("{}.{i}", self.class_recipe(c));
+        }
         if self.sdk.is_some()
             && self.short_recipe
             && std::env::var("DARTFORGE_JSPROD_SHORT_TYPE_VARIABLES").map_or(true, |v| v != "0")
@@ -2730,6 +2745,32 @@ impl<'a> Ctx<'a> {
             return format!("{}.{name}", self.class_recipe(c));
         }
         format!("{}.{name}", self.class_name(c))
+    }
+
+    /// Whether class type variables are named by position in recipes and
+    /// left out of the rti rules (production, SDK mode). The rules list
+    /// every transitive supertype with its type arguments in the class's
+    /// environment, and a class's own parameter `i` is always the recipe
+    /// `i + 1` there (`module.rs::emit_rules_with`), so the substitution
+    /// entries (`"|h.E": "1"`, `"|c.E": "1"` next to `"|c": ["1"]`) repeat
+    /// what the patched `_Universe.evalTypeVariable` derives from the name:
+    /// `C.k` is `k + 1` in an environment of class `C` and the `k`-th
+    /// argument of the `C` supertype entry otherwise. Requires the patch
+    /// (its `_positionalTypeVariable` must exist in `dart:_rti`).
+    /// `DARTFORGE_JSPROD_POSITIONAL_TYPE_VARIABLES=0` keeps the names.
+    pub fn positional_type_variables(&self) -> bool {
+        *self.positional_type_variables.get_or_init(|| {
+            self.sdk.is_some()
+                && std::env::var("DARTFORGE_JSPROD_POSITIONAL_TYPE_VARIABLES")
+                    .map_or(true, |v| v != "0")
+                && self.program.libraries.iter().any(|l| {
+                    l.uri == "dart:_rti"
+                        && self
+                            .interner
+                            .lookup("_positionalTypeVariable")
+                            .is_some_and(|n| l.declared.contains_key(&n))
+                })
+        })
     }
 
     pub fn class_recipe(&self, c: ClassId) -> String {

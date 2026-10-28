@@ -767,7 +767,10 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
         let class = ctx.program.class(c);
         let params = &ctx.class_params[c.0 as usize];
         let mut items: Vec<String> = Vec::new();
-        for (i, p) in params.iter().enumerate() {
+        // Positional type variables: the substitutions are derived from the
+        // supertype entries (`Ctx::positional_type_variables`).
+        let positional = ctx.positional_type_variables();
+        for (i, p) in params.iter().enumerate().filter(|_| !positional) {
             items.push(format!(
                 "{}:\"{}\"",
                 json_str(&ctx.type_var_key(c, &p.name.to_string())),
@@ -800,7 +803,7 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
             // `Box<dynamic>` (`Ctx::args_at_arity`).
             let args = ctx.args_at_arity(*sc, args);
             let sparams = &ctx.class_params[sc.0 as usize];
-            for (p, a) in sparams.iter().zip(args.iter()) {
+            for (p, a) in sparams.iter().zip(args.iter()).filter(|_| !positional) {
                 items.push(format!(
                     "{}:{}",
                     json_str(&ctx.type_var_key(*sc, &p.name.to_string())),

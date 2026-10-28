@@ -313,6 +313,26 @@ const PATCHES: &[(Option<&str>, &str, &str, &str)] = &[
         "void print(Object? object) {\n  String line = \"$object\";\n  var toZone = printToZone;",
         "void print(Object? object) {\n  _printLine(\"$object\");\n}\n\n/// `print` of a line already converted (the production profile's call\n/// sites of `print`).\nvoid _printLine(String line) {\n  var toZone = printToZone;",
     ),
+    // Positional class type variables (`Ctx::positional_type_variables`):
+    // the production profile names a class type variable by its position
+    // (`C.0`) and leaves the substitution entries out of the rti rules.
+    // `evalTypeVariable` derives them: in an environment of class `C` the
+    // variable `k` is the type argument `k + 1`, and in a subclass it is the
+    // `k`-th argument of the subclass's `C` supertype entry, which is what
+    // the left-out entry held (`module.rs::emit_rules_with` builds both
+    // from the same arguments).
+    (
+        Some("DARTFORGE_JSPROD_POSITIONAL_TYPE_VARIABLES"),
+        "_internal/js_shared/lib/rti.dart",
+        "    String interfaceName = Rti._getInterfaceName(environment);\n    var rule = _Universe.findRule(universe, interfaceName);\n    assert(rule != null);\n    String? recipe = TypeRule.lookupTypeVariable(rule, name);\n",
+        "    String interfaceName = Rti._getInterfaceName(environment);\n    String? recipe = _positionalTypeVariable(universe, interfaceName, name);\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_POSITIONAL_TYPE_VARIABLES"),
+        "_internal/js_shared/lib/rti.dart",
+        "/// Represents the set of supertypes and type variable bindings for a given\n/// target type. The target type itself is not stored on the [TypeRule].\nclass TypeRule {\n",
+        "/// The recipe of the class type variable `name`, written `C.k` with `k`\n/// its position among the type parameters of `C` (the production profile's\n/// recipes), in an environment of class `interfaceName`.\n/// A class recipe has no period (`|h`, `lib|C`), so the name splits in two.\nString? _positionalTypeVariable(\n    Object? universe, String interfaceName, String name) {\n  var parts = JS('', '#.split(\".\")', name);\n  return JS('', '#[0] === # ? \"\" + (+#[1] + 1) : #[#[0]]?.[#[1]]', parts,\n      interfaceName, parts, _Universe.findRule(universe, interfaceName), parts,\n      parts);\n}\n\n/// Represents the set of supertypes and type variable bindings for a given\n/// target type. The target type itself is not stored on the [TypeRule].\nclass TypeRule {\n",
+    ),
     (
         Some("DARTFORGE_JSPROD_HASH_ARITY"),
         "core/object.dart",
