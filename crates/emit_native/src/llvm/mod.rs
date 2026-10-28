@@ -349,6 +349,9 @@ pub struct LlvmEmitter<'a> {
     /// block (never outside, never null or a `Smi`) and the object is young (the
     /// barrier does nothing).
     fresh_set: std::collections::HashSet<u32>,
+    /// The fields of the fresh objects ([`Self::fresh_set`]) written since their
+    /// allocation: the real ARC's null write into a field still unwritten is nothing.
+    fresh_written: std::collections::HashSet<(u32, i64)>,
     /// The static reference map written by the allocation of each object of
     /// [`Self::fresh_set`] ([`Self::static_map`]): a store into the object whose
     /// constant `is_ref` agrees with the bit skips the read-modify-write of the
@@ -550,6 +553,7 @@ impl<'a> LlvmEmitter<'a> {
             outlined_helpers: Vec::new(),
             optimize_size: false,
             fresh_set: std::collections::HashSet::new(),
+            fresh_written: std::collections::HashSet::new(),
             fresh_maps: std::collections::HashMap::new(),
             body_without_outside: false,
             non_collecting: std::collections::HashSet::new(),
@@ -1882,6 +1886,7 @@ impl<'a> LlvmEmitter<'a> {
             let mut phi_roots: Vec<(usize, u32)> = Vec::new();
             self.fresh_set.clear();
             self.fresh_maps.clear();
+            self.fresh_written.clear();
 
             for (instruction_index, (vid, inst, ty)) in block.instructions.iter().enumerate() {
                 let v = vid.0;
@@ -1935,6 +1940,20 @@ impl<'a> LlvmEmitter<'a> {
                 if self.may_collect(inst) {
                     self.fresh_set.clear();
                     self.fresh_maps.clear();
+                }
+                // A non-null field write into a fresh object: the field is written
+                // (the real ARC's null write below no longer skips it).
+                if let Instruction::CallRuntime { name, args, .. } = inst
+                    && name.starts_with("dartforge_arc_write_field_")
+                    && let (
+                        Some((Operand::Val(o), _)),
+                        Some((Operand::Constant(Constant::Int(i)), _)),
+                    ) = (args.first(), args.get(1))
+                    && args
+                        .get(2)
+                        .is_none_or(|(x, _)| *x != Operand::Constant(Constant::Null))
+                {
+                    self.fresh_written.insert((o.0, *i));
                 }
                 let instruction_start = self.out.len();
                 match inst {
@@ -2429,6 +2448,38 @@ impl<'a> LlvmEmitter<'a> {
                             }
                         }
                     }
+                    // The real ARC's null into a field of the fresh object that nothing
+                    // wrote yet: the field is born null, with no count to change; only
+                    // the reference mark is set inline (readers of contexts and
+                    // records require it).
+                    Instruction::CallRuntime { name, args, .. }
+                        if self.module.arc_prompt_death
+                            && name == "dartforge_arc_write_field_ref_v1"
+                            && args.len() == 3
+                            && args[2].0 == Operand::Constant(Constant::Null)
+                            && matches!((&args[0].0, &args[1].0),
+                                (Operand::Val(o), Operand::Constant(Constant::Int(i)))
+                                    if (0..INLINE_FIELDS as i64).contains(i)
+                                        && self.fresh_set.contains(&o.0)
+                                        && self.fresh_written.insert((o.0, *i))) =>
+                    {
+                        let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else {
+                            unreachable!()
+                        };
+                        let only = self.coerce(&args[0].0, Type::I64);
+                        self.emit_field_addresses_of(v, &only, true);
+                        self.emit_field_write(
+                            v,
+                            "",
+                            *i as usize,
+                            "0",
+                            "1",
+                            FieldWriteFacts {
+                                known_map: None,
+                                fresh: true,
+                            },
+                        );
+                    }
                     // The real ARC's move into a field ([`moves_into_fields`]).
                     Instruction::CallRuntime { name, args, .. }
                         if name == "dartforge_arc_write_field_ref_v1"
@@ -2513,6 +2564,16 @@ impl<'a> LlvmEmitter<'a> {
                             .expect("checked at the guard");
                         self.emit_inline_allocation(v, c, n);
                         self.fresh_set.insert(v);
+                        // The real ARC: the factory's token is the object's first count,
+                        // and the retain of an unregistered object registers it.
+                        if self.module.arc_prompt_death {
+                            writeln!(
+                                self.out,
+                                "  call void @{}(i64 %v{v})",
+                                self.arc_retain_target()
+                            )
+                            .unwrap();
+                        }
                     }
                     Instruction::CallRuntime { .. } | Instruction::DeclaredFieldCall { .. }
                         if Self::inline_allocation(inst).is_some() =>
@@ -6142,7 +6203,9 @@ impl<'a> LlvmEmitter<'a> {
         name: &str,
         args: &[(Operand, Type)],
     ) -> Option<(i64, i64)> {
-        if !(self.module.arc_virtual_tokens && self.module.arc_nursery_writes && self.has_ctx) {
+        let regime = (self.module.arc_virtual_tokens && self.module.arc_nursery_writes)
+            || self.module.arc_prompt_death;
+        if !(regime && self.has_ctx) {
             return None;
         }
         let expected = match name {
