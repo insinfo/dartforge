@@ -4090,6 +4090,48 @@ fn emit_field_inits(
     nulls.flush(body);
 }
 
+/// Whether the generative constructor `ctor` stores the class's fields for the
+/// first time in their declaration order without the leading `null`s: first
+/// the fields it does not `skip` (their initializers, in order, by
+/// [`emit_field_inits`]), then the `this.x` parameters and the field
+/// initializers of its list, in that order (what the constructor emits after
+/// them).
+fn const_stores_in_order(
+    ctx: &Ctx,
+    fields: &[FieldInfo],
+    ctor: &ast::Constructor,
+    skip: &HashSet<String>,
+) -> bool {
+    let mut order: Vec<String> = fields
+        .iter()
+        .filter(|f| !f.helper && !skip.contains(&f.name))
+        .map(|f| f.name.clone())
+        .collect();
+    let mut stored = |name: String| {
+        if fields.iter().any(|f| f.name == name) && !order.contains(&name) {
+            order.push(name);
+        }
+    };
+    for p in ctor.parameters.iter() {
+        if p.this_
+            && let Some(n) = p.name
+        {
+            stored(ctx.name(n.sym).to_string());
+        }
+    }
+    for i in ctor.initializers.iter() {
+        if let ast::Initializer::Field { name, .. } = i {
+            stored(ctx.name(name.sym).to_string());
+        }
+    }
+    let declared: Vec<&String> = fields
+        .iter()
+        .filter(|f| !f.helper)
+        .map(|f| &f.name)
+        .collect();
+    order.iter().collect::<Vec<_>>() == declared
+}
+
 /// The body of a `mixin` shell: empty (as it always was), or its statics.
 fn mixin_shell(w: &Writer) -> String {
     if w.out.is_empty() {
@@ -4418,7 +4460,16 @@ fn emit_constructor(
     // A `const` constructor stores every field in declaration order first:
     // the runtime canonicalizes constants by their properties in insertion
     // order, which must not depend on the constructor that made them.
-    if ctor.const_ {
+    // Production: when this constructor's own stores already come in
+    // declaration order, the `null`s add nothing to the order, and they would
+    // cost: V8 gives a field first stored as `null` the general
+    // representation, so every `double` stored into it afterwards is boxed
+    // (`DARTFORGE_JSPROD_CONST_ORDER=0` keeps them).
+    if ctor.const_
+        && !(ctx.production()
+            && std::env::var("DARTFORGE_JSPROD_CONST_ORDER").map_or(true, |v| v != "0")
+            && const_stores_in_order(ctx, fields, ctor, &skip))
+    {
         skip.clear();
     }
     if is_primary_constructor(ctx, c, ctor) {
