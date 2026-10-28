@@ -666,6 +666,112 @@ literais de lista e `List.filled` pelo runtime (~50 chamadas por pedido: `list_l
 (`length`, `elementSizeInBytes`, ~66 chamadas por pedido); o contexto da thread por TLS
 e a conferência de exceção pendente depois de cada chamada.
 
+## Rodada de 2026-10-28 (madrugada): contexto da thread por argumento e cópia dos cabeçalhos
+
+Medido no `main`, de `830e790f` (início: o compilador desse commit, recompilado de uma
+cópia exportada com `git archive`) a `f0fa1965` (fim), no mesmo Mac mini M4, com a máquina
+carregada por outro agente (carga de 4 a 16; as medições abaixo esperaram a carga baixar
+de 4,5). Processos alternados, mediana de 5 rodadas de 4 s com 4 × 8 conexões de
+`bench/comparison/load_keepalive.dart` e contadores do processo inteiro pelo `time -l`;
+árvores: mediana de 7 execuções. Valem as instruções e os ciclos por pedido.
+
+| medida | início | fim | Dart AOT 3.6.2 |
+|---|---:|---:|---:|
+| servidor `/json` com keep-alive, pedidos/s | 60,6 mil | 62,1 mil | 70,5 mil |
+| instruções / ciclos por pedido | 244,1 mil / 74,1 mil | 235,9 mil / 72,6 mil | 212,0 mil / 71,1 mil |
+| CPU do processo por pedido (user + sys), rodada com carga | 22,2 µs (12,6 + 9,6) | 21,5 µs (12,2 + 9,3) | 21,8 µs (11,2 + 10,6) |
+| executável do servidor | 4,435 MB | 4,452 MB | 5,625 MB |
+| árvores (só o núcleo, 20 rodadas), instruções / ciclos | 5,52 G / 1,17 G | 5,21 G / 1,12 G | 5,02 G / 1,06 G |
+| árvores, ms por rodada (média das 20) | 13,9 | 13,4 | 11,6 |
+
+O servidor passou de 86% para 88% dos pedidos/s do Dart: −3,4% de instruções e −2,0% de
+ciclos por pedido; faltam +11% de instruções e +2% de ciclos. As árvores foram de +10%
+para +3,7% de instruções e de +10% para +6% de ciclos; o que sobra nelas é sobretudo
+memória (a coleta jovem e o `memset` da TLAB, ~23% das amostras), não instruções.
+
+**O que entrou** (validado no estado de cada commit com os testes de
+`dartforge-emit-native` — 1.182 passam — e de `dartforge-runtime` — 440 —,
+`cargo clippy -D warnings`, o corpus nativo 160/160 em `--optimize` com
+`DARTFORGE_CHECK_SHADOW=1`, em `--optimize --gc-stress`, em desenvolvimento e em Wasm,
+com `--exec-limit 60`, e de 8 a 11 programas do corpus em ARC simples e preparado, com o
+berçário padrão, contra `dart run`: 22/22 e 16/16; os testes rodaram em release, sem o
+teste de debug `lean_descriptor_gives_n_zeroed_slots_and_same_area`, que já dava SIGBUS):
+
+- `6b6b1c1f`: `dartforge_globals_area`, `dartforge_globals_area_id` e
+  `dartforge_rti_eval_cache` passam a folhas na tabela de efeitos. No início desta rodada
+  `DARTFORGE_CHECK_SHADOW=1` reprovava **todos** os 160 programas: o verificador do modo
+  sombra, que deduz do texto do IR quem coleta, via a leitura de um tipo preguiçoso
+  (`df.rti.*` → `df.rti_fill` → `df.get_area`) e a avaliação de tipo em cache como
+  pontos de coleta, que o emissor já tratava como não coletores desde `7a87ec4b`; o fecho
+  de `_CastIterableBase.lastWhere` do SDK de hoje mantinha um valor vivo através deles.
+  Nenhuma das três aloca no heap do coletor (a área é um `Vec` nativo; a avaliação em
+  cache é `dartforge_rti_eval`, já folha, mais o cache do sítio e o memo da thread).
+- `52a831e2`: o contexto da thread por argumento nas chamadas diretas (item 1 da lista da
+  noite). Cada função `f` do AOT de produção (memória por rastreamento, pilha sombra,
+  exceções por verificação, fora de Wasm) ganha `f$cx(ptr %ctx, …)`. Se o corpo usa o
+  contexto, o corpo é `f$cx` e `f` vira um trampolim que lê o TLS e o chama; senão o corpo
+  continua `f` e `f$cx` é um trampolim `alwaysinline` que descarta o argumento. As
+  chamadas diretas de código que já tem o contexto — no módulo, ou a uma função
+  `df.dart$3a…` de outro módulo do SDK de produção — vão a `f$cx`; todo endereço tomado
+  (tabelas de métodos, closures, callbacks do runtime) continua sendo `f`, então nada muda
+  no runtime nem nas entradas (main, isolados, FFI, `async`, coletor). Os auxiliares
+  internos que liam o contexto de novo (`df.class`, `df.subclass`, `df.get_area`, as
+  sondas do memo de RTI…) ganham gêmeos `$ctx` que o recebem (`llvm/context_helpers.rs`):
+  sem isso a leitura de cada auxiliar inlinado deixava de se fundir com a do prólogo e o
+  servidor piorava (de 2.786 para 2.978 leituras do TLS no executável). A poda das tabelas
+  reconhece os gêmeos do seletor. Árvores: 5,53 → 5,21 G instruções; servidor: −2,1 mil
+  instruções por pedido (as chamadas que restam são em boa parte indiretas e ainda passam
+  pelo trampolim). `DARTFORGE_CONTEXT_PARAMETER=0` desliga (o cache do SDK distingue).
+- `722e654b`: `_CopyingBytesBuilder.add` de `dart:_http` copia um `String.codeUnits` pela
+  própria string (item 2), num patch de `dart:_http` (`native_sdk/http/http_patch.dart`, o
+  primeiro da biblioteca). O laço genérico indexava a `CodeUnits` byte a byte, retestando a
+  classe da lista e relendo os campos do construtor a cada byte (~60 instruções por byte;
+  agora ~25). Os patches da VM só substituem membros `external`; o abaixamento nativo agora
+  deixa um membro de arquivo de patch substituir um membro com corpo. Servidor: 240,7 →
+  236,3 mil instruções e 79,0 → 76,8 mil ciclos por pedido (rodada com carga).
+- `f0fa1965`: a alocação de uma lista tipada (ou visão) testa em linha, no bitmap que o
+  runtime publica no contexto, se a tabela de métodos da classe já está registrada, e só
+  senão chama a variante `_t`. Antes toda lista tipada passava por
+  `dartforge_register_table` (dois acessos a thread-locals do runtime, ~1% das amostras da
+  thread principal) para uma tabela que a produção registra na partida. Servidor: −1,2 mil
+  instruções por pedido.
+
+**Contagens por pedido** (pontos de parada do `lldb` que só contam, 10 e 30 pedidos numa
+conexão, diferença ÷ 20, no binário com o contexto por argumento): 942 chamadas de
+funções Dart, das quais 488 diretas já pelo `$cx` e ~433 indiretas (entradas `$tc`, `$g`
+e `$c` pelo despacho por seletor ou por closures: `addByte$tc` 26, os getters `length` e
+`elementSizeInBytes` de listas tipadas ~66), que ainda leem o contexto no trampolim; 365
+chamadas ao runtime; e ~340 chamadas a auxiliares fora de linha do próprio módulo:
+`df.rti_set_cached` 123 (toda alocação de objeto genérico), `df.rti_eval_probe` 64,
+`df.rti_is_probe` 58, `df.rti_eval_site` 40 (faltas do cache de uma entrada de cada sítio
+que acertam no memo da thread) e `df.string_units_equal` 43.
+
+**Medido e não feito.**
+
+- *Registrador reservado em vez de argumento.* Reservar `x28` (`+reserve-x28` e
+  `llvm.read_register`) zeraria também as leituras das chamadas indiretas, mas toda
+  passagem runtime → Dart teria de salvar `x28`, pô-lo e restaurá-lo — também quando uma
+  exceção desenrola por quadros Rust —, e o x86_64 não tem a opção. O argumento não muda o
+  ABI, vale em todo alvo nativo, e o trampolim mantém o caminho antigo para quem toma o
+  endereço; as entradas indiretas ficam para depois.
+- *Coleta jovem a cada 8 MiB* (`DARTFORGE_GC_YOUNG_KB=8192`): servidor −1,3% de
+  instruções e −0,4% de ciclos, árvores −2,8% de instruções e −2,5% de ciclos, mas o RSS do
+  servidor vai de 18,1 para 22,4 MB (o do Dart é 18,0) e o das árvores de 18,8 para
+  27,3 MB. Ficou em 4 MiB.
+- *Acerto de `df.rti_set_cached` em linha*: 123 chamadas por pedido, mas o acerto já é uma
+  folha sem quadro; economizaria ~5 instruções por chamada (~0,25%) com ~12 instruções a
+  mais em cada um dos ~700 sítios do servidor.
+
+**O que ainda separa do Dart, em ordem:** as ~365 chamadas ao runtime por pedido, cada uma
+com o empréstimo do heap por thread-local (`StringBuffer` 58; literais de lista e
+`List.filled` ~45 — `list_literal`, `adjust_list_shape`, `type_list_shape_memo`,
+`set_list_type`, `list_new`; `arg_index` 16; `string_equals_object` 15; as faltas de
+seletor, 8, com `class_method` a ~1% das amostras); os ~340 auxiliares fora de linha de RTI
+e de strings; as ~433 chamadas indiretas que ainda pagam o TLS no trampolim; e a
+conferência de exceção pendente depois de cada chamada. Nos dois processos a thread do
+isolado está saturada; o Dart gasta quase a mesma CPU de processo por pedido (21,8 contra
+21,5 µs), com mais tempo de sistema e menos de usuário (11,2 contra 12,2 µs).
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
@@ -684,11 +790,11 @@ e a conferência de exceção pendente depois de cada chamada.
    nulo e elimina `boolean_selector`, `source_span`, `string_scanner` e `stream_channel`, que
    aqui somam cerca de 160 KB sem minificação. No hello o piso vem dos membros de `Object`
    tratados como universais (`universal_names`): `toString` puxa o RTI inteiro.
-2. **Vazão HTTP ~84% do Dart** (60,8 contra 72,4 mil pedidos/s; 244 contra 212 mil
-   instruções e 74,0 contra 69,3 mil ciclos por pedido, na noite de 2026-10-27).
-   Perfil achatado; o que falta está na seção da noite de 2026-10-27: a cópia de
-   `codeUnits` nos cabeçalhos, o contexto da thread em registrador, os literais de lista
-   pelo runtime e o modelo `async` da VM.
+2. **Vazão HTTP ~88% do Dart** (62,1 contra 70,5 mil pedidos/s; 236 contra 212 mil
+   instruções e 72,6 contra 71,1 mil ciclos por pedido, na madrugada de 2026-10-28).
+   Perfil achatado; o que falta está na seção da madrugada de 2026-10-28: as chamadas ao
+   runtime (literais de lista, `StringBuffer`), os auxiliares de RTI fora de linha, as
+   chamadas indiretas que ainda leem o contexto por TLS e o modelo `async` da VM.
 3. **`async` no nível do Dart** (no fim de 2026-10-27: 254 contra 249 ms, 5,22 contra
    5,30 G ciclos, com o dobro de instruções). O que sobra é a própria máquina de estados no
    estilo do dart2js (`_wrapBody` e o `guarded` por chamada, o corpo chamado pela
@@ -696,8 +802,9 @@ e a conferência de exceção pendente depois de cada chamada.
 4. **Enums e constantes como objetos da imagem.** Hoje cada `T.a` lê uma flag de
    inicialização e pode chamar o getter; com objetos estáticos a comparação vira um
    endereço constante e o tamanho cai.
-5. **Contexto da thread em registrador.** Cada função lê o contexto por TLS (cinco
-   instruções na entrada); é a maior parte do que falta nas árvores.
+5. **Contexto da thread nas chamadas indiretas.** Desde `52a831e2` as chamadas diretas
+   passam o contexto por argumento (árvores a 4% do Dart em instruções); as entradas
+   chamadas pelo despacho por seletor e por closures ainda o leem por TLS no trampolim.
 6. **Desenrolamento em A1** a ~1,5 µs por quadro no macOS (o dyld relê o Mach-O a cada
    quadro). Só pesa em exceções que atravessam muitos quadros.
 
