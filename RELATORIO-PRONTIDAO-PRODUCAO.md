@@ -1099,6 +1099,85 @@ depende de tempo, iguais ao tracing):
 4. O harness não tem modo ARC: a comparação dos três regimes de ARC com `dart run` é
    feita por script, programa a programa.
 
+## Rodada de 2026-10-28 (tarde): vazão HTTP, rodada 5 — `_List(length)`, `clear()`, vistas e literais mistos
+
+Medido no mesmo Mac mini M4: "início" é o servidor compilado de `1ee813f7`; "fim", de
+`a3a76bb7` mais só os dois commits desta rodada, numa cópia exportada com `git archive` e um
+`CARGO_TARGET_DIR` próprio (outro agente tinha mudanças de ARC em andamento). A máquina ficou
+carregada quase toda a rodada; cada execução só começou com a carga abaixo de 3,5, e as que
+outro processo perturbou (pedidos/s 10% abaixo das vizinhas) ficaram fora. Servidor: mediana
+de 3 a 4 execuções alternadas de 4 s com 4 × 8 conexões de `bench/comparison/load_keepalive.dart`
+e contadores do processo pelo `time -l`; CPU da thread do isolado pelo `ps -M` depois da carga
+(mediana de 4); árvores: mediana de 5 processos alternados.
+
+| medida | início | fim | Dart AOT 3.6.2 |
+|---|---:|---:|---:|
+| servidor `/json` com keep-alive, pedidos/s | 64,3 mil | 65,8 mil | 69,8 mil |
+| instruções / ciclos por pedido (processo) | 216,0 mil / 73,0 mil | 207,3 mil / 71,7 mil | 211,1 mil / 73,1 mil |
+| thread do isolado por pedido: sistema + usuário | 5,00 + 10,42 µs | 4,95 + 9,87 µs | 5,50 + 8,57 µs |
+| executável do servidor (sem símbolos) | 4,518 MB | 4,518 MB | 5,625 MB |
+| árvores, ms por rodada (instruções do processo) | 12,2 (5,006 G) | 12,3 (5,006 G) | 12,1 |
+
+O servidor passou de 92% para 94% dos pedidos/s do Dart medidos hoje (a máquina deu ao
+início 64,3 mil, contra 65,9 mil no fim da manhã). As instruções por pedido caíram 4% e já
+ficam 2% abaixo das do Dart; o tempo de usuário da thread do isolado, que fixa os pedidos/s,
+caiu 5% (10,4 para 9,9 µs, contra 8,6 µs do Dart). O executável sem símbolos tem o mesmo
+tamanho (com símbolos, 16 bytes a menos). As árvores não mudam: as instruções são as mesmas,
+e a diferença de tempo é ruído.
+
+**O que entrou** (validado na cópia limpa de `a3a76bb7` com os dois commits: testes de
+`dartforge-emit-native` — 1.044 passam — e de `dartforge-runtime`, `cargo clippy -D warnings`
+dos dois, e o corpus nativo `--optimize` com `--exec-limit 60` contra `dart run` em quatro
+modos: rastreamento 160/160, rastreamento com `DARTFORGE_CHECK_SHADOW=1` 160/160,
+`DARTFORGE_MEMORY=arc` 160/160 e ARC preparado (`DARTFORGE_ARC_PREPARED=1`) 159/160 — a falha,
+`147_deferred_antes_de_carregar`, é de compilação na preparação do ARC e já acontece em
+`1ee813f7` sem estes commits; o primeiro commit também passou os quatro modos sozinho, sobre
+`f012f194`):
+
+- `003124e9`: `_List(length)` (`List.filled` e `Uri.parse`, 4 por pedido) buscava o tipo da
+  lista num memo de 64 posições de mapeamento direto, onde os buckets do `HashMap` dos
+  cabeçalhos e a lista chave-valor do `jsonEncode` caíam na mesma posição e se expulsavam a
+  cada pedido: 2 `Universe::intern` por pedido, cada um clonando e hasheando o vetor de
+  argumentos. O memo passou a ter duas vias por conjunto. A lista também nasce na forma final
+  (compacta para `List<int>`), sem a compactação posterior sob um quadro de raízes. O
+  `clear()` de uma lista compacta (`_setData(_emptyList)`, 4 por pedido no parser) troca o
+  armazenamento pelo vazio compartilhado da forma lendo os cabeçalhos, sem as raízes e as
+  escritas verificadas de `list_adjust_shape`; e a vista de `asUint8List` (3 por pedido) sai
+  da TLAB com os campos escritos direto, sem quadro de raízes nem `set_field`. −6 mil
+  instruções por pedido.
+- `f5bb2711`: o literal de lista misto de 1 a 15 elementos sem `double` (`Ref`, `bool`,
+  `int`) sai em linha como o homogêneo, em armazenamento geral: o `bool` como o objeto do
+  contexto e o `int` como `Smi`, quando todos cabem; senão, e com TLAB esgotada, o runtime
+  como antes. É a lista chave-valor de um literal de mapa (`{'id': n, 'active': true, ...}`,
+  uma por pedido no servidor). −1 mil instruções por pedido.
+
+**Medido e não feito.**
+
+- *Cache de duas vias nos sítios de RTI* (a prioridade 3 da rodada anterior). Com os
+  registradores lidos pelo `lldb` em cada sonda, os ~157 acessos ao memo da thread por pedido
+  (64 `rti_eval_probe`, 58 `rti_is_probe`, 35 `rti_set_miss`) vêm de sítios que veem de 3 a 8
+  chaves distintas por pedido, em rodízio (`Completer()`, `_FutureListener.handleValue`,
+  `_AsyncCompleter.complete`); o `rti_eval_site` de `_Future.then` vê uma chave nova a cada
+  chamada. Só 62 de 1.215 sondas vinham de sítios com até duas chaves: a segunda via quase
+  não acertaria. As sondas custam ~3% da thread; o que as tiraria é instanciar os vetores de
+  tipos como a VM (cache por sítio de várias entradas sobre o vetor do instanciador).
+- *Faltas de seletor* (8 por pedido): `_LinkedHashMapMixin.isEmpty`/`isNotEmpty` chamam
+  `this.length` por seletor no corpo do mixin, compartilhado entre as classes que o aplicam, e
+  o sítio alterna duas classes. `class_method` custa ~0,25% da thread; não mexido.
+- *Os buffers de 8 KiB*: `dartforge_typed_new` é 3,6% da thread, metade o `memset` dos
+  blocos da classe média de 1.150 palavras (9,2 KiB, dois por resposta) e metade a coleta
+  jovem que essas alocações grandes disparam. O Dart também zera esses buffers; não mexido.
+- *`Utf8Encoder.convert` com cópia direta de ASCII* (0,7% da thread): o método não é
+  `external`, e o overlay não o substitui sem trocar o arquivo da biblioteca. Não feito.
+
+**O que ainda separa do Dart** (thread do isolado, 9,9 contra 8,6 µs de usuário; amostras
+próprias: código gerado ~44%, núcleo ~37% — o mesmo do Dart —, runtime ~13%, `memset`/`memmove`
+~4%): no código gerado, o quadro de raízes e a conferência de exceção pendente em torno das
+chamadas e as entradas uniformes (`$c`/`$tc`) com argumentos em vetor; as sondas do memo de
+RTI (~3%); o `memset` e a coleta dos buffers de 8 KiB (~3%); e as ~100 chamadas exportadas ao
+runtime que restam por pedido, a maior parte já barata (`selector` 8, `rti_e` 6 do
+`LinkedList._unlink`, `hash_map_lookup` 6, `string_index_of` 6).
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
@@ -1117,12 +1196,12 @@ depende de tempo, iguais ao tracing):
    nulo e elimina `boolean_selector`, `source_span`, `string_scanner` e `stream_channel`, que
    aqui somam cerca de 160 KB sem minificação. No hello o piso vem dos membros de `Object`
    tratados como universais (`universal_names`): `toString` puxa o RTI inteiro.
-2. **Vazão HTTP ~94% do Dart** (65,9 contra 70,1 mil pedidos/s; 215,5 contra 211,1 mil
-   instruções e 72,0 contra 73,4 mil ciclos por pedido, no fim da manhã de 2026-10-28). As
+2. **Vazão HTTP ~94% do Dart** (65,8 contra 69,8 mil pedidos/s; 207,3 contra 211,1 mil
+   instruções e 71,7 contra 73,1 mil ciclos por pedido, na tarde de 2026-10-28). As
    chamadas ao sistema seguem o mesmo padrão do Dart; a diferença é tempo de usuário na thread do
-   isolado (10,2 contra 8,6 µs por pedido): o código Dart compilado, o `memset` dos buffers de
-   8 KiB, as ~120 chamadas ao runtime que restam por pedido e as sondas do memo de RTI (seção do
-   fim da manhã de 2026-10-28).
+   isolado (9,9 contra 8,6 µs por pedido): o código Dart compilado (quadro de raízes, conferência
+   de exceção e entradas uniformes), as sondas do memo de RTI e o `memset` dos buffers de 8 KiB
+   (seção "vazão HTTP, rodada 5" de 2026-10-28).
 3. **`async` no nível do Dart** (no fim de 2026-10-27: 254 contra 249 ms, 5,22 contra
    5,30 G ciclos, com o dobro de instruções). O que sobra é a própria máquina de estados no
    estilo do dart2js (`_wrapBody` e o `guarded` por chamada, o corpo chamado pela
