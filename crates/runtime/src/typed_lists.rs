@@ -190,6 +190,30 @@ impl Heap {
         };
         // The address is computed before allocating: the base does not move.
         let data = (b.data as i64).wrapping_add((offset - b.offset) as i64);
+        // Tracing memory with room in the TLAB: no collection can happen, so the
+        // base needs no root, and the fresh young view takes its fields with no
+        // barrier and only the base's bit in its zeroed map (as `new_growable`).
+        if self.arc.as_ref().is_none()
+            && let Some(h) = self.allocate_from_tlab(
+                cid,
+                layout::instance_words(VIEW_FIELDS),
+                flags::INSTANCE,
+                VIEW_FIELDS,
+            )
+        {
+            let block = (h - layout::HANDLE_OFFSET) as *mut layout::Header;
+            // SAFETY: the block just allocated has `VIEW_FIELDS` inline fields.
+            #[allow(unsafe_code)]
+            unsafe {
+                let f = crate::space::fields_of(block);
+                f.add(WORD_LENGTH).write(len as i64);
+                f.add(WORD_DATA).write(data);
+                f.add(WORD_BASE).write(internal_one);
+                f.add(WORD_OFFSET).write(offset as i64);
+                (*block).map |= 1 << WORD_BASE;
+            }
+            return h;
+        }
         let frame = self.push_owning_frame(1);
         self.set_root(frame, 0, internal_one);
         let h = self.allocate_instance(cid, VIEW_FIELDS);

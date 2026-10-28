@@ -129,6 +129,11 @@ struct Universe {
 const MEMO_N: usize = 1 << 10;
 const LIST_TUPLE_MEMO_N: usize = 64;
 
+/// The first of the two ways of `(tuple, class)` in the list-tuple memo.
+fn list_tuple_set(tuple: i64, class: i64) -> usize {
+    memo_slot(tuple, class, 0) & (LIST_TUPLE_MEMO_N - 2)
+}
+
 /// The slot of a key in the direct-mapped memos.
 fn memo_slot(a: i64, b: i64, c: i64) -> usize {
     let h = (a as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
@@ -1100,13 +1105,19 @@ pub(crate) fn tuple_list_type(tuple: i64, concrete_class: Option<i64>) -> Option
         if class == 0 {
             return None;
         }
-        let slot = memo_slot(tuple, class, 0) & (LIST_TUPLE_MEMO_N - 1);
-        if u.memo_list_tuple_enabled
-            && let Some(&[cached_tuple, cached_class, result]) = u.memo_list_tuple.get(slot)
-            && cached_tuple == tuple
-            && cached_class == class
-        {
-            return Some(result);
+        // Two ways per set: the tuples of two allocation sites that share a set
+        // (the HTTP server's `HashMap` buckets and `jsonEncode`'s key-value list)
+        // evicted each other on every request in a direct-mapped memo.
+        let set = list_tuple_set(tuple, class);
+        if u.memo_list_tuple_enabled {
+            for way in set..set + 2 {
+                if let Some(&[cached_tuple, cached_class, result]) = u.memo_list_tuple.get(way)
+                    && cached_tuple == tuple
+                    && cached_class == class
+                {
+                    return Some(result);
+                }
+            }
         }
         let args = match u.ty(tuple) {
             Type::Tuple(args) => args.clone(),
@@ -1117,7 +1128,9 @@ pub(crate) fn tuple_list_type(tuple: i64, concrete_class: Option<i64>) -> Option
             if u.memo_list_tuple.is_empty() {
                 u.memo_list_tuple = vec![[0; 3]; LIST_TUPLE_MEMO_N];
             }
-            u.memo_list_tuple[slot] = [tuple, class, result];
+            // The newest entry takes way 0; the previous one moves to way 1.
+            u.memo_list_tuple[set + 1] = u.memo_list_tuple[set];
+            u.memo_list_tuple[set] = [tuple, class, result];
         }
         Some(result)
     })
@@ -1232,7 +1245,7 @@ thread_local! {
 
 /// [`type_list_shape`] through the [`LIST_SHAPE_MEMO`].
 #[allow(unsafe_code)]
-fn type_list_shape_memo(t: i64) -> crate::lists::Element {
+pub(crate) fn type_list_shape_memo(t: i64) -> crate::lists::Element {
     let slot =
         ((t as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 58) as usize & (LIST_SHAPE_MEMO_N - 1);
     // SAFETY: the memo belongs to this thread and no reference to it outlives the access.
@@ -2107,9 +2120,9 @@ mod tests_list_tuple_types {
         std::thread::spawn(|| {
             let tuple = RTI.with(|u| u.borrow_mut().intern(Type::Tuple(vec![T_DYNAMIC])));
             let class = i64::from(crate::layout::cid::LIST);
-            let slot = memo_slot(tuple, class, 0) & (LIST_TUPLE_MEMO_N - 1);
+            let set = list_tuple_set(tuple, class);
             let colliding_class = (10_000..20_000)
-                .find(|&other| memo_slot(tuple, other, 0) & (LIST_TUPLE_MEMO_N - 1) == slot)
+                .find(|&other| list_tuple_set(tuple, other) == set)
                 .unwrap();
             let initial = tuple_list_type(tuple, Some(class)).unwrap();
             let collision = tuple_list_type(tuple, Some(colliding_class)).unwrap();

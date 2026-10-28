@@ -271,10 +271,13 @@ pub extern "C" fn dartforge_native_DartForge_json_close_list(
 /// the declaration (`external factory _List(length)`): it arrives as a `Ref`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_List_allocate(length: i64, tuple: i64) -> i64 {
-    // The type first: it only reads (and interns into) the universe, so the list
-    // needs no root while it is computed, and the list is built, typed and put in
-    // its shape under one borrow of the heap.
+    // The type and its shape first: they only read (and intern into) the
+    // universe, so the list needs no root while they are computed, and the list
+    // is built in its shape and typed under one borrow of the heap. A fresh list
+    // holds only nulls, which a compact shape keeps as zero bits — what
+    // `adjust_list_shape` would have converted them to.
     let ty = tuple_list_type(tuple, Some(i64::from(crate::layout::cid::LIST)));
+    let shape = ty.map_or(crate::lists::Element::General, type_list_shape_memo);
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
         let n = if crate::layout::smi::is_smi(length) {
@@ -283,10 +286,9 @@ pub extern "C" fn dartforge_native_List_allocate(length: i64, tuple: i64) -> i64
             heap.int_of(length).unwrap_or(0)
         }
         .max(0) as usize;
-        let h = heap.new_list(crate::layout::cid::LIST, n, crate::lists::Element::General);
+        let h = heap.new_list(crate::layout::cid::LIST, n, shape);
         if let Some(ty) = ty {
             heap.set_metadata(h, ty + 1);
-            adjust_list_shape(&mut heap, h);
         }
         h
     })
@@ -418,6 +420,9 @@ pub extern "C" fn dartforge_native_GrowableList_setLength(this: i64, n: i64) {
 pub extern "C" fn dartforge_native_GrowableList_setData(this: i64, data: i64) {
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
+        if clear_to_shared_empty(&mut heap, this, data) {
+            return;
+        }
         let shape = heap.list_shape(this);
         heap.list_set_data(this, data);
         // A compact list keeps its shape, also when shrunk to the shared
@@ -429,6 +434,52 @@ pub extern "C" fn dartforge_native_GrowableList_setData(this: i64, data: i64) {
             heap.list_adjust_shape(this, shape);
         }
     });
+}
+
+/// The `clear()` of a compact list (`_setData(_emptyList)` from `_shrink`), read and
+/// written through the headers: the shared empty storage of the list's shape takes
+/// the place of the new empty one directly, the result the general path below
+/// reaches through `list_adjust_shape` with roots and checked writes (the HTTP
+/// parser clears four `List<int>` buffers per request). Tracing memory without
+/// handle validation, and only once that shared storage exists; false otherwise.
+#[allow(unsafe_code)]
+fn clear_to_shared_empty(heap: &mut Heap, this: i64, data: i64) -> bool {
+    use crate::layout::{HANDLE_OFFSET, Header, cid, flags};
+    if heap.arc.is_some()
+        || heap.validate_handles
+        || !crate::layout::is_object(this)
+        || !crate::layout::is_object(data)
+    {
+        return false;
+    }
+    let b = (this - HANDLE_OFFSET) as *mut Header;
+    // SAFETY: an object handle the generated code passed (the receiver of
+    // `_setData`): a live block.
+    let (class, f) = unsafe { ((*b).class_id, (*b).flags) };
+    if class != cid::GROWABLE_LIST || f & flags::OUT_OF_LINE != 0 {
+        return false;
+    }
+    // SAFETY: a `_GrowableList` has two inline fields; field 1 is its storage, a
+    // live `_List`, and so is `data`, whose body word 0 is its capacity.
+    let (field, old_flags, capacity) = unsafe {
+        let field = crate::space::fields_of(b).add(1);
+        let old = (*field - HANDLE_OFFSET) as *const Header;
+        let new = (data - HANDLE_OFFSET) as *mut Header;
+        (field, (*old).flags, *crate::space::fields_of(new))
+    };
+    let shape = crate::lists::Element::from_flags(old_flags);
+    if shape == crate::lists::Element::General || capacity != 0 {
+        return false;
+    }
+    let shared = heap.empty_storages[shape.code() as usize];
+    if shared == 0 {
+        return false;
+    }
+    // SAFETY: field 1 is already a reference in the list's map; the shared storage
+    // is a root, and the list may be old (remembered below).
+    unsafe { *field = shared };
+    heap.objects_remember(b);
+    true
 }
 
 /// The overlay's `_fillList(list, value)` (`array.dart`): the elements of
