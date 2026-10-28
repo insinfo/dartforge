@@ -1176,6 +1176,37 @@ fn string_search_receiver(
     (string(*r) && string(a.args[0].value)).then_some(*r)
 }
 
+/// The receiver `i` when `id` is `i.isEven` or `i.isOdd` on a non-nullable
+/// `int`, which the production emitter writes as the getter's body
+/// (`emit_js`'s `parity_get`): only `i` is visited. `DARTFORGE_JSPROD_INT_PARITY=0` keeps the getters.
+fn parity_getter(m: &Engine<'_>, ctx: &Context, id: ExprId) -> Option<ExprId> {
+    if !m.include_sdk || std::env::var("DARTFORGE_JSPROD_INT_PARITY").is_ok_and(|v| v == "0") {
+        return None;
+    }
+    let ast = &m.e.program.unit(ctx.unit).ast;
+    let ExprKind::Property {
+        target,
+        name,
+        null_aware: false,
+    } = &ast.expr(id).kind
+    else {
+        return None;
+    };
+    if !matches!(m.e.interner.resolve(name.sym), "isEven" | "isOdd")
+        || matches!(ast.expr(*target).kind, ExprKind::Super)
+    {
+        return None;
+    }
+    let p = m.e.program;
+    static_interface(m, ctx, *target)
+        .is_some_and(|(c, nullable)| {
+            !nullable
+                && Some(p.class(c).library) == p.core
+                && m.e.interner.resolve(p.class(c).name) == "int"
+        })
+        .then_some(*target)
+}
+
 /// Whether a value of class `c` is a JavaScript string, number or boolean
 /// (`emit_js::ctx::Ctx::is_js_primitive`): `int`, `double`, `num`, `String`,
 /// `bool` and their interceptors.
@@ -2021,6 +2052,10 @@ pub(crate) fn constant_condition(m: &Engine<'_>, ctx: &Context, x: ExprId) -> Op
 
 fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
     if constant_condition(m, ctx, id).is_some() {
+        return;
+    }
+    if let Some(receiver) = parity_getter(m, ctx, id) {
+        expr(m, ctx, receiver);
         return;
     }
     let e = m.e;

@@ -3156,6 +3156,30 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// `recv.name` (getter, field, or method tearoff).
+    /// Production: `i.isEven` and `i.isOdd` on a non-nullable `int` are the
+    /// getters' bodies, `(i & 1) === 0` and `(i & 1) === 1` (`JSNumber`'s
+    /// `&` is `(a & b) >>> 0`, the same 0 or 1). The closed world records no
+    /// selector for them (`dartforge_world`'s `parity_getter`, the same rule
+    /// on the analyzer's static type). `DARTFORGE_JSPROD_INT_PARITY=0` keeps
+    /// the getters.
+    fn parity_get(&self, recv: &Js, recv_ty: &Ty, name: &str) -> Option<(Js, Ty)> {
+        let bit = match name {
+            "isEven" => 0,
+            "isOdd" => 1,
+            _ => return None,
+        };
+        if !self.ctx.production()
+            || !self.ctx.is_int(recv_ty)
+            || std::env::var("DARTFORGE_JSPROD_INT_PARITY").is_ok_and(|v| v == "0")
+        {
+            return None;
+        }
+        Some((
+            Js::new(format!("({} & 1) === {bit}", recv.at(P_BITAND)), P_EQ),
+            self.ctx.t_bool(),
+        ))
+    }
+
     pub fn emit_member_get(
         &mut self,
         recv: &Js,
@@ -3179,6 +3203,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return r;
             }
             self.forced_ext = None;
+        }
+        if let Some(r) = self.parity_get(recv, recv_ty, name) {
+            return r;
         }
         let member = member.or_else(|| self.ctx.lookup_member(recv_ty, name, false));
         // Object members with helpers.
