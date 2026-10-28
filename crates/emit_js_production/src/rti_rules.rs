@@ -15,7 +15,7 @@
 //! listed supertypes), plus those cited in the **values** of the rules
 //! (supertype arguments and substitutions, which become targets when
 //! evaluated). A supertype entry whose name is not in that set is never
-//! looked up and goes. The forwarding rules all stay.
+//! looked up and goes. The forwarding rules (interop classes) all stay.
 //!
 //! The substitutions of type variables (`"Iterable.E": "1"`) are looked up
 //! only by `_Universe.evalTypeVariable`, with the name the recipe *parser*
@@ -280,13 +280,37 @@ fn rewrite(
             o.retain(|_, rule| rule.as_object().is_none_or(|r| !r.is_empty()));
         }
     }
-    if std::env::var("DARTFORGE_JSPROD_RULE_FORWARDING").map_or(true, |v| v != "0") {
-        forward_identical(js, &mut found);
-    }
+    let aliases = if std::env::var("DARTFORGE_JSPROD_RULE_FORWARDING").map_or(true, |v| v != "0") {
+        share_identical(js, &mut found)
+    } else {
+        Vec::new()
+    };
     let mut edits: Vec<(usize, usize, String)> = Vec::new();
+    // The aliases go after the statement of the last call: by then every
+    // rule (and, after `merge_program_rules`, the merged program call, which
+    // takes the last call's place) is registered, and no rule is read
+    // before `main`.
+    let last_end = found.iter().map(|(_, end, _)| *end).max();
     for (start, end, v) in found {
         let json = rules_json(&v);
         edits.push((start, end, dartforge_emit_js::js::string_literal(&json)));
+    }
+    if let Some(end) = last_end
+        && !aliases.is_empty()
+        && js[end..].starts_with("));")
+    {
+        let pairs: Vec<String> = aliases
+            .iter()
+            .map(|(source, target)| format!("{source} {target}"))
+            .collect();
+        edits.push((
+            end + 3,
+            end + 3,
+            format!(
+                "\n((r, a) => {{ for (let i = 0; i < a.length; i += 2) r[a[i]] = r[a[i + 1]]; }})(dart.typeUniverse.tR, {}.split(\" \"));",
+                dartforge_emit_js::js::string_literal(&pairs.join(" "))
+            ),
+        ));
     }
     for (start, end) in lists {
         let items: Vec<&str> = js[start + 1..end - 1].split(", ").collect();
@@ -345,19 +369,21 @@ fn rules_json(v: &serde_json::Value) -> String {
     format!("{{{}}}", body.join(","))
 }
 
-/// A rule identical to one registered before it becomes the forwarding
-/// string `"|B": "|A"`: `_Universe.findRule` and `_isSubtype` follow a string
-/// rule to the named class's rule (`rti.dart`), so `B` keeps the same
-/// supertypes and substitutions. In ngdart projects most view classes share
-/// one rule body. The target is the first class with the body, in text order
-/// (its `addRules` already ran when `B` is looked up), and it must be a key
-/// registered only once. `addOrUpdateRules` does not accept the forwarding
-/// form, so the keys it touches neither forward nor are forwarded to.
-fn forward_identical(js: &str, found: &mut Found) {
+/// A rule identical to one registered before it is left out of the JSON
+/// and becomes an alias of the same object (`tR["|B"] = tR["|A"]`, after
+/// the last call): `_Universe.findRule` and the subtype check read the same
+/// supertypes and substitutions for `B`, and `B` stays a class of its own.
+/// The string form of a rule (`"|B": "|A"`) would not do: `_isSubtype`
+/// takes it for "`B` is `A`", so `<B>[] is List<A>` held for two unrelated
+/// classes with the same supertypes. In ngdart projects most view classes
+/// share one rule body. The target is the first class with the body, in
+/// text order, and it must be a key registered only once. Neither the
+/// target nor the alias may be a key that `addOrUpdateRules` touches: it
+/// updates a rule object in place.
+/// `DARTFORGE_JSPROD_RULE_FORWARDING=0` keeps every body.
+fn share_identical(js: &str, found: &mut Found) -> Vec<(String, String)> {
     // A short body (`{"|ir":[]}`) costs gzip almost nothing when repeated;
-    // the forward only pays off in raw bytes above this many (measured on
-    // the corpus and limitless_ui: 12 keeps ~90% of the raw gain and halves
-    // the small gzip loss).
+    // the alias only pays off in raw bytes above this many.
     const MIN_FORWARD_GAIN: usize = 12;
     let is_update = |start: usize| js[..start].ends_with(CALLS[1]);
     let mut count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -372,19 +398,28 @@ fn forward_identical(js: &str, found: &mut Found) {
         }
     }
     let mut first: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for (start, _, v) in found.iter_mut() {
+    let mut aliases: Vec<(String, String)> = Vec::new();
+    // Bytes the left-out bodies save, against the alias loop (~100 bytes)
+    // and its pairs: below that, every body stays.
+    let mut saved = 0usize;
+    for (start, _, v) in found.iter() {
         if is_update(*start) {
             continue;
         }
-        let Some(o) = v.as_object_mut() else { continue };
-        for (k, rule) in o.iter_mut() {
+        let Some(o) = v.as_object() else { continue };
+        for (k, rule) in o.iter() {
             if updated.contains(k) || !rule.is_object() {
                 continue;
             }
             let body = serde_json::to_string(rule).unwrap_or_default();
             match first.get(&body) {
-                Some(target) if target != k && body.len() > target.len() + MIN_FORWARD_GAIN => {
-                    *rule = serde_json::Value::String(target.clone())
+                Some(target)
+                    if target != k
+                        && count.get(k) == Some(&1)
+                        && body.len() > target.len() + MIN_FORWARD_GAIN =>
+                {
+                    saved += k.len() + body.len() + 4;
+                    aliases.push((k.clone(), target.clone()));
                 }
                 Some(_) => {}
                 None if count.get(k) == Some(&1) => {
@@ -394,6 +429,24 @@ fn forward_identical(js: &str, found: &mut Found) {
             }
         }
     }
+    let cost = 100
+        + aliases
+            .iter()
+            .map(|(k, t)| k.len() + t.len() + 2)
+            .sum::<usize>();
+    if saved <= cost {
+        return Vec::new();
+    }
+    let shared: HashSet<&String> = aliases.iter().map(|(k, _)| k).collect();
+    for (start, _, v) in found.iter_mut() {
+        if is_update(*start) {
+            continue;
+        }
+        if let Some(o) = v.as_object_mut() {
+            o.retain(|k, _| !shared.contains(k));
+        }
+    }
+    aliases
 }
 
 /// The program's `addRules` calls (from `program_start` on) become one, in
@@ -917,18 +970,28 @@ mod tests {
     }
 
     #[test]
-    fn identical_rules_forward_to_the_first() {
+    fn identical_rules_share_the_first_body() {
         let body = r#"{"|Up":["|vJ"],"|Wp":[],"|Xn":[],"EmbeddedView.T":"|vJ"}"#;
         let js = format!(
             "{}{}dart_rti._Universe.addOrUpdateRules(dart.typeUniverse, JSON.parse({}));\nf(\"|Up\", \"|Wp\", \"|Xn\", \"|vJ\", \"EmbeddedView.T\");\n",
             rules(&format!(r#"{{"|A":{body},"|U":{body}}}"#)),
-            rules(&format!(r#"{{"|B":{body},"|C":{{"|Xn":[]}}}}"#)),
+            rules(&format!(
+                r#"{{"|B":{body},"|C":{{"|Xn":[]}},"|D":{body},"|E":{body},"|F":{body}}}"#
+            )),
             dartforge_emit_js::js::string_literal(&format!(r#"{{"|U":{body}}}"#)),
         );
         let out = prune(&js);
-        // `|B` forwards to `|A` (the first, registered once); `|U` is touched by
-        // `addOrUpdateRules`, so it keeps its body; the short body stays.
-        assert!(out.contains(r#"\"|B\":\"|A\""#), "{out}");
+        // `|B`, `|D`, `|E` and `|F` share the body of `|A` (the first,
+        // registered once) through aliases after the last call, never a
+        // string rule; `|U` is touched by `addOrUpdateRules`, so it keeps its
+        // body; the short body stays. With a single alias the loop would cost
+        // more than it saves.
+        assert!(!out.contains(r#"\"|B\":"#), "{out}");
+        assert!(!out.contains(r#"\"|B\":\"|A\""#), "{out}");
+        assert!(
+            out.contains("(dart.typeUniverse.tR, \"|B |A |D |A |E |A |F |A\".split(\" \"));\nf("),
+            "{out}"
+        );
         assert!(!out.contains(r#"\"|U\":\"|A\""#), "{out}");
         assert!(out.contains(r#"\"|C\":{\"|Xn\":[]}"#), "{out}");
     }
