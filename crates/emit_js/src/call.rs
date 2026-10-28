@@ -726,6 +726,55 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         (pos_js, tys)
     }
 
+    /// Production: `s.startsWith(t)`, `endsWith`, `contains`, `indexOf` and
+    /// `lastIndexOf` with a non-nullable `String` receiver and one positional
+    /// non-nullable `String` argument call the JavaScript method of the same
+    /// name. With a `String` pattern and no start index, the `JSString` body
+    /// is that method (`startsWith` compares the prefix, `contains` and
+    /// `indexOf` run `indexOf` from 0, `lastIndexOf` from the last index that
+    /// fits), and its `RangeError` for a bad index cannot happen. The closed
+    /// world records no selector for these calls (`dartforge_world`'s
+    /// `string_search_receiver`, the same rule on the analyzer's static
+    /// types). `DARTFORGE_JSPROD_STRING_SEARCH=0` keeps the calls.
+    fn string_search_call(
+        &mut self,
+        recv: &Js,
+        recv_ty: &Ty,
+        name: &str,
+        arguments: &ast::Arguments,
+    ) -> Option<(Js, Ty)> {
+        if !matches!(
+            name,
+            "startsWith" | "endsWith" | "contains" | "indexOf" | "lastIndexOf"
+        ) || !self.ctx.production()
+            || !self.ctx.is_string(recv_ty)
+            || !arguments.type_args.is_empty()
+            || arguments.args.len() != 1
+            || arguments.args[0].name.is_some()
+            || std::env::var("DARTFORGE_JSPROD_STRING_SEARCH").is_ok_and(|v| v == "0")
+        {
+            return None;
+        }
+        let arg = arguments.args[0].value;
+        if !self
+            .common_type(arg)
+            .is_some_and(|t| self.ctx.is_string(&t))
+        {
+            return None;
+        }
+        let (a, _) = self.emit_expr(arg, Some(&self.ctx.t_string()));
+        let method = if name == "contains" { "includes" } else { name };
+        let ty = if name.ends_with("With") || name == "contains" {
+            self.ctx.t_bool()
+        } else {
+            self.ctx.t_int()
+        };
+        Some((
+            Js::prim(format!("{}.{method}({})", recv.at(P_PRIMARY), a.code)),
+            ty,
+        ))
+    }
+
     /// Call of the instance method `recv.name(args)`.
     ///
     /// `node` is the `recv.name` access in the source, when there is one: the
@@ -779,6 +828,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return r;
             }
             self.forced_ext = None;
+        }
+        if !is_super && let Some(r) = self.string_search_call(recv, recv_ty, name, arguments) {
+            return r;
         }
         if recv_ty.is_dynamic() {
             return self.emit_dsend(recv, name, arguments);

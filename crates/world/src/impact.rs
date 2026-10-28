@@ -1130,6 +1130,52 @@ fn primitive_to_string(
     }
 }
 
+/// The receiver `s` of a call `s.startsWith(t)`, `endsWith`, `contains`,
+/// `indexOf` or `lastIndexOf` that the production emitter writes as the
+/// JavaScript method (`emit_js`'s `string_search_call`): one positional
+/// argument, not null-aware, a non-nullable `String` receiver and argument.
+/// `DARTFORGE_JSPROD_STRING_SEARCH=0` keeps the calls.
+fn string_search_receiver(
+    m: &Engine<'_>,
+    ctx: &Context,
+    target: ExprId,
+    a: &ast::Arguments,
+) -> Option<ExprId> {
+    if !m.include_sdk
+        || a.args.len() != 1
+        || a.args[0].name.is_some()
+        || !a.type_args.is_empty()
+        || std::env::var("DARTFORGE_JSPROD_STRING_SEARCH").is_ok_and(|v| v == "0")
+    {
+        return None;
+    }
+    let ast = &m.e.program.unit(ctx.unit).ast;
+    let ExprKind::Property {
+        target: r,
+        name,
+        null_aware: false,
+    } = &ast.expr(target).kind
+    else {
+        return None;
+    };
+    if !matches!(
+        m.e.interner.resolve(name.sym),
+        "startsWith" | "endsWith" | "contains" | "indexOf" | "lastIndexOf"
+    ) || matches!(ast.expr(*r).kind, ExprKind::Super)
+    {
+        return None;
+    }
+    let p = m.e.program;
+    let string = |x: ExprId| {
+        static_interface(m, ctx, x).is_some_and(|(c, nullable)| {
+            !nullable
+                && Some(p.class(c).library) == p.core
+                && m.e.interner.resolve(p.class(c).name) == "String"
+        })
+    };
+    (string(*r) && string(a.args[0].value)).then_some(*r)
+}
+
 /// Whether a value of class `c` is a JavaScript string, number or boolean
 /// (`emit_js::ctx::Ctx::is_js_primitive`): `int`, `double`, `num`, `String`,
 /// `bool` and their interceptors.
@@ -2367,7 +2413,10 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             // Production: `x.toString()` on a non-nullable `String`, number or
             // `bool` is converted in place by the emitter (its interpolation
             // conversion), without calling any `toString`.
-            let primitive_to_string = primitive_to_string(m, ctx, *target, arguments);
+            // Likewise `s.startsWith(t)` and the other searches of a
+            // `String` by a `String`, which call the JavaScript method.
+            let primitive_to_string = primitive_to_string(m, ctx, *target, arguments)
+                .or_else(|| string_search_receiver(m, ctx, *target, arguments));
             if let Some(r) = primitive_to_string {
                 expr(m, ctx, r);
             } else if folded.is_none() && special.is_none() {
