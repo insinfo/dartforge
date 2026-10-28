@@ -26,8 +26,15 @@ struct Finder<'s> {
     sdk_end: u32,
     /// Values of the `t$S…` from *string* deduplication.
     strings: std::collections::HashMap<String, String>,
-    /// The program's `t$R("recipe")` calls: (start, end, recipe).
+    /// The `t$R("recipe")` calls of the program, and of the runtime's
+    /// functions: (start, end, recipe).
     recipes: Vec<(u32, u32, String)>,
+    /// Nesting of functions: the runtime's calls inside a function run after
+    /// the runtime loads (`sdk_recipes`).
+    depth: u32,
+    /// The runtime's calls inside functions count too
+    /// (`DARTFORGE_JSPROD_SDK_FIXED_RECIPES`).
+    sdk_recipes: bool,
     /// The `X.$ti = X.$ti || t || G(X);` statements: (start, end, receiver,
     /// type argument, text of `G`).
     type_args: Vec<(u32, u32, String, String, String)>,
@@ -86,8 +93,35 @@ impl<'a> Visit<'a> for Finder<'_> {
         }
         walk::walk_conditional_expression(self, it);
     }
+    fn visit_function(
+        &mut self,
+        it: &oxc_ast::ast::Function<'a>,
+        flags: oxc_syntax::scope::ScopeFlags,
+    ) {
+        self.depth += 1;
+        walk::walk_function(self, it, flags);
+        self.depth -= 1;
+    }
+    fn visit_arrow_function_expression(&mut self, it: &oxc_ast::ast::ArrowFunctionExpression<'a>) {
+        self.depth += 1;
+        walk::walk_arrow_function_expression(self, it);
+        self.depth -= 1;
+    }
     fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
-        if it.span.start > self.sdk_end
+        // An IIFE runs when the file loads: its body is not "inside a
+        // function" for `depth`.
+        let mut callee = &it.callee;
+        while let Expression::ParenthesizedExpression(p) = callee {
+            callee = &p.expression;
+        }
+        if let Expression::FunctionExpression(f) = callee
+            && it.arguments.is_empty()
+            && let Some(body) = &f.body
+        {
+            self.visit_function_body(body);
+            return;
+        }
+        if (it.span.start > self.sdk_end || self.sdk_recipes && self.depth > 0)
             && matches!(&it.callee, Expression::Identifier(i) if i.name == "t$R")
             && it.arguments.len() == 1
         {
@@ -448,6 +482,8 @@ pub fn apply(source: &str) -> Result<String, String> {
         strings: std::collections::HashMap::new(),
         recipes: Vec::new(),
         type_args: Vec::new(),
+        depth: 0,
+        sdk_recipes: std::env::var("DARTFORGE_JSPROD_SDK_FIXED_RECIPES").map_or(true, |v| v != "0"),
         merged: std::collections::HashSet::new(),
         merge_constructors: std::env::var("DARTFORGE_JSPROD_CLASS_CONSTRUCTOR")
             .map_or(true, |v| v != "0"),
@@ -479,6 +515,11 @@ pub fn apply(source: &str) -> Result<String, String> {
     // The program's closed recipes evaluated once: a repeated `t$R("R")`
     // becomes the variable `t$T…`, declared right after the SDK (the rti
     // universe already exists, and the result is the same canonical object).
+    // The runtime's calls inside functions count too: a function runs after
+    // the file loads, and the hot paths of the runtime (`_awaitOnObject`,
+    // the `Future` listeners) stop paying one `Map` lookup per recipe
+    // (`docs/JS-PRODUCAO-VELOCIDADE.md` §9.3). An IIFE's body runs while
+    // the runtime loads: it keeps `t$R`.
     // `DARTFORGE_JSPROD_FIXED_RECIPES=0` turns it off.
     if sdk_end != u32::MAX
         && std::env::var("DARTFORGE_JSPROD_FIXED_RECIPES").map_or(true, |v| v != "0")
