@@ -1013,9 +1013,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 (c, idx)
             } else {
                 let h = hash_name(p.name.as_deref().unwrap_or(""));
+                // Inline (`@df.arg_index`) except under ARC, whose ownership
+                // passes know the runtime function.
+                let name = if self.ctx.arc_memory {
+                    "dartforge_arg_index"
+                } else {
+                    "df.arg_index"
+                };
                 let j = self.emit(
                     Instruction::CallRuntime {
-                        name: "dartforge_arg_index".to_string(),
+                        name: name.to_string(),
                         args: vec![
                             (desc.clone(), Type::Ptr),
                             (Operand::Constant(Constant::Int(h)), Type::I64),

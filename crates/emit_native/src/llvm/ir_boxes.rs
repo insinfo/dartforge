@@ -53,6 +53,10 @@ const CAB_CLOSURE: u64 = layout::header_word(state::YOUNG, flags::INSTANCE, 4, c
 ///   compares with them, and the rest goes to the runtime.
 /// * `@df.identical`: `identical` (§2.10) — the same handle, or two `_Mint`/
 ///   `_Double` with the same bits.
+/// * `@df.arg_index(desc, hash)`: the position, among the named arguments of the
+///   call descriptor `[n_pos, n_named, hash…]`, of the one named `hash`, or −1
+///   (`dartforge_arg_index`, done inline by the uniform entries of functions
+///   with named parameters).
 pub const HELPERS: &str = "define internal i64 @df.box_int(i64 %v) alwaysinline {\n\
   %a = add i64 %v, 4611686018427387904\n\
   %ok = icmp ult i64 %a, -9223372036854775808\n\
@@ -213,6 +217,28 @@ sim:\n\
   ret i1 true\n\
 nao:\n\
   ret i1 false\n\
+}\n\
+define internal i64 @df.arg_index(ptr %d, i64 %h) alwaysinline nounwind {\n\
+entry:\n\
+  %np = getelementptr inbounds i64, ptr %d, i64 1\n\
+  %n = load i64, ptr %np, align 8\n\
+  %any = icmp sgt i64 %n, 0\n\
+  br i1 %any, label %loop, label %none\n\
+loop:\n\
+  %i = phi i64 [ 0, %entry ], [ %i1, %next ]\n\
+  %k = add i64 %i, 2\n\
+  %ep = getelementptr inbounds i64, ptr %d, i64 %k\n\
+  %e = load i64, ptr %ep, align 8\n\
+  %found = icmp eq i64 %e, %h\n\
+  br i1 %found, label %done, label %next\n\
+next:\n\
+  %i1 = add i64 %i, 1\n\
+  %more = icmp slt i64 %i1, %n\n\
+  br i1 %more, label %loop, label %none\n\
+done:\n\
+  ret i64 %i\n\
+none:\n\
+  ret i64 -1\n\
 }\n";
 
 /// The effects of each `@df.*` helper of this file called by
@@ -230,6 +256,7 @@ pub(super) const HELPER_EFFECTS: &[(&str, bool, bool)] = &[
     ("df.identical", false, false),
     ("df.bit_smi", false, false),
     ("df.smi_value", false, false),
+    ("df.arg_index", false, false),
 ];
 
 /// The per-module emission state of boxes and closures.
