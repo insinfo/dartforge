@@ -4155,12 +4155,87 @@ fn emit_super_call_default(ctx: &Ctx, m: &ModState, c: ClassId, body: &mut Write
         .map(|s| tmp.class_ref(s))
         .unwrap_or_else(|| "core.Object".to_string());
     let sgeneric = sup.is_some_and(|s| ctx.requires_rti(s));
+    if ctx.mixins_of(c).is_empty() && sup.is_some_and(|s| trivial_constructor(ctx, s, None)) {
+        return;
+    }
     let base = mixin_base_ref(ctx, c, &sref);
     if sgeneric {
         crate::emit_line!(body, "{base}.new.call(this, null);");
     } else {
         crate::emit_line!(body, "{base}.new.call(this);");
     }
+}
+
+/// Production: whether the generative constructor `sym` of `s` does nothing
+/// when called without arguments, so a subclass's `super()` call can be left
+/// out: no parameters, no initializers, an empty body, no instance fields to
+/// initialize, no type arguments to record, no mixin applications, and a
+/// superclass constructor (the implicit `super()`) that does nothing either.
+/// `DARTFORGE_JSPROD_EMPTY_SUPER_CALLS=0` keeps every call.
+fn trivial_constructor(ctx: &Ctx, s: ClassId, sym: Option<dartforge_intern::SymbolId>) -> bool {
+    fn go(ctx: &Ctx, s: ClassId, sym: dartforge_intern::SymbolId, depth: u32) -> bool {
+        if Some(s) == ctx.object {
+            return true;
+        }
+        let class = ctx.program.class(s);
+        if depth > 64
+            || class.kind != ClassKind::Class
+            || ctx.requires_rti(s)
+            || !ctx.mixins_of(s).is_empty()
+            || ctx.is_js_class(s)
+            || class
+                .fields
+                .iter()
+                .any(|&v| !ctx.program.variable(v).static_)
+        {
+            return false;
+        }
+        let Some(&fid) = class.constructors.get(&sym) else {
+            return false;
+        };
+        let func = ctx.program.function(fid);
+        if func.factory || func.external && func.patched_by.is_none() {
+            return false;
+        }
+        let node = func
+            .patched_by
+            .map_or(func.node, |p| ctx.program.function(p).node);
+        let implicit_super = match node {
+            FunctionRef::Constructor { unit, member } => {
+                let ast = &ctx.program.unit(unit).ast;
+                let MemberKind::Constructor(ctor) = &ast.member(member).kind else {
+                    return false;
+                };
+                let empty_body = match ctor.body {
+                    FunctionBody::Empty => true,
+                    FunctionBody::Block(b) => {
+                        matches!(&ast.stmt(b).kind, ast::StmtKind::Block(v) if v.is_empty())
+                    }
+                    _ => false,
+                };
+                if ctor.external
+                    || ctor.factory
+                    || !ctor.parameters.is_empty()
+                    || !ctor.initializers.is_empty()
+                    || ctor.redirect.is_some()
+                    || !empty_body
+                {
+                    return false;
+                }
+                true
+            }
+            FunctionRef::None => func.kind == FunctionKind::SyntheticConstructor,
+            _ => false,
+        };
+        implicit_super
+            && match ctx.superclass_of(s) {
+                None => true,
+                Some(sup) => ctx.empty_sym.is_some_and(|e| go(ctx, sup, e, depth + 1)),
+            }
+    }
+    ctx.production()
+        && std::env::var("DARTFORGE_JSPROD_EMPTY_SUPER_CALLS").map_or(true, |v| v != "0")
+        && sym.or(ctx.empty_sym).is_some_and(|sym| go(ctx, s, sym, 0))
 }
 
 /// If the class has mixins, the constructor of the immediate superclass is that of the last application.
@@ -4386,7 +4461,18 @@ fn emit_constructor(
                             (None, false) => all.push(format!("{{{}}}", named_js.join(", "))),
                             (None, true) => {}
                         }
-                        super_call = Some(format!("{base}.{sname}.call({});", all.join(", ")));
+                        // An empty constructor called without arguments
+                        // (`trivial_constructor`) needs no call.
+                        let trivial = !is_enum
+                            && ctx.mixins_of(c).is_empty()
+                            && arguments.args.is_empty()
+                            && !ctor.parameters.iter().any(|p| p.super_)
+                            && trivial_constructor(ctx, s, constructor.map(|n| n.sym));
+                        super_call = if trivial {
+                            Some(String::new())
+                        } else {
+                            Some(format!("{base}.{sname}.call({});", all.join(", ")))
+                        };
                     }
                 }
             }
@@ -4405,7 +4491,11 @@ fn emit_constructor(
             let base = mixin_base_ref(ctx, c, "core.Object");
             super_call = Some(format!("{base}.new.call(this);"));
         } else if let Some(s) = ctx.superclass_of(c) {
-            if Some(s) != ctx.object {
+            if Some(s) != ctx.object
+                && !(ctx.mixins_of(c).is_empty()
+                    && !ctor.parameters.iter().any(|p| p.super_)
+                    && trivial_constructor(ctx, s, None))
+            {
                 let sref = e.class_ref(s);
                 let base = mixin_base_ref(ctx, c, &sref);
                 let mut super_params: Vec<String> = Vec::new();
@@ -4454,7 +4544,7 @@ fn emit_constructor(
             }
         }
     }
-    if let Some(sc) = super_call {
+    if let Some(sc) = super_call.filter(|sc| !sc.is_empty()) {
         body.line(&sc);
     }
     // In the body, the `x` of `this.x` refers to the field.
