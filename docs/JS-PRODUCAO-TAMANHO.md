@@ -3059,3 +3059,15 @@ minificado (o mesmo que o `dart2js -O4` escreve).
    chamada no AST).
 5. As diferenças de texto do `NoSuchMethodError` (formato do DDC) e a ordem
    dos nomeados de uma *tear-off* (a VM usa a da declaração) continuam.
+
+## 22. Velocidade (2026-10-28, noite)
+
+A rodada de tempo de execução contra o `dart2js` está em
+`docs/JS-PRODUCAO-VELOCIDADE.md`: protótipos nativos instalados uma vez
+(fora do modo dicionário do V8), cache de receitas no `t$R`, `async` sem
+`await` sem gerador, `length`/`for-in`/`[]`/`[]=` nativos nos receptores
+provados primitivos, identidades numéricas, máscaras e construtores
+`const` sem os `null` iniciais. Custo no tamanho do corpus: `-O2`
+10.305.846 → 10.362.665 (+0,55%, gz +0,48%), `-O4` 10.175.736 →
+10.241.372 (+0,65%, gz +0,53%); o `-O4` segue em 0,929× do `dart2js -O4`
+(gz 0,970×).
