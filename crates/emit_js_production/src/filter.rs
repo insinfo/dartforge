@@ -58,6 +58,31 @@ pub struct Adapter<'m> {
     pub identity_hash: Option<FunctionElementId>,
     /// `equals` of `dart:_runtime` (`None`: unknown, assumed live).
     pub runtime_equals: Option<FunctionElementId>,
+    /// [`rti_live`] of the round's world.
+    pub rti_live: bool,
+}
+
+/// Whether the rti may run in `world`: a function of `dart:_rti` is live, or
+/// one of the runtime functions that read the rti resources of a class
+/// (`isDartClass`, `getClassName`). Monotone over the fixed point: whatever
+/// the bootstrap emits once it holds (the rules, `findType`) keeps it.
+/// `DARTFORGE_JSPROD_RTI_GATE=0` always says yes.
+pub fn rti_live(world: &World, program: &Program, interner: &dartforge_intern::Interner) -> bool {
+    if std::env::var("DARTFORGE_JSPROD_RTI_GATE").is_ok_and(|v| v == "0") {
+        return true;
+    }
+    let lib = |uri: &str| program.libraries.iter().position(|l| l.uri == uri);
+    let (Some(rti), Some(runtime)) = (lib("dart:_rti"), lib("dart:_runtime")) else {
+        return true;
+    };
+    program.functions.iter().enumerate().any(|(i, f)| {
+        let l = f.library.0 as usize;
+        (l == rti
+            || (l == runtime
+                && f.class.is_none()
+                && matches!(interner.resolve(f.name), "isDartClass" | "getClassName")))
+            && world.is_live_function(FunctionElementId(i as u32))
+    })
 }
 
 impl Liveness for Adapter<'_> {
@@ -128,6 +153,9 @@ impl Liveness for Adapter<'_> {
     }
     fn recipe_ids(&self) -> Option<&[String]> {
         self.recipe_ids
+    }
+    fn rti_live(&self) -> bool {
+        self.stub || self.rti_live
     }
     fn rti_resources(&self, c: ClassId) -> bool {
         // `DARTFORGE_JSPROD_RTI_RESOURCES=0` emits them for every class.

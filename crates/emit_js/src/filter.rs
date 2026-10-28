@@ -70,6 +70,14 @@ pub trait Liveness {
     fn rti_resources(&self, _c: ClassId) -> bool {
         true
     }
+    /// The rti may run: some function of `dart:_rti`, or a runtime function
+    /// that reads a class's rti resources, is live. Without it no recipe is
+    /// ever evaluated and no type tag is read, so the rti rules, the warm-up
+    /// of the type universe and every `addRtiResources` are not emitted.
+    /// Without a filter, always.
+    fn rti_live(&self) -> bool {
+        true
+    }
     /// `identityHashCode` of `dart:core` may run: the primitives get the
     /// property it reads (`dart.definePrimitiveHashCode`). Without a filter,
     /// always.

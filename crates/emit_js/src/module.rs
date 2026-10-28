@@ -726,6 +726,10 @@ fn emit_rules(ctx: &Ctx, m: &ModState) -> String {
 /// Like [`emit_rules`]; with `sdk`, the SDK classes as well (the SDK module in
 /// SDK mode, `crate::own_sdk`).
 pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
+    // Only the rti reads the rules.
+    if ctx.filter.is_some_and(|f| !f.rti_live()) {
+        return String::new();
+    }
     let mut entries: Vec<String> = Vec::new();
     let noted: Vec<u32> = m.noted_classes.borrow().iter().copied().collect();
     let mut seen: HashSet<u32> = HashSet::new();
@@ -3068,7 +3072,9 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             .sdk
             .as_ref()
             .is_some_and(|s| s.peers.get(&c).is_some_and(|t| !t.is_empty()));
-    if copied || ctx.filter.is_none_or(|f| f.rti_resources(c)) {
+    if ctx.filter.is_none_or(|f| f.rti_live())
+        && (copied || ctx.filter.is_none_or(|f| f.rti_resources(c)))
+    {
         w.line(&format!(
             "dart.addRtiResources({cref}, [{}]);",
             recipes_js.join(", ")

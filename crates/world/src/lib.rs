@@ -1734,12 +1734,12 @@ impl<'a> Engine<'a> {
     }
 
     /// `DARTFORGE_JSPROD_SEL_WHY=name` (diagnostics): who records the
-    /// selector `name`, and with which receiver cone.
+    /// selector `name`, and with which receiver cone; `*` traces every one.
     fn trace_selector(&self, name: &str, cone: Option<ClassId>) {
         let Ok(target) = std::env::var("DARTFORGE_JSPROD_SEL_WHY") else {
             return;
         };
-        if target != name {
+        if target != name && target != "*" {
             return;
         }
         let p = self.e.program;

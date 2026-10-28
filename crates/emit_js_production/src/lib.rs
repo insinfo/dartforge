@@ -288,6 +288,7 @@ pub fn emit_with_world(
             omit_checks: false,
             identity_hash: None,
             runtime_equals: None,
+            rti_live: true,
         };
         let t = Instant::now();
         let emitted = a.emit(Some(&ad))?;

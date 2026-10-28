@@ -2232,6 +2232,19 @@ pub fn class_epilogue(ctx: &Ctx, c: ClassId, cref: &str) -> String {
 pub fn special_constructor(ctx: &Ctx, c: ClassId) -> Option<&'static str> {
     ctx.sdk.as_ref()?;
     if Some(c) == ctx.object {
+        // The guard only fires on a JavaScript `new` of a Dart class, which
+        // compiled code never does (it calls `C.new`). In production it does
+        // not name the class: reifying the type kept the rti alive in every
+        // program, and reading `constructor.name` would make `name` a live
+        // selector.
+        // `DARTFORGE_JSPROD_OBJECT_GUARD=0` keeps DDC's text.
+        if ctx.filter.is_some_and(|f| f.production())
+            && std::env::var("DARTFORGE_JSPROD_OBJECT_GUARD").map_or(true, |v| v != "0")
+        {
+            return Some(
+                "constructor() {\n  throw Error(\"use `new C.new(...)` to create a Dart object\");\n}",
+            );
+        }
         return Some(
             "constructor() {\n  throw Error(\"use `new \" + dart.typeName(dart.getReifiedType(this)) + \".new(...)` to create a Dart object\");\n}",
         );
@@ -2479,7 +2492,9 @@ pub fn emit_sdk_module(ctx: &Ctx) -> (String, BTreeSet<String>) {
     // `Object?` must come first (evaluating a nullable type tests it); the
     // legacy two are left out when the production world proved no legacy
     // type exists (`Liveness::legacy_types`).
-    if ctx.filter.is_none_or(|f| f.legacy_types()) {
+    if ctx.filter.is_some_and(|f| !f.rti_live()) {
+        // No recipe is ever evaluated: nothing to warm up.
+    } else if ctx.filter.is_none_or(|f| f.legacy_types()) {
         out.push_str(&format!("dart_rti.findType(\"{object_recipe}*\");\ndart_rti.findType(\"{object_recipe}?\");\ndart_rti.findType(\"0&*\");\n"));
     } else {
         out.push_str(&format!("dart_rti.findType(\"{object_recipe}?\");\n"));

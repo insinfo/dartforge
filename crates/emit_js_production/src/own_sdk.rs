@@ -485,6 +485,7 @@ fn fixed_point(
             omit_checks: op.omit_checks,
             identity_hash,
             runtime_equals,
+            rti_live: filter::rti_live(&world, a.program, a.interner),
         };
         let t = Instant::now();
         let mut e = a.emit_with_sdk(Some(&ad))?;
