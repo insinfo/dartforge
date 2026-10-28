@@ -630,10 +630,28 @@ fn cites_function_type(text: &str) -> bool {
 /// `+(`); a lone `"("` or `"(s)"` is text.
 fn function_recipe(lit: &[u8]) -> bool {
     let recipe = |c: u8| c.is_ascii_alphanumeric() || b"_$|&@~#*?/<>(),;:!^+[]{}.".contains(&c);
-    lit.iter().all(|&c| recipe(c))
-        && lit.windows(2).any(|w| {
-            w[1] == b'(' && (w[0].is_ascii_alphanumeric() || b"_$~@>?&+*/".contains(&w[0]))
-        })
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+    if !lit.iter().all(|&c| recipe(c))
+        || lit.iter().filter(|&&c| c == b'(').count() != lit.iter().filter(|&&c| c == b')').count()
+    {
+        return false;
+    }
+    // The type before the parenthesis: a class (`|p`, `lib|C`), a type
+    // parameter (`1`, `0^`), or `~`, `@`, `#`, `>`, `?`, `&`, `*`, `/`, `+`.
+    (1..lit.len()).any(|k| {
+        if lit[k] != b'(' {
+            return false;
+        }
+        let mut j = k;
+        while j > 0 && ident(lit[j - 1]) {
+            j -= 1;
+        }
+        if j < k {
+            (j > 0 && lit[j - 1] == b'|') || lit[j..k].iter().all(u8::is_ascii_digit)
+        } else {
+            b"~@#^>?&*/+".contains(&lit[k - 1])
+        }
+    })
 }
 
 /// [`cites_function_type`]'s literal scan.
