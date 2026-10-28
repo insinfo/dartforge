@@ -195,8 +195,22 @@ impl Heap {
                 heap.allocate_instance(cid::GROWABLE_LIST, 2)
             }),
         };
-        self.set_field(h, 0, len as i64, false);
-        self.set_field(h, 1, data, true);
+        if self.arc.as_ref().is_none() {
+            // A fresh young instance under tracing: no barrier, no ARC
+            // accounting, and the zeroed map only gains the bit of the storage.
+            let b = (h - layout::HANDLE_OFFSET) as *mut layout::Header;
+            // SAFETY: the block just allocated has two inline fields.
+            #[allow(unsafe_code)]
+            unsafe {
+                let f = crate::space::fields_of(b);
+                f.write(len as i64);
+                f.add(1).write(data);
+                (*b).map |= 2;
+            }
+        } else {
+            self.set_field(h, 0, len as i64, false);
+            self.set_field(h, 1, data, true);
+        }
         h
     }
 

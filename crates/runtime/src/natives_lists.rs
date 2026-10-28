@@ -271,16 +271,25 @@ pub extern "C" fn dartforge_native_DartForge_json_close_list(
 /// the declaration (`external factory _List(length)`): it arrives as a `Ref`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_List_allocate(length: i64, tuple: i64) -> i64 {
-    let n = HEAP
-        .with(|heap| heap.borrow().int_of(length))
-        .unwrap_or(0)
+    // The type first: it only reads (and interns into) the universe, so the list
+    // needs no root while it is computed, and the list is built, typed and put in
+    // its shape under one borrow of the heap.
+    let ty = tuple_list_type(tuple, Some(i64::from(crate::layout::cid::LIST)));
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        let n = if crate::layout::smi::is_smi(length) {
+            crate::layout::smi::value(length)
+        } else {
+            heap.int_of(length).unwrap_or(0)
+        }
         .max(0) as usize;
-    let h = HEAP.with(|heap| {
-        heap.borrow_mut()
-            .new_list(crate::layout::cid::LIST, n, crate::lists::Element::General)
-    });
-    type_tuple_list(h, tuple, crate::layout::cid::LIST);
-    h
+        let h = heap.new_list(crate::layout::cid::LIST, n, crate::lists::Element::General);
+        if let Some(ty) = ty {
+            heap.set_metadata(h, ty + 1);
+            adjust_list_shape(&mut heap, h);
+        }
+        h
+    })
 }
 
 /// `_List.length` / `_ImmutableList.length`.
