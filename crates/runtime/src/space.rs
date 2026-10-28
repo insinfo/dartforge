@@ -1089,7 +1089,7 @@ pub struct ObjectSpace {
     /// Zero the dead already during the sweep (`--gc-stress` and verification).
     pub(crate) clear_dead: bool,
     /// Blocks handed out since the last collection (minus those returned).
-    handed_out: usize,
+    pub(crate) handed_out: usize,
     /// Objects of the space marked by the collection in progress.
     pub(crate) marked_set: usize,
     /// The quarantine of the dead (`DARTFORGE_GC_POISON`); `None` without it.

@@ -214,6 +214,15 @@ use crate::space::{
 /// resident memory; `temporary_objects` +1%. In 2026-09 the same test had chosen 2 MiB
 /// because small JSON decoding lost, which no longer holds…
 const YOUNG_LIMIT: usize = 4 * 1024 * 1024;
+/// How far the young limit grows when the minor collections keep finding many
+/// survivors ([`Heap::adapt_young_limit`]), like the VM's semispace, which doubles
+/// while a scavenge sees less than 90% garbage (`Scavenger::NewSizeInWords`).
+/// 8 MiB: binary trees −5% time per round (16 MiB gained nothing over it).
+const YOUNG_MAX: usize = 8 * 1024 * 1024;
+/// The survival above which a minor collection doubles the young limit: more than
+/// one block in `YOUNG_GROWTH_SURVIVAL` reached (10%, the VM's
+/// `new_gen_garbage_threshold` of 90).
+const YOUNG_GROWTH_SURVIVAL: usize = 10;
 /// How much the heap grows until the next full collection, in % of what
 /// survived the last one: 150 (double, 200, cost ~15 MB more peak in
 /// `objetos_escapam` with no time gain, since the sweep only reads the mark
@@ -2035,6 +2044,9 @@ pub struct Heap {
     /// The bytes between minor collections ([`YOUNG_LIMIT`]; to measure,
     /// `DARTFORGE_GC_YOUNG_KB`).
     young_limit: usize,
+    /// The ceiling of [`Heap::adapt_young_limit`] ([`YOUNG_MAX`]; the young limit
+    /// itself when `DARTFORGE_GC_YOUNG_KB` fixes it).
+    young_max: usize,
     verify: bool,
     /// Checks every handle against the page map before reading the block (the
     /// N4 invalid handle messages): under `--gc-stress`, with verification,
@@ -2158,10 +2170,8 @@ impl Heap {
                 .ok()
                 .and_then(|v| v.parse::<usize>().ok())
                 .map_or(GROWTH, |c| c.max(110)),
-            young_limit: crate::console::env_var("DARTFORGE_GC_YOUNG_KB")
-                .ok()
-                .and_then(|v| v.parse::<usize>().ok())
-                .map_or(YOUNG_LIMIT, |kb| (kb * 1024).max(64 * 1024)),
+            young_limit: Self::young_from_env().unwrap_or(YOUNG_LIMIT),
+            young_max: Self::young_from_env().unwrap_or(YOUNG_MAX),
             byte_limit: Self::limit_from_env(),
             enum_values: crate::hash::HashMap::default(),
             tearoffs: crate::hash::HashMap::default(),
@@ -4505,6 +4515,7 @@ impl Heap {
         // out-of-line bodies and attachments of the dead); the full one rebuilds it from the live ones, with
         // the external bytes.
         if minor {
+            self.adapt_young_limit(live, self.objects.handed_out);
             let (dead_set, released_bytes) = self.objects.sweep_young(aging);
             self.stats.reclaimed += dead_set as u64;
             // Most survivors promoted: aging pauses (doubling the pause while
@@ -4571,6 +4582,33 @@ impl Heap {
         }
         // Clear debt only after the collector has actually completed.
         self.gc_policy.serviced();
+    }
+
+    /// `DARTFORGE_GC_YOUNG_KB`: a fixed young limit, in KiB (at least 64).
+    fn young_from_env() -> Option<usize> {
+        crate::console::env_var("DARTFORGE_GC_YOUNG_KB")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .map(|kb| (kb * 1024).max(64 * 1024))
+    }
+
+    /// After a traced minor collection that reached `reached` blocks with
+    /// `handed_out` allocated since the previous one: when more than one in
+    /// [`YOUNG_GROWTH_SURVIVAL`] survived, the young limit doubles (up to
+    /// `young_max`), so that more of what is under construction dies before the
+    /// next one and fewer collections mark the same structures again. A program
+    /// whose young objects die young (a server answering requests, ~0.5%
+    /// survival) never grows and keeps the resident memory of the base limit. The
+    /// limit does not shrink back, as in the VM.
+    fn adapt_young_limit(&mut self, reached: usize, handed_out: usize) {
+        if self.arc.as_ref().is_none()
+            && !self.stress
+            && self.young_limit < self.young_max
+            && handed_out >= AGING_MIN_SAMPLE
+            && reached.saturating_mul(YOUNG_GROWTH_SURVIVAL) > handed_out
+        {
+            self.young_limit = (self.young_limit * 2).min(self.young_max);
+        }
     }
 
     /// The memory breakdown (`DARTFORGE_GC_MEMORY=1`): the object space, the
