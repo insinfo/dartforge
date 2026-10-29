@@ -1,4 +1,95 @@
-# Estado do DartForge — 2026-10-28
+# Estado do DartForge — 2026-10-29
+
+## 29/10/2026, madrugada: mapas e `async` no JS, HTTP a 98,5% do Dart, reescrita do ARC
+
+Commits até `6646f294`, validados localmente e enviados. A suíte
+`tests/language` foi rodada num export recompilado de cada HEAD que mexia no
+JS e ficou em **2756/2863** em todas as rodadas, sem regressões.
+
+**JS de produção: velocidade contra `dart2js -O4`** (rodada encerrada em
+`2df83de7`; detalhes em `docs/JS-PRODUCAO-VELOCIDADE.md` §9–§10).
+
+| teste, -O4 (ms) | antes | agora | dart2js -O4 |
+|---|---:|---:|---:|
+| Node `map_int_object` | 12,6 | 5,2 | 4,3 |
+| Node `async_await` | 571 | 333 | 247 |
+| Node `collections/map` | 57,7 | 48,2 | 44,7 |
+| Chrome `async_await` | 490 | 316 | 221 |
+| Chrome `collections/map` | 29,3 | 16,1 | 30,7 |
+
+A máquina estava muito carregada durante as medições, então os tempos
+absolutos estão inflados; vale comparar dentro de cada linha.
+
+**Mapas com chave primitiva.** O `IdentityMap` passou a guardar as entradas
+em células encadeadas, achadas por `_strings`, `_nums` e um `Map` para as
+demais chaves, como no `dart2js`.
+- **Velocidade:** com chave `int`, de 2,9× para cerca de 1,2× do `dart2js`.
+  No Chrome, `collections/map` agora ganha do `dart2js`.
+- **Divergências antigas da VM, corrigidas:**
+  - uma chave `-0.0` mantém a primeira chave inserida;
+  - uma chave `NaN` nunca é encontrada de novo;
+  - `addAll` só conta como modificação quando insere chaves novas.
+
+**`async`.** Caiu de 2,2× para cerca de 1,35–1,5× do `dart2js`.
+- **O que entrou:**
+  - `async` compilado como máquina de estados;
+  - os caminhos do `await` no runtime ficaram mais curtos;
+  - estáticas preguiçosas de biblioteca viram propriedades comuns;
+  - receitas de closures avaliadas uma vez.
+- **Regressão e correção:** converter também as estáticas de classe fazia o
+  V8 tratar a classe como dicionário (`json_encode` mixed_utf16 de 68 para
+  100 µs/op). Corrigido em `aae6630f`.
+- **O que falta:** o runtime das futures, que avalia dois tipos para criar
+  cada `Completer` e lê a zona atual por um getter preguiçoso. Os próximos
+  candidatos são passar o tipo do `Completer` pelo compilador e mover a zona
+  atual para o nível de biblioteca.
+- `async*` e `sync*` continuam com gerador: nenhum teste de desempenho os usa.
+
+**Bug corrigido:** `main(List<String> args)` recebia `undefined`. Agora
+recebe uma lista vazia, como a VM e o `dart2js`.
+
+**Tamanho.** O -O4 foi de 0,927× para 0,935× do `dart2js -O4`, ou 0,981× com
+gzip, e continua menor. O -O2 está em 0,840×, ou 0,877× com gzip. Quase todo
+o aumento vem do mapa novo, cerca de 1 KB em cada programa com mapa de chave
+primitiva.
+
+**HTTP nativo, sexta rodada (em andamento).** O primeiro lote foi enviado:
+- **`1dd200b2`:** o prólogo de cada função ficou mais curto, com tabela fixa
+  de áreas, caminhos de exceção fora do fluxo principal e raízes dos
+  parâmetros registradas na abertura do quadro.
+- **`08b190c2`:** memo por thread das chamadas dinâmicas que erram o caminho
+  rápido do seletor.
+
+- **`6646f294`:** a tabela vazia de áreas saiu das constantes do executável.
+  Com isso o servidor fica 16 KB menor que antes da rodada.
+
+Os 160 programas do corpus passam nos quatro modos de memória.
+
+| carga < 3,5, mediana de 4 | antes | agora | Dart 3.6.2 |
+|---|---:|---:|---:|
+| req/s | 65,4k | **69,8k** | 70,9k |
+| % do Dart | 92% | **98,5%** | |
+| instruções por requisição | 188,1k | 185,5k | 176,2k |
+| ciclos por requisição | 55,2k | 53,0k | 51,9k |
+| CPU do isolate por requisição | 10,39 µs | 9,68 µs | 8,85 µs |
+| executável do servidor | 4,518 MB | 4,501 MB | 5,625 MB |
+| trees (ms por rodada) | 12,2 | 12,2 | 11,85 |
+
+Medido e descartado:
+- elisão da checagem na cauda, que quebrava a detecção de estouro de pilha;
+- exceções por tabelas;
+- geração jovem maior.
+
+**ARC de verdade: reescrita do núcleo (em andamento).** Aprovada pelo
+proprietário. Os quatro passos entram juntos e valem só para o modo
+`DARTFORGE_ARC_PREPARED=1`:
+- contador dentro do objeto;
+- metadados só para os casos raros;
+- liberação gerada por classe;
+- reaproveitamento imediato da célula liberada.
+
+A meta é cerca de 2–3× o ARC simples, contra 11,6× hoje no `trees`. Ainda não
+há commit enviado.
 
 ## 28/10/2026, fim do dia: níveis -O1..-O4 do JS, ARC de verdade, HTTP a 94% do Dart
 
