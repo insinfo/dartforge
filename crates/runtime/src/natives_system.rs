@@ -200,7 +200,7 @@ pub extern "C" fn dartforge_native_WeakReference_getTarget(this: i64) -> i64 {
 /// `_WeakReference._target =` (`WeakReference_setTarget`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_WeakReference_setTarget(this: i64, target: i64) {
-    HEAP.with(|h| h.borrow_mut().weak_refs.insert(this, target));
+    HEAP.with(|h| h.borrow_mut().set_weak_target(this, target));
 }
 
 /// `_WeakProperty.key` (`WeakProperty_getKey`).
@@ -216,7 +216,12 @@ pub extern "C" fn dartforge_native_WeakProperty_getKey(this: i64) -> i64 {
 /// `_WeakProperty.key =` (`WeakProperty_setKey`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_WeakProperty_setKey(this: i64, key: i64) {
-    HEAP.with(|h| h.borrow_mut().ephemerons.entry(this).or_insert((0, 0)).0 = key);
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        h.ephemerons.entry(this).or_insert((0, 0)).0 = key;
+        h.arc_observe(this, crate::layout::arc_word::EPHEMERON);
+        h.arc_observe(key, crate::layout::arc_word::EPHEMERON);
+    });
 }
 
 /// `_WeakProperty.value` (`WeakProperty_getValue`).
@@ -232,5 +237,9 @@ pub extern "C" fn dartforge_native_WeakProperty_getValue(this: i64) -> i64 {
 /// `_WeakProperty.value =` (`WeakProperty_setValue`).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_WeakProperty_setValue(this: i64, value: i64) {
-    HEAP.with(|h| h.borrow_mut().ephemerons.entry(this).or_insert((0, 0)).1 = value);
+    HEAP.with(|h| {
+        let mut h = h.borrow_mut();
+        h.ephemerons.entry(this).or_insert((0, 0)).1 = value;
+        h.arc_observe(this, crate::layout::arc_word::EPHEMERON);
+    });
 }

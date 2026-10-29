@@ -379,7 +379,12 @@ impl LlvmEmitter<'_> {
                 .expect("a homogeneous literal shape");
             let ws = layout::list_words(n);
             let wg = layout::instance_words(2);
-            let (ss, sg) = (layout::block_bytes(ws), layout::block_bytes(wg));
+            // The real ARC's blocks reserve the in-object word (`layout::arc_word`).
+            let extra = usize::from(self.module.arc_prompt_death);
+            let (ss, sg) = (
+                layout::block_bytes(ws + extra),
+                layout::block_bytes(wg + extra),
+            );
             let storage_header =
                 layout::header_word(layout::state::YOUNG, e.flags(), ws, cid::LIST);
             let list_header =

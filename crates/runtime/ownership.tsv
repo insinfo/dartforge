@@ -453,3 +453,4 @@ dartforge_native_DartForge_gc_policy_defer	i64:scalar,i64:scalar	i64:scalar	0	1	
 dartforge_native_DartForge_gc_policy_cancel	-	void:scalar	0	0	normal
 dartforge_native_DartForge_gc_policy_request_idle	-	void:scalar	0	0	normal
 dartforge_native_DartForge_gc_policy_collections	-	i64:scalar	0	0	normal
+dartforge_arc_register_drops_v1	ptr:native,i64:scalar	void:scalar	0	0	normal

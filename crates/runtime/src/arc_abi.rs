@@ -1715,6 +1715,28 @@ pub extern "C" fn dartforge_arc_release(value: i64) {
     });
 }
 
+/// Registers the real ARC's drop functions of a program (`llvm/arc_tag_guards.rs`,
+/// `drop_function`): `n` triples `(class, fields, function)`, the function
+/// `i64 f(i64 handle, ptr out)` releasing the reference fields of a dying instance
+/// of that class and field count. Neither allocates, collects nor runs Dart.
+///
+/// # Safety
+/// `table` points to `3·n` readable words; each function follows the contract above
+/// and lives as long as the image.
+#[unsafe(no_mangle)]
+#[allow(unsafe_code)]
+pub unsafe extern "C" fn dartforge_arc_register_drops_v1(table: *const i64, n: i64) {
+    let n = usize::try_from(n).expect("drop table length");
+    // SAFETY: the function contract.
+    let entries = unsafe { std::slice::from_raw_parts(table, 3 * n) };
+    HEAP.with(|heap| {
+        let mut heap = heap.borrow_mut();
+        for e in entries.chunks_exact(3) {
+            heap.register_drop(e[0], e[1], e[2]);
+        }
+    });
+}
+
 /// Runs an explicit collection at a safepoint with the roots already published.
 ///
 /// May run native finalization callbacks; Dart callbacks are

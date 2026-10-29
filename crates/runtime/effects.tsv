@@ -68,6 +68,7 @@ dartforge_arc_read_field_ref_v1	0	0	0
 dartforge_arc_read_field_scalar_checked_v1	0	0	0
 dartforge_arc_read_field_scalar_v1	0	0	0
 dartforge_arc_record_from_refs_owned_v1	1	0	0
+dartforge_arc_register_drops_v1	0	0	0
 dartforge_arc_register_return_owned_v1	0	0	0
 dartforge_arc_register_typed_v1	0	0	0
 dartforge_arc_register_uniform_owned_v1	0	0	0

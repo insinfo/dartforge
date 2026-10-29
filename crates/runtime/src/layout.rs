@@ -387,6 +387,29 @@ pub mod context {
     /// The address of the thread's lookup tables (`Context::tables`,
     /// [`super::thread_tables`]).
     pub const TABLES: usize = 384;
+    /// The real ARC's reuse lists (`Context::reuse`): for each size class `c` in
+    /// `1..=REUSE_CLASSES`, at `REUSE + 8·c`, the first free cell of that class, its
+    /// in-object word holding the next one (`super::arc_word`).
+    pub const REUSE: usize = 392;
+    /// The size classes with a reuse list: those of the TLAB's bodies plus the
+    /// in-object word.
+    pub const REUSE_CLASSES: usize = super::TLAB_N + 1;
+
+    /// The bytes the generated code took from the reuse lists since the runtime last
+    /// counted them (`Context::reuse_taken`).
+    pub const REUSE_TAKEN: usize = REUSE + 8 * (REUSE_CLASSES + 1);
+
+    /// The real ARC's candidate buffer of the generated code (`Context::candidates`):
+    /// the handles of the objects its inline release made cycle candidates, how many,
+    /// and the room; the runtime moves them into its candidate buffer.
+    pub const CANDIDATES: usize = REUSE_TAKEN + 8;
+    pub const N_CANDIDATES: usize = CANDIDATES + 8;
+    pub const CANDIDATES_CAP: usize = N_CANDIDATES + 8;
+
+    /// The head of the reuse list of class `c`.
+    pub const fn reuse(c: usize) -> usize {
+        REUSE + 8 * c
+    }
 
     /// The cursor of the TLAB of `w` words.
     pub const fn tlab_cursor(w: usize) -> usize {
@@ -599,6 +622,57 @@ pub const fn class_words(class: usize) -> usize {
 #[inline]
 pub const fn block_bytes(words: usize) -> usize {
     HEADER_SIZE + 8 * words
+}
+
+/// The real ARC's in-object count word (docs/ARC-IMPLEMENTACAO.md §9): under prompt
+/// death (`dartforge_memory_arc_prompt_v1`) every block of the space reserves its last
+/// word, `block + S - 8` with `S` the block size its page publishes at
+/// [`arc_word::HEAD_SIZE`] (an allocation of `w` body words takes the size class of
+/// `w + 1`). The count lives in the low [`arc_word::RC`] bits; the flags above bit 47,
+/// so that a free cell can keep the address of the next one there (an address is
+/// below 2⁴⁸ and reads as unregistered). Tracing and the nursery ARC keep the
+/// 16-byte header and the class of `w`.
+pub mod arc_word {
+    /// The strong occurrences (owners plus edges).
+    pub const RC: u64 = (1 << 40) - 1;
+    /// Registered and alive: counted from now on. A zeroed word is a young object
+    /// nobody counted yet.
+    pub const LIVE: u64 = 1 << 48;
+    /// Logically dead, the cell still out of reuse (a dead cycle candidate waits for
+    /// the candidate buffer).
+    pub const DEAD: u64 = 1 << 49;
+    /// Inside the discard transaction of a set (the cycle round).
+    pub const COLLECTING: u64 = 1 << 50;
+    /// In the cycle candidate buffer.
+    pub const CANDIDATE: u64 = 1 << 51;
+    /// No reference position nor side edge: never a cycle candidate.
+    pub const CYCLE_FREE: u64 = 1 << 52;
+    /// Raw writes pending since the last settle point: counted writes go to the runtime.
+    pub const SNAPSHOT: u64 = 1 << 53;
+    /// Zero count held by an observational root, on the deferred list.
+    pub const DEFERRED: u64 = 1 << 54;
+    /// Side edges (a Dart finalizer's action, a counted ephemeron's value).
+    pub const SIDE_EDGES: u64 = 1 << 55;
+    /// Target or holder of a weak reference.
+    pub const WEAK: u64 = 1 << 56;
+    /// Value, detach key or owner of a finalizer attachment, or finalizable.
+    pub const FINALIZER: u64 = 1 << 57;
+    /// Holder or key of an ephemeron.
+    pub const EPHEMERON: u64 = 1 << 58;
+    /// Named by an identity index (`late` marks, permanents, constants, tear-offs).
+    pub const INDEXED: u64 = 1 << 59;
+    /// The flags whose death cleans side tables.
+    pub const OBSERVED: u64 = SIDE_EDGES | WEAK | FINALIZER | EPHEMERON | INDEXED;
+    /// The page (or large region) head word with the block size `S` for the
+    /// generated code's inline counting: 0 when it must call the runtime (an
+    /// unprepared page, or the audit's inventory).
+    pub const HEAD_INLINE: usize = 0;
+    /// The page head word with the block size `S`, for the runtime.
+    pub const HEAD_SIZE: usize = 8;
+
+    /// Bits 40 to 47 stay free: the count's overflow margin and the candidate
+    /// pass's own mark (`ArcHeapState::purge_dead_candidates`).
+    const _: () = assert!(RC < LIVE && OBSERVED & (LIVE | DEAD | RC) == 0);
 }
 
 /// Word 0 of the header, as the inline allocation writes it:

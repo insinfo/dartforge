@@ -31,7 +31,8 @@
 
 use crate::layout::{
     ELEMENTS_PER_CARD, ELEMENTS_PER_CARD_WORD, HANDLE_OFFSET, Header, LARGEST_CLASS, N_CLASSES,
-    PAGE, PAGE_HEAD, block_bytes, capacity, class_words, is_object, map_words, size_class,
+    PAGE, PAGE_HEAD, arc_word, block_bytes, capacity, class_words, is_object, map_words,
+    size_class,
 };
 
 const FREE: u8 = crate::layout::state::FREE;
@@ -189,6 +190,35 @@ pub(crate) unsafe fn unmark_block(b: *const Header) {
     let (w, m) = mark_bit(b);
     // SAFETY: the function contract.
     unsafe { *w &= !m };
+}
+
+// ─── The real ARC's in-object word ─────────────────────────────────────────
+
+/// The block size its page publishes for the in-object word
+/// ([`arc_word::HEAD_SIZE`]); 0 for a page without it.
+///
+/// # Safety
+/// `b` is a block of a page of the space (never a static).
+#[inline(always)]
+pub(crate) unsafe fn arc_block_size(b: *const Header) -> usize {
+    let base = b as usize & !(PAGE - 1);
+    // SAFETY: the function contract; the head is the page's bitmap.
+    unsafe { *((base + arc_word::HEAD_SIZE) as *const u64) as usize }
+}
+
+/// The in-object ARC word of block `b` (`layout::arc_word`): its last word, or null
+/// in a page without it (the side table counts that object).
+///
+/// # Safety
+/// `b` is a block of a page of the space (never a static).
+#[inline(always)]
+pub(crate) unsafe fn arc_word_of(b: *const Header) -> *mut u64 {
+    // SAFETY: the function contract.
+    let size = unsafe { arc_block_size(b) };
+    if size == 0 {
+        return std::ptr::null_mut();
+    }
+    (b as usize + size - 8) as *mut u64
 }
 
 // ─── The body of a block ───────────────────────────────────────────────────
@@ -1103,6 +1133,18 @@ pub struct ObjectSpace {
     attachments: crate::hash::HashMap<usize, NativeAttachment>,
     /// Bytes of the attachments.
     pub(crate) attachment_bytes: usize,
+    /// The real ARC's in-object count word (`layout::arc_word`): 1 when every block
+    /// reserves its last word, so that a body of `w` words takes the class of
+    /// `w + 1`; 0 otherwise (tracing, the nursery ARC).
+    pub(crate) extra: usize,
+    /// The head word the generated code counts through ([`arc_word::HEAD_INLINE`])
+    /// gets the block size; off under the audit, which keeps every token in the
+    /// runtime.
+    inline_counts: bool,
+    /// The bases of the pages that held objects when the in-object word was turned on
+    /// ([`ObjectSpace::enable_arc_word`]), sorted: their blocks have no room for it,
+    /// so their free blocks never go back to allocation.
+    legacy: Vec<usize>,
 }
 
 impl std::fmt::Debug for ObjectSpace {
@@ -1143,6 +1185,61 @@ impl ObjectSpace {
             large_ones: LargeRegions::default(),
             attachments: crate::hash::HashMap::default(),
             attachment_bytes: 0,
+            extra: 0,
+            inline_counts: false,
+            legacy: Vec::new(),
+        }
+    }
+
+    /// Turns on the real ARC's in-object count word (`layout::arc_word`): from now on
+    /// each block reserves its last word, and each page publishes its block size in
+    /// its head ([`arc_word::HEAD_SIZE`], and [`arc_word::HEAD_INLINE`] with `inline`).
+    /// The pages that already hold objects keep their head zeroed (the ARC keeps their
+    /// objects in its side table) and leave allocation: their free ranges are dropped
+    /// now and their dead blocks are never handed out again.
+    pub(crate) fn enable_arc_word(&mut self, inline: bool) {
+        if self.extra == 1 {
+            return;
+        }
+        self.extra = 1;
+        self.inline_counts = inline;
+        self.legacy = self
+            .pages
+            .iter()
+            .filter(|p| !p.empty)
+            .map(|p| p.base as usize)
+            .collect();
+        self.legacy.sort_unstable();
+        for class in 0..N_CLASSES {
+            self.free_list[class].clear();
+            self.merged_free[class] = 0;
+            self.region[class] = (std::ptr::null_mut(), std::ptr::null_mut());
+        }
+    }
+
+    /// Writes the block size of page `i` in its head for the in-object word
+    /// ([`arc_word::HEAD_SIZE`], [`arc_word::HEAD_INLINE`]): the bitmap words that
+    /// cover the head itself, never marked.
+    fn publish_head(&self, i: usize) {
+        if self.extra == 0 {
+            return;
+        }
+        let p = &self.pages[i];
+        let size = if p.class == LARGE {
+            block_bytes(p.words + self.extra)
+        } else {
+            p.size()
+        } as u64;
+        // SAFETY: the head of a page of this space (its mark bitmap).
+        unsafe {
+            p.base
+                .add(arc_word::HEAD_SIZE)
+                .cast::<u64>()
+                .write(size);
+            p.base
+                .add(arc_word::HEAD_INLINE)
+                .cast::<u64>()
+                .write(if self.inline_counts { size } else { 0 });
         }
     }
 
@@ -1158,18 +1255,23 @@ impl ObjectSpace {
             self.blocks -= p.blocks;
             *p = Page::formatted(p.base, p.bytes, class, words);
             self.blocks += p.blocks;
+            self.publish_head(i);
             return i;
         }
         let base = self.reserve.request_fn();
-        self.new_page(Page::formatted(base, PAGE, class, words))
+        let i = self.new_page(Page::formatted(base, PAGE, class, words));
+        self.publish_head(i);
+        i
     }
 
-    /// A zeroed large region for a body of `words` words. Returns the
-    /// index.
+    /// A zeroed large region for a body of `words` words (plus the in-object word,
+    /// [`ObjectSpace::extra`]). Returns the index.
     fn large_page(&mut self, words: usize) -> usize {
-        let bytes = region_bytes(words);
+        let bytes = region_bytes(words + self.extra);
         let base = self.large_ones.request_fn(bytes);
-        self.new_page(Page::formatted(base, bytes, LARGE, words))
+        let i = self.new_page(Page::formatted(base, bytes, LARGE, words));
+        self.publish_head(i);
+        i
     }
 
     fn new_page(&mut self, page: Page) -> usize {
@@ -1309,7 +1411,10 @@ impl ObjectSpace {
             }
             for (c, b) in q.released_set() {
                 let t = block_bytes(class_words(c));
-                self.free_list[c].push((b, b.wrapping_add(t)));
+                let page = b as usize & !(PAGE - 1);
+                if self.legacy.is_empty() || self.legacy.binary_search(&page).is_err() {
+                    self.free_list[c].push((b, b.wrapping_add(t)));
+                }
             }
             return;
         }
@@ -1325,6 +1430,9 @@ impl ObjectSpace {
     /// other free ones. Never merges different classes or pages.
     fn insert_free_range(&mut self, class: usize, mut start: *mut u8, mut end: *mut u8) {
         let page = start as usize & !(PAGE - 1);
+        if !self.legacy.is_empty() && self.legacy.binary_search(&page).is_ok() {
+            return;
+        }
         let free_list = &mut self.free_list[class];
         while let Some(&(a, b)) = free_list.last() {
             if a as usize & !(PAGE - 1) != page {
@@ -1890,7 +1998,7 @@ impl ObjectSpace {
     /// handle.
     #[inline]
     pub(crate) fn allocate(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> i64 {
-        let (b, class) = match size_class(words) {
+        let (b, class) = match size_class(words + self.extra) {
             Some(c) => {
                 self.in_use[c] += 1;
                 self.demand[c] += 1;
@@ -1921,6 +2029,26 @@ impl ObjectSpace {
         }
         self.live_set += 1;
         b as i64 + HANDLE_OFFSET
+    }
+
+    /// How many blocks were handed out one by one since the last collection.
+    #[inline]
+    pub(crate) fn young_handed_one_by_one(&self) -> usize {
+        self.young_set.len()
+    }
+
+    /// Hands out again the dead cell `b` of class `class` that the real ARC kept on
+    /// a reuse list (zeroed and marked, already counted as in use): a young block
+    /// handed out one by one, which the next minor sweep decides like any other.
+    ///
+    /// # Safety
+    /// `b` is a zeroed, marked block of class `class` of a page of this space, out
+    /// of every list.
+    pub(crate) unsafe fn hand_out_reused(&mut self, b: *mut Header, class: usize) {
+        // SAFETY: the function contract.
+        unsafe { unmark_block(b) };
+        self.young_set.push((b, class));
+        self.handed_out += 1;
     }
 
     /// The block of handle `h`, if `h` is that of a block of some page of this
@@ -2002,6 +2130,13 @@ impl ObjectSpace {
         self.map
             .get(b as usize & !(PAGE - 1))
             .map_or(0, |i| self.pages[i].words)
+    }
+
+    /// Bytes an allocation of a body of `words` words takes, with the in-object word
+    /// ([`ObjectSpace::extra`]).
+    #[inline]
+    pub(crate) fn allocation_bytes(&self, words: usize) -> usize {
+        allocation_bytes(words + self.extra)
     }
 
     /// Pushes the references of the body of `b` by format, without touching cards
@@ -2202,7 +2337,10 @@ impl ObjectSpace {
         if let Some(q) = self.quarantine.as_mut() {
             for (c, b) in q.released_set() {
                 let t = block_bytes(class_words(c));
-                self.free_list[c].push((b, b.wrapping_add(t)));
+                let page = b as usize & !(PAGE - 1);
+                if self.legacy.is_empty() || self.legacy.binary_search(&page).is_err() {
+                    self.free_list[c].push((b, b.wrapping_add(t)));
+                }
             }
         }
         // The low-address empty pages go first (`pop`).
@@ -2250,6 +2388,26 @@ impl ObjectSpace {
                 if state != FREE && state != POISON_STATE {
                     f(b);
                 }
+            }
+        }
+    }
+
+    /// Each block of the pages with the in-object ARC word ([`ObjectSpace::extra`])
+    /// and its word: occupied or free (a free block's word is never live).
+    pub(crate) fn for_each_arc_word(&self, mut f: impl FnMut(*mut Header, u64)) {
+        if self.extra == 0 {
+            return;
+        }
+        for p in self.pages.iter().filter(|p| !p.empty) {
+            // SAFETY: the head of a page of this space.
+            let size = unsafe { arc_block_size(p.start().cast()) };
+            if size == 0 {
+                continue;
+            }
+            for j in 0..p.blocks {
+                let b = p.block(j);
+                // SAFETY: the last word of a block of the page.
+                f(b, unsafe { *((b as usize + size - 8) as *const u64) });
             }
         }
     }

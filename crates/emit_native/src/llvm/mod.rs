@@ -352,6 +352,12 @@ pub struct LlvmEmitter<'a> {
     /// block (never outside, never null or a `Smi`) and the object is young (the
     /// barrier does nothing).
     fresh_set: std::collections::HashSet<u32>,
+    /// The real ARC's classes this module allocates Owned inline, with their field
+    /// count: each gets a drop function (`arc_tag_guards::drop_function`).
+    owned_classes: std::collections::BTreeSet<(i64, i64)>,
+    /// The instruction being emitted is the first non-null write of a field of a
+    /// fresh object ([`Self::fresh_set`], [`Self::fresh_written`]).
+    first_fresh_write: bool,
     /// The fields of the fresh objects ([`Self::fresh_set`]) written since their
     /// allocation: the real ARC's null write into a field still unwritten is nothing.
     fresh_written: std::collections::HashSet<(u32, i64)>,
@@ -557,6 +563,8 @@ impl<'a> LlvmEmitter<'a> {
             outlined_helpers: Vec::new(),
             optimize_size: false,
             fresh_set: std::collections::HashSet::new(),
+            owned_classes: std::collections::BTreeSet::new(),
+            first_fresh_write: false,
             fresh_written: std::collections::HashSet::new(),
             fresh_maps: std::collections::HashMap::new(),
             body_without_outside: false,
@@ -1248,7 +1256,8 @@ impl<'a> LlvmEmitter<'a> {
         });
         let value_class = value_class(&self.module.runtime_cids);
         self.out.push_str(&value_class);
-        self.out.push_str(&space_helpers());
+        self.out
+            .push_str(&space_helpers(usize::from(self.module.arc_prompt_death)));
         self.out.push_str(&body_helper(
             self.fields_per_call,
             self.production,
@@ -1978,7 +1987,10 @@ impl<'a> LlvmEmitter<'a> {
                         .get(2)
                         .is_none_or(|(x, _)| *x != Operand::Constant(Constant::Null))
                 {
-                    self.fresh_written.insert((o.0, *i));
+                    self.first_fresh_write =
+                        self.fresh_written.insert((o.0, *i)) && self.fresh_set.contains(&o.0);
+                } else {
+                    self.first_fresh_write = false;
                 }
                 let instruction_start = self.out.len();
                 match inst {
@@ -2563,6 +2575,38 @@ impl<'a> LlvmEmitter<'a> {
                         .unwrap();
                         self.current_label = format!("wi{v}.fim");
                     }
+                    // The real ARC's move into a field of the fresh object that nothing
+                    // wrote yet: the field held null, so the token simply becomes the
+                    // field's occurrence — a store and the reference mark, inline.
+                    Instruction::CallRuntime { name, args, .. }
+                        if name == "dartforge_arc_write_field_ref_v1"
+                            && self.moved_writes.contains(&v)
+                            && args.len() == 3
+                            && !matches!(&args[2].0, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)))
+                            && self.first_fresh_write
+                            && matches!((&args[0].0, &args[1].0),
+                                (Operand::Val(_), Operand::Constant(Constant::Int(i)))
+                                    if (0..INLINE_FIELDS as i64).contains(i)) =>
+                    {
+                        let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else {
+                            unreachable!()
+                        };
+                        let i = *i as usize;
+                        let only = self.coerce(&args[0].0, Type::I64);
+                        let sv = self.coerce(&args[2].0, Type::I64);
+                        self.emit_field_addresses_of(v, &only, true);
+                        self.emit_field_write(
+                            v,
+                            "",
+                            i,
+                            &sv,
+                            "1",
+                            FieldWriteFacts {
+                                known_map: None,
+                                fresh: true,
+                            },
+                        );
+                    }
                     // The real ARC's move into a field ([`moves_into_fields`]).
                     Instruction::CallRuntime { name, args, .. }
                         if name == "dartforge_arc_write_field_ref_v1"
@@ -2645,18 +2689,13 @@ impl<'a> LlvmEmitter<'a> {
                         let (c, n) = self
                             .prepared_inline_allocation(name, args)
                             .expect("checked at the guard");
-                        self.emit_inline_allocation(v, c, n);
-                        self.fresh_set.insert(v);
-                        // The real ARC: the factory's token is the object's first count,
-                        // and the retain of an unregistered object registers it.
+                        // The real ARC: the factory's token is the object's first count.
                         if self.module.arc_prompt_death {
-                            writeln!(
-                                self.out,
-                                "  call void @{}(i64 %v{v})",
-                                self.arc_retain_target()
-                            )
-                            .unwrap();
+                            self.emit_inline_allocation_owned(v, c, n);
+                        } else {
+                            self.emit_inline_allocation(v, c, n);
                         }
+                        self.fresh_set.insert(v);
                     }
                     Instruction::CallRuntime { .. } | Instruction::DeclaredFieldCall { .. }
                         if Self::inline_allocation(inst).is_some() =>
@@ -4918,6 +4957,30 @@ impl<'a> LlvmEmitter<'a> {
             // The preparation of an isolate (the main one and that of each
             // `Isolate.spawn`, which the runtime calls on the new thread): the
             // registrations of the libraries, the RTI and the embedder.
+            // The real ARC's drop functions of the classes this program allocates
+            // Owned inline, registered below.
+            let drops: Vec<(i64, i64)> = if self.module.arc_prompt_death && self.arc_tag_guards {
+                self.owned_classes.iter().copied().collect()
+            } else {
+                Vec::new()
+            };
+            for &(c, n) in &drops {
+                self.out.push_str(&arc_tag_guards::drop_function(c, n as usize));
+            }
+            if !drops.is_empty() {
+                let entries: Vec<String> = drops
+                    .iter()
+                    .map(|(c, n)| format!("i64 {c}, i64 {n}, i64 ptrtoint (ptr @df.drop.{c} to i64)"))
+                    .collect();
+                // `(class, fields, function)` triples.
+                writeln!(
+                    self.out,
+                    "@df.drops = private unnamed_addr constant [{} x i64] [{}]",
+                    3 * drops.len(),
+                    entries.join(", ")
+                )
+                .unwrap();
+            }
             writeln!(self.out, "define void @df.prepare_isolate() {{").unwrap();
             // ARC memory, turned on before any Dart code of the isolate.
             self.start_arc();
@@ -4963,6 +5026,15 @@ impl<'a> LlvmEmitter<'a> {
                     .insert(r.clone(), format!("declare void @{r}()"));
             }
             writeln!(self.out, "  call void @df.register.program()").unwrap();
+            if !drops.is_empty() {
+                writeln!(
+                    self.out,
+                    "  call void @dartforge_arc_register_drops_v1(ptr @df.drops, i64 {})",
+                    drops.len()
+                )
+                .unwrap();
+                self.annotate_external("dartforge_arc_register_drops_v1", Type::Void, &[]);
+            }
             if self.tables_registered_at_startup {
                 // Production: the SDK tables assembled at link time
                 // (`pruning::assemble` defines `@df.register.sdk_tables` from
@@ -6623,6 +6695,7 @@ impl<'a> LlvmEmitter<'a> {
         table: &str,
         small: Option<(u8, String)>,
     ) {
+        let extra = usize::from(self.module.arc_prompt_death);
         let o = &mut self.out;
         writeln!(
             o,
@@ -6658,7 +6731,7 @@ impl<'a> LlvmEmitter<'a> {
         .unwrap();
         writeln!(o, "tn{v}.rapido:").unwrap();
         let called = if let Some((ty, n)) = &small {
-            Self::emit_small_typed_list(o, v, c, *ty, n);
+            Self::emit_small_typed_list(o, v, c, *ty, n, extra);
             format!("tn{v}.chama")
         } else {
             format!("tn{v}.rapido")
@@ -6706,7 +6779,8 @@ impl<'a> LlvmEmitter<'a> {
     /// that fits [`TLAB_N`] words; a larger `n`, a negative one (the `RangeError`)
     /// or an exhausted TLAB go to `tn{v}.chama`, the runtime call that follows.
     /// The handle comes out as `%tn{v}h` from the label `tn{v}.tlab`.
-    fn emit_small_typed_list(o: &mut String, v: u32, c: i64, ty: u8, n: &str) {
+    /// `extra`: the in-object ARC word's word of each block (`layout::arc_word`).
+    fn emit_small_typed_list(o: &mut String, v: u32, c: i64, ty: u8, n: &str, extra: usize) {
         let size = dartforge_runtime::typed_lists::element_size(ty) as i64;
         let max = (TLAB_N - 2) * 8 / size;
         let header =
@@ -6741,7 +6815,7 @@ impl<'a> LlvmEmitter<'a> {
         let _ = writeln!(
             o,
             "  %tn{v}sz = add i64 %tn{v}w8, {}",
-            layout::block_bytes(0)
+            layout::block_bytes(extra)
         );
         let _ = writeln!(
             o,
@@ -6825,6 +6899,114 @@ impl<'a> LlvmEmitter<'a> {
         self.emit_inline_allocation_with_map(v, c, n, None);
     }
 
+    /// The real ARC's inline allocation of an Owned instance (the prepared factory,
+    /// [`Self::prepared_inline_allocation`]): the factory's token is the object's
+    /// first count. The TLAB path writes the in-object word registered with that
+    /// count (`layout::arc_word`); the runtime path retains, which registers.
+    ///
+    /// Before the TLAB, the cell of an object that died at a release: the reuse
+    /// list of the class (`Context::reuse`) hands out a zeroed, marked cell, which
+    /// gets an old header (its block is old for the drain).
+    fn emit_inline_allocation_owned(&mut self, v: u32, c: i64, n: i64) {
+        if self.out_of_line_allocation {
+            self.emit_inline_allocation(v, c, n);
+            writeln!(
+                self.out,
+                "  call void @{}(i64 %v{v})",
+                self.arc_retain_target()
+            )
+            .unwrap();
+            return;
+        }
+        let table = self.module.table_functions.get(&(c as u32)).cloned();
+        if let Some(f) = &table {
+            self.annotate_external(f, Type::Ptr, &[]);
+        }
+        if n as usize <= arc_tag_guards::DROP_FIELDS {
+            self.owned_classes.insert((c, n));
+        }
+        let test_registration = table.is_some() && !self.registered_at_startup(c);
+        let w = layout::instance_words(n as usize);
+        let class = w + 1;
+        let size = layout::block_bytes(class);
+        let header = |state| layout::header_word(state, layout::flags::INSTANCE, n as usize, c as i32) as i64;
+        let (young, old) = (header(layout::state::YOUNG), header(layout::state::OLD));
+        let registered = layout::arc_word::LIVE | 1;
+        let retain = self.arc_retain_target();
+        let o = &mut self.out;
+        if test_registration {
+            // The class's method table registers on its first allocation, in the
+            // runtime.
+            writeln!(
+                o,
+                "  %tnp{v} = getelementptr inbounds i8, ptr %ctx, i64 {}\n  %tn{v} = load i64, ptr %tnp{v}, align 8\n  %tk{v} = icmp ule i64 %tn{v}, {c}\n  %tkx{v} = call i1 @llvm.expect.i1(i1 %tk{v}, i1 false)\n  br i1 %tkx{v}, label %ao{v}.lento, label %ao{v}.reg\nao{v}.reg:",
+                layout::context::N_REGISTERED
+            )
+            .unwrap();
+            writeln!(
+                o,
+                "  %trp{v} = getelementptr inbounds i8, ptr %ctx, i64 {}\n  %tr{v} = load ptr, ptr %trp{v}, align 8\n  %trb{v} = getelementptr inbounds i8, ptr %tr{v}, i64 {c}\n  %trv{v} = load i8, ptr %trb{v}, align 1\n  %trz{v} = icmp eq i8 %trv{v}, 0\n  %try{v} = call i1 @llvm.expect.i1(i1 %trz{v}, i1 false)\n  br i1 %try{v}, label %ao{v}.lento, label %ao{v}.ok\nao{v}.ok:",
+                layout::context::REGISTERED
+            )
+            .unwrap();
+        }
+        if class <= layout::context::REUSE_CLASSES {
+            writeln!(
+                o,
+                "  %rua{v} = getelementptr inbounds i8, ptr %ctx, i64 {}\n  %ru{v} = load ptr, ptr %rua{v}, align 8\n  %ruz{v} = icmp eq ptr %ru{v}, null\n  br i1 %ruz{v}, label %ao{v}.tlab, label %ao{v}.reuse\nao{v}.reuse:",
+                layout::context::reuse(class)
+            )
+            .unwrap();
+            writeln!(
+                o,
+                "  %ruwp{v} = getelementptr inbounds i8, ptr %ru{v}, i64 {}\n  %runx{v} = load ptr, ptr %ruwp{v}, align 8\n  store ptr %runx{v}, ptr %rua{v}, align 8\n  store i64 {old}, ptr %ru{v}, align 8\n  store i64 {registered}, ptr %ruwp{v}, align 8\n  %rub{v} = ptrtoint ptr %ru{v} to i64\n  %ruh{v} = add i64 %rub{v}, {}\n  %rutp{v} = getelementptr inbounds i8, ptr %ctx, i64 {}\n  %rutv{v} = load i64, ptr %rutp{v}, align 8\n  %ruta{v} = add i64 %rutv{v}, {size}\n  store i64 %ruta{v}, ptr %rutp{v}, align 8\n  br label %ao{v}.fim\nao{v}.tlab:",
+                size - 8,
+                layout::HANDLE_OFFSET,
+                layout::context::REUSE_TAKEN
+            )
+            .unwrap();
+        }
+        writeln!(
+            o,
+            "  %ta{v} = getelementptr inbounds i8, ptr %ctx, i64 {}\n  %tb{v} = load ptr, ptr %ta{v}, align 8\n  %tfa{v} = getelementptr inbounds i8, ptr %ctx, i64 {}\n  %tf{v} = load ptr, ptr %tfa{v}, align 8\n  %tnx{v} = getelementptr i8, ptr %tb{v}, i64 {size}\n  %tz{v} = icmp ugt ptr %tnx{v}, %tf{v}\n  %tx{v} = call i1 @llvm.expect.i1(i1 %tz{v}, i1 false)\n  br i1 %tx{v}, label %ao{v}.lento, label %ao{v}.rapido\nao{v}.rapido:",
+            layout::context::tlab_cursor(w),
+            layout::context::tlab_end(w)
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "  store ptr %tnx{v}, ptr %ta{v}, align 8\n  store i64 {young}, ptr %tb{v}, align 8\n  %twp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 {}\n  store i64 {registered}, ptr %twp{v}, align 8\n  %thb{v} = ptrtoint ptr %tb{v} to i64\n  %th{v} = add i64 %thb{v}, {}\n  br label %ao{v}.fim\nao{v}.lento:",
+            size - 8,
+            layout::HANDLE_OFFSET
+        )
+        .unwrap();
+        // The runtime's block is unregistered: the retain registers it.
+        match &table {
+            Some(f) => writeln!(
+                o,
+                "  %tl{v} = call i64 @dartforge_object_new_t(i64 {c}, i64 {n}, ptr @{f})"
+            ),
+            None => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new(i64 {c}, i64 {n})"),
+        }
+        .unwrap();
+        writeln!(
+            o,
+            "  call void @{retain}(i64 %tl{v})\n  br label %ao{v}.fim\nao{v}.fim:"
+        )
+        .unwrap();
+        let reuse = if class <= layout::context::REUSE_CLASSES {
+            format!(", [ %ruh{v}, %ao{v}.reuse ]")
+        } else {
+            String::new()
+        };
+        writeln!(
+            o,
+            "  %v{v} = phi i64 [ %th{v}, %ao{v}.rapido ], [ %tl{v}, %ao{v}.lento ]{reuse}"
+        )
+        .unwrap();
+        self.current_label = format!("ao{v}.fim");
+    }
+
     /// [`Self::emit_inline_allocation`] with the reference map given by the
     /// caller (`explicit`) instead of the declared layout of the class: the
     /// `AllocObject` of an `async` frame, whose map comes from the representation
@@ -6844,7 +7026,8 @@ impl<'a> LlvmEmitter<'a> {
         // The TLAB is by words of the body: `n ≤ TLAB_N` fields take
         // `max(n, 1)` words (no map extension).
         let w = layout::instance_words(n as usize);
-        let size = layout::block_bytes(w);
+        // The real ARC's blocks reserve the in-object word (`layout::arc_word`).
+        let size = layout::block_bytes(w + usize::from(self.module.arc_prompt_death));
         let header = layout::header_word(
             layout::state::YOUNG,
             layout::flags::INSTANCE,
@@ -8648,7 +8831,8 @@ runtime:\n\
     )
 }
 
-fn space_helpers() -> String {
+/// `extra`: the in-object ARC word's word of each block (`layout::arc_word`), 0 or 1.
+fn space_helpers(extra: usize) -> String {
     use layout::{context, flags, offsets, state};
     let d = |x: usize| x as i64 - layout::HANDLE_OFFSET;
     format!(
@@ -8781,7 +8965,7 @@ lento:\n\
         log_card = layout::ELEMENTS_PER_CARD.trailing_zeros(),
         tlab_n = layout::TLAB_N,
         tlab = context::TLAB,
-        header = layout::HEADER_SIZE,
+        header = layout::HEADER_SIZE + 8 * extra,
         offset = layout::HANDLE_OFFSET,
     )
 }

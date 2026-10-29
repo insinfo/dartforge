@@ -198,10 +198,10 @@ pub const OUT_OF_LINE: u8 = crate::layout::flags::OUT_OF_LINE;
 // bitmap, cards, attachments) lives in `crate::space`. [`LARGEST_CLASS`] and
 // [`TLAB_N`] count body words (docs/NATIVO-ESPACO-UNIFICADO.md §2.6): the
 // TLAB of `w` words is `Context::tlab[w]`, `w` in `1..=TLAB_N`.
-use crate::layout::{block_bytes, flags as block_flags};
+use crate::layout::{arc_word, block_bytes, flags as block_flags};
 pub use crate::space::{ObjectSpace, block_size};
 use crate::space::{
-    TLAB_BLOCKS, allocation_bytes, body, body_refs, fields_of, is_reference, mark_block,
+    TLAB_BLOCKS, body, body_refs, fields_of, is_reference, mark_block,
     mark_reference, marked, new_out_of_line_body, release_out_of_line_body, shape,
 };
 
@@ -555,6 +555,21 @@ pub struct Context {
     /// set by the first `dartforge_context` of the thread, before any generated
     /// code reads it.
     pub tables: Slot<std::cell::Cell<*const ThreadTables>>,
+    /// The real ARC's reuse lists (offset 392, `layout::context::REUSE`): the cells
+    /// of the objects that died at a release, zeroed, by size class; the generated
+    /// code's Owned allocation takes the first one before the TLAB
+    /// (`Heap::prompt_dispose`).
+    pub reuse: [Slot<std::cell::Cell<*mut u8>>; crate::layout::context::REUSE_CLASSES + 1],
+    /// The bytes the generated code took from [`Context::reuse`] since the runtime
+    /// last added them to its byte count (`layout::context::REUSE_TAKEN`).
+    pub reuse_taken: Slot<std::cell::Cell<usize>>,
+    /// The candidate buffer of the generated code's inline release (offsets
+    /// `layout::context::CANDIDATES`, `N_CANDIDATES`, `CANDIDATES_CAP`): the
+    /// handles it flagged as cycle candidates, which the runtime moves into
+    /// its own buffer (`Heap::absorb_candidates`). Room 0: always the runtime.
+    pub candidates: Slot<std::cell::Cell<*mut i64>>,
+    pub n_candidates: Slot<std::cell::Cell<usize>>,
+    pub candidates_cap: Slot<std::cell::Cell<usize>>,
 }
 
 /// The lookup tables of a thread that the generated code reads through
@@ -648,6 +663,11 @@ const _: () = {
     assert!(std::mem::offset_of!(Context, false_value) == c::FALSE);
     assert!(std::mem::offset_of!(Context, stack_limit) == c::STACK_LIMIT);
     assert!(std::mem::offset_of!(Context, tables) == c::TABLES);
+    assert!(std::mem::offset_of!(Context, reuse) == c::REUSE);
+    assert!(std::mem::offset_of!(Context, reuse_taken) == c::REUSE_TAKEN);
+    assert!(std::mem::offset_of!(Context, candidates) == c::CANDIDATES);
+    assert!(std::mem::offset_of!(Context, n_candidates) == c::N_CANDIDATES);
+    assert!(std::mem::offset_of!(Context, candidates_cap) == c::CANDIDATES_CAP);
 };
 
 thread_local! {
@@ -669,6 +689,11 @@ thread_local! {
             false_value: Slot::new((&raw const dartforge_false).cast::<u8>().wrapping_add(HANDLE_OFFSET as usize)),
             stack_limit: Slot::new(std::cell::Cell::new(0)),
             tables: Slot::new(std::cell::Cell::new(std::ptr::null())),
+            reuse: [const { Slot::new(std::cell::Cell::new(std::ptr::null_mut())) }; crate::layout::context::REUSE_CLASSES + 1],
+            reuse_taken: Slot::new(std::cell::Cell::new(0)),
+            candidates: Slot::new(std::cell::Cell::new(std::ptr::null_mut())),
+            n_candidates: Slot::new(std::cell::Cell::new(0)),
+            candidates_cap: Slot::new(std::cell::Cell::new(0)),
         }
     };
 }
@@ -2005,6 +2030,17 @@ pub struct Heap {
     /// `late` fields already written, by handle and physical index. The mark stays
     /// outside the value: zero and null are valid program assignments.
     late_fields_initialized: crate::hash::HashSet<(i64, i64)>,
+    /// An upper bound of the length of each reuse list of the real ARC
+    /// (`Context::reuse`, `Heap::trim_reuse`).
+    reuse_bound: [usize; crate::layout::context::REUSE_CLASSES + 1],
+    /// Bytes pushed to, taken by the generated code from, and taken by the runtime
+    /// from the reuse lists (the collection trace).
+    reuse_stats: (usize, usize, usize),
+    /// The memory of the generated code's candidate buffer (`Context::candidates`).
+    inline_candidates: Vec<i64>,
+    /// The real ARC's drop functions by class id (`dartforge_arc_register_drops_v1`):
+    /// the field count they assume and `i64 f(i64 handle, ptr out)`.
+    arc_drops: Vec<(u16, Option<DropFunction>)>,
     /// The `late_fields_initialized` marks written since the last
     /// collection: only they can belong to a young object, and the minor collection checks only
     /// these (old objects do not die in it).
@@ -2216,6 +2252,10 @@ impl Heap {
             virtual_code_tokens: false,
             prompt_death: false,
             prompt_dead: Vec::new(),
+            reuse_bound: [0; crate::layout::context::REUSE_CLASSES + 1],
+            reuse_stats: (0, 0, 0),
+            inline_candidates: Vec::new(),
+            arc_drops: Vec::new(),
             late_fields_initialized: crate::hash::HashSet::default(),
             new_lates: Vec::new(),
             layout_epoch: LAYOUT_EPOCH.load(std::sync::atomic::Ordering::Acquire),
@@ -2312,6 +2352,7 @@ impl Heap {
         self.arc_swap_owning_root(h, old);
         self.literals.insert(units, h);
         self.permanents.insert(h);
+        self.arc_observe(h, arc_word::INDEXED);
     }
     /// Copies the value to the global owner; null or `Smi` releases the previous owner.
     ///
@@ -2408,6 +2449,7 @@ impl Heap {
     pub fn mark_permanent(&mut self, handle: i64) {
         if smi::e_handle(handle) {
             self.permanents.insert(handle);
+            self.arc_observe(handle, arc_word::INDEXED);
         }
     }
 
@@ -2415,6 +2457,7 @@ impl Heap {
     pub fn mark_constant(&mut self, handle: i64, getter: usize) {
         if smi::e_handle(handle) {
             self.permanents.insert(handle);
+            self.arc_observe(handle, arc_word::INDEXED);
             if getter != 0 {
                 self.constants.insert(handle, getter);
             }
@@ -2599,6 +2642,7 @@ impl Heap {
         self.arc_swap_owning_root(object, 0);
         self.enum_values.insert((class_id, index), object);
         self.permanents.insert(object);
+        self.arc_observe(object, arc_word::INDEXED);
         self.pop_frame(frame);
         object
     }
@@ -2626,7 +2670,9 @@ impl Heap {
         self.arc_swap_owning_root(h, old);
         self.tearoffs.insert(code, h);
         self.tearoff_code.insert(h, code);
+        self.arc_observe(h, arc_word::INDEXED);
         self.permanents.insert(h);
+        self.arc_observe(h, arc_word::INDEXED);
     }
     /// Opens a root frame with a monotonic identifier.
     pub fn push_frame(&mut self) -> i64 {
@@ -2947,7 +2993,7 @@ impl Heap {
             let validate = self.validate_handles;
             let objects = &self.objects;
             let arc = self.arc.as_deref_mut().expect("ARC on");
-            retain_registering_in(objects, validate, arc, new);
+            retain_registering_in(objects, validate, arc, new, false);
             arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
             return;
         }
@@ -3227,6 +3273,7 @@ impl Heap {
     pub fn mark_late(&mut self, key: (i64, i64)) {
         if self.late_fields_initialized.insert(key) {
             self.new_lates.push(key);
+            self.arc_observe(key.0, arc_word::INDEXED);
         }
     }
     /// Undoes the mark of the `late` field `key`.
@@ -3255,6 +3302,13 @@ impl Heap {
             c.tlab[n][0].set(std::ptr::null_mut());
             c.tlab[n][1].set(std::ptr::null_mut());
         }
+        for head in &c.reuse {
+            head.set(std::ptr::null_mut());
+        }
+        c.reuse_taken.set(0);
+        c.candidates.set(std::ptr::null_mut());
+        c.n_candidates.set(0);
+        c.candidates_cap.set(0);
     }
     /// The [`Context`] whose TLAB this heap uses, if it is the heap of the
     /// thread's isolate and the TLAB is in use (never under `--gc-stress` nor
@@ -3324,8 +3378,37 @@ impl Heap {
         // thread-local without a destructor: it outlives every heap of the thread.
         #[allow(unsafe_code)]
         let c = unsafe { &*self.tlab_context()? };
+        // The real ARC: the cell of an object that died at a release, first. It joins
+        // the young list, which only a drain empties: past its bound the general
+        // path drains.
+        if self.objects.extra == 1 {
+            let class = words + 1;
+            let cell = c.reuse[class].get();
+            if !cell.is_null() && self.objects.young_handed_one_by_one() >= REUSE_YOUNG {
+                // The general path drains first (`Heap::needs_collection`).
+                return None;
+            }
+            if !cell.is_null() {
+                let size = block_bytes(class);
+                // SAFETY: a zeroed, marked dead cell of a reuse list (`Heap::push_reuse`):
+                // its last word links the next one.
+                #[allow(unsafe_code)]
+                unsafe {
+                    let link = (cell as usize + size - 8) as *mut *mut u8;
+                    c.reuse[class].set(link.read());
+                    link.write(std::ptr::null_mut());
+                    self.objects.hand_out_reused(cell.cast(), class);
+                    cell.cast::<u64>()
+                        .write(crate::layout::header_word(YOUNG, flags, n, cid));
+                }
+                self.reuse_bound[class] = self.reuse_bound[class].saturating_sub(1);
+                self.reuse_stats.2 += size;
+                self.add_estimated_bytes(size);
+                return Some(cell as i64 + HANDLE_OFFSET);
+            }
+        }
         let cursor = c.tlab[words][0].get();
-        let next = cursor.wrapping_add(block_bytes(words));
+        let next = cursor.wrapping_add(block_bytes(words + self.objects.extra));
         if next > c.tlab[words][1].get() {
             return None;
         }
@@ -3346,7 +3429,7 @@ impl Heap {
     /// from it.
     #[inline(never)]
     fn allocate_block_outside_tlab(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Ref {
-        let bytes = allocation_bytes(words);
+        let bytes = self.objects.allocation_bytes(words);
         let h = if self.needs_collection(bytes) {
             self.allocate_slow(cid, words, flags, n)
         } else {
@@ -3365,7 +3448,10 @@ impl Heap {
         let forced = self.stress
             || self.schedule.as_ref().is_some_and(Schedule::draws)
             || (self.byte_limit != usize::MAX && self.total_bytes(bytes) > self.byte_limit);
+        // The real ARC: the young list of the reused cells is full (a drain empties
+        // it, and the runtime takes reuse cells again, `Heap::allocate_from_tlab`).
         let ordinary = self.allocations >= YOUNG_COUNT
+            || (self.objects.extra == 1 && self.objects.young_handed_one_by_one() >= REUSE_YOUNG)
             || self.young_bytes.saturating_add(bytes) > self.young_limit
             || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold;
         if !self.gc_policy.is_active() {
@@ -3394,7 +3480,7 @@ impl Heap {
     #[cold]
     #[inline(never)]
     fn allocate_slow(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Ref {
-        self.before_allocate(allocation_bytes(words));
+        self.before_allocate(self.objects.allocation_bytes(words));
         self.objects.allocate(cid, words, flags, n)
     }
     /// Refills the TLAB for `n` fields of the [`Context`] (if exhausted) with
@@ -3413,7 +3499,10 @@ impl Heap {
         // thread-local without a destructor: it outlives every heap of the thread.
         #[allow(unsafe_code)]
         let c = unsafe { &*c };
-        let size = block_bytes(n);
+        // The in-object ARC word takes one more word of each block (the class of
+        // `n + 1`, `ObjectSpace::extra`); the TLAB stays indexed by body words.
+        let class = n + self.objects.extra;
+        let size = block_bytes(class);
         if (c.tlab[n][1].get() as usize).saturating_sub(c.tlab[n][0].get() as usize) >= size {
             return;
         }
@@ -3443,7 +3532,7 @@ impl Heap {
         if k == 0 {
             return;
         }
-        let (start, k) = self.objects.take_range(n, k);
+        let (start, k) = self.objects.take_range(class, k);
         self.objects.live_set += k;
         // This transaction has already checked all quotas and the policy
         // allowance. Do not run the growth checkpoint until the range exists
@@ -3472,10 +3561,11 @@ impl Heap {
                 c.tlab[n][0].replace(std::ptr::null_mut()),
                 c.tlab[n][1].replace(std::ptr::null_mut()),
             );
-            let size = block_bytes(n);
+            let class = n + self.objects.extra;
+            let size = block_bytes(class);
             let k = (end as usize).saturating_sub(cursor as usize) / size;
             if k > 0 {
-                self.objects.return_range(n, cursor, end);
+                self.objects.return_range(class, cursor, end);
                 let bytes = k * size;
                 self.objects.live_set -= k;
                 self.allocations = self.allocations.saturating_sub(k);
@@ -4248,6 +4338,9 @@ impl Heap {
         if let FinalizerAction::Native(_, _, bytes) = attachment.action {
             let delta = isize::try_from(bytes).expect("externalSize exceeds the address size");
             self.count_external(delta);
+        }
+        for h in [attachment.owner, attachment.value, attachment.detach] {
+            self.arc_observe(h, arc_word::FINALIZER);
         }
         self.attachments.push(attachment);
     }
@@ -7164,6 +7257,112 @@ fn block_without_refs(h: Ref) -> bool {
     }
 }
 
+/// The real ARC's in-object word of `h` (`layout::arc_word`,
+/// `ArcHeapState::in_object`): null for a non-object, a static, or a block of a page
+/// without the word (allocated before prompt death was turned on).
+///
+/// # Safety
+/// An object handle is a block of the space or a static (the contract of
+/// [`Heap::space_block`] without validation).
+#[inline(always)]
+#[allow(unsafe_code)]
+unsafe fn prompt_word(h: Ref) -> *mut u64 {
+    if !is_object(h) {
+        return std::ptr::null_mut();
+    }
+    let b = (h - HANDLE_OFFSET) as *const Header;
+    // SAFETY: the function contract.
+    unsafe {
+        if (*b).state == PERMANENT {
+            return std::ptr::null_mut();
+        }
+        crate::space::arc_word_of(b)
+    }
+}
+
+/// How many bytes of dead cells each reuse list of the real ARC keeps across a
+/// drain (`Heap::trim_reuse`).
+const REUSE_KEEP: usize = 8 << 20;
+
+/// A drop function of the generated code (`llvm/arc_tag_guards.rs`, `drop_function`):
+/// releases the reference fields of a dying instance, writing to `out` (room for
+/// `layout`'s 32 fields) the children the runtime must handle — bit 0 set for one
+/// already decremented to zero — and returns how many.
+type DropFunction = unsafe extern "C" fn(Ref, *mut i64) -> i64;
+
+/// How many reused cells the runtime hands out between drains (`Heap::allocate_from_tlab`).
+const REUSE_YOUNG: usize = 64 * 1024;
+
+/// The room of the generated code's candidate buffer (`Context::candidates`).
+const INLINE_CANDIDATES: usize = 4096;
+
+/// One occurrence fewer of the child `v` of the dying `parent` (the real ARC's
+/// cascade, `Heap::prompt_die`): inline in its in-object word when it stays above
+/// zero and needs no new candidate; through `ArcHeapState` otherwise.
+#[inline(always)]
+#[allow(unsafe_code)]
+fn prompt_release(state: &mut crate::arc::ArcHeapState, v: Ref, parent: Ref) {
+    if !smi::e_handle(v) || v == parent {
+        return;
+    }
+    // SAFETY: a reference position of a live object: a block or a static.
+    let p = unsafe { prompt_word(v) };
+    if p.is_null() {
+        state.release(v).unwrap_or_else(|e| arc_failure(e));
+        return;
+    }
+    // SAFETY: the in-object word of a block of the space.
+    let y = unsafe { *p }.wrapping_sub(1);
+    if y & (arc_word::LIVE | arc_word::COLLECTING) == arc_word::LIVE
+        && (y & arc_word::RC == 0 || y & (arc_word::CANDIDATE | arc_word::CYCLE_FREE) != 0)
+    {
+        // SAFETY: as above.
+        unsafe { *p = y };
+        state.statistics.releases += 1;
+        if y & arc_word::RC == 0 {
+            state.zeros.push(crate::arc::ArcId {
+                handle: v,
+                generation: 0,
+            });
+        }
+    } else {
+        state.release_word(v, p).unwrap_or_else(|e| arc_failure(e));
+    }
+}
+
+/// Zeroes the `size` bytes of the dead cell `b` (header, body, in-object word).
+///
+/// # Safety
+/// `b` is a dead block of `size` bytes nobody reads anymore.
+#[inline(always)]
+#[allow(unsafe_code)]
+unsafe fn zero_cell(b: *mut Header, size: usize) {
+    /// `N` words at once: inline stores, where a loop of unknown length would
+    /// become a call to `memset`.
+    #[inline(always)]
+    unsafe fn words<const N: usize>(w: *mut u64) {
+        // SAFETY: the caller's contract.
+        unsafe { w.cast::<[u64; N]>().write([0; N]) };
+    }
+    let w = b.cast::<u64>();
+    // SAFETY: the function contract (each arm writes exactly `size` bytes).
+    unsafe {
+        match size / 8 {
+            3 => words::<3>(w),
+            4 => words::<4>(w),
+            5 => words::<5>(w),
+            6 => words::<6>(w),
+            7 => words::<7>(w),
+            8 => words::<8>(w),
+            9 => words::<9>(w),
+            10 => words::<10>(w),
+            11 => words::<11>(w),
+            12 => words::<12>(w),
+            _ => std::ptr::write_bytes(w.cast::<u8>(), 0, size),
+        }
+    }
+}
+
 /// A counter violation is a compiler or runtime bug, never a Dart
 /// error (docs/ARC-CICLOS-ESPECIFICACAO.md §19.3).
 #[cold]
@@ -7176,8 +7375,19 @@ fn arc_failure(e: crate::arc::ArcError) -> ! {
 /// [`Heap::arc_retain_registering`] over the heap's parts: retains `v`, registering
 /// the object of the space without metadata first. `validate` is
 /// [`Heap::validate_handles`] (see [`Heap::space_block`]).
+///
+/// `edge`: the occurrence is a heap edge, not an owner. Under the in-object word an
+/// object an edge registers becomes a cycle candidate: it may close a cycle whose
+/// outside holders were only observational roots, which leave without a decrement
+/// (the real ARC's young decision makes no candidates).
 #[allow(unsafe_code)]
-fn retain_registering_in(space: &ObjectSpace, validate: bool, arc: &mut HeapArc, v: Ref) {
+fn retain_registering_in(
+    space: &ObjectSpace,
+    validate: bool,
+    arc: &mut HeapArc,
+    v: Ref,
+    edge: bool,
+) {
     if arc
         .state
         .retain_if_registered(v)
@@ -7196,6 +7406,9 @@ fn retain_registering_in(space: &ObjectSpace, validate: bool, arc: &mut HeapArc,
         // A raw write before the registration: the inline write must wait too.
         if arc.snapshots.contains_key(&v) {
             arc.state.set_snapshot(v, true);
+        }
+        if edge && arc.state.in_object.is_some() {
+            arc.state.add_candidate(v);
         }
     }
 }
@@ -7236,7 +7449,7 @@ fn died_in_drain(
         // of `space_block` without validation).
         unsafe { (*((h - HANDLE_OFFSET) as *const Header)).state != PERMANENT }
     };
-    in_space && state.meta(h).is_none()
+    in_space && !state.alive(h)
 }
 
 #[allow(unsafe_code)]
@@ -7296,6 +7509,9 @@ impl Heap {
             if arc.snapshots.contains_key(&new) {
                 arc.state.set_snapshot(new, true);
             }
+            if arc.state.in_object.is_some() {
+                arc.state.add_candidate(new);
+            }
         }
         arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
     }
@@ -7311,7 +7527,7 @@ impl Heap {
     /// Retains `v` (registering the object of the space without metadata): a
     /// new occurrence, under pure ARC.
     fn arc_retain_registering(&self, arc: &mut HeapArc, v: Ref) {
-        retain_registering_in(&self.objects, self.validate_handles, arc, v);
+        retain_registering_in(&self.objects, self.validate_handles, arc, v, true);
     }
 
     /// The references the generated code wrote inline into a freshly
@@ -7368,6 +7584,348 @@ impl Heap {
         arc.state.set_snapshot(h, true);
     }
 
+    /// Splits the dead an ARC round handed over (`fresh`): a dead cycle candidate of
+    /// the in-object word stays out of reclamation — its block marked, so that the
+    /// young sweep keeps it — until a candidate pass lets the buffer forget it
+    /// (`ArcHeapState::take_dead_candidates`); the others go to `out`.
+    fn hold_dead_candidates(&self, arc: &HeapArc, fresh: &[Ref], out: &mut Vec<Ref>) {
+        if arc.state.in_object.is_none() {
+            out.extend_from_slice(fresh);
+            return;
+        }
+        for &h in fresh {
+            match arc.state.word_of(h) {
+                // SAFETY: the in-object word of a block of the space; a large region
+                // (`Heap::prompt_dispose`).
+                Some(p)
+                    if unsafe { *p } & crate::layout::arc_word::CANDIDATE != 0
+                        && unsafe { crate::space::arc_block_size((h - HANDLE_OFFSET) as *const Header) }
+                            > block_bytes(crate::layout::LARGEST_MEDIUM) =>
+                {
+                    // SAFETY: a block of the space (it has an in-object word).
+                    unsafe { mark_block((h - HANDLE_OFFSET) as *const Header) };
+                }
+                _ => out.push(h),
+            }
+        }
+    }
+
+
+    /// The zero queue of the ARC: each live object with a zero count and no
+    /// observational root dies, its children lose an occurrence, and so on (an
+    /// iterative queue). Under the in-object word, an object without side state
+    /// dies here directly — the reference positions of its body read from its
+    /// header, each child released in its word, its cell disposed at once
+    /// ([`Self::prompt_dispose`]); the rest (side tables, raw writes, an
+    /// out-of-line body or attachment, an object of the side table) takes the
+    /// generic discard, whose dead the caller hands to the side tables.
+    fn arc_drain_zeros(&mut self, arc: &mut HeapArc, protected: &dyn Fn(Ref) -> bool) {
+        if arc.state.in_object.is_some() && !arc.state.trace_log {
+            let mut table = Vec::new();
+            while let Some(id) = arc.state.zeros.pop() {
+                let h = id.handle;
+                arc.state.statistics.seen_zeros += 1;
+                // SAFETY: a handle the ARC counted: a block of the space or a static.
+                let p = unsafe { prompt_word(h) };
+                if p.is_null() {
+                    table.push(id);
+                    continue;
+                }
+                // SAFETY: the in-object word of a block of the space.
+                let x = unsafe { *p };
+                if x & (arc_word::LIVE | arc_word::COLLECTING) != arc_word::LIVE {
+                    continue;
+                }
+                if x & arc_word::RC != 0 {
+                    // Down to zero and back up before the drain (a self-cycle may
+                    // have closed): a candidate, as in `ArcHeapState::drain_zeros`.
+                    arc.state.add_candidate(h);
+                    continue;
+                }
+                if protected(h) {
+                    arc.state.statistics.deferred_zeros += 1;
+                    if x & arc_word::DEFERRED == 0 {
+                        // SAFETY: as above.
+                        unsafe { *p = x | arc_word::DEFERRED };
+                        arc.state.deferred_set.push(id);
+                    }
+                    continue;
+                }
+                let b = (h - HANDLE_OFFSET) as *mut Header;
+                // SAFETY: a block of the space.
+                let flags = unsafe { (*b).flags };
+                if x & (arc_word::OBSERVED | arc_word::SNAPSHOT | arc_word::DEFERRED) != 0
+                    || flags & (block_flags::OUT_OF_LINE | block_flags::ATTACHMENT) != 0
+                {
+                    let HeapArc {
+                        state, ephemerons, ..
+                    } = &mut *arc;
+                    let mut graph = HeapGraph {
+                        heap: self,
+                        ephemerons,
+                    };
+                    state
+                        .discard(&mut graph, &[h])
+                        .unwrap_or_else(|e| arc_failure(e));
+                    state.statistics.dead_by_rc += 1;
+                    continue;
+                }
+                self.prompt_die(&mut arc.state, h, b, p, x);
+                arc.state.statistics.dead_by_rc += 1;
+            }
+            if table.is_empty() {
+                return;
+            }
+            arc.state.zeros.extend(table);
+        }
+        let HeapArc {
+            state, ephemerons, ..
+        } = arc;
+        let mut graph = HeapGraph {
+            heap: self,
+            ephemerons,
+        };
+        state
+            .drain_zeros(&mut graph, usize::MAX, protected)
+            .unwrap_or_else(|e| arc_failure(e));
+    }
+
+    /// The real ARC's death of `h` (block `b`, in-object word `x` at `p`: live,
+    /// zero count, no side state): each reference position of the body loses an
+    /// occurrence in its child, and the cell is disposed ([`Self::prompt_dispose`]).
+    #[allow(unsafe_code)]
+    fn prompt_die(
+        &mut self,
+        state: &mut crate::arc::ArcHeapState,
+        h: Ref,
+        b: *mut Header,
+        p: *mut u64,
+        x: u64,
+    ) {
+        // SAFETY: the live block of `h`, with an inline body (no out-of-line one).
+        unsafe {
+            let fields = fields_of(b);
+            match (*b).flags & block_flags::FORMAT {
+                block_flags::INSTANCE => {
+                    let n = usize::from((*b).n);
+                    // The class's drop function, generated for its field count.
+                    if let Some(&(fields, Some(f))) = self.arc_drops.get((*b).class_id as usize)
+                        && usize::from(fields) == n
+                    {
+                        let mut out = [0i64; 32];
+                        let k = f(h, out.as_mut_ptr()) as usize;
+                        for &v in &out[..k] {
+                            if v & 1 != 0 {
+                                state.zeros.push(crate::arc::ArcId {
+                                    handle: v & !1,
+                                    generation: 0,
+                                });
+                            } else {
+                                prompt_release(state, v, h);
+                            }
+                        }
+                        self.prompt_dispose(h, b, p, x);
+                        return;
+                    }
+                    let mut m = (*b).map;
+                    while m != 0 {
+                        prompt_release(state, *fields.add(m.trailing_zeros() as usize), h);
+                        m &= m - 1;
+                    }
+                    if n > 32 {
+                        let ext = fields.add(capacity(n)).cast::<u64>();
+                        for w in 0..map_words(n) {
+                            let mut m = *ext.add(w);
+                            while m != 0 {
+                                prompt_release(
+                                    state,
+                                    *fields.add(32 + w * 64 + m.trailing_zeros() as usize),
+                                    h,
+                                );
+                                m &= m - 1;
+                            }
+                        }
+                    }
+                }
+                block_flags::REFS => {
+                    let n = body_refs(b, self.objects.body_words(b));
+                    for i in 1..=n {
+                        prompt_release(state, *fields.add(i), h);
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.prompt_dispose(h, b, p, x);
+    }
+
+    /// Where the cell of a real ARC death goes (its children already released): a
+    /// dead cycle candidate of a large region stays out of reclamation — marked, so
+    /// the young sweep keeps it — until a candidate pass ([`Self::prompt_reuse_cell`]); a
+    /// cell of a class with a reuse list goes there at once, zeroed and marked (an
+    /// old block), for the next allocation of its size; another young cell is left
+    /// to the young sweep, another old one to the next drain (`prompt_dead`).
+    #[allow(unsafe_code)]
+    fn prompt_dispose(&mut self, h: Ref, b: *mut Header, p: *mut u64, x: u64) {
+        // SAFETY: the dead block of `h` of a page with the in-object word.
+        unsafe {
+            let size = crate::space::arc_block_size(b);
+            if x & arc_word::CANDIDATE != 0 && size > block_bytes(crate::layout::LARGEST_MEDIUM) {
+                // A large region goes back to the system: the buffer must forget it
+                // first. A class page stays mapped, so a candidate's cell is reused at
+                // once and its stale buffer entry is harmless (`ArcHeapState::in_object`).
+                b.cast::<u64>().write(0);
+                mark_block(b);
+                *p = arc_word::DEAD | arc_word::CANDIDATE;
+                return;
+            }
+            if self.push_reuse(b, size) {
+                return;
+            }
+            if crate::layout::state::is_young((*b).state) {
+                // The young sweep frees it by its clear mark bit; a free state
+                // keeps the drain's young decision away.
+                b.cast::<u64>().write(0);
+                *p = arc_word::DEAD;
+                return;
+            }
+            *p = arc_word::DEAD;
+        }
+        self.prompt_dead.push(h);
+    }
+
+    /// The reuse lists of this heap's thread ([`Context::reuse`]), when the TLAB is
+    /// in use (never under `--gc-stress` or `DARTFORGE_GC_SCHEDULE`) and the
+    /// in-object word is on.
+    #[inline]
+    fn reuse_context(&self) -> Option<&'static Context> {
+        if self.objects.extra == 0 || !self.runtime_tlab {
+            return None;
+        }
+        // SAFETY: `context` is the `Context` of this thread (`for_isolate`), a
+        // thread-local without a destructor: it outlives every heap of the thread.
+        #[allow(unsafe_code)]
+        self.tlab_context().map(|c| unsafe { &*c })
+    }
+
+    /// Links the dead cell `b` of `size` bytes into its class's reuse list, zeroed
+    /// and marked (an old block: the young sweep keeps it): false when its class
+    /// has no list or reuse is off.
+    #[allow(unsafe_code)]
+    fn push_reuse(&mut self, b: *mut Header, size: usize) -> bool {
+        if size > block_bytes(crate::layout::context::REUSE_CLASSES) {
+            return false;
+        }
+        let Some(c) = self.reuse_context() else {
+            return false;
+        };
+        let head = &c.reuse[(size - block_bytes(0)) / 8];
+        // SAFETY: a dead cell of a page of the space, nobody reads it anymore.
+        unsafe {
+            zero_cell(b, size);
+            mark_block(b);
+            ((b as usize + size - 8) as *mut u64).write(head.get() as u64);
+        }
+        head.set(b.cast());
+        let class = (size - block_bytes(0)) / 8;
+        self.reuse_bound[class] = self.reuse_bound[class].saturating_add(1);
+        self.reuse_stats.0 += size;
+        // A cell on a reuse list is free memory for the triggers: the generated
+        // code's next allocation of its size takes it without counting, like the
+        // rest of a TLAB range.
+        self.subtract_estimated_bytes(size);
+        true
+    }
+
+    /// A dead candidate the candidate buffer no longer names ([`Self::prompt_dispose`]):
+    /// into a reuse list when its class has one; false otherwise (the caller frees
+    /// the block).
+    #[allow(unsafe_code)]
+    fn prompt_reuse_cell(&mut self, h: Ref) -> bool {
+        let Some(b) = self.space_block(h) else {
+            return false;
+        };
+        // SAFETY: a dead block of the space.
+        let size = unsafe { crate::space::arc_block_size(b) };
+        size != 0 && self.push_reuse(b, size)
+    }
+
+    /// The cells on the reuse lists (the collection trace).
+    #[allow(unsafe_code)]
+    fn reuse_cells(&self) -> usize {
+        let Some(c) = self.reuse_context() else {
+            return 0;
+        };
+        let mut n = 0;
+        for (class, head) in c.reuse.iter().enumerate().skip(1) {
+            let size = block_bytes(class);
+            let mut cell = head.get();
+            while !cell.is_null() {
+                n += 1;
+                // SAFETY: a cell of the list: its last word links the next one.
+                cell = unsafe { *((cell as usize + size - 8) as *const *mut u8) };
+            }
+        }
+        n
+    }
+
+    /// Bounds the reuse lists after a drain: each keeps up to [`REUSE_KEEP`] bytes of
+    /// cells, the rest go back to the free ranges. Returns the freed bytes.
+    #[allow(unsafe_code)]
+    fn trim_reuse(&mut self) -> usize {
+        let Some(c) = self.reuse_context() else {
+            return 0;
+        };
+        let mut excess = Vec::new();
+        for (class, head) in c.reuse.iter().enumerate().skip(1) {
+            let size = block_bytes(class);
+            let keep = (REUSE_KEEP / size).max(64);
+            // The generated code takes cells without counting: the bound only grows
+            // between walks, and a list below it needs none.
+            if self.reuse_bound[class] <= keep {
+                continue;
+            }
+            let mut cell = head.get();
+            let mut n = 1;
+            while !cell.is_null() && n < keep {
+                // SAFETY: a cell of the list: its last word links the next one.
+                cell = unsafe { *((cell as usize + size - 8) as *const *mut u8) };
+                n += 1;
+            }
+            self.reuse_bound[class] = n;
+            if cell.is_null() {
+                continue;
+            }
+            // SAFETY: as above.
+            let link = (cell as usize + size - 8) as *mut *mut u8;
+            let mut rest = unsafe { link.read() };
+            unsafe { link.write(std::ptr::null_mut()) };
+            while !rest.is_null() {
+                excess.push(rest);
+                // SAFETY: as above.
+                rest = unsafe { *((rest as usize + size - 8) as *const *mut u8) };
+            }
+        }
+        let mut released = 0;
+        for b in excess {
+            // SAFETY: a dead, zeroed and marked block of the space, out of every list.
+            released += unsafe { self.objects.release_dead(b.cast()) };
+        }
+        released
+    }
+
+    /// The counted live objects: those of the side table and, under the in-object
+    /// word, those of the space whose word is live.
+    fn arc_live_handles(&self, arc: &HeapArc) -> Vec<Ref> {
+        let mut live: Vec<Ref> = arc.state.live_set().collect();
+        self.objects.for_each_arc_word(|b, w| {
+            if w & crate::layout::arc_word::LIVE != 0 {
+                live.push(b as Ref + HANDLE_OFFSET);
+            }
+        });
+        live
+    }
+
     /// The young objects promoted by the minor marking in progress and the remembered
     /// old ones, as handles (before the sweep of the young), and the older objects
     /// the young survivors of the aging reference: those references are not
@@ -7420,11 +7978,18 @@ impl Heap {
     /// without counting. A heap whose ARC is already on keeps its mode: switching
     /// after objects were counted would break the counts.
     pub fn enable_arc_mode(&mut self, nursery: bool) {
+        self.enable_arc_with(nursery, true);
+    }
+
+    /// [`Self::enable_arc_mode`]; `override_mode`: `DARTFORGE_ARC_NURSERY=1` may force
+    /// the nursery.
+    fn enable_arc_with(&mut self, nursery: bool, override_mode: bool) {
         if self.arc.is_some() {
             return;
         }
-        let nursery =
-            nursery || crate::console::env_var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "1");
+        let nursery = nursery
+            || (override_mode
+                && crate::console::env_var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "1"));
         self.run_collection(false);
         let mut arc = Box::new(HeapArc {
             state: crate::arc::ArcHeapState::new(),
@@ -7477,6 +8042,35 @@ impl Heap {
             arc.state.review(x);
         }
         self.arc.set(arc);
+    }
+
+    /// Under the real ARC's in-object word, flags `h` as named by a side table
+    /// (`layout::arc_word::OBSERVED`): its death then takes the generic discard, whose
+    /// dead the side tables forget before the cell is handed out again.
+    pub(crate) fn arc_observe(&mut self, h: Ref, flag: u64) {
+        if let Some(arc) = self.arc.as_ref()
+            && smi::e_handle(h)
+            && let Some(p) = arc.state.word_of(h)
+        {
+            // SAFETY: the in-object word of a block of the space.
+            #[allow(unsafe_code)]
+            unsafe {
+                *p |= flag;
+            }
+        }
+    }
+
+    /// `WeakReference` `this` now points to `target` (`weak_refs`).
+    pub(crate) fn set_weak_target(&mut self, this: Ref, target: Ref) {
+        self.weak_refs.insert(this, target);
+        self.arc_observe(this, arc_word::WEAK);
+        self.arc_observe(target, arc_word::WEAK);
+    }
+
+    /// Binds `pair` to `object`: when it dies, `finalizer(pair)` (`finalizable`).
+    pub(crate) fn attach_finalizable(&mut self, object: Ref, finalizer: fn(usize), pair: usize) {
+        self.finalizable.insert(object, (finalizer, pair));
+        self.arc_observe(object, arc_word::FINALIZER);
     }
 
     /// Restores side indications after activation or metadata rebuilding.
@@ -7607,9 +8201,9 @@ impl Heap {
             // SAFETY: block of the space.
             None => self.space_block(h).is_some_and(|b| unsafe { marked(b) }),
         };
-        let d: Vec<Ref> = arc
-            .state
-            .live_set()
+        let d: Vec<Ref> = self
+            .arc_live_handles(arc)
+            .into_iter()
             .filter(|h| {
                 !in_l(*h)
                     && arc
@@ -7973,8 +8567,71 @@ impl Heap {
     /// Turns on the real ARC's prompt death ([`Heap::prompt_death`]) over the pure
     /// ARC. Under the nursery (forced by `DARTFORGE_ARC_NURSERY=1`, a measurement)
     /// it stays off: young objects are not counted there.
+    ///
+    /// The counts move into the objects (`layout::arc_word`): from now on each block
+    /// reserves its last word, the pages publish their block size in their head, and
+    /// the side table keeps only the objects that already existed (in practice none:
+    /// the program's entry turns the real ARC on before allocating).
     pub(crate) fn enable_prompt_death(&mut self) {
         self.prompt_death = self.arc.as_ref().is_some_and(|a| a.pure);
+        if !self.prompt_death {
+            return;
+        }
+        self.return_tlabs();
+        let arc = self.arc.as_deref_mut().expect("ARC on");
+        arc.state.unpublish_pages();
+        self.objects.enable_arc_word(!arc.check);
+        arc.state.in_object = Some(prompt_word);
+        if let Some(c) = self.reuse_context() {
+            self.inline_candidates = vec![0; INLINE_CANDIDATES];
+            c.candidates.set(self.inline_candidates.as_mut_ptr());
+            c.n_candidates.set(0);
+            c.candidates_cap.set(INLINE_CANDIDATES);
+        }
+    }
+
+    /// Registers the drop function `f` of the instances of class `cid` with `fields`
+    /// fields ([`DropFunction`]).
+    #[allow(unsafe_code)]
+    pub(crate) fn register_drop(&mut self, cid: i64, fields: i64, f: i64) {
+        let (Ok(cid), Ok(fields)) = (usize::try_from(cid), u16::try_from(fields)) else {
+            return;
+        };
+        if f == 0 || usize::from(fields) > 32 {
+            return;
+        }
+        if self.arc_drops.len() <= cid {
+            self.arc_drops.resize(cid + 1, (0, None));
+        }
+        // SAFETY: the contract of `dartforge_arc_register_drops_v1`.
+        self.arc_drops[cid] = (fields, Some(unsafe { std::mem::transmute::<usize, DropFunction>(f as usize) }));
+    }
+
+    /// Moves the candidates the generated code flagged inline (`Context::candidates`)
+    /// into the ARC's candidate buffer.
+    fn absorb_candidates(&mut self) {
+        let Some(c) = self.reuse_context() else {
+            return;
+        };
+        let n = c.n_candidates.replace(0);
+        if n == 0 {
+            return;
+        }
+        let Some(arc) = self.arc.as_deref_mut() else {
+            return;
+        };
+        for &h in &self.inline_candidates[..n] {
+            arc.state.push_candidate(h);
+        }
+    }
+
+    /// Turns on the real ARC (`dartforge_memory_arc_prompt_v1`): the pure ARC with
+    /// prompt death. A prepared program with exact tokens is compiled for the
+    /// in-object word, so the nursery override (`DARTFORGE_ARC_NURSERY=1`) does not
+    /// apply.
+    pub fn enable_arc_prompt(&mut self) {
+        self.enable_arc_with(false, false);
+        self.enable_prompt_death();
     }
 
     /// Is the real ARC's prompt death on?
@@ -8003,9 +8660,19 @@ impl Heap {
         if !self.prompt_death || self.collection_deferred > 0 {
             return;
         }
-        let Some(arc) = self.arc.as_ref() else {
+        self.absorb_candidates();
+        let Some(arc) = self.arc.as_deref_mut() else {
             return;
         };
+        // The candidate buffer between drains (the reuse lists make drains rare):
+        // the entries of candidates that died leave it, and a buffer of live
+        // candidates doubles the threshold until the drain's cycle round.
+        if arc.state.candidates() >= arc.cycle_threshold {
+            arc.state.purge_dead_candidates();
+            if arc.state.candidates() * 2 > arc.cycle_threshold {
+                arc.cycle_threshold = arc.cycle_threshold.saturating_mul(2);
+            }
+        }
         // Nothing to settle, the usual case of a settle point: one look at the queues.
         if !arc.state.ha_zeros() && arc.snapshots.is_empty() && !arc.state.has_deferred() {
             return;
@@ -8066,22 +8733,14 @@ impl Heap {
         let mut natives = Vec::new();
         let mut finalize = Vec::new();
         loop {
-            {
-                let HeapArc {
-                    state, ephemerons, ..
-                } = &mut *arc;
-                let mut graph = HeapGraph {
-                    heap: self,
-                    ephemerons,
-                };
-                state
-                    .drain_zeros(&mut graph, usize::MAX, &protected)
-                    .unwrap_or_else(|e| arc_failure(e));
-            }
-            let first = self.prompt_dead.len();
-            if arc.state.transfer_dead(&mut self.prompt_dead) == 0 {
+            self.arc_drain_zeros(&mut arc, &protected);
+            let mut dead_now: Vec<Ref> = Vec::new();
+            if arc.state.transfer_dead(&mut dead_now) == 0 {
                 break;
             }
+            let mut prompt_dead = std::mem::take(&mut self.prompt_dead);
+            self.hold_dead_candidates(&arc, &dead_now, &mut prompt_dead);
+            self.prompt_dead = prompt_dead;
             // The side tables a death is observable through; usually all empty.
             if self.weak_refs.is_empty()
                 && self.ephemerons.is_empty()
@@ -8090,7 +8749,6 @@ impl Heap {
             {
                 continue;
             }
-            let mut dead_now: Vec<Ref> = self.prompt_dead[first..].to_vec();
             dead_now.sort_unstable();
             let dead = |h: &Ref| dead_now.binary_search(h).is_ok();
             if !self.weak_refs.is_empty() {
@@ -8238,6 +8896,13 @@ impl Heap {
             a.pending.set(false);
         }
         self.return_tlabs();
+        self.absorb_candidates();
+        if let Some(c) = self.reuse_context() {
+            // The cells the generated code took from the reuse lists are in use again.
+            let taken = c.reuse_taken.replace(0);
+            self.reuse_stats.1 += taken;
+            self.add_estimated_bytes(taken);
+        }
         self.stats.collections += 1;
         let mut arc = self.arc.take().expect("ARC ligado");
         let mut root_list = Vec::new();
@@ -8378,53 +9043,42 @@ impl Heap {
         let mut run_loop = [0u128; 4];
         loop {
             let t0 = trace.then(crate::clock::Instant::now);
-            {
-                let HeapArc {
-                    state, ephemerons, ..
-                } = &mut *arc;
-                let mut graph = HeapGraph {
-                    heap: self,
-                    ephemerons,
-                };
-                state
-                    .drain_zeros(&mut graph, usize::MAX, &protected)
-                    .unwrap_or_else(|e| arc_failure(e));
-                if let Some(t0) = t0 {
-                    run_loop[0] += t0.elapsed().as_micros();
-                }
-                if cycles {
-                    let t1 = trace.then(crate::clock::Instant::now);
+            self.arc_drain_zeros(&mut arc, &protected);
+            if let Some(t0) = t0 {
+                run_loop[0] += t0.elapsed().as_micros();
+            }
+            if cycles {
+                let t1 = trace.then(crate::clock::Instant::now);
+                {
+                    let HeapArc {
+                        state, ephemerons, ..
+                    } = &mut *arc;
+                    let mut graph = HeapGraph {
+                        heap: self,
+                        ephemerons,
+                    };
                     state
                         .collect_cycles(&mut graph, &protected)
                         .unwrap_or_else(|e| arc_failure(e));
-                    state
-                        .drain_zeros(&mut graph, usize::MAX, &protected)
-                        .unwrap_or_else(|e| arc_failure(e));
-                    if let Some(t1) = t1 {
-                        run_loop[1] += t1.elapsed().as_micros();
-                    }
+                }
+                self.arc_drain_zeros(&mut arc, &protected);
+                if let Some(t1) = t1 {
+                    run_loop[1] += t1.elapsed().as_micros();
                 }
             }
             if fixpoint {
                 let t2 = trace.then(crate::clock::Instant::now);
                 fixpoint = false;
                 self.arc_fixpoint(&mut arc);
-                let HeapArc {
-                    state, ephemerons, ..
-                } = &mut *arc;
-                let mut graph = HeapGraph {
-                    heap: self,
-                    ephemerons,
-                };
-                state
-                    .drain_zeros(&mut graph, usize::MAX, &protected)
-                    .unwrap_or_else(|e| arc_failure(e));
+                self.arc_drain_zeros(&mut arc, &protected);
                 if let Some(t2) = t2 {
                     run_loop[2] += t2.elapsed().as_micros();
                 }
             }
             let t3 = trace.then(crate::clock::Instant::now);
-            let amount = arc.state.transfer_dead(&mut dead_rc);
+            let mut fresh = Vec::new();
+            let amount = arc.state.transfer_dead(&mut fresh);
+            self.hold_dead_candidates(&arc, &fresh, &mut dead_rc);
             // Young objects also require side cleanup in the first round, but
             // are reclaimed by the sweep: they do not enter the RC dead.
             let has_dead = amount != 0 || (first_one && !dead_young.is_empty());
@@ -8535,6 +9189,19 @@ impl Heap {
             }
         }
         let (dead_swept, mut released_set) = self.objects.sweep_young(false);
+        // The dead cycle candidates the buffer no longer names: their blocks stayed
+        // marked through the young sweep, and go back now.
+        arc.state.purge_dead_candidates();
+        for h in arc.state.take_dead_candidates() {
+            if !self.prompt_reuse_cell(h) {
+                dead_rc.push(h);
+            }
+        }
+        // Its cells already left the byte count when they entered the lists. Only
+        // the full drain walks them: the lists are what the next allocations take.
+        if full {
+            self.trim_reuse();
+        }
         for &h in &dead_rc {
             if let Some(b) = self.space_block(h) {
                 // SAFETY: block of the RC dead, outside the young list
@@ -8572,7 +9239,7 @@ impl Heap {
                 .collect();
             let e = arc.state.statistics;
             eprintln!(
-                "[arc] {} us={} phases={} loop={}/{}/{}/{} young={n_young} young_dead={} snapshots={n_snapshots} counted={} retains={} releases={} rc_dead={} cycle_dead={} rounds={} examined={} candidates={} zeros_seen={} deferred={}",
+                "[arc] {} us={} phases={} loop={}/{}/{}/{} young={n_young} young_dead={} snapshots={n_snapshots} counted={} retains={} releases={} rc_dead={} cycle_dead={} rounds={} examined={} candidates={} zeros_seen={} deferred={} reuse_cells={} reuse_bytes={:?}",
                 if full { "full" } else { "drain" },
                 start.elapsed().as_micros(),
                 stages.join("/"),
@@ -8590,7 +9257,9 @@ impl Heap {
                 e.examined,
                 arc.state.candidates(),
                 e.seen_zeros,
-                e.deferred_zeros
+                e.deferred_zeros,
+                self.reuse_cells(),
+                self.reuse_stats
             );
         }
         self.arc.set(arc);
@@ -8687,16 +9356,22 @@ impl Heap {
             state, ephemerons, ..
         } = arc;
         let owning_set = self.owning_roots();
+        let mut in_object = Vec::new();
+        self.objects.for_each_arc_word(|b, w| {
+            if w & crate::layout::arc_word::LIVE != 0 {
+                in_object.push(b as Ref + HANDLE_OFFSET);
+            }
+        });
         let graph = HeapGraph {
             heap: self,
             ephemerons,
         };
-        if let Err(e) = state.audit(&graph, &owning_set) {
+        if let Err(e) = state.audit_with(&graph, &owning_set, &in_object) {
             if let crate::arc::ArcError::Audit { handle, .. } = e {
                 // The holders the recount saw: the registered objects with an edge to the
                 // handle and the owning tables that hold it.
                 let mut parents = Vec::new();
-                for p in state.registered_handles() {
+                for p in state.registered_handles().into_iter().chain(in_object.iter().copied()) {
                     let mut n = 0;
                     crate::arc::ArcGraph::edges(&graph, p, &mut |v| n += usize::from(v == handle));
                     if n > 0 {
@@ -10581,8 +11256,9 @@ mod prompt_death_tests {
         h
     }
 
+    /// Dead at once: the in-object word is no longer live (a dead or reused cell).
     fn dead(heap: &Heap, h: Ref) -> bool {
-        heap.prompt_dead.contains(&h) && heap.arc.as_ref().unwrap().state.meta(h).is_none()
+        !heap.arc.as_ref().unwrap().state.alive(h)
     }
 
     /// The code's release: what the extern `dartforge_arc_release` does.
@@ -10597,7 +11273,7 @@ mod prompt_death_tests {
         let collections = heap.stats.collections;
         let leaf = owned(&mut heap, 1);
         let weak = owned(&mut heap, 1);
-        heap.weak_refs.insert(weak, leaf);
+        heap.set_weak_target(weak, leaf);
         heap.retain_code_owner(leaf);
         release(&mut heap, leaf);
         assert!(!dead(&heap, leaf), "a second token still owns it");
@@ -10662,7 +11338,7 @@ mod prompt_death_tests {
     fn finalizer_runs_at_the_last_release() {
         let mut heap = heap_prompt();
         let object = owned(&mut heap, 1);
-        heap.finalizable.insert(object, (finalize, 77));
+        heap.attach_finalizable(object, finalize, 77);
         heap.retain_code_owner(object);
         release(&mut heap, object);
         assert_eq!(FINALIZED.load(std::sync::atomic::Ordering::SeqCst), 0);
@@ -10684,40 +11360,107 @@ mod prompt_death_tests {
         assert!(dead(&heap, object));
     }
 
-    /// The contract of the generated code's inline counting (`arc::inline`): the
-    /// page head points to the metadata array, whose entry of the block holds the
-    /// count and the flag bytes.
+    /// The contract of the generated code's inline counting (`layout::arc_word`): the
+    /// page head publishes the block size, and the block's last word holds the count
+    /// and the flags.
     #[test]
     #[allow(unsafe_code)]
     fn page_head_publishes_the_count_the_code_increments() {
-        use crate::arc::inline;
+        use crate::layout::arc_word;
         let mut heap = heap_prompt();
         let object = owned(&mut heap, 2);
         let b = (object - HANDLE_OFFSET) as u64;
         let page = b & !(layout::PAGE as u64 - 1);
-        // SAFETY: the head of the object's page and the published array.
+        // SAFETY: the head of the object's page and the object's last word.
         unsafe {
             let head = page as *const u64;
-            let metas = head.read();
-            assert_ne!(metas, 0);
-            let geometry = head.add(1).read();
-            let (size, blocks) = (geometry & 0xffff_ffff, geometry >> 32);
-            let ix = (b - page - layout::PAGE_HEAD as u64) / size;
-            assert!(ix < blocks);
-            let slot = (metas + ix * inline::SLOT as u64) as *mut u64;
-            assert_eq!(slot.read(), 1, "the factory's token");
-            let flags = (slot as *const u8).add(inline::FLAGS);
-            assert_eq!(
-                (flags.read(), flags.add(1).read(), flags.add(2).read()),
-                (1, 1, 0)
-            );
+            let size = head.add(arc_word::HEAD_INLINE / 8).read();
+            assert_eq!(size, head.add(arc_word::HEAD_SIZE / 8).read());
+            assert_eq!(size as usize, layout::block_bytes(layout::instance_words(2) + 1));
+            let word = (b + size - 8) as *mut u64;
+            assert_eq!(word.read(), arc_word::LIVE | 1, "the factory's token");
             // The code's inline retain and release.
-            slot.write(slot.read() + 1);
+            word.write(word.read() + 1);
             assert_eq!(heap.arc.as_ref().unwrap().state.meta(object).unwrap().rc, 2);
-            slot.write(slot.read() - 1);
+            word.write(word.read() - 1);
         }
         release(&mut heap, object);
         assert!(dead(&heap, object));
+    }
+
+    /// The thread heap of an isolate reuses the cell of an object that died at a
+    /// release: the next allocation of its size takes it, zeroed, before the TLAB.
+    #[test]
+    fn dead_cell_is_reused_by_the_next_allocation_of_its_size() {
+        {
+            let mut heap = Heap::for_isolate(false);
+            heap.enable_arc();
+            heap.enable_prompt_death();
+            let leaf = owned(&mut heap, 2);
+            let parent = owned(&mut heap, 2);
+            heap.set_field(parent, 0, leaf, true);
+            release(&mut heap, leaf);
+            release(&mut heap, parent);
+            assert!(dead(&heap, parent) && dead(&heap, leaf));
+            assert_eq!(heap.reuse_cells(), 2);
+            // LIFO: the leaf died last.
+            let again = owned(&mut heap, 2);
+            assert_eq!(again, leaf);
+            assert_eq!(heap.object(again).unwrap().to_vec().len(), 2);
+            assert!(heap.object(again).unwrap().iter().all(|f| f.0 == 0));
+            let other = owned(&mut heap, 2);
+            assert_eq!(other, parent);
+            assert_eq!(heap.reuse_cells(), 0);
+            release(&mut heap, again);
+            release(&mut heap, other);
+            heap.collect();
+            assert_eq!(heap.reuse_cells(), 2);
+        }
+    }
+
+    /// A cycle candidate's cell is reused at once: its stale entry in the candidate
+    /// buffer names the new object, which the cycle round treats as one more seed.
+    #[test]
+    fn reused_candidate_cell_leaves_a_harmless_buffer_entry() {
+        {
+            let mut heap = Heap::for_isolate(false);
+            heap.enable_arc();
+            heap.enable_prompt_death();
+            let object = owned(&mut heap, 1);
+            heap.retain_code_owner(object);
+            release(&mut heap, object);
+            assert!(heap.arc.as_ref().unwrap().state.meta(object).unwrap().candidate);
+            release(&mut heap, object);
+            assert!(dead(&heap, object));
+            let again = owned(&mut heap, 1);
+            assert_eq!(again, object);
+            heap.collect();
+            assert!(heap.is_live_object(again), "the new object survives the round");
+            release(&mut heap, again);
+            assert!(dead(&heap, again));
+        }
+    }
+
+    /// The audit recounts the in-object words (`DARTFORGE_ARC_CHECK=1`).
+    #[test]
+    fn audit_reads_the_in_object_counts() {
+        let mut heap = Heap::new(false);
+        heap.enable_arc();
+        heap.arc.as_deref_mut().unwrap().check = true;
+        heap.enable_prompt_death();
+        let parent = owned(&mut heap, 1);
+        let child = owned(&mut heap, 1);
+        heap.set_field(parent, 0, child, true);
+        heap.collect();
+        // A wrong count is found.
+        let p = heap.arc.as_ref().unwrap().state.word_of(child).unwrap();
+        #[allow(unsafe_code)]
+        // SAFETY: the in-object word of a live block.
+        unsafe {
+            *p += 1;
+        }
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| heap.collect()));
+        assert!(caught.is_err());
     }
 
     #[test]

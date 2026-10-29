@@ -696,9 +696,7 @@ pub extern "C" fn dartforge_arc_virtual_tokens_v1() {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_memory_arc_prompt_v1() {
     HEAP.with(|heap| {
-        let mut heap = heap.borrow_mut();
-        heap.enable_arc_mode(false);
-        heap.enable_prompt_death();
+        heap.borrow_mut().enable_arc_prompt();
     });
     ARC_MEMORY.with(|m| m.set(true));
 }

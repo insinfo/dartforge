@@ -695,6 +695,14 @@ pub const EXTERNS: &[Extern] = &[
         },
     },
     Extern {
+        decl: "declare void @dartforge_arc_register_drops_v1(ptr, i64) nounwind",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
         decl: "declare i8 @dartforge_arc_verify_abi(i64) nounwind",
         effects: Effects {
             allocates: false,

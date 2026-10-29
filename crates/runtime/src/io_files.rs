@@ -296,7 +296,7 @@ fn write_native_field(obj: i64, value: i64) {
 /// Binds `pair` to the object: when the object is collected, `finalizer(pair)` (the
 /// VM's `Dart_NewFinalizableHandle`).
 fn attach_finalizer(obj: i64, finalizer: fn(usize), pair: usize) {
-    HEAP.with(|h| h.borrow_mut().finalizable.insert(obj, (finalizer, pair)));
+    HEAP.with(|h| h.borrow_mut().attach_finalizable(obj, finalizer, pair));
 }
 
 fn remove_finalizer(obj: i64) {

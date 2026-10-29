@@ -20,6 +20,7 @@
 //!   decision 5): the caller guarantees that.
 
 use crate::hash::{HashMap, HashSet};
+use crate::layout::arc_word as word;
 
 /// A value in a reference position (the `Ref` of `layout`).
 pub type Ref = i64;
@@ -284,6 +285,18 @@ impl ArcPage {
         }
     }
 
+    /// Clears the two head words [`Self::publish`] wrote: the real ARC's in-object
+    /// word reads them as the block size (`layout::arc_word`).
+    #[allow(unsafe_code)]
+    fn unpublish(&self) {
+        let head = (self.geometry.first - crate::layout::PAGE_HEAD as u64) as *mut u64;
+        // SAFETY: as in `publish`.
+        unsafe {
+            head.add(inline::HEAD_METAS).write(0);
+            head.add(inline::HEAD_METAS + 1).write(0);
+        }
+    }
+
     #[inline]
     fn ix(&self, h: Ref) -> Option<usize> {
         let d = (h.wrapping_sub(crate::layout::HANDLE_OFFSET) as u64)
@@ -386,10 +399,6 @@ impl Table {
             None if self.loose.is_empty() => None,
             None => self.loose.get_mut(h),
         }
-    }
-
-    fn contains_key(&self, h: &Ref) -> bool {
-        self.get(h).is_some()
     }
 
     fn len(&self) -> usize {
@@ -512,11 +521,11 @@ pub struct ArcHeapState {
     candidates: Vec<ArcId>,
     /// Diagnostic comparison mode: retain dead queue entries until the cycle round.
     pub(crate) retain_dead_candidates: bool,
-    zeros: Vec<ArcId>,
+    pub(crate) zeros: Vec<ArcId>,
     /// The zero-RC objects that a root held at the last drain of the zeros, one entry
     /// per object ([`MetaArc::deferred`]); they go back to the queue once per
     /// collection ([`Self::resume_deferred`]), when the roots may have changed.
-    deferred_set: Vec<ArcId>,
+    pub(crate) deferred_set: Vec<ArcId>,
     dead_set: Vec<Ref>,
     next_generation: u64,
     /// A discard transaction is in progress (do not reenter).
@@ -532,6 +541,61 @@ pub struct ArcHeapState {
     /// in a cycle, and it does not enter the candidates (the minimal filter of §32).
     /// `None` (the core tests): any object may.
     pub without_edges: Option<fn(Ref) -> bool>,
+    /// The real ARC's in-object word of an object handle (`layout::arc_word`): the
+    /// count and the flags live there instead of the side table, and only a handle
+    /// it answers null for (a static, an object allocated before the word existed)
+    /// keeps a [`MetaArc`]. `None` (the core tests, the nursery, the pure ARC): every
+    /// object uses the table.
+    ///
+    /// The queues then keep handles with generation 0. The zero queue is drained
+    /// before the mutator runs again, and a deferred zero leaves its list when it
+    /// dies. The candidate buffer may keep the handle of a candidate whose cell was
+    /// reused: a stale entry names an object of a page that stays mapped, which the
+    /// cycle round treats as one more seed (safe: trial deletion frees only garbage)
+    /// or drops; only a dead candidate of a large region, whose memory goes back to
+    /// the system, waits for the buffer ([`Self::take_dead_candidates`]).
+    pub in_object: Option<unsafe fn(Ref) -> *mut u64>,
+    /// The dead candidates the last candidate pass found
+    /// ([`Self::take_dead_candidates`]): their cells can be reused now.
+    dead_candidates: Vec<Ref>,
+}
+
+/// Reads an in-object word ([`ArcHeapState::in_object`]).
+#[inline(always)]
+#[allow(unsafe_code)]
+fn rd(p: *mut u64) -> u64 {
+    // SAFETY: `p` comes from the resolver: the in-object word of a block of the space.
+    unsafe { *p }
+}
+
+/// Writes an in-object word ([`ArcHeapState::in_object`]).
+#[inline(always)]
+#[allow(unsafe_code)]
+fn wr(p: *mut u64, x: u64) {
+    // SAFETY: as in [`rd`].
+    unsafe { *p = x }
+}
+
+/// The view of an in-object word as metadata (generation 0).
+fn word_meta(x: u64) -> Option<MetaArc> {
+    let state = if x & word::COLLECTING != 0 {
+        ArcState::Collecting
+    } else if x & word::LIVE != 0 {
+        ArcState::Live
+    } else if x & word::DEAD != 0 {
+        ArcState::Dead
+    } else {
+        return None;
+    };
+    Some(MetaArc {
+        rc: x & word::RC,
+        snapshot: x & word::SNAPSHOT != 0,
+        candidate: x & word::CANDIDATE != 0,
+        cycle_free: x & word::CYCLE_FREE != 0,
+        deferred: x & word::DEFERRED != 0,
+        side_edges: x & word::SIDE_EDGES != 0,
+        ..MetaArc::new(0, x & word::RC, state, false)
+    })
 }
 
 impl ArcHeapState {
@@ -542,9 +606,23 @@ impl ArcHeapState {
         }
     }
 
-    /// The metadata of `h`, if managed.
-    pub fn meta(&self, h: Ref) -> Option<&MetaArc> {
-        self.objects.get(&h)
+    /// The in-object word of `h`, when the in-object word counts it
+    /// ([`Self::in_object`]).
+    #[inline(always)]
+    #[allow(unsafe_code)]
+    pub(crate) fn word_of(&self, h: Ref) -> Option<*mut u64> {
+        let f = self.in_object?;
+        // SAFETY: the resolver's contract: `h` is a handle the heap handed to ARC.
+        let p = unsafe { f(h) };
+        (!p.is_null()).then_some(p)
+    }
+
+    /// The metadata of `h`, if managed (a copy: the in-object word has no entry).
+    pub fn meta(&self, h: Ref) -> Option<MetaArc> {
+        if let Some(p) = self.word_of(h) {
+            return word_meta(rd(p));
+        }
+        self.objects.get(&h).copied()
     }
 
     /// The generation the next registration receives: an object registered after
@@ -649,8 +727,27 @@ impl ArcHeapState {
         if self.trace_log {
             eprintln!(
                 "[arc-trace] register {h} already={}",
-                self.objects.contains_key(&h)
+                self.meta(h).is_some()
             );
+        }
+        if let Some(p) = self.word_of(h) {
+            let cycle_free = if self.without_edges.is_some_and(|f| f(h)) {
+                word::CYCLE_FREE
+            } else {
+                0
+            };
+            // The flags an unregistered object already carries (observed, snapshot)
+            // stay.
+            wr(
+                p,
+                (rd(p) & (word::OBSERVED | word::SNAPSHOT)) | word::LIVE | cycle_free | (rc & word::RC),
+            );
+            self.statistics.registered_set += 1;
+            self.statistics.retains += rc;
+            return ArcId {
+                handle: h,
+                generation: 0,
+            };
         }
         self.objects.insert(
             h,
@@ -674,6 +771,16 @@ impl ArcHeapState {
     /// Puts `h` in the zero queue if its RC is zero (one registered without
     /// occurrences: only roots see it, or nobody).
     pub fn review(&mut self, h: Ref) {
+        if let Some(p) = self.word_of(h) {
+            let x = rd(p);
+            if x & word::LIVE != 0 && x & word::RC == 0 {
+                self.zeros.push(ArcId {
+                    handle: h,
+                    generation: 0,
+                });
+            }
+            return;
+        }
         if let Some(m) = self.objects.get(&h)
             && m.rc == 0
             && m.state == ArcState::Live
@@ -688,6 +795,9 @@ impl ArcHeapState {
 
     /// Object `h` is counted and alive (neither dead nor being discarded).
     pub fn alive(&self, h: Ref) -> bool {
+        if let Some(p) = self.word_of(h) {
+            return rd(p) & word::LIVE != 0;
+        }
         self.objects
             .get(&h)
             .is_some_and(|m| matches!(m.state, ArcState::Live | ArcState::Building))
@@ -695,6 +805,9 @@ impl ArcHeapState {
 
     /// Object `h` has died (logically) and waits for the reclaimer.
     pub fn dead(&self, h: Ref) -> bool {
+        if let Some(p) = self.word_of(h) {
+            return rd(p) & word::DEAD != 0;
+        }
         self.objects
             .get(&h)
             .is_some_and(|m| m.state == ArcState::Dead)
@@ -712,6 +825,17 @@ impl ArcHeapState {
     /// an observational root sees may lose that root without a decrement (roots do
     /// not count), and only the round examines it again.
     pub fn add_candidate(&mut self, h: Ref) {
+        if let Some(p) = self.word_of(h) {
+            let x = rd(p);
+            if x & (word::LIVE | word::CANDIDATE | word::CYCLE_FREE) == word::LIVE {
+                wr(p, x | word::CANDIDATE);
+                self.candidates.push(ArcId {
+                    handle: h,
+                    generation: 0,
+                });
+            }
+            return;
+        }
         let without_edges = self.without_edges;
         if let Some(m) = self.objects.get_mut(&h)
             && !m.candidate
@@ -747,7 +871,9 @@ impl ArcHeapState {
     /// Prevents the body filter from excluding an object with side edges. The hint
     /// is conservative until the identity's next registration.
     pub(crate) fn mark_side_edges(&mut self, h: Ref) {
-        if let Some(m) = self.objects.get_mut(&h) {
+        if let Some(p) = self.word_of(h) {
+            wr(p, (rd(p) | word::SIDE_EDGES) & !word::CYCLE_FREE);
+        } else if let Some(m) = self.objects.get_mut(&h) {
             m.side_edges = true;
             m.cycle_free = false;
         }
@@ -759,6 +885,23 @@ impl ArcHeapState {
     /// candidate ([`Self::add_candidate`]) — in a single lookup. Returns whether `h`
     /// had metadata.
     pub fn decide_young(&mut self, h: Ref) -> bool {
+        if let Some(p) = self.word_of(h) {
+            let x = rd(p);
+            if x & word::LIVE == 0 {
+                return false;
+            }
+            // The real ARC needs no candidate here: the code's owners count, so the
+            // last outside occurrence of a garbage cycle leaves by a decrement, and
+            // an object an edge registered became a candidate then
+            // (`Heap::retain_registering_in`).
+            if x & word::RC == 0 {
+                self.zeros.push(ArcId {
+                    handle: h,
+                    generation: 0,
+                });
+            }
+            return true;
+        }
         let without_edges = self.without_edges;
         let Some(m) = self.objects.get_mut(&h) else {
             return false;
@@ -786,6 +929,59 @@ impl ArcHeapState {
         self.candidates.len()
     }
 
+    /// The candidate pass without a cycle round: the dead candidates of the
+    /// in-object word leave the buffer (their cells go to
+    /// [`Self::take_dead_candidates`]); the live ones stay.
+    pub(crate) fn purge_dead_candidates(&mut self) {
+        if self.in_object.is_none() {
+            return;
+        }
+        // A bit of the in-object word no other code uses: the entry already kept in
+        // this pass (a reused cell may be named twice).
+        const KEPT: u64 = 1 << 47;
+        let mut candidates = std::mem::take(&mut self.candidates);
+        candidates.retain(|id| {
+            let Some(p) = self.word_of(id.handle) else {
+                return true;
+            };
+            let x = rd(p);
+            if x & word::DEAD != 0 && x & word::CANDIDATE != 0 {
+                wr(p, x & !word::CANDIDATE);
+                self.dead_candidates.push(id.handle);
+                return false;
+            }
+            // A cell reused since its candidate died: the entry names nobody now
+            // (`Heap::prompt_dispose`), or the same candidate as another entry.
+            if x & (word::LIVE | word::CANDIDATE | KEPT) != word::LIVE | word::CANDIDATE {
+                return false;
+            }
+            wr(p, x | KEPT);
+            true
+        });
+        for id in &candidates {
+            if let Some(p) = self.word_of(id.handle) {
+                wr(p, rd(p) & !KEPT);
+            }
+        }
+        self.candidates = candidates;
+    }
+
+    /// Appends the entry of `h`, which the generated code already flagged as a
+    /// candidate in its in-object word.
+    pub(crate) fn push_candidate(&mut self, h: Ref) {
+        self.candidates.push(ArcId {
+            handle: h,
+            generation: 0,
+        });
+    }
+
+    /// The dead candidates a candidate pass took out of the buffer
+    /// ([`Self::collect_cycles`], [`Self::purge_dead_candidates`]): the heap reuses
+    /// their cells.
+    pub(crate) fn take_dead_candidates(&mut self) -> Vec<Ref> {
+        std::mem::take(&mut self.dead_candidates)
+    }
+
     /// Construction finished: the construction owner becomes the result.
     pub fn finish_construction(&mut self, h: Ref) {
         if let Some(m) = self.objects.get_mut(&h)
@@ -805,6 +1001,30 @@ impl ArcHeapState {
     // heap may register the absent target before counting the occurrence.
     pub(crate) fn retain_if_registered(&mut self, h: Ref) -> Result<bool, ArcError> {
         if !e_handle(h) {
+            return Ok(true);
+        }
+        if let Some(p) = self.word_of(h) {
+            let x = rd(p);
+            if x & word::LIVE == 0 {
+                if x & word::COLLECTING != 0 {
+                    return Err(ArcError::InvalidState(h, ArcState::Collecting));
+                }
+                if x & word::DEAD != 0 {
+                    return Err(ArcError::InvalidState(h, ArcState::Dead));
+                }
+                return Ok(false);
+            }
+            if x & word::COLLECTING != 0 {
+                return Err(ArcError::InvalidState(h, ArcState::Collecting));
+            }
+            if x & word::RC == word::RC {
+                return Err(ArcError::Overflow(h));
+            }
+            wr(p, x + 1);
+            self.statistics.retains += 1;
+            if self.trace_log {
+                eprintln!("[arc-trace] retain {h} rc={}", (x & word::RC) + 1);
+            }
             return Ok(true);
         }
         let Some(m) = self.objects.get_mut(&h) else {
@@ -829,6 +1049,9 @@ impl ArcHeapState {
     pub fn release(&mut self, h: Ref) -> Result<(), ArcError> {
         if !e_handle(h) {
             return Ok(());
+        }
+        if let Some(p) = self.word_of(h) {
+            return self.release_word(h, p);
         }
         let Some(m) = self.objects.get_mut(&h) else {
             return Ok(());
@@ -857,6 +1080,46 @@ impl ArcHeapState {
             m.candidate = true;
             m.candidate_index = candidate_slot(self.candidates.len());
             self.candidates.push(id);
+        }
+        Ok(())
+    }
+
+    /// [`Self::release`] of an object the in-object word counts.
+    #[inline]
+    pub(crate) fn release_word(&mut self, h: Ref, p: *mut u64) -> Result<(), ArcError> {
+        let x = rd(p);
+        if x & (word::LIVE | word::COLLECTING) != word::LIVE {
+            if x & word::COLLECTING != 0 {
+                return Err(ArcError::InvalidState(h, ArcState::Collecting));
+            }
+            if x & word::DEAD != 0 {
+                return Err(ArcError::InvalidState(h, ArcState::Dead));
+            }
+            // Unregistered: no count to lose.
+            return Ok(());
+        }
+        if x & word::RC == 0 {
+            return Err(ArcError::RcZero(h));
+        }
+        let x = x - 1;
+        self.statistics.releases += 1;
+        if self.trace_log {
+            eprintln!("[arc-trace] release {h} rc={}", x & word::RC);
+        }
+        if x & word::RC == 0 {
+            wr(p, x);
+            self.zeros.push(ArcId {
+                handle: h,
+                generation: 0,
+            });
+        } else if x & (word::CANDIDATE | word::CYCLE_FREE) == 0 {
+            wr(p, x | word::CANDIDATE);
+            self.candidates.push(ArcId {
+                handle: h,
+                generation: 0,
+            });
+        } else {
+            wr(p, x);
         }
         Ok(())
     }
@@ -907,6 +1170,29 @@ impl ArcHeapState {
         while done < limit {
             let Some(id) = self.zeros.pop() else { break };
             self.statistics.seen_zeros += 1;
+            if let Some(p) = self.word_of(id.handle) {
+                let x = rd(p);
+                // Dead, free, unregistered or in a discard: a stale entry.
+                if x & (word::LIVE | word::COLLECTING) != word::LIVE {
+                    continue;
+                }
+                if x & word::RC != 0 {
+                    self.add_candidate(id.handle);
+                    continue;
+                }
+                if protected(id.handle) {
+                    self.statistics.deferred_zeros += 1;
+                    if x & word::DEFERRED == 0 {
+                        wr(p, x | word::DEFERRED);
+                        self.deferred_set.push(id);
+                    }
+                    continue;
+                }
+                self.discard_located(graph, &[id.handle], None)?;
+                self.statistics.dead_by_rc += 1;
+                done += 1;
+                continue;
+            }
             let local = self.objects.locate(id.handle);
             let Some(m) = self
                 .objects
@@ -953,6 +1239,14 @@ impl ArcHeapState {
     pub fn resume_deferred(&mut self) {
         let deferred_set = std::mem::take(&mut self.deferred_set);
         for id in deferred_set {
+            if let Some(p) = self.word_of(id.handle) {
+                let x = rd(p);
+                if x & word::LIVE != 0 {
+                    wr(p, x & !word::DEFERRED);
+                    self.zeros.push(id);
+                }
+                continue;
+            }
             if let Some(m) = self.objects.get_mut(&id.handle)
                 && m.generation == id.generation
             {
@@ -970,7 +1264,10 @@ impl ArcHeapState {
     /// Marks (or clears) the pending raw writes of a registered object
     /// ([`MetaArc::snapshot`]).
     pub(crate) fn set_snapshot(&mut self, h: Ref, on: bool) {
-        if let Some(m) = self.objects.get_mut(&h) {
+        if let Some(p) = self.word_of(h) {
+            let x = rd(p);
+            wr(p, if on { x | word::SNAPSHOT } else { x & !word::SNAPSHOT });
+        } else if let Some(m) = self.objects.get_mut(&h) {
             m.snapshot = on;
         }
     }
@@ -981,6 +1278,18 @@ impl ArcHeapState {
         self.objects.publish = true;
         for pg in &self.objects.pages {
             pg.publish();
+        }
+    }
+
+    /// Stops publishing the metadata arrays ([`Self::publish_pages`]) and clears the
+    /// published heads: the real ARC's in-object word takes over the page heads.
+    pub(crate) fn unpublish_pages(&mut self) {
+        if !self.objects.publish {
+            return;
+        }
+        self.objects.publish = false;
+        for pg in &self.objects.pages {
+            pg.unpublish();
         }
     }
 
@@ -1030,6 +1339,16 @@ impl ArcHeapState {
             None => item_set.contains(&v),
         };
         for &u in d {
+            if let Some(p) = self.word_of(u) {
+                // A candidate
+                // stays in the buffer (its cell waits for the next candidate pass).
+                let x = rd(p);
+                wr(p, x | word::COLLECTING);
+                if x & word::DEFERRED != 0 {
+                    self.deferred_set.retain(|id| id.handle != u);
+                }
+                continue;
+            }
             let m = match local {
                 Some(local) => self.objects.in_local_mut(local),
                 None => self.objects.get_mut(&u),
@@ -1087,6 +1406,13 @@ impl ArcHeapState {
             if single.is_none() {
                 graph.break_off(u);
             }
+            if let Some(p) = self.word_of(u) {
+                // : dead, with the
+                // flags the heap still needs (the candidate buffer, the side tables).
+                wr(p, word::DEAD | (rd(p) & (word::CANDIDATE | word::OBSERVED)));
+                self.dead_set.push(u);
+                continue;
+            }
             let m = match local {
                 Some(local) => self.objects.in_local_mut(local),
                 None => self.objects.get_mut(&u),
@@ -1121,6 +1447,18 @@ impl ArcHeapState {
         // Detach every old backlink before callbacks can requeue a protected
         // identity into the new vector. Old indices must never name that vector.
         for id in &candidates {
+            if let Some(p) = self.word_of(id.handle) {
+                // A dead
+                // candidate leaves the buffer: its cell can be reused now.
+                let x = rd(p);
+                if x & word::CANDIDATE != 0 {
+                    wr(p, x & !word::CANDIDATE);
+                    if x & word::DEAD != 0 {
+                        self.dead_candidates.push(id.handle);
+                    }
+                }
+                continue;
+            }
             if let Some(m) = self
                 .objects
                 .get_mut(&id.handle)
@@ -1132,11 +1470,7 @@ impl ArcHeapState {
         }
         let mut seeds: Vec<Ref> = Vec::new();
         for id in candidates {
-            let Some(m) = self
-                .objects
-                .get(&id.handle)
-                .filter(|m| m.generation == id.generation)
-            else {
+            let Some(m) = self.meta(id.handle).filter(|m| m.generation == id.generation) else {
                 continue;
             };
             if m.state == ArcState::Live && m.rc > 0 && !m.immortal {
@@ -1162,7 +1496,7 @@ impl ArcHeapState {
             let std::collections::hash_map::Entry::Vacant(input) = in_r.entry(x) else {
                 continue;
             };
-            let Some(m) = self.objects.get(&x) else {
+            let Some(m) = self.meta(x) else {
                 continue;
             };
             if m.immortal || m.state == ArcState::Dead {
@@ -1182,7 +1516,10 @@ impl ArcHeapState {
         }
         self.statistics.examined += r.len() as u64;
         // trial = rc − internal occurrences.
-        let mut trial: Vec<i128> = r.iter().map(|x| self.objects[x].rc as i128).collect();
+        let mut trial: Vec<i128> = r
+            .iter()
+            .map(|&x| self.meta(x).map_or(0, |m| m.rc) as i128)
+            .collect();
         for &u in &r {
             graph.edges(u, &mut |v| {
                 if let Some(&ix) = in_r.get(&v) {
@@ -1197,7 +1534,7 @@ impl ArcHeapState {
         let mut live_set = vec![false; r.len()];
         let mut stack: Vec<usize> = Vec::new();
         for (ix, &x) in r.iter().enumerate() {
-            let m = &self.objects[&x];
+            let m = self.meta(x).expect("ARC bug: region object without metadata");
             if trial[ix] > 0
                 || m.state == ArcState::Building
                 || m.conditionally_protected
@@ -1277,13 +1614,30 @@ impl ArcHeapState {
     /// object and compares with the RC (§20.3, audit mode). `roots` are the owning
     /// occurrences (not the observational ones, §21.3).
     pub fn audit(&self, graph: &dyn ArcGraph, roots: &[Ref]) -> Result<(), ArcError> {
+        self.audit_with(graph, roots, &[])
+    }
+
+    /// [`Self::audit`] over the table and `in_object`, the objects the in-object word
+    /// counts (the heap walks its pages for them).
+    pub fn audit_with(
+        &self,
+        graph: &dyn ArcGraph,
+        roots: &[Ref],
+        in_object: &[Ref],
+    ) -> Result<(), ArcError> {
         let mut count: HashMap<Ref, u64> = HashMap::default();
         for &h in roots {
             if e_handle(h) {
                 *count.entry(h).or_insert(0) += 1;
             }
         }
-        for (h, m) in self.objects.iter() {
+        let objects: Vec<(Ref, MetaArc)> = self
+            .objects
+            .iter()
+            .map(|(h, m)| (h, *m))
+            .chain(in_object.iter().filter_map(|&h| Some((h, self.meta(h)?))))
+            .collect();
+        for &(h, m) in &objects {
             if m.state == ArcState::Dead {
                 continue;
             }
@@ -1293,7 +1647,7 @@ impl ArcHeapState {
                 }
             });
         }
-        for (h, m) in self.objects.iter() {
+        for &(h, m) in &objects {
             if m.immortal || m.state == ArcState::Dead {
                 continue;
             }
