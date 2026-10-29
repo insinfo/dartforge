@@ -46,7 +46,7 @@ seção abaixo e `docs/ARC-IMPLEMENTACAO.md`.
 
 A reescrita do ARC real está implementada, mas **não foi validada nem integrada**. O
 patch está em
-`/private/tmp/claude-501/-Volumes-ssd-dock-MyRustProjects-dartforge/9eba5f9b-64b9-4ca8-a293-7c7a23a3c869/scratchpad/parc/redesign_wip.patch`
+`/Volumes/ssd_dock/tmp/arc-redesign/redesign_wip.patch`
 (sobre `fbd1c287`, 14 arquivos do runtime e do emissor) e continua na árvore de
 trabalho, sem commit. O desenho e as medidas estão em `docs/ARC-IMPLEMENTACAO.md` §9: a
 palavra de contagem fica no fim do bloco (um corpo de `w` palavras usa a classe de
@@ -74,12 +74,13 @@ Próximos passos, em ordem:
      `DARTFORGE_GC_STRESS=1` e com `DARTFORGE_ARC_CHECK=1`, mais o
      `147_deferred_antes_de_carregar`.
 
-   Os scripts estão no mesmo `scratchpad/rarc`: `export.sh`, `tests.sh`, `harness.sh`
-   e `arcmodes.sh`.
+   Os scripts estão em `/Volumes/ssd_dock/tmp/arc-redesign/rarc`: `export.sh`,
+   `tests.sh`, `harness.sh` e `arcmodes.sh`. O scratchpad em `/private/tmp` pode
+   sumir; essa cópia não some.
 3. Integrar em commits validados: a palavra no objeto com os metadados preguiçosos;
    as funções de descarte por classe; o reuso. Se não der para separar, vai num commit
    só.
-4. Reaplicar `scratchpad/parc/final_field_elision.patch` (aplica sem conflito) e medir
+4. Reaplicar `/Volumes/ssd_dock/tmp/arc-redesign/final_field_elision.patch` (aplica sem conflito) e medir
    de novo.
 5. Atualizar `docs/ARC-IMPLEMENTACAO.md` §9 com o resultado.
 
