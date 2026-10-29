@@ -914,18 +914,20 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
     // written), as the comment of `defineLazyField` intends: reading
     // `Zone._current` or `_rootZone` is a property load instead of a call
     // to the lazy getter. Writable even when final: Dart code never writes
-    // a final static.
+    // a final static. Only on library objects: V8 turns a class (a
+    // function) whose accessor is redefined into a dictionary, and every
+    // static of that class gets slower (`json_encode`'s `Stopwatch`).
     (
         Some("DARTFORGE_JSPROD_LAZY_DATA_PROPERTIES"),
         "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
         "    init = null;\n    return value;\n  };\n",
-        "    init = null;\n    $defineProperty($to, $name, {value, writable: true});\n    return value;\n  };\n",
+        "    init = null;\n    if (typeof $to != 'function') $defineProperty($to, $name, {value, writable: true});\n    return value;\n  };\n",
     ),
     (
         Some("DARTFORGE_JSPROD_LAZY_DATA_PROPERTIES"),
         "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
         "      init = null;\n      value = x;\n      setter(x);\n",
-        "      init = null;\n      value = x;\n      setter(x);\n      $defineProperty($to, $name, {value, writable: true});\n",
+        "      init = null;\n      value = x;\n      setter(x);\n      if (typeof $to != 'function') $defineProperty($to, $name, {value, writable: true});\n",
     ),
 ];
 
