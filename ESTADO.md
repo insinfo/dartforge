@@ -42,6 +42,47 @@ forma relevante.
 **Também em andamento:** a reescrita do núcleo do ARC de verdade. Veja a
 seção abaixo e `docs/ARC-IMPLEMENTACAO.md`.
 
+## Segunda prioridade para 29/10/2026: concluir a reescrita do ARC de verdade
+
+A reescrita do ARC real está implementada, mas **não foi validada nem integrada**. O
+patch está em
+`/private/tmp/claude-501/-Volumes-ssd-dock-MyRustProjects-dartforge/9eba5f9b-64b9-4ca8-a293-7c7a23a3c869/scratchpad/parc/redesign_wip.patch`
+(sobre `fbd1c287`, 14 arquivos do runtime e do emissor) e continua na árvore de
+trabalho, sem commit. O desenho e as medidas estão em `docs/ARC-IMPLEMENTACAO.md` §9: a
+palavra de contagem fica no fim do bloco (um corpo de `w` palavras usa a classe de
+`w + 1`), os metadados vivem nas flags dessa palavra, cada classe ganha uma função de
+descarte gerada pelo emissor, e as células mortas voltam por listas de reuso por classe
+no `Context`.
+
+Números de agora, em ciclos, contra o ARC simples na mesma rodada:
+
+| | ARC real antes | ARC real agora |
+| --- | ---: | ---: |
+| árvores | 7,5× | 2,2× (RSS 19 MB) |
+| strings | 2,8× | 2,3× (RSS 20 MB) |
+| JSON | 2,2× | 1,9× (RSS 156 MB; simples: 165 MB) |
+| HTTP | 3,7× | 2,7× (RSS 80 MB; simples: 28 MB) |
+
+Próximos passos, em ordem:
+1. Achar a origem do RSS do servidor HTTP no ARC real (80 MB): olhar
+   `DARTFORGE_GC_MEMORY=1` e a linha `reuse_cells`/`reuse_bytes` de
+   `DARTFORGE_GC_TRACE=1`, que conta células e bytes das listas de reuso.
+2. Validar num export limpo (HEAD com o patch, `CARGO_TARGET_DIR` próprio):
+   * testes de runtime e emit-native em release e debug, e clippy;
+   * o harness com os 160 programas nos 4 modos;
+   * os 152 programas do corpus em ARC simples, real e virtual, cada um normal, com
+     `DARTFORGE_GC_STRESS=1` e com `DARTFORGE_ARC_CHECK=1`, mais o
+     `147_deferred_antes_de_carregar`.
+
+   Os scripts estão no mesmo `scratchpad/rarc`: `export.sh`, `tests.sh`, `harness.sh`
+   e `arcmodes.sh`.
+3. Integrar em commits validados: a palavra no objeto com os metadados preguiçosos;
+   as funções de descarte por classe; o reuso. Se não der para separar, vai num commit
+   só.
+4. Reaplicar `scratchpad/parc/final_field_elision.patch` (aplica sem conflito) e medir
+   de novo.
+5. Atualizar `docs/ARC-IMPLEMENTACAO.md` §9 com o resultado.
+
 ## 29/10/2026, madrugada: mapas e `async` no JS, HTTP a 98,5% do Dart, reescrita do ARC
 
 Commits até `6646f294`, validados localmente e enviados. A suíte
