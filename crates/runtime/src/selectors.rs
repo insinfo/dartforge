@@ -19,6 +19,26 @@ thread_local! {
     static REGISTERED: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
     /// The selector of the last failed lookup (the text of the `NoSuchMethodError`).
     static MISSING_SELECTOR: RefCell<String> = const { RefCell::new(String::new()) };
+    /// The entries that the call sites' misses found, by class id and requested
+    /// selector hash (direct-mapped): a site whose receivers alternate between
+    /// classes (a mixin's body, shared by the classes that apply it) misses its
+    /// one-entry cache on every call, and the table lookup costs a hash and a
+    /// binary search. Emptied whenever a class's table may be replaced.
+    static SELECTOR_MEMO: [std::cell::Cell<[i64; 3]>; SELECTOR_MEMO_SIZE] =
+        const { [const { std::cell::Cell::new([0; 3]) }; SELECTOR_MEMO_SIZE] };
+}
+
+const SELECTOR_MEMO_SIZE: usize = 256;
+
+/// The [`SELECTOR_MEMO`] entry of `(cid, hash)`.
+fn selector_memo_index(cid: i64, hash: i64) -> usize {
+    let h = (cid as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (hash as u64);
+    (h.wrapping_mul(0xC2B2_AE3D_27D4_EB4F) >> 56) as usize % SELECTOR_MEMO_SIZE
+}
+
+/// A class's table changed: the memoized lookups may be stale.
+fn forget_selector_memo() {
+    SELECTOR_MEMO.with(|m| m.iter().for_each(|e| e.set([0; 3])));
 }
 
 /// The positions of the table of 32 runtime classes that the emitter writes
@@ -136,6 +156,7 @@ pub unsafe extern "C" fn dartforge_register_methods(cid: i64, pair_list: *const 
     // SAFETY: guaranteed by the caller.
     let t = unsafe { copy_table(pair_list, n as usize) };
     METHODS.with(|m| m.borrow_mut().insert(cid, t));
+    forget_selector_memo();
     mark_registered(cid);
 }
 
@@ -151,6 +172,7 @@ pub extern "C" fn dartforge_register_table(cid: i64, f: extern "C" fn() -> *cons
     // third word on), copied here.
     let table = unsafe { copy_table(t.add(2), *t.add(1) as usize) };
     METHODS.with(|m| m.borrow_mut().insert(cid, table));
+    forget_selector_memo();
     mark_registered(cid);
 }
 
@@ -182,6 +204,7 @@ pub unsafe extern "C" fn dartforge_register_tables(getters: *const u8, count: i6
         METHODS.with(|methods| methods.borrow_mut().insert(cid, pairs));
         mark_registered(cid);
     }
+    forget_selector_memo();
 }
 
 #[cfg(test)]
@@ -626,6 +649,16 @@ pub unsafe extern "C" fn dartforge_selector(cache: *mut i64, recv: i64, hash: i6
             return *cache.add(1) as usize;
         }
     }
+    let memo = selector_memo_index(cid, hash);
+    let [memo_cid, memo_hash, memo_entry] = SELECTOR_MEMO.with(|m| m[memo].get());
+    if memo_entry != 0 && memo_cid == cid && memo_hash == hash {
+        // SAFETY: see above.
+        unsafe {
+            *cache = cid.wrapping_add(1);
+            *cache.add(1) = memo_entry;
+        }
+        return memo_entry as usize;
+    }
     let mut found_item = class_method(cid, hash);
     // The selector of the typed call (`tc:m`, `ts:x`; `lower/entrada_tipada.rs`) is
     // only in the table of the methods that have the typed entry: without it, the
@@ -644,6 +677,7 @@ pub unsafe extern "C" fn dartforge_selector(cache: *mut i64, recv: i64, hash: i6
                 *cache = cid.wrapping_add(1);
                 *cache.add(1) = f as i64;
             }
+            SELECTOR_MEMO.with(|m| m[memo].set([cid, hash, f as i64]));
             f
         }
         None => {
