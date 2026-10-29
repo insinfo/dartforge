@@ -44,11 +44,18 @@ seção abaixo e `docs/ARC-IMPLEMENTACAO.md`.
 
 ## Segunda prioridade para 29/10/2026: concluir a reescrita do ARC de verdade
 
-A reescrita do ARC real está implementada, mas **não foi validada nem integrada**. O
-patch está em
-`/Volumes/ssd_dock/tmp/arc-redesign/redesign_wip.patch`
-(sobre `fbd1c287`, 14 arquivos do runtime e do emissor) e continua na árvore de
-trabalho, sem commit. O desenho e as medidas estão em `docs/ARC-IMPLEMENTACAO.md` §9: a
+A reescrita do ARC real está implementada e **está no `main` sem validação**, no commit
+`08039025` (marcado `WIP`). O proprietário preferiu o código possivelmente quebrado a
+perder o trabalho, então **a primeira tarefa é validar e corrigir o que quebrou**.
+
+O que já rodou:
+- os testes `prompt` do runtime (9/9);
+- o build release com `--features native`;
+- o `hello` em tracing, ARC simples e ARC real.
+
+O que não rodou: as suítes completas, o clippy, o harness e o corpus. Há uma cópia do
+patch em `/Volumes/ssd_dock/tmp/arc-redesign/redesign_wip.patch` (sobre `fbd1c287`,
+14 arquivos do runtime e do emissor). O desenho e as medidas estão em `docs/ARC-IMPLEMENTACAO.md` §9: a
 palavra de contagem fica no fim do bloco (um corpo de `w` palavras usa a classe de
 `w + 1`), os metadados vivem nas flags dessa palavra, cada classe ganha uma função de
 descarte gerada pelo emissor, e as células mortas voltam por listas de reuso por classe
