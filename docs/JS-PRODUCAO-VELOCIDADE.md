@@ -255,7 +255,8 @@ máscaras e a ordem dos `const` encolhem. Os projetos (`limitless_ui`,
   `dart2js` escreve uma máquina de estados com `switch`. Sobra o custo do
   gerador em cada `await`, o GC das molduras dos geradores (19% do tempo) e
   as avaliações de rti por ambiente (`T[_eval]("…")`, um `Map` por rti) do
-  `_Future`. A máquina de estados veio na rodada seguinte (§9.2): 2,2×.
+  `_Future`. A máquina de estados veio na rodada seguinte (§9.2): 2,2×;
+  os caminhos do runtime, na terceira (§10.2): ~1,4×.
 * **`list_sort` (2,3×).** O `JSArray.sort` do DDC é o `Sort.sort` do Dart
   (*quicksort* de dois pivôs em Dart), com `Comparable.compare(a as
   Comparable, b as Comparable)` checado a cada comparação; o do `dart2js`
@@ -263,7 +264,7 @@ máscaras e a ordem dos `const` encolhem. Os projetos (`limitless_ui`,
 * **`map_int_object` (2,4×).** O `IdentityMap`/`LinkedMap` do runtime
   guardam em `Map` do JavaScript; o `JsLinkedHashMap` do `dart2js` guarda
   chaves inteiras num objeto (`_nums`) com células encadeadas. Medido na
-  §9.5.
+  §9.5 e feito na §10.1.
 * **`collatz` (1,5×).** `x >> 1` com `x` de sinal desconhecido é
   `x > 0 ? x >>> 1 : x >> 1 >>> 0` (`dart.shrCount`); a inferência do
   `dart2js` prova `x` não negativo e escreve `x >>> 1`. Precisaria de uma
@@ -533,3 +534,204 @@ contra `(yield x)`). Continua em 0,895× do `dart2js -O2` (gz 0,918×).
 * O `crates/emit_js` mudou fora de `ctx.production()` só no `main.mjs` do
   desenvolvimento (§9.1); a máquina de estados e as suas dependências do
   `oxc` só mudam o texto da produção.
+
+## 10. Terceira rodada: mapas de chave primitiva e o runtime do `await`
+
+Rodada de 2026-10-28, noite, até 29 de madrugada. Mesmo método da §1, mas
+com a máquina **muito** mais carregada (carga de 10 a 74, outros dois
+agentes compilando): os tempos absolutos saíram inflados (o `async_await`
+do `dart2js` variou de 245 a 440 ms entre execuções) e só as razões medidas
+na mesma execução, com os três arquivos alternados, contam. “Antes” é o
+`6eee45b3` (fim da §9).
+
+Commits: `eb85abd4` (§10.1), `ab6ed67a` (§10.2) e `aae6630f` (correção
+da §10.2, ver o fim dela).
+
+### 10.1 `IdentityMap` em células
+
+O `IdentityMap` do runtime (todo mapa de chave `String`, `int` ou outra
+primitiva, os literais desses mapas e os mapas `identity`) guardava as
+entradas num `Map` do JavaScript. Agora, remendo do SDK de produção
+(`emit_js/src/sdk_patches.rs`, chave `DARTFORGE_JSPROD_IDENTITY_MAP_CELLS`),
+como o `JsLinkedHashMap` do `dart2js`:
+
+* cada entrada é uma célula `{k, v, n, p}` numa lista duplamente encadeada
+  na ordem de inserção;
+* a célula é achada por três tabelas criadas sob demanda: `_strings`
+  (objeto sem protótipo) para as chaves `String`, `_nums` (outro objeto sem
+  protótipo) para os inteiros `k` com `(k & 0x3fffffff) === k` — a busca
+  vira leitura de elemento — e `_rest` (um `Map`) para o resto (inteiros
+  negativos ou grandes, `double`, `bool`, `null`, objetos dos mapas
+  `identity`);
+* `[]=` decide a tabela uma vez (`_put`/`_putIn`/`_link`); `remove`
+  desliga a célula; `clear` solta as tabelas;
+* `keys`/`values` continuam no `_JSMapIterable` (o `_map` do `IdentityMap`
+  devolve um adaptador com `keys()`/`values()` sobre as células), com a
+  checagem de modificação concorrente antes de cada passo, como antes;
+  `forEach` anda nas células e checa depois de cada chamada.
+
+Regras da VM, agora exatas (antes três divergiam):
+
+* `-0.0` e `0` são a mesma chave e a célula guarda a **primeira** inserida
+  (`<num, int>{}..[-0.0] = 1..[0] = 2` tem a chave `-0.0`; o `Map` do
+  JavaScript normalizava para `0`);
+* uma chave `NaN` nunca é achada de novo (a célula não entra em tabela):
+  dois `m[double.nan] = …` dão duas entradas e `m[double.nan]` é `null`;
+* `addAll` só conta como modificação as chaves novas (antes uma chamada
+  durante a iteração lançava `ConcurrentModificationError` mesmo sem chave
+  nova);
+* `putIfAbsent` cujo `ifAbsent` insere a própria chave termina como
+  `this[key] = value`.
+
+Medidos e descartados (JavaScript puro, padrão do *kernel*): chaves
+`String` no `_rest` (1,9 contra 1,6 ms em 200 mil operações; mapas pequenos
+de JSON 15% mais lentos que com `_strings`); tabela de índices com
+*arrays* paralelos de chaves e valores (menos variação de GC, mas mapas
+pequenos 50% mais lentos); células por construtor em vez de literal (igual
+no mínimo, pior na mediana); o truque do `dart2js` de forçar modo dicionário
+na criação da tabela (o `Object.create(null)` do V8 já nasce assim).
+
+Teste: `emit_js/tests/programs/identity_maps.dart` (ordem, os três tipos de
+chave, `__proto__`/`constructor`/`"0"`, `-0.0`, `NaN`, `null`, `bool`,
+`remove`, `clear`, `putIfAbsent`, `addAll`, `update`, iteradores e
+modificação concorrente, mapas `identity`, JSON) contra a VM em `-O1`,
+`-O2` e `-O4` (`emit_js_production/tests/identity_maps.rs`).
+
+### 10.2 O runtime do `await`
+
+Com a máquina de estados (§9.2), o perfil do `async_await` era quase todo
+runtime: avaliação de rti por ambiente (`instanceType(this)[_eval]("…")`,
+um `Map` por rti) no `_Future`, *getters* preguiçosos e `t$R`. Mudou, só na
+produção:
+
+| mudança | onde | chave |
+| --- | --- | --- |
+| `_FutureListener.handleValue` de um futuro da zona raiz, rodando na zona raiz, chama o *callback* como o `_RootZone.runUnary` faz, sem avaliar os dois argumentos de tipo que ele ignora | remendo de `async/future_impl.dart` | `DARTFORGE_JSPROD_FUTURE_PATHS` |
+| `_Future._asyncComplete` e `_AsyncAwaitCompleter.complete` testam `value is Future` antes de `value is Future<T>` (um valor que não é `Future` não é `Future<T>`): o caso comum não avalia `Future<T>` | `future_impl.dart`, `async_patch.dart` | a mesma |
+| um `static` preguiçoso de **biblioteca** vira propriedade de dados depois de inicializado ou escrito (`_rootZone`), como o comentário do `defineLazyField` do DDC pretendia | remendo de `ddc_runtime/operations.dart` | `DARTFORGE_JSPROD_LAZY_DATA_PROPERTIES` |
+| `const int` calculado de literais e de outras constantes com `<<`, `>>`, `|`, `&`, `^`, `+`, `-`, `*`, operandos e resultado em `0..2^30` (`_FutureListener.maskValue = 1 << 0`, `stateThenAwait = stateThenOnerror \| maskAwait`) vira o número no uso, em vez de *getter* preguiçoso (o mundo não guarda a variável) | `emit_js/src/own_sdk.rs`, `world/src/lib.rs` | `DARTFORGE_JSPROD_FOLD_CONST_INTS` |
+| a receita de uma *closure* que uma função do runtime cria (`dart.fn(f, t$R("~(@)"))` no `_awaitOnObject`) é declarada uma vez mesmo escrita uma vez só (a §9.3 só declarava as repetidas) | `emit_js_production/src/shapes.rs` | `DARTFORGE_JSPROD_SDK_CLOSURE_RECIPES` |
+
+A ordem do laço de eventos não muda: os mesmos `scheduleMicrotask`, os
+mesmos ouvintes, a mesma ordem; os atalhos só pulam avaliações de tipo cujo
+resultado não era usado.
+
+Defeito encontrado e corrigido no caminho (`aae6630f`): a primeira versão
+convertia também os `static` preguiçosos de **classe**; o V8 transforma em
+dicionário uma função cujo acessor é redefinido, e todo `static` da classe
+ficava mais lento — o `Stopwatch` do `json_encode` levou o
+`mixed_utf16_json` de 68 a 100 µs/op. Os de classe (`Zone._current`)
+continuam com o *getter*; converter todos valia ~8% no `async_await`, e
+só os de biblioteca vale parte disso (dentro do ruído desta rodada).
+
+`async*` e `sync*` continuam com o gerador: nenhum *kernel* os usa e o
+protocolo é outro (`_asyncStarHelper`, `_IterationMarker`); não medimos
+ganho que justificasse a máquina deles nesta rodada.
+
+Teste: `emit_js/tests/programs/runtime_paths.dart` (estáticos preguiçosos
+lidos, escritos, falhando e repetidos; `const` dobrados; futuros completados
+com valor, com outro futuro, com `Future<Object>`, `Completer.sync`, erro,
+microtarefas e *timers* na ordem da VM; zona com `runUnary` interceptado)
+contra a VM em `-O1`, `-O2` e `-O4`, com as chaves ligadas e desligadas
+(`emit_js_production/tests/runtime_paths.rs`).
+
+Perfil do `async_await` depois: `Map.get` das avaliações de rti caiu de 15%
+para 6% do tempo e o `t$R` saiu do topo; sobra o próprio `_Future`
+(`_propagateToListeners`, as duas *closures* e o `_thenAwait` de cada
+`await`, a criação do *completer*), que o `dart2js` também executa.
+
+### 10.3 Resultado
+
+Node, `-O4` contra `dart2js -O4` (ms, tempo de CPU da *thread*; mediana de
+5 a 7 execuções alternadas). Duas execuções com carga diferente, para mostrar
+que a razão se mantém:
+
+| kernel | antes | depois | `dart2js -O4` | depois/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| `objects_in_collections/map_int_object` (carga ~10) | 12,6 | 5,2 | 4,3 | 1,21 |
+| `objects_in_collections/map_int_object` (carga ~25) | 20,0 | 7,9 | 7,2 | 1,10 |
+| `objects_in_collections/map_str_object` | 3,4 | 3,4 | 3,7 | 0,92 |
+| `collections/map` (`Map<int,int>`, 500 mil) | 57,7 | 48,2 | 44,7 | 1,08 |
+| `async_await` (carga ~12) | 571,5 | 333,5 | 247,5 | 1,35 |
+| `async_await` (carga ~25) | 620,5 | 392,0 | 258,5 | 1,52 |
+| `json/*`, `json_encode/*` | — | ≈ antes | — | ruído (±10%) |
+
+No `map_int_object` as rodadas sem GC empatam com o `dart2js`; a mediana
+depende de quantas rodadas pegam uma coleta maior (as células são 200 mil
+objetos vivos por rodada, nos dois).
+
+Chrome headless, `-O4` (ms, relógio de parede; mediana de 3 a 5):
+
+| kernel | antes | depois | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| `objects_in_collections/map_int_object` | 10,6 | 7,5 | 2,7 |
+| `objects_in_collections/map_str_object` | 2,8 | 2,8 | 3,3 |
+| `collections/map` | 29,3 | 16,1 | 30,7 |
+| `async_await` | 490,5 | 316,5 | 221,5 |
+| `json/encode_large` / `decode_large` | 61,8 / 21,0 | 58,2 / 21,0 | 52,7 / 25,8 |
+
+No Chrome o `map_int_object` tem rodadas de 2,7 ms nos dois arquivos e
+rodadas de 8–11 ms (GC); com 5 rodadas, a mediana do nosso caiu nas lentas
+e a do `dart2js` nas rápidas (`9,5 2,7 9,7 2,7 7,9` contra
+`8,6 2,6 11,6 2,7 2,6`).
+
+Node, nosso `-O2` contra o `dart2js` padrão (`-O1`) (ms; mediana de 5,
+carga alta):
+
+| kernel | antes | depois | `dart2js` (`-O1`) |
+| --- | ---: | ---: | ---: |
+| `objects_in_collections/map_int_object` | 40,4 | 19,4 | 19,8 |
+| `collections/map` | 132,4 | 65,7 | 72,9 |
+| `async_await` | 1508,5 | 1137,0 | 1341,0 |
+
+### 10.4 Tamanho
+
+Corpus `corpus/js`, como na §5 (`gzip -9`):
+
+| nível | antes | depois | diferença | `dart2js` do nível | depois/`dart2js` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `-O2` | 10.341.152 (gz 3.519.114) | 10.424.048 (gz 3.549.897) | +82.896 (+0,80%; gz +0,87%) | 12.416.485 (gz 4.047.873) | 0,840× (gz 0,877×) |
+| `-O4` | 10.224.278 (gz 3.485.084) | 10.306.823 (gz 3.515.294) | +82.545 (+0,81%; gz +0,87%) | 11.024.980 (gz 3.582.721) | 0,935× (gz 0,981×) |
+
+Quase tudo é o `IdentityMap` (`-O4`: +65 KB, gz +26 KB; +700 a +980 bytes
+em cada um dos 72 programas que usam mapa de chave primitiva): a classe
+nova é maior que a que delegava ao `Map`. O restante (§10.2) soma +17 KB
+(gz +4 KB): +60 a +100 bytes do `defineLazyField` em todo programa, e os
+programas com `async` *encolhem* ~500 bytes (as máscaras do
+`_FutureListener` dobradas). Tentativas de encolher o `IdentityMap`: os
+iteradores próprios viraram o adaptador do `_JSMapIterable` (−16 KB).
+
+Projetos (`-O2`): `limitless_ui` 3.349.301 → 3.349.816 (gz 944.878 →
+945.125); `new_sali` 7.178.083 → 7.176.651 (gz 1.937.907 → 1.937.748).
+
+### 10.5 Validação
+
+A cada commit, numa exportação limpa (`git archive` do HEAD mais os
+arquivos do commit, com `CARGO_TARGET_DIR` próprio e os arquivos tocados
+para recompilar): *build*, `clippy -D warnings` (`emit_js`,
+`emit_js_production`, `world`), testes de unidade, os ignorados
+`optimization_levels`, `int_parity`, `printed_names`, `native_members`,
+`main_arguments`, `async_state_machine`, `identity_maps` e
+`runtime_paths`; `dartforge-differential --production` em `corpus/js`
+274/274 em `-O1` e `-O2`, 258/258 em `-O3`, 254/254 em `-O4`
+(`production_levels.tsv`), desenvolvimento 274/274, `corpus/modern` 26/26
+em `-O2`; `limitless_ui` e2e 15/15 e as 48 rotas sem erro no Chrome;
+`new_sali` carrega sem erro. O `crates/emit_js` mudou só em remendos do SDK
+de produção e no dobramento de constantes do modo SDK
+(`own_sdk::inline_constant`, só com `ctx.sdk`): o texto do desenvolvimento
+é o mesmo.
+
+### 10.6 O que continua
+
+* **`async_await` (~1,4×).** O que sobra é o `_Future` do DDC, o mesmo
+  código do `dart2js` sem a inferência dele: a criação do *completer* (duas
+  avaliações de rti por chamada `async`), o `_thenAwait` (uma avaliação e um
+  `bind` por `await`), o `Zone._current` de classe pelo *getter*
+  preguiçoso. Próximos passos medidos como possíveis: o emissor passar a rti
+  do *completer* pronta, e mover o `Zone._current` para uma variável de
+  biblioteca.
+* **`map_int_object`**: igual ao `dart2js` fora do GC; a variação é das
+  coletas.
+* **Tamanho**: a margem no gzip do `-O4` caiu de 0,973× para 0,981×.
+* Os demais itens da §7 (`list_sort`, `collatz`, JSON, `closures`) não
+  foram tocados.
