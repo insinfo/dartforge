@@ -32,7 +32,7 @@ pub extern "C" fn dartforge_context() -> *const crate::heap::Context {
         if c.stack_limit.get() == 0 {
             c.stack_limit.set(thread_stack_limit());
             if c.areas.get().is_null() {
-                c.areas.set(EMPTY_AREA_TABLE.0.as_ptr());
+                c.areas.set(EMPTY_AREA_TABLE.as_ptr().cast());
             }
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             publish_in_tsd(c);
@@ -310,12 +310,11 @@ thread_local! {
 }
 
 /// The table of a thread without areas yet: the production `@df.get_area` reads
-/// an entry below `AREA_CAPACITY` without the bound and finds null.
-struct EmptyAreaTable([*mut i64; crate::layout::context::AREA_CAPACITY]);
-// SAFETY: never written; only null pointers.
-unsafe impl Sync for EmptyAreaTable {}
-static EMPTY_AREA_TABLE: EmptyAreaTable =
-    EmptyAreaTable([std::ptr::null_mut(); crate::layout::context::AREA_CAPACITY]);
+/// an entry below `AREA_CAPACITY` without the bound and finds null. Atomic words
+/// (never written) so that the table is zero-fill memory, not 32 KiB of the
+/// executable's constants.
+static EMPTY_AREA_TABLE: [std::sync::atomic::AtomicUsize; crate::layout::context::AREA_CAPACITY] =
+    [const { std::sync::atomic::AtomicUsize::new(0) }; crate::layout::context::AREA_CAPACITY];
 
 /// The next module id (`@df.area_id`), the same on every thread.
 static NEXT_AREA_ID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
