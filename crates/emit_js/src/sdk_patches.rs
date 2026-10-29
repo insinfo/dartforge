@@ -587,6 +587,303 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
         "String _functionRtiToString(Rti functionType, List<String>? genericContext,\n",
         "/// The source name of a named parameter whose key the production profile\n/// shortened (`dart.namedSourceName`).\nString _namedParameterName(String key) =>\n    JS('String', 'dart.namedSourceName(#)', key);\n\n/// The position (`0, 3, 6…`) in `named` (triples of key, `required` and\n/// type, sorted by key) of the `k ~/ 3`-th named parameter in the order of\n/// the source names, the order the VM prints (an insertion sort: a method\n/// called in a template is a live selector for the closed world).\nint _namedParameterAt(Object named, int k) => JS('int', '''(() => {\n  let order = [], n = 0;\n  for (let i = 0; i < $named.length; i += 3) {\n    let x = dart.namedSourceName($named[i]), j = n++;\n    while (j > 0 && dart.namedSourceName($named[order[j - 1]]) > x) {\n      order[j] = order[j - 1];\n      j--;\n    }\n    order[j] = i;\n  }\n  return order[$k / 3];\n})()''');\n\nString _functionRtiToString(Rti functionType, List<String>? genericContext,\n",
     ),
+    // `IdentityMap` (every map with `String`, `int` or other primitive keys,
+    // and the `identity` maps) keeps its entries in cells linked in
+    // insertion order and finds them through an object per kind of key, as
+    // dart2js does, instead of a JavaScript `Map`: an integer key is an
+    // element lookup (`docs/JS-PRODUCAO-VELOCIDADE.md` §10). The other keys
+    // stay in a `Map`. Iteration checks the modification count before each
+    // step, as before; `-0.0` keeps the key first inserted, a `NaN` key is
+    // never found again and `addAll` counts only new keys, as on the VM.
+    (
+        Some("DARTFORGE_JSPROD_IDENTITY_MAP_CELLS"),
+        "_internal/js_dev_runtime/private/identity_hash_map.dart",
+        r##"base class IdentityMap<K, V> extends InternalMap<K, V> {
+  final _map = JS('', 'new Map()');
+
+  // We track the number of modifications done to the key set of the
+  // hash map to be able to throw when the map is modified while being
+  // iterated over.
+  //
+  // Value cycles after 2^30 modifications so that modification counts are
+  // always unboxed (Smi) values. Modification detection will be missed if you
+  // make exactly some multiple of 2^30 modifications between advances of an
+  // iterator.
+  @notNull
+  int _modifications = 0;
+
+  IdentityMap();
+  IdentityMap.from(JSArray entries) {
+    var map = _map;
+    for (int i = 0, n = JS<int>('!', '#.length', entries); i < n; i += 2) {
+      JS('', '#.set(#[#], #[#])', map, entries, i, entries, i + 1);
+    }
+  }
+
+  int get length => JS<int>('!', '#.size', _map);
+  bool get isEmpty => JS<bool>('!', '#.size == 0', _map);
+  bool get isNotEmpty => JS<bool>('!', '#.size != 0', _map);
+
+  Iterable<K> get keys => _JSMapIterable<K>(this, true);
+  Iterable<V> get values => _JSMapIterable<V>(this, false);
+
+  bool containsKey(Object? key) {
+    return JS<bool>('!', '#.has(#)', _map, key);
+  }
+
+  bool containsValue(Object? value) {
+    for (var v in JS('', '#.values()', _map)) {
+      if (v == value) return true;
+    }
+    return false;
+  }
+
+  void addAll(Map<K, V> other) {
+    if (other.isNotEmpty) {
+      var map = _map;
+      other.forEach((key, value) {
+        JS('', '#.set(#, #)', map, key, value);
+      });
+      _modifications = (_modifications + 1) & 0x3fffffff;
+    }
+  }
+
+  V? operator [](Object? key) {
+    V value = JS('', '#.get(#)', _map, key);
+    // coerce undefined to null.
+    return JS<bool>('!', '# === void 0', value) ? null : value;
+  }
+
+  void operator []=(K key, V value) {
+    var map = _map;
+    int length = JS('!', '#.size', map);
+    JS('', '#.set(#, #)', map, key, value);
+    if (length != JS<int>('!', '#.size', map)) {
+      _modifications = (_modifications + 1) & 0x3fffffff;
+    }
+  }
+
+  V putIfAbsent(K key, V ifAbsent()) {
+    if (JS<bool>('!', '#.has(#)', _map, key)) {
+      return JS('', '#.get(#)', _map, key);
+    }
+    V value = ifAbsent();
+    if (value == null) JS('', '# = null', value);
+    JS('', '#.set(#, #)', _map, key, value);
+    _modifications = (_modifications + 1) & 0x3fffffff;
+    return value;
+  }
+
+  V? remove(Object? key) {
+    V value = JS('', '#.get(#)', _map, key);
+    if (JS<bool>('!', '#.delete(#)', _map, key)) {
+      _modifications = (_modifications + 1) & 0x3fffffff;
+    }
+    // coerce undefined to null.
+    return JS<bool>('!', '# === void 0', value) ? null : value;
+  }
+
+  void clear() {
+    if (JS<int>('!', '#.size', _map) > 0) {
+      JS('', '#.clear()', _map);
+      _modifications = (_modifications + 1) & 0x3fffffff;
+    }
+  }
+}
+
+"##,
+        r##"base class IdentityMap<K, V> extends InternalMap<K, V> {
+  // The entries are cells `{k, v, n, p}` (key, value, next, previous) in a
+  // list in insertion order, found by key through three tables, as in the
+  // `JsLinkedHashMap` of dart2js: `String` keys in `_strings` and the
+  // integers `k` with `(k & 0x3fffffff) === k` in `_nums`, objects without
+  // prototype; every other key in the JavaScript `Map` `_rest`. As on the
+  // VM, `-0.0` and `0` are one key (the cell keeps the first one) and a
+  // `NaN` key is never found again: its cell is in no table.
+  Object? _strings;
+  Object? _nums;
+  Object? _rest;
+  Object? _first;
+  Object? _last;
+  @notNull
+  int _length = 0;
+
+  // Value cycles after 2^30 modifications so that modification counts are
+  // always unboxed (Smi) values. A field of its own: `_modifications`
+  // overrides an abstract getter, which makes it an accessor pair.
+  @notNull
+  int _mods = 0;
+
+  IdentityMap();
+  IdentityMap.from(JSArray entries) {
+    for (int i = 0, n = JS<int>('!', '#.length', entries); i < n; i += 2) {
+      _put(JS('', '#[#]', entries, i), JS('', '#[#]', entries, i + 1));
+    }
+  }
+
+  int get _modifications => _mods;
+
+  /// What `_JSMapIterable` reads: `keys()` and `values()` return JavaScript
+  /// iterators over the cells from the current first one.
+  get _map => JS('', '''((c) => {
+    let it = (keys) => ({next() {
+      if (c == null) return {value: void 0, done: true};
+      let x = c;
+      c = c.n;
+      return {value: keys ? x.k : x.v, done: false};
+    }});
+    return {keys: () => it(true), values: () => it(false)};
+  })(#)''', _first);
+
+  int get length => _length;
+  bool get isEmpty => _length == 0;
+  bool get isNotEmpty => _length != 0;
+
+  Iterable<K> get keys => _JSMapIterable<K>(this, true);
+  Iterable<V> get values => _JSMapIterable<V>(this, false);
+
+  /// The cell of [key], or `null`/`undefined`.
+  Object? _cell(Object? key) {
+    if (JS<bool>('!', 'typeof # == "string"', key)) {
+      var t = _strings;
+      return t == null ? null : JS('', '#[#]', t, key);
+    }
+    if (JS<bool>('!', 'typeof # == "number" && (# & 0x3fffffff) === #', key,
+        key, key)) {
+      var t = _nums;
+      return t == null ? null : JS('', '#[#]', t, key);
+    }
+    var t = _rest;
+    return t == null ? null : JS('', '#.get(#)', t, key);
+  }
+
+  void _put(Object? key, Object? value) {
+    if (value == null) JS('', '# = null', value);
+    if (JS<bool>('!', 'typeof # == "string"', key)) {
+      _putIn(_strings ??= JS('', 'Object.create(null)'), key, value);
+    } else if (JS<bool>(
+        '!', 'typeof # == "number" && (# & 0x3fffffff) === #', key, key, key)) {
+      _putIn(_nums ??= JS('', 'Object.create(null)'), key, value);
+    } else {
+      var t = _rest ??= JS('', 'new Map()');
+      var c = JS('', '#.get(#)', t, key);
+      if (c != null) {
+        JS('', '#.v = #', c, value);
+      } else {
+        c = _link(key, value);
+        // A `NaN` key stays out of the table.
+        if (JS<bool>('!', '# === #', key, key)) JS('', '#.set(#, #)', t, key, c);
+      }
+    }
+  }
+
+  void _putIn(Object table, Object? key, Object? value) {
+    var c = JS('', '#[#]', table, key);
+    if (c != null) {
+      JS('', '#.v = #', c, value);
+    } else {
+      JS('', '#[#] = #', table, key, _link(key, value));
+    }
+  }
+
+  /// A new cell at the end of the list.
+  Object _link(Object? key, Object? value) {
+    var last = _last;
+    var c = JS<Object>('!', '{k: #, v: #, n: null, p: #}', key, value, last);
+    if (last == null) {
+      _first = c;
+    } else {
+      JS('', '#.n = #', last, c);
+    }
+    _last = c;
+    _length++;
+    _mods = (_mods + 1) & 0x3fffffff;
+    return c;
+  }
+
+  bool containsKey(Object? key) => _cell(key) != null;
+
+  bool containsValue(Object? value) {
+    for (var c = _first; c != null; c = JS('', '#.n', c)) {
+      if (JS('', '#.v', c) == value) return true;
+    }
+    return false;
+  }
+
+  void addAll(Map<K, V> other) {
+    other.forEach((K key, V value) {
+      _put(key, value);
+    });
+  }
+
+  V? operator [](Object? key) {
+    var c = _cell(key);
+    return c == null ? null : JS('', '#.v', c);
+  }
+
+  void operator []=(K key, V value) {
+    _put(key, value);
+  }
+
+  V putIfAbsent(K key, V ifAbsent()) {
+    var c = _cell(key);
+    if (c != null) return JS('', '#.v', c);
+    V value = ifAbsent();
+    if (value == null) JS('', '# = null', value);
+    // `ifAbsent` may have added the key: `[]=`, as on the VM.
+    _put(key, value);
+    return value;
+  }
+
+  V? remove(Object? key) {
+    var c = _cell(key);
+    if (c == null) return null;
+    if (JS<bool>('!', 'typeof # == "string"', key)) {
+      JS('', 'delete #[#]', _strings, key);
+    } else if (JS<bool>(
+        '!', 'typeof # == "number" && (# & 0x3fffffff) === #', key, key, key)) {
+      JS('', 'delete #[#]', _nums, key);
+    } else {
+      JS('', '#.delete(#)', _rest, key);
+    }
+    var p = JS('', '#.p', c);
+    var n = JS('', '#.n', c);
+    if (p == null) {
+      _first = n;
+    } else {
+      JS('', '#.n = #', p, n);
+    }
+    if (n == null) {
+      _last = p;
+    } else {
+      JS('', '#.p = #', n, p);
+    }
+    _length--;
+    _mods = (_mods + 1) & 0x3fffffff;
+    return JS('', '#.v', c);
+  }
+
+  void clear() {
+    if (_length > 0) {
+      _strings = _nums = _rest = _first = _last = null;
+      _length = 0;
+      _mods = (_mods + 1) & 0x3fffffff;
+    }
+  }
+
+  void forEach(void action(K key, V value)) {
+    int modifications = _mods;
+    for (var c = _first; c != null; c = JS('', '#.n', c)) {
+      action(JS('', '#.k', c), JS('', '#.v', c));
+      if (modifications != _mods) {
+        throw ConcurrentModificationError(this);
+      }
+    }
+  }
+}
+
+"##,
+    ),
 ];
 
 /// Applies `PATCHES` to `sdk` as overlay replacements. The patched files
