@@ -1,5 +1,47 @@
 # Estado do DartForge — 2026-10-29
 
+## Prioridade para 29/10/2026: HTTP com o desenho completo do Dart AOT
+
+O HTTP nativo está em 98,5% do Dart: 69,8k contra 70,9k req/s. Medido por
+thread na sexta rodada, o que sobra é:
+- a pilha sombra, ~6% das instruções por requisição;
+- as conferências de exceção pendente, ~2%;
+- ~200 consultas ao memo de RTI;
+- ~393 leituras do contexto da thread.
+
+**Já temos as duas peças do desenho do Dart AOT:**
+- `--exceptions tables` (A1): `invoke`/`landingpad` Itanium com personalidade
+  própria, de custo zero no caminho normal;
+- `--roots maps`: mapas de pilha do LLVM no lugar da pilha sombra. Veja
+  `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md`.
+
+O padrão continua sendo `--exceptions check --roots shadow` (A0), e o
+relatório de prontidão recomenda o A0 em produção.
+
+**O A1 sozinho foi medido no servidor na sexta rodada e não compensou:**
+- +2k instruções por requisição, porque o A1 perde o contexto passado por
+  argumento, que só existe no A0;
+- ciclos praticamente iguais;
+- +148 KB de executável, das LSDAs.
+
+Desenrolar um `StackOverflowError` profundo no A1 continua lento. Nunca medimos
+o servidor com a combinação `--exceptions tables --roots maps`.
+
+**Tarefa:**
+1. Medir o servidor HTTP e o `trees` com `--exceptions tables --roots maps`
+   contra o A0, com a mesma metodologia da sexta rodada:
+   `load_keepalive.dart`, carga abaixo de 3,5 e contadores da thread do
+   isolate.
+2. Levar o contexto passado por argumento (os gêmeos `f$cx`) para o A1.
+3. Se a combinação ganhar, corrigir o desenrolar lento de `StackOverflowError`
+   e avaliar se vira o padrão em algum alvo.
+
+A meta é fechar os ~1,5% que faltam para o Dart sem aumentar o executável de
+forma relevante.
+
+**Também em andamento:** a reescrita do núcleo do ARC de verdade. Veja a
+seção abaixo e `docs/ARC-IMPLEMENTACAO.md`.
+
 ## 29/10/2026, madrugada: mapas e `async` no JS, HTTP a 98,5% do Dart, reescrita do ARC
 
 Commits até `6646f294`, validados localmente e enviados. A suíte
