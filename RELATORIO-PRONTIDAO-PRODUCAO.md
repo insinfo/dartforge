@@ -1178,6 +1178,80 @@ RTI (~3%); o `memset` e a coleta dos buffers de 8 KiB (~3%); e as ~100 chamadas 
 runtime que restam por pedido, a maior parte já barata (`selector` 8, `rti_e` 6 do
 `LinkedList._unlink`, `hash_map_lookup` 6, `string_index_of` 6).
 
+## Rodada de 2026-10-29 (madrugada): vazão HTTP, rodada 6 — o prólogo das funções
+
+Medido no mesmo Mac mini M4: "início" é o servidor compilado de `6eee45b3`; "fim", de
+`6646f294`, numa cópia exportada com `git archive` e um `CARGO_TARGET_DIR` próprio. Método
+novo: os contadores **por thread** do kernel (`proc_pidinfo(PROC_PIDTHREADCOUNTS)`, instruções,
+ciclos e tempos de usuário e sistema de cada thread, lidos antes e depois da carga), que isolam a
+thread do isolado, a que fixa os pedidos/s; os números de instruções e ciclos abaixo são dela, e
+não do processo inteiro como nas rodadas anteriores. Servidor: mediana de 4 execuções
+alternadas de 4 s com 4 × 8 conexões de `bench/comparison/load_keepalive.dart`, cada uma começada
+com a carga abaixo de 3,5; árvores: mediana de 5 processos alternados.
+
+| medida | início | fim | Dart AOT 3.6.2 |
+|---|---:|---:|---:|
+| servidor `/json` com keep-alive, pedidos/s | 65,4 mil | 69,8 mil | 70,9 mil |
+| thread do isolado: instruções / ciclos por pedido | 188,1 mil / 55,2 mil | 185,5 mil / 53,0 mil | 176,2 mil / 51,9 mil |
+| thread do isolado por pedido: usuário + sistema | 10,39 + 4,75 µs | 9,68 + 4,58 µs | 8,85 + 5,04 µs |
+| executável do servidor (sem símbolos) | 4,518 MB | 4,501 MB | 5,625 MB |
+| árvores, ms por rodada (instruções do processo) | 12,2–13,0 (5,025 G) | 12,2 (4,992 G) | 11,85 |
+
+O servidor passou de 92% para 98,5% dos pedidos/s do Dart (+6,7%). As instruções da thread do
+isolado caem 1,4% e os ciclos 4%: o que saiu estava no caminho de toda chamada. O executável
+fica 16 KB menor.
+
+**Onde está o resto** (o que a rodada mediu antes de mexer). Contagem com o `lldb`: ~880
+chamadas a funções Dart por pedido (383 por entradas de seletor `$c`/`$tc`/`$g`/`$s`) e ~200
+aos auxiliares de RTI. Dois compiladores de medida, que não entram: sem quadros de raízes (e com
+a coleta desligada nos dois lados da comparação) a thread do isolado faz ~12 mil instruções a
+menos por pedido (6%); sem nenhuma conferência de exceção pendente, ~4 mil a menos (2%) e 1 mil
+ciclos a menos. A pilha-sombra é, portanto, a maior parte da diferença de instruções para o Dart;
+a conferência de exceção vem depois.
+
+**O que entrou** (validado na cópia limpa de `2df83de7` com os patches: testes de
+`dartforge-emit-native` — 1.045 passam — e de `dartforge-runtime` — 332 —, `cargo clippy -D
+warnings` dos dois e o corpus nativo `--optimize` com `--exec-limit 60` contra `dart run` em
+rastreamento, rastreamento com `DARTFORGE_CHECK_SHADOW=1`, `DARTFORGE_MEMORY=arc` e ARC preparado:
+160/160 em cada; o último commit, de novo nos quatro modos):
+
+- `1dd200b2`: (1) a busca da área de globais (`@df.get_area`, em quase toda função) lia o limite
+  da tabela, comparava e lia o id do módulo como atômico, e as buscas das funções que o LLVM
+  embute num mesmo corpo não se fundiam. O runtime agora dá a cada thread uma tabela de
+  `AREA_CAPACITY` (4.096) entradas desde a primeira leitura do contexto, que nunca se move
+  enquanto os ids couberem; a busca de produção compara o id com a constante e lê id, tabela e
+  entrada com cargas invariantes (um valor velho é o id 0 ou a entrada nula, que só volta ao
+  caminho lento). (2) O desvio para a exceção pendente depois de cada chamada leva pesos de
+  ramo frio (−16 KB de `__text`). (3) `frame_placement` passa a abrir também o quadro de funções
+  com parâmetros enraizados, gravando-os onde o quadro abre. −2,6 mil instruções e −2,2 mil
+  ciclos por pedido no conjunto com o seguinte.
+- `08b190c2`: as faltas de seletor (8 por pedido, o `length` do `_LinkedHashMapMixin.isEmpty`
+  alternando duas classes no mesmo sítio) passam por um memo por thread de 256 entradas antes
+  do `HashMap` e da busca binária da tabela da classe; esvaziado quando uma tabela pode mudar.
+- `6646f294`: a tabela vazia de `1dd200b2` era um vetor imutável de nulos e ia para o `__const`
+  (+32 KiB); com palavras atômicas vira memória zerada sob demanda.
+
+**Medido e não feito.**
+
+- *Exceções por tabelas (A1, `--exceptions=tables`) no servidor*: +2 mil instruções (perde o
+  contexto por argumento) e quase o mesmo em ciclos, com +148 KB de executável (as LSDAs). Não
+  compensa como está.
+- *Tirar a conferência depois de uma chamada direta em posição de cauda* (`return f(x);`): só
+  ~0,3% de instruções, e quebrava a detecção de estouro de pilha — a conferência era o que dava
+  ao corpo o contexto e, com ele, a verificação de pilha (`134_estouro_de_pilha`). Descartado.
+- *Limite jovem maior* (16 ou 64 MiB): −5 mil instruções por pedido, mas mais ciclos (memória
+  fria fora do cache); os 4 MiB ficam.
+- *Cache por sítio de RTI com mais entradas*: os sítios veem de 3 a 16 chaves por pedido
+  (`_FutureListener.handleValue` 16, `_BufferingStreamSubscription._sendData` 7,
+  `Completer()` 4); um mapeamento direto de 8 entradas acertaria metade, ao custo de 16 palavras
+  de área por sítio. O que tiraria as sondas é avaliar `T` direto do vetor de argumentos de tipo
+  do receptor, como a VM.
+
+**O que ainda separa do Dart** (thread do isolado, 9,7 contra 8,9 µs de usuário; 185,5 contra
+176,2 mil instruções): a pilha-sombra (~12 mil instruções por pedido: cabeçalho, ligação,
+zeragem e as gravações e limpezas das raízes), a conferência de exceção (~4 mil), as sondas do
+memo de RTI (~200 por pedido) e o contexto por TLS nas entradas de seletor (~393 por pedido).
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).
@@ -1196,12 +1270,11 @@ runtime que restam por pedido, a maior parte já barata (`selector` 8, `rti_e` 6
    nulo e elimina `boolean_selector`, `source_span`, `string_scanner` e `stream_channel`, que
    aqui somam cerca de 160 KB sem minificação. No hello o piso vem dos membros de `Object`
    tratados como universais (`universal_names`): `toString` puxa o RTI inteiro.
-2. **Vazão HTTP ~94% do Dart** (65,8 contra 69,8 mil pedidos/s; 207,3 contra 211,1 mil
-   instruções e 71,7 contra 73,1 mil ciclos por pedido, na tarde de 2026-10-28). As
-   chamadas ao sistema seguem o mesmo padrão do Dart; a diferença é tempo de usuário na thread do
-   isolado (9,9 contra 8,6 µs por pedido): o código Dart compilado (quadro de raízes, conferência
-   de exceção e entradas uniformes), as sondas do memo de RTI e o `memset` dos buffers de 8 KiB
-   (seção "vazão HTTP, rodada 5" de 2026-10-28).
+2. **Vazão HTTP ~98,5% do Dart** (69,8 contra 70,9 mil pedidos/s; na thread do isolado 185,5
+   contra 176,2 mil instruções e 53,0 contra 51,9 mil ciclos por pedido, em 2026-10-29). A
+   diferença é tempo de usuário na thread do isolado (9,7 contra 8,9 µs por pedido): a
+   pilha-sombra, a conferência de exceção, as sondas do memo de RTI e o contexto por TLS nas
+   entradas de seletor (seção "vazão HTTP, rodada 6" de 2026-10-29).
 3. **`async` no nível do Dart** (no fim de 2026-10-27: 254 contra 249 ms, 5,22 contra
    5,30 G ciclos, com o dobro de instruções). O que sobra é a própria máquina de estados no
    estilo do dart2js (`_wrapBody` e o `guarded` por chamada, o corpo chamado pela
