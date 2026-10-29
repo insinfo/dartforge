@@ -884,6 +884,49 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
 
 "##,
     ),
+    // The `Future` paths behind every `await` (`docs/JS-PRODUCAO-VELOCIDADE.md`
+    // §11). A listener of a root-zone future, run in the root zone, calls
+    // its callback as `_RootZone.runUnary` does, without evaluating the two
+    // type arguments `runUnary` ignores there.
+    (
+        Some("DARTFORGE_JSPROD_FUTURE_PATHS"),
+        "async/future_impl.dart",
+        "  FutureOr<T> handleValue(S sourceResult) {\n    return _zone.runUnary<FutureOr<T>, S>(_onValue, sourceResult);\n  }\n",
+        "  FutureOr<T> handleValue(S sourceResult) {\n    var zone = _zone;\n    if (identical(zone, _rootZone) && identical(Zone._current, _rootZone)) {\n      return _onValue(sourceResult);\n    }\n    return zone.runUnary<FutureOr<T>, S>(_onValue, sourceResult);\n  }\n",
+    ),
+    // Completing with a value that is not a `Future` at all (the common
+    // case) is decided by the plain `is Future`, without evaluating
+    // `Future<T>` in the future's environment: a value that is not a
+    // `Future` is not a `Future<T>`.
+    (
+        Some("DARTFORGE_JSPROD_FUTURE_PATHS"),
+        "async/future_impl.dart",
+        "    if (value is Future<T>) {\n      _chainFuture(value);\n      return;\n    }\n    _asyncCompleteWithValue(value);\n",
+        "    if (value is Future && value is Future<T>) {\n      _chainFuture(value);\n      return;\n    }\n    _asyncCompleteWithValue(unsafeCast<T>(value));\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_FUTURE_PATHS"),
+        "_internal/js_dev_runtime/patch/async_patch.dart",
+        "    } else if (value is Future<T>) {\n      assert(!_future._isComplete);\n      _future._chainFuture(value);\n    } else {\n      _future._completeWithValue(value);\n    }\n",
+        "    } else if (value is Future && value is Future<T>) {\n      assert(!_future._isComplete);\n      _future._chainFuture(value);\n    } else {\n      _future._completeWithValue(unsafeCast<T>(value));\n    }\n",
+    ),
+    // A lazy static becomes a data property once initialized (or first
+    // written), as the comment of `defineLazyField` intends: reading
+    // `Zone._current` or `_rootZone` is a property load instead of a call
+    // to the lazy getter. Writable even when final: Dart code never writes
+    // a final static.
+    (
+        Some("DARTFORGE_JSPROD_LAZY_DATA_PROPERTIES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "    init = null;\n    return value;\n  };\n",
+        "    init = null;\n    $defineProperty($to, $name, {value, writable: true});\n    return value;\n  };\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_LAZY_DATA_PROPERTIES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "      init = null;\n      value = x;\n      setter(x);\n",
+        "      init = null;\n      value = x;\n      setter(x);\n      $defineProperty($to, $name, {value, writable: true});\n",
+    ),
 ];
 
 /// Applies `PATCHES` to `sdk` as overlay replacements. The patched files

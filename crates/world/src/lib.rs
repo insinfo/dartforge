@@ -521,7 +521,10 @@ fn inlinable_constant_depth(p: &Program, v: VariableId, depth: usize) -> bool {
         }
     }
     let a = &p.unit(unit).ast;
-    if literal(a, x) || const_string_value(p, v).is_some_and(|s| s.len() < 32) {
+    if literal(a, x)
+        || const_string_value(p, v).is_some_and(|s| s.len() < 32)
+        || const_int_value(p, v).is_some()
+    {
         return true;
     }
     match const_alias(p, v, a, x) {
@@ -553,6 +556,60 @@ pub fn const_alias(p: &Program, v: VariableId, a: &ast::Ast, x: ast::ExprId) -> 
         .or_else(|| lib.scope.get(&n.sym))
         .and_then(|b| b.getter)
         .and_then(as_variable)
+}
+
+/// The value of a `const` int computed from int literals and other such
+/// constants with `<<`, `>>`, `|`, `&`, `^`, `+`, `-` and `*`, every operand
+/// and the result in `0..2^30`: the emitter folds it at the use site
+/// (`DARTFORGE_JSPROD_FOLD_CONST_INTS=0` leaves it alone). The same rule is
+/// `dartforge_emit_js::own_sdk::const_int_value`.
+pub fn const_int_value(p: &Program, v: VariableId) -> Option<i64> {
+    if std::env::var("DARTFORGE_JSPROD_FOLD_CONST_INTS").is_ok_and(|x| x == "0") {
+        return None;
+    }
+    const_int_depth(p, v, 0)
+}
+
+fn const_int_depth(p: &Program, v: VariableId, depth: usize) -> Option<i64> {
+    let var = p.variable(v);
+    if !var.const_ || var.extension.is_some() || depth > 8 {
+        return None;
+    }
+    let (unit, x) = const_initializer(p, v)?;
+    const_int_expr(p, v, unit, x, depth)
+}
+
+fn const_int_expr(
+    p: &Program,
+    v: VariableId,
+    unit: dartforge_elements::model::UnitId,
+    x: ast::ExprId,
+    depth: usize,
+) -> Option<i64> {
+    const LIMIT: i64 = 1 << 30;
+    let a = &p.unit(unit).ast;
+    let value = match &a.expr(x).kind {
+        ast::ExprKind::Int(span) => int_literal_value(&p.unit(unit).source[span.start..span.end])?,
+        ast::ExprKind::Parenthesized(i) => const_int_expr(p, v, unit, *i, depth)?,
+        ast::ExprKind::Identifier(_) => const_int_depth(p, const_alias(p, v, a, x)?, depth + 1)?,
+        ast::ExprKind::Binary { op, left, right } => {
+            let l = const_int_expr(p, v, unit, *left, depth)?;
+            let r = const_int_expr(p, v, unit, *right, depth)?;
+            match op {
+                ast::BinaryOp::Shl if r < 31 => l << r,
+                ast::BinaryOp::Shr if r < 31 => l >> r,
+                ast::BinaryOp::BitOr => l | r,
+                ast::BinaryOp::BitAnd => l & r,
+                ast::BinaryOp::BitXor => l ^ r,
+                ast::BinaryOp::Add => l + r,
+                ast::BinaryOp::Sub => l - r,
+                ast::BinaryOp::Mul => l.checked_mul(r)?,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    (0..LIMIT).contains(&value).then_some(value)
 }
 
 /// The value of a `const` string whose initializer only interpolates `int`

@@ -787,6 +787,9 @@ fn inline_constant_depth(e: &FnEmitter, vid: VariableId, depth: usize) -> Option
     if let Some(s) = const_string_value(e.ctx.program, vid).filter(|s| s.len() < 32) {
         return Some(Js::prim(js::string_literal(&s)));
     }
+    if let Some(n) = const_int_value(e.ctx.program, vid) {
+        return Some(Js::prim(n.to_string()));
+    }
     if !inlinable_literal(&e.ctx.program.unit(unit).ast, init) {
         let target = const_alias(e.ctx.program, vid, &e.ctx.program.unit(unit).ast, init)?;
         return inline_constant_depth(e, target, depth + 1);
@@ -840,6 +843,67 @@ pub fn const_string_value(p: &dartforge_elements::model::Program, v: VariableId)
         }
     }
     interpolated.then_some(out)
+}
+
+/// The value of a `const` int computed from int literals and other such
+/// constants with `<<`, `>>`, `|`, `&`, `^`, `+`, `-` and `*`
+/// (`_FutureListener.maskValue = 1 << 0`, `stateThenAwait =
+/// stateThenOnerror | maskAwait`), when every operand and the result are in
+/// `0..2^30`, where the VM and the web compute the same: the use site reads
+/// the number instead of a lazy static. `None` for anything else, and with
+/// `DARTFORGE_JSPROD_FOLD_CONST_INTS=0`. The same rule is
+/// `dartforge_world::const_int_value`.
+pub fn const_int_value(p: &dartforge_elements::model::Program, v: VariableId) -> Option<i64> {
+    if std::env::var("DARTFORGE_JSPROD_FOLD_CONST_INTS").is_ok_and(|x| x == "0") {
+        return None;
+    }
+    const_int_depth(p, v, 0)
+}
+
+fn const_int_depth(
+    p: &dartforge_elements::model::Program,
+    v: VariableId,
+    depth: usize,
+) -> Option<i64> {
+    let var = p.variable(v);
+    if !var.const_ || var.extension.is_some() || depth > 8 {
+        return None;
+    }
+    let (unit, x) = const_initializer(p, v)?;
+    const_int_expr(p, v, unit, x, depth)
+}
+
+fn const_int_expr(
+    p: &dartforge_elements::model::Program,
+    v: VariableId,
+    unit: dartforge_elements::model::UnitId,
+    x: ExprId,
+    depth: usize,
+) -> Option<i64> {
+    const LIMIT: i64 = 1 << 30;
+    let a = &p.unit(unit).ast;
+    let value = match &a.expr(x).kind {
+        ExprKind::Int(span) => int_literal_value(&p.unit(unit).source[span.start..span.end])?,
+        ExprKind::Parenthesized(i) => const_int_expr(p, v, unit, *i, depth)?,
+        ExprKind::Identifier(_) => const_int_depth(p, const_alias(p, v, a, x)?, depth + 1)?,
+        ExprKind::Binary { op, left, right } => {
+            let l = const_int_expr(p, v, unit, *left, depth)?;
+            let r = const_int_expr(p, v, unit, *right, depth)?;
+            match op {
+                ast::BinaryOp::Shl if r < 31 => l << r,
+                ast::BinaryOp::Shr if r < 31 => l >> r,
+                ast::BinaryOp::BitOr => l | r,
+                ast::BinaryOp::BitAnd => l & r,
+                ast::BinaryOp::BitXor => l ^ r,
+                ast::BinaryOp::Add => l + r,
+                ast::BinaryOp::Sub => l - r,
+                ast::BinaryOp::Mul => l.checked_mul(r)?,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    (0..LIMIT).contains(&value).then_some(value)
 }
 
 /// The unit and initializer of the `const` variable `v`.

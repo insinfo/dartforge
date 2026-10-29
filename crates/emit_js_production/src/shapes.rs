@@ -29,6 +29,12 @@ struct Finder<'s> {
     /// The `t$R("recipe")` calls of the program, and of the runtime's
     /// functions: (start, end, recipe).
     recipes: Vec<(u32, u32, String)>,
+    /// Recipes of closures the runtime's functions create (`dart.fn(f,
+    /// t$R("…"))`): evaluated on every call of the function, so declared
+    /// once even when written once (`DARTFORGE_JSPROD_SDK_CLOSURE_RECIPES`).
+    closure_recipes: std::collections::HashSet<String>,
+    /// `DARTFORGE_JSPROD_SDK_CLOSURE_RECIPES=0` turns `closure_recipes` off.
+    sdk_closure_recipes: bool,
     /// Nesting of functions: the runtime's calls inside a function run after
     /// the runtime loads (`sdk_recipes`).
     depth: u32,
@@ -120,6 +126,28 @@ impl<'a> Visit<'a> for Finder<'_> {
         {
             self.visit_function_body(body);
             return;
+        }
+        if self.sdk_closure_recipes
+            && self.sdk_recipes
+            && self.depth > 0
+            && it.span.start < self.sdk_end
+            && it.arguments.len() == 2
+            && match &it.callee {
+                Expression::StaticMemberExpression(m) => {
+                    m.property.name == "fn"
+                        && matches!(&m.object, Expression::Identifier(o) if o.name == "dart")
+                }
+                Expression::Identifier(i) => {
+                    crate::flatten::member(i.name.as_str(), "dart") == Some("fn")
+                }
+                _ => false,
+            }
+            && let Some(Expression::CallExpression(r)) = it.arguments[1].as_expression()
+            && matches!(&r.callee, Expression::Identifier(i) if i.name == "t$R")
+            && let Some(Expression::StringLiteral(l)) =
+                r.arguments.first().and_then(|a| a.as_expression())
+        {
+            self.closure_recipes.insert(l.value.to_string());
         }
         if (it.span.start > self.sdk_end || self.sdk_recipes && self.depth > 0)
             && matches!(&it.callee, Expression::Identifier(i) if i.name == "t$R")
@@ -481,6 +509,9 @@ pub fn apply(source: &str) -> Result<String, String> {
         sdk_end,
         strings: std::collections::HashMap::new(),
         recipes: Vec::new(),
+        closure_recipes: std::collections::HashSet::new(),
+        sdk_closure_recipes: std::env::var("DARTFORGE_JSPROD_SDK_CLOSURE_RECIPES")
+            .map_or(true, |v| v != "0"),
         type_args: Vec::new(),
         depth: 0,
         sdk_recipes: std::env::var("DARTFORGE_JSPROD_SDK_FIXED_RECIPES").map_or(true, |v| v != "0"),
@@ -530,7 +561,7 @@ pub fn apply(source: &str) -> Result<String, String> {
         }
         let mut repeated: Vec<&str> = count
             .iter()
-            .filter(|(_, n)| **n >= 2)
+            .filter(|(r, n)| **n >= 2 || a.closure_recipes.contains(**r))
             .map(|(r, _)| *r)
             .collect();
         repeated.sort_unstable();
