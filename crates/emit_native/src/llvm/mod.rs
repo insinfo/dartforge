@@ -211,6 +211,9 @@ pub struct LlvmEmitter<'a> {
     /// The function read `%ctx` (`dartforge_context`, the thread context of the
     /// runtime) at the entry: pending exception and shadow stack without a call.
     has_ctx: bool,
+    /// The conditions `pending != 0` of the function being emitted: the
+    /// branch on each one is the exception path of a call, weighted cold.
+    pending_conditions: std::collections::HashSet<ValueId>,
     /// The builder asked for the context parameter ([`LlvmEmitter::with_context_parameter`]).
     context_parameter: bool,
     /// The functions of the module whose `<symbol>$cx` takes the thread context as
@@ -492,6 +495,7 @@ impl<'a> LlvmEmitter<'a> {
             slots: std::collections::HashMap::new(),
             has_frame: false,
             has_ctx: false,
+            pending_conditions: std::collections::HashSet::new(),
             context_parameter: false,
             context_symbols: std::collections::HashSet::new(),
             context_in_parameter: false,
@@ -793,6 +797,18 @@ impl<'a> LlvmEmitter<'a> {
         self
     }
 
+    /// The `@df.get_area` of the module: the fixed table in production.
+    fn get_area_text(&self) -> &'static str {
+        static FIXED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        if self.lean_area && !crate::target::is_wasm() {
+            FIXED.get_or_init(|| {
+                GET_AREA_FIXED.replace("@@CAPACITY@@", &layout::context::AREA_CAPACITY.to_string())
+            })
+        } else {
+            GET_AREA
+        }
+    }
+
     /// The whole module. A module with diagnostics does not get here:
     /// `emit_ir` returns the error before (N1).
     ///
@@ -900,7 +916,7 @@ impl<'a> LlvmEmitter<'a> {
             self.emit_registration(&reg);
             self.emit_selector_globals();
             self.emit_area_descriptor();
-            self.out.push_str(GET_AREA);
+            self.out.push_str(self.get_area_text());
             self.emit_string_globals();
             self.emit_external_declarations();
             self.close_maps();
@@ -939,7 +955,9 @@ impl<'a> LlvmEmitter<'a> {
         // SDK modules, when splitting the joined module into partitions, promotes the
         // internal `@df.area_id` of one of them with the same name — "duplicate
         // symbol: df.area_id" (docs/NATIVO-PRODUCAO-GRANDE.md §5).
-        let get_area = GET_AREA.replace("@df.area_id", "@df.area_id.program");
+        let get_area = self
+            .get_area_text()
+            .replace("@df.area_id", "@df.area_id.program");
         self.out
             .push_str(&out_of_line(&get_area, &self.outlined_helpers));
         self.emit_string_globals();
@@ -1538,6 +1556,7 @@ impl<'a> LlvmEmitter<'a> {
             ""
         };
         self.has_frame = !self.slots.is_empty() || self.check.is_some();
+        self.pending_conditions = pending_conditions(func);
         self.has_ctx = self.has_frame || Self::requires_explicit_context(func, tab);
         // The context parameter: the body that needs the context is `<symbol>$cx`
         // and receives it; `<symbol>` becomes the thunk (after the body).
@@ -1633,18 +1652,14 @@ impl<'a> LlvmEmitter<'a> {
             }
         }
         self.engine_budget = false;
-        // Where the roots frame opens (`frame_placement`): only a frame of plain
-        // SSA roots, without parameters to store at the entry, landing pads that
-        // restore it or the checking slots.
+        // Where the roots frame opens (`frame_placement`): only a frame of SSA
+        // roots, without landing pads that restore it or the checking slots. The
+        // rooted parameters are stored where it opens.
         self.frame_placed = self.has_frame
             && !self.maps
             && !has_landing_pad
             && self.check.is_none()
             && self.frame_allocas.is_empty()
-            && !func
-                .params
-                .iter()
-                .any(|(v, _, _)| self.slots.contains_key(v))
             && frame_placement::enabled();
         // The text that opens the frame and where it may go: after the prologue
         // of the entry, or at the start of each block.
@@ -1849,7 +1864,12 @@ impl<'a> LlvmEmitter<'a> {
                 }
                 for (vid, _, _) in &func.params {
                     if let Some(&slot) = self.slots.get(vid) {
-                        writeln!(self.out, "  store i64 %v{}, ptr %gcs{slot}", vid.0).unwrap();
+                        let store = format!("  store i64 %v{}, ptr %gcs{slot}\n", vid.0);
+                        if self.frame_placed {
+                            frame_push.push_str(&store);
+                        } else {
+                            self.out.push_str(&store);
+                        }
                     }
                 }
                 let mut in_frame: Vec<ValueId> = self.frame_allocas.iter().copied().collect();
@@ -3424,9 +3444,18 @@ impl<'a> LlvmEmitter<'a> {
                     else_block,
                 } => {
                     let sc = self.coerce(cond, Type::I1);
+                    // The exception path after a call is cold: without the weight
+                    // LLVM may lay it out inline and keep its frame restore in the
+                    // straight line.
+                    let weights = match cond {
+                        Operand::Val(c) if self.pending_conditions.contains(c) => {
+                            ", !prof !{!\"branch_weights\", i32 1, i32 2000}"
+                        }
+                        _ => "",
+                    };
                     writeln!(
                         self.out,
-                        "  br i1 {sc}, label %b{}, label %b{}",
+                        "  br i1 {sc}, label %b{}, label %b{}{weights}",
                         then_block.0, else_block.0
                     )
                     .unwrap();
@@ -3487,6 +3516,7 @@ impl<'a> LlvmEmitter<'a> {
                     };
                     let to = block_starts.get(k + 1).copied().unwrap_or(end);
                     self.out[from..to].contains("ptr %gcs")
+                        || parameter_roots_live(func, &self.slots, &self.function_roots, k)
                 })
                 .collect();
             if let Some(k) = frame_placement::frame_block(func, &needs) {
@@ -7871,6 +7901,77 @@ fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {
 /// reference that is not a `Smi` (the `_Mint`, or the `TypeError`), the runtime.
 /// `internal` in each module and `alwaysinline`: the common path becomes three
 /// instructions in place of the call.
+/// The production `@df.get_area` (the lean area, outside WebAssembly): the runtime's
+/// table of this thread always has `AREA_CAPACITY` entries and never moves while the
+/// module ids fit (`runtime/src/gc_roots.rs`), and a module's id and area, once set,
+/// never change in an executable that does not reload. The loads are invariant,
+/// so the lookups of the functions inlined into one body share them; a stale value is
+/// the 0 id or a null entry, which only takes the slow path again.
+const GET_AREA_FIXED: &str = "@df.area_id = internal global i64 0, align 8\n\
+define internal ptr @df.get_area() alwaysinline {\n\
+  %ctx = call ptr @dartforge_context()\n\
+  %id = load atomic i64, ptr @df.area_id unordered, align 8, !invariant.load !{}\n\
+  %dentro = icmp ult i64 %id, @@CAPACITY@@\n\
+  br i1 %dentro, label %ler, label %lenta, !prof !{!\"branch_weights\", i32 2000, i32 1}\n\
+ler:\n\
+  %tp = getelementptr inbounds i8, ptr %ctx, i64 16\n\
+  %t = load ptr, ptr %tp, align 8, !invariant.load !{}\n\
+  %e = getelementptr ptr, ptr %t, i64 %id\n\
+  %p = load ptr, ptr %e, align 8, !invariant.load !{}\n\
+  %tem = icmp ne ptr %p, null\n\
+  br i1 %tem, label %pronto, label %lenta, !prof !{!\"branch_weights\", i32 2000, i32 1}\n\
+pronto:\n\
+  ret ptr %p\n\
+lenta:\n\
+  %q = call ptr @dartforge_globals_area_id(ptr @df.area, ptr @df.area_id)\n\
+  ret ptr %q\n\
+}\n";
+
+/// A rooted parameter of `func` is live at a collection point of its block `k`:
+/// the frame, where the parameters are stored, must be open there.
+fn parameter_roots_live(
+    func: &Function,
+    slots: &std::collections::HashMap<ValueId, usize>,
+    analysis: &roots::Roots,
+    k: usize,
+) -> bool {
+    let rooted = |live: &Vec<ValueId>| {
+        live.iter()
+            .any(|v| slots.contains_key(v) && func.params.iter().any(|(p, _, _)| p == v))
+    };
+    let block = &func.blocks[k];
+    block
+        .instructions
+        .iter()
+        .any(|(v, _, _)| analysis.live_at.get(v).is_some_and(rooted))
+        || analysis.live_at_end.get(&block.id).is_some_and(rooted)
+}
+
+/// The values `pending != 0` of `func`, where `pending` is the read of the pending
+/// exception (`dartforge_exception_pending`) that follows a call.
+fn pending_conditions(func: &Function) -> std::collections::HashSet<ValueId> {
+    let pending: std::collections::HashSet<ValueId> = func
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter(|(_, i, _)| {
+            matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
+        })
+        .map(|(v, _, _)| *v)
+        .collect();
+    if pending.is_empty() {
+        return pending;
+    }
+    func.blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter(|(_, i, _)| {
+            matches!(i, Instruction::ICmp(ICmpOp::Ne, Operand::Val(p), Operand::Constant(Constant::Int(0))) if pending.contains(p))
+        })
+        .map(|(v, _, _)| *v)
+        .collect()
+}
+
 const GET_AREA: &str = "@df.area_id = internal global i64 0, align 8\n\
 define internal ptr @df.get_area() alwaysinline {\n\
   %ctx = call ptr @dartforge_context()\n\

@@ -363,6 +363,10 @@ pub mod context {
     pub const TOP: usize = 8;
     pub const AREAS: usize = 16;
     pub const N_AREAS: usize = 24;
+    /// The entries `AREAS` always points to: a module id below this indexes it
+    /// without the `N_AREAS` bound, and the table never moves while the ids fit
+    /// (the production `@df.get_area`, whose loads the optimizer may reuse).
+    pub const AREA_CAPACITY: usize = 4096;
     pub const INTERRUPT: usize = 32;
     pub const EMPTIES: usize = 40;
     pub const REGISTERED: usize = 48;

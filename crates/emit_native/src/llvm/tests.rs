@@ -782,7 +782,10 @@ fn roots_frame_on_every_ret() {
     );
     assert_eq!(prologue.matches("\n  ret ").count(), 1, "{body}");
     let rets = rest.matches("\n  ret ").count();
-    let pops = rest.matches("store ptr %gcvolta").count();
+    // A frame that opens where `frame_placement` decides restores the top read
+    // at the entry (`%gcant`); one in the entry block, its own `previous`.
+    let pops = rest.matches("store ptr %gcvolta").count()
+        + rest.matches("store ptr %gcant, ptr %ctxtopo").count();
     assert_eq!(rets, 2, "{body}");
     assert_eq!(pops, rets, "every ret closes the frame: {body}");
 }

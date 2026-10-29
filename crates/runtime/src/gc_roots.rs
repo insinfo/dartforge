@@ -31,6 +31,9 @@ pub extern "C" fn dartforge_context() -> *const crate::heap::Context {
         }
         if c.stack_limit.get() == 0 {
             c.stack_limit.set(thread_stack_limit());
+            if c.areas.get().is_null() {
+                c.areas.set(EMPTY_AREA_TABLE.0.as_ptr());
+            }
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             publish_in_tsd(c);
         }
@@ -306,6 +309,14 @@ thread_local! {
     static AREA_TABLE: RefCell<Vec<*mut i64>> = const { RefCell::new(Vec::new()) };
 }
 
+/// The table of a thread without areas yet: the production `@df.get_area` reads
+/// an entry below `AREA_CAPACITY` without the bound and finds null.
+struct EmptyAreaTable([*mut i64; crate::layout::context::AREA_CAPACITY]);
+// SAFETY: never written; only null pointers.
+unsafe impl Sync for EmptyAreaTable {}
+static EMPTY_AREA_TABLE: EmptyAreaTable =
+    EmptyAreaTable([std::ptr::null_mut(); crate::layout::context::AREA_CAPACITY]);
+
 /// The next module id (`@df.area_id`), the same on every thread.
 static NEXT_AREA_ID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
 
@@ -360,7 +371,14 @@ pub unsafe extern "C" fn dartforge_globals_area_id(descriptor: *const i64, id: *
     AREA_TABLE.with(|t| {
         let mut t = t.borrow_mut();
         if t.len() <= k {
-            t.resize(k + 16, std::ptr::null_mut());
+            // The production `@df.get_area` may reuse a table address it loaded
+            // before this call: the first table has the whole capacity, and one that
+            // grows past it leaves the old allocation alive.
+            let n = (k + 16).max(crate::layout::context::AREA_CAPACITY);
+            let mut grown = Vec::with_capacity(n);
+            grown.extend_from_slice(&t);
+            grown.resize(n, std::ptr::null_mut());
+            std::mem::forget(std::mem::replace(&mut *t, grown));
         }
         t[k] = p;
         CONTEXT.with(|c| {
