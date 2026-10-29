@@ -734,6 +734,52 @@ Nenhuma das três foi feita: o ganho só aparece junto com a reescrita da morte
 (metadados preguiçosos, descarte especializado por classe e reuso imediato da
 célula), que é o próximo passo de fato do ARC real.
 
+## 9. Redesenho do ARC real: contagem no objeto, descarte por classe e reuso (2026-10-29, em andamento)
+
+Trabalho em andamento, **ainda não validado nem integrado**. O patch completo está em
+`scratchpad/parc/redesign_wip.patch` (sobre `fbd1c287`), cerca de 1,9 mil linhas em 14 arquivos
+do runtime e do emissor. Só o ARC real (`DARTFORGE_ARC_PREPARED=1` com morte imediata)
+muda; o tracing, o ARC simples (berçário), o ARC puro e o modo rápido mantêm o layout e
+os caminhos de hoje.
+
+**Desenho escolhido: a palavra de contagem no fim do bloco**, e não o cabeçalho de 24
+bytes. O cabeçalho de 24 bytes mudaria todas as constantes de layout no emissor, no JIT e
+na imagem. A palavra no fim só muda a classe de tamanho e a cabeça da página.
+
+| Parte | Como funciona |
+| --- | --- |
+| Palavra no objeto | Sob o ARC real, cada bloco reserva a última palavra: um corpo de `w` palavras usa a classe de `w + 1`. A página (ou região grande) publica o tamanho `S` do bloco na cabeça (`layout::arc_word::HEAD_SIZE`, e `HEAD_INLINE` para o código em linha; esta fica em 0 sob a auditoria). A palavra está em `h − 2 + S − 8`. A contagem ocupa os bits 0–39 e as flags os bits 48–59: `LIVE`, `DEAD`, `COLLECTING`, `CANDIDATE`, `CYCLE_FREE`, `SNAPSHOT`, `DEFERRED`, `SIDE_EDGES`, `WEAK`, `FINALIZER`, `EPHEMERON` e `INDEXED`. O endereço de uma célula livre cabe abaixo do bit 48. |
+| Metadados preguiçosos | `ArcHeapState::in_object` resolve a palavra de cada handle. A tabela lateral fica só para os estáticos e para objetos anteriores à ativação (na prática, nenhum: o heap está vazio quando `dartforge_memory_arc_prompt_v1` roda). Leem a palavra: a decisão do jovem na drenagem, o coletor de ciclos, o ponto fixo da completa, a auditoria (que percorre as páginas atrás das palavras vivas) e as fracas, finalizadores e fotos. Uma tabela lateral que nomeia um objeto liga uma flag de `OBSERVED`, e a morte desse objeto segue o descarte genérico. |
+| Código gerado | Retain, release e escrita contada em linha sobre a palavra. A alocação Owned escreve `LIVE \| 1`, sem chamar o runtime para registrar, e tira antes a célula da lista de reuso da classe. A escrita que move para um campo do objeto novo sai em linha. Um release que cria candidato a ciclo liga a flag e anota o handle no buffer de candidatos do `Context`. |
+| Morte | `Heap::arc_drain_zeros` mata direto o objeto sem estado lateral: os filhos são soltos pela função de descarte da classe, gerada pelo emissor (`@df.drop.<cid>`, registrada por `dartforge_arc_register_drops_v1`), ou pelo mapa do cabeçalho. A célula vai na hora para a lista de reuso. |
+| Reuso | As listas de reuso por classe vivem no `Context` (`layout::context::REUSE`). Uma célula livre está zerada e marcada, e a palavra dela aponta para a próxima. Usam as listas a alocação Owned do código gerado e a alocação do runtime pela TLAB; esta entra na lista de jovens, com um limite que dispara a drenagem. Um candidato a ciclo morto é reusado na hora: a entrada que sobra no buffer aponta para página que continua mapeada, e a rodada de ciclos a trata como semente a mais ou a descarta. Só o candidato morto de região grande espera o buffer. |
+
+**Medidas** (Mac mini M4, carga de 6 a 30; ciclos de `time -l`, ARC simples na mesma
+rodada):
+
+| núcleo | ARC simples | ARC real antes | ARC real agora |
+| --- | ---: | ---: | ---: |
+| árvores, ciclos | 2,15 G | 16,05 G (7,5×) | 4,86 G (2,2×), RSS 19 MB |
+| strings, ciclos | 3,79 G | 14,06 G (2,8×) | 8,53 G (2,3×), RSS 20 MB |
+| JSON, ciclos | 12,0 G | 34,9 G (2,2×) | 22,4 G (1,9×), RSS 156 MB (simples: 165) |
+| servidor HTTP, ciclos por pedido | 163 mil | 1,04 M (3,7×, outra carga) | 438 mil (2,7×) |
+| servidor HTTP, RSS | 28 MB | 60 MB | 80 MB |
+
+**Em aberto:**
+* O RSS do servidor HTTP (80 MB contra 28). O RSS das strings foi resolvido na última
+  rodada: era a lista de jovens das células reusadas.
+* A validação completa ainda não rodou: testes, clippy, o harness nos 4 modos e os 152
+  programas em três modos com estresse e auditoria. Passam os testes de
+  `heap::prompt_death_tests`, que agora cobrem reuso, a entrada velha no buffer e a
+  auditoria da palavra.
+* A elisão das cópias de campos `final` (`scratchpad/parc/final_field_elision.patch`)
+  ainda não foi reaplicada. Ela tira o par retain/release de `count()` nas árvores.
+* A função de descarte por classe só existe para as classes do programa alocadas Owned
+  em linha; as do SDK seguem o mapa do cabeçalho.
+
+**Próximos passos:** achar a origem do RSS do servidor; validar o conjunto num export
+limpo; integrar em commits; reaplicar a elisão dos campos `final` e medir de novo.
+
 ## 5. Pendências
 
 O lowering registra nominalmente os retornos Ref de corpos tipados Dart
