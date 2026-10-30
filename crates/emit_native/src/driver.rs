@@ -522,11 +522,19 @@ pub fn outliner_at_link() -> bool {
 /// the symbolic stack trace (§13.14): a body folded into a thunk would report
 /// the frame of the function it was merged into. `DARTFORGE_NO_MERGE_FUNCTIONS=1`
 /// turns it off (measurement).
+///
+/// Nor with roots by maps, whose `rewrite-statepoints-for-gc` runs after it in
+/// the same LTO: a thunk's call carries the parameter attributes of the merged
+/// function, `returned` among them, and RS4GC copies `returned` onto the
+/// `gc.statepoint` argument, which the verifier rejects (the statepoint returns
+/// a `token`). LLVM 22.1.8 and 23.1.4 have the defect:
+/// <https://github.com/llvm/llvm-project/issues/237112>.
 pub fn merge_functions_at_link() -> bool {
     if std::env::var("DARTFORGE_NO_MERGE_FUNCTIONS").is_ok_and(|v| v == "1") {
         return false;
     }
     !crate::target::symbolic_stack_trace().unwrap_or(true)
+        && !crate::target::roots_by_maps().unwrap_or(false)
 }
 
 /// The directory of the ThinLTO cache of the production link (next to the object
