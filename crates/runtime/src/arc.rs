@@ -577,6 +577,13 @@ struct CycleScratch {
     /// Region `R` and the dense index of each of its handles.
     region: Vec<Ref>,
     index: HashMap<Ref, usize>,
+    /// The edges of `R`, walked once: object `i`'s targets are
+    /// `targets[starts[i]..starts[i + 1]]`, and `edges` holds each one's index in `R`
+    /// (`usize::MAX` outside it), so the trial and the propagation scan vectors
+    /// instead of walking the heap and looking handles up again.
+    starts: Vec<usize>,
+    targets: Vec<Ref>,
+    edges: Vec<usize>,
     /// `rc` minus the occurrences internal to `R`.
     trial: Vec<i64>,
     /// The survivors of `R` and the stack that propagates survival.
@@ -591,6 +598,9 @@ impl CycleScratch {
         self.stack.clear();
         self.region.clear();
         self.index.clear();
+        self.starts.clear();
+        self.targets.clear();
+        self.edges.clear();
         self.trial.clear();
         self.live.clear();
         self.live_stack.clear();
@@ -1584,22 +1594,29 @@ impl ArcHeapState {
             }
             input.insert(r.len());
             r.push(x);
+            s.starts.push(s.targets.len());
             graph.edges(x, &mut |v| {
                 if e_handle(v) {
                     s.stack.push(v);
+                    s.targets.push(v);
                 }
             });
         }
+        s.starts.push(s.targets.len());
         self.statistics.examined += r.len() as u64;
+        let (starts, edges) = (&s.starts, &mut s.edges);
+        edges.extend(
+            s.targets
+                .iter()
+                .map(|v| in_r.get(v).copied().unwrap_or(usize::MAX)),
+        );
         // trial = rc − internal occurrences (the count has 40 bits).
         let trial = &mut s.trial;
         trial.extend(r.iter().map(|&x| self.meta(x).map_or(0, |m| m.rc) as i64));
-        for &u in r.iter() {
-            graph.edges(u, &mut |v| {
-                if let Some(&ix) = in_r.get(&v) {
-                    trial[ix] -= 1;
-                }
-            });
+        for &ix in edges.iter() {
+            if ix != usize::MAX {
+                trial[ix] -= 1;
+            }
         }
         if let Some(ix) = trial.iter().position(|&t| t < 0) {
             return Err(ArcError::NegativeTrial(r[ix]));
@@ -1625,15 +1642,12 @@ impl ArcHeapState {
         // Propagation uses indices, without looking the handle up again when popping
         // from the stack; targets outside R are not walked.
         while let Some(ix) = stack.pop() {
-            graph.edges(r[ix], &mut |v| {
-                if e_handle(v)
-                    && let Some(&dest) = in_r.get(&v)
-                    && !live_set[dest]
-                {
+            for &dest in &edges[starts[ix]..starts[ix + 1]] {
+                if dest != usize::MAX && !live_set[dest] {
                     live_set[dest] = true;
                     stack.push(dest);
                 }
-            });
+            }
         }
         // A survivor that only the observational root holds becomes a candidate
         // again: the root may disappear without a decrement.
