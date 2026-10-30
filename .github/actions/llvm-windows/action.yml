@@ -18,13 +18,16 @@ description: >
 # lld's sibling executables are kept because lld-link may be a hardlink of
 # lld.exe.
 #
-# `development` adds only the minimal slice of the JIT (crates/jit, ORCv2),
-# measured locally at ~73 MB. Five pieces:
+# `development` adds only the slice of the JIT (crates/jit, ORCv2):
 #   bin/llvm-config.exe     (0.6 MB) llvm-sys's build.rs requires it
 #   bin/LLVM-C.dll          (72 MB)  the JIT links dynamically (docs/JIT.md)
 #   lib/LLVM-C.lib          (0.3 MB) the DLL's import library
 #   include/llvm-c/         (0.5 MB) C API headers
-#   include/llvm/Config/    (44 KB)  included by llvm-c/Target.h (llvm-sys wrapper)
+#   include/llvm/           the C++ headers: crates/jit/build.rs compiles the
+#                           COFF bridge (src/coff_layer.cpp) against ORC's
+#                           RTDyldObjectLinkingLayer.h, which also needs Config/
+#   bin/clang-cl.exe, bin/llvm-lib.exe  that build.rs compiles and archives the
+#                           bridge with them
 # The old 1.1 GB slice took the static libraries, which the JIT does not use
 # (static CRT, see crates/llvm/build.rs).
 #
@@ -44,7 +47,7 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: C:\llvm-22.1.8
-        key: llvm-22.1.8-windows-x64-${{ inputs.development == 'true' && 'dev-v2' || 'clang-v3' }}
+        key: llvm-22.1.8-windows-x64-${{ inputs.development == 'true' && 'dev-v3' || 'clang-v3' }}
 
     - name: Download and extract LLVM 22.1.8
       if: steps.cache.outputs.cache-hit != 'true'
@@ -64,7 +67,7 @@ runs:
         patterns=("$root/bin/clang*.exe" "$root/bin/lld*.exe" "$root/bin/ld.lld.exe" "$root/bin/ld64.lld.exe")
         if [ "$DEVELOPMENT" = "true" ]; then
           patterns+=("$root/bin/llvm-config.exe" "$root/bin/LLVM-C.dll" "$root/lib/LLVM-C.lib"
-                    "$root/include/llvm-c/*" "$root/include/llvm/Config/*")
+                    "$root/bin/llvm-lib.exe" "$root/include/llvm-c/*" "$root/include/llvm/*")
         fi
         # Git Bash's tar is GNU tar, which calls `xz` for -J; if xz is not on
         # PATH, the runner's 7-Zip decompresses into the pipe.
@@ -74,7 +77,12 @@ runs:
           7z x -so "$package" | tar -xf - -C /c/llvm-22.1.8 --strip-components=1 --wildcards "${patterns[@]}"
         fi
         rm -f "$package"
-        find /c/llvm-22.1.8/bin -type f -name 'clang*.exe' ! -name clang.exe -delete
+        # The JIT's COFF bridge (crates/jit/build.rs) compiles with clang-cl.
+        if [ "$DEVELOPMENT" = "true" ]; then
+          find /c/llvm-22.1.8/bin -type f -name 'clang*.exe' ! -name clang.exe ! -name clang-cl.exe -delete
+        else
+          find /c/llvm-22.1.8/bin -type f -name 'clang*.exe' ! -name clang.exe -delete
+        fi
         echo "extraction: $((SECONDS - start)) s in total"
         du -sh /c/llvm-22.1.8 /c/llvm-22.1.8/*
 
