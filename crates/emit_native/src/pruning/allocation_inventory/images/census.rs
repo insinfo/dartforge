@@ -263,7 +263,12 @@ pub(crate) fn observe(ir: &str) -> Census {
                 let tail_value = *token == Token::String(b"true".to_vec()) && i >= 2
                     && items[i - 1] == Token::Punct(b'=')
                     && items[i - 2] == Token::String(b"disable-tail-calls".to_vec());
-                if !section && !tail_key && !tail_value {
+                // The emitter's helpers that never collect (`@df.rti_is_probe`,
+                // `@df.string_units_equal`…): a valueless attribute that defines no
+                // data and switches no section.
+                let gc_leaf = *token == Token::String(b"gc-leaf-function".to_vec())
+                    && items.get(i + 1) != Some(&Token::Punct(b'='));
+                if !section && !tail_key && !tail_value && !gc_leaf {
                     obligations.insert(format!("unreviewed_function_string_attribute:{}", index + 1));
                 }
             }
@@ -515,5 +520,16 @@ mod tests {
         let census = observe(source);
         assert!(census.is_clean(), "{census:?}");
         assert!(census.members.is_empty());
+    }
+
+    #[test]
+    fn the_gc_leaf_attribute_of_a_helper_is_reviewed_only_without_a_value() {
+        let helper = "define internal i8 @df.rti_is_probe(ptr %c) noinline \"gc-leaf-function\" {\n\
+            entry:\n ret i8 0\n}\n";
+        let census = observe(helper);
+        assert!(census.is_clean(), "{census:?}");
+        let valued = "define internal i8 @f(ptr %c) \"gc-leaf-function\"=\"x\" {\n\
+            entry:\n ret i8 0\n}\n";
+        assert!(!observe(valued).is_clean());
     }
 }
