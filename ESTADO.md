@@ -1,4 +1,4 @@
-# Estado do DartForge — 2026-10-29
+# Estado do DartForge — 2026-10-30
 
 ## Prioridade para 29/10/2026: HTTP com o desenho completo do Dart AOT
 
@@ -42,54 +42,62 @@ forma relevante.
 **Também em andamento:** a reescrita do núcleo do ARC de verdade. Veja a
 seção abaixo e `docs/ARC-IMPLEMENTACAO.md`.
 
-## Segunda prioridade para 29/10/2026: concluir a reescrita do ARC de verdade
+## Segunda prioridade para 30/10/2026: concluir a reescrita do ARC de verdade
 
-A reescrita do ARC real está implementada e **está no `main` sem validação**, no commit
-`08039025` (marcado `WIP`). O proprietário preferiu o código possivelmente quebrado a
-perder o trabalho, então **a primeira tarefa é validar e corrigir o que quebrou**.
+A reescrita (`08039025`, `WIP`) **foi validada e corrigida** num export limpo e entrou no
+`main` com três commits de correção, `0c4f29af`, `5213a57a` e `2562a400`. O
+desenho e as medidas estão em `docs/ARC-IMPLEMENTACAO.md` §9.
 
-O que já rodou:
-- os testes `prompt` do runtime (9/9);
-- o build release com `--features native`;
-- o `hello` em tracing, ARC simples e ARC real.
+**O que a validação achou e foi corrigido:**
+- **31 programas não compilavam no ARC real:** uma classe alocada com vários números
+  de campos (contextos de closure, quadros `async`) gerava `@df.drop.<cid>` duas
+  vezes. Agora há uma função de descarte por classe, e as classes acima de
+  `arc_word::DROP_CLASSES` não ganham nenhuma.
+- **104 programas abortavam com `DARTFORGE_ARC_CHECK=1`:** a alocação Owned em linha
+  (TLAB e reuso) e o *move* em linha para o campo de um objeto novo passavam por fora
+  do inventário de tokens da auditoria. Na auditoria, o runtime não entrega TLAB nem
+  listas de reuso ao código gerado, e o *move* lê a cabeça da página.
+- **`16_ffi_structs_por_valor` devolvia zeros:** o corpo do callback soltava a struct
+  antes de a entrada C copiar os bytes, e o reuso imediato zerava a célula. Agora o
+  corpo copia os bytes para o buffer da entrada C pelo novo
+  `dartforge_ffi_compound_write`.
+- **Cache do SDK truncado (anterior ao WIP):** duas compilações em paralelo no mesmo
+  diretório deixavam a dylib do SDK com 0 bytes no cache.
+- Também entraram o clippy (`write_literal`), o `transmute` da função de descarte
+  na lista do teste `dart_ports` e o `cargo fmt` da reescrita.
 
-O que não rodou: as suítes completas, o clippy, o harness e o corpus. Há uma cópia do
-patch em `/Volumes/ssd_dock/tmp/arc-redesign/redesign_wip.patch` (sobre `fbd1c287`,
-14 arquivos do runtime e do emissor). O desenho e as medidas estão em `docs/ARC-IMPLEMENTACAO.md` §9: a
-palavra de contagem fica no fim do bloco (um corpo de `w` palavras usa a classe de
-`w + 1`), os metadados vivem nas flags dessa palavra, cada classe ganha uma função de
-descarte gerada pelo emissor, e as células mortas voltam por listas de reuso por classe
-no `Context`.
+**Validação** (`HEAD` = `2562a400`, export limpo):
+- testes de runtime e emit-native em release e debug: só as 9 falhas que já existiam
+  em `fbd1c287` (fixtures de outras plataformas, `constant_interpolation…`,
+  `pruning_removes_unused_members` e o manifesto do SDK selecionado);
+- clippy limpo;
+- harness 160/160 nos 4 modos;
+- corpus nos modos ARC simples, real e virtual, cada um normal, com estresse e com
+  auditoria.
 
-Números de agora, em ciclos, contra o ARC simples na mesma rodada:
+**O que ainda falha no corpus ARC:**
+- **Regressões do WIP, só no ARC real:**
+  - `87_classe_do_slot_sob_coleta` com `DARTFORGE_ARC_CHECK=1`: um
+    `dartforge_arc_release` no corpo `async` do `main` solta um objeto já morto. Só
+    reproduz com o `main` inteiro, que tem o `await Isolate.run`; os recortes passam.
+  - `06_escuta_compartilhada` com `DARTFORGE_GC_STRESS=1`: a drenagem encontra
+    morto um objeto da fila de zeros, no `accept` do socket.
+- **Anteriores ao WIP:** `33_mensagens_de_controle` imprime `null` no lugar de
+  `[1, 2, 3]` nos três modos ARC.
+- **Artefato do script:** `158_assert…` diverge porque a referência vem de `dart run`
+  sem asserts.
 
-| | ARC real antes | ARC real agora |
-| --- | ---: | ---: |
-| árvores | 7,5× | 2,2× (RSS 19 MB) |
-| strings | 2,8× | 2,3× (RSS 20 MB) |
-| JSON | 2,2× | 1,9× (RSS 156 MB; simples: 165 MB) |
-| HTTP | 3,7× | 2,7× (RSS 80 MB; simples: 28 MB) |
+**Scripts** em `/Volumes/ssd_dock/tmp/arc-redesign/rarc`: `full.sh TAG`, que roda build,
+testes, clippy, harness e corpus ARC no export `v1`; `tests.sh`, `harness.sh` e
+`arcmodes.sh`; `tc/httpth.sh`, que mede o HTTP com os contadores da thread do isolate.
 
-Próximos passos, em ordem:
-1. Achar a origem do RSS do servidor HTTP no ARC real (80 MB): olhar
-   `DARTFORGE_GC_MEMORY=1` e a linha `reuse_cells`/`reuse_bytes` de
-   `DARTFORGE_GC_TRACE=1`, que conta células e bytes das listas de reuso.
-2. Validar num export limpo (HEAD com o patch, `CARGO_TARGET_DIR` próprio):
-   * testes de runtime e emit-native em release e debug, e clippy;
-   * o harness com os 160 programas nos 4 modos;
-   * os 152 programas do corpus em ARC simples, real e virtual, cada um normal, com
-     `DARTFORGE_GC_STRESS=1` e com `DARTFORGE_ARC_CHECK=1`, mais o
-     `147_deferred_antes_de_carregar`.
-
-   Os scripts estão em `/Volumes/ssd_dock/tmp/arc-redesign/rarc`: `export.sh`,
-   `tests.sh`, `harness.sh` e `arcmodes.sh`. O scratchpad em `/private/tmp` pode
-   sumir; essa cópia não some.
-3. Integrar em commits validados: a palavra no objeto com os metadados preguiçosos;
-   as funções de descarte por classe; o reuso. Se não der para separar, vai num commit
-   só.
-4. Reaplicar `/Volumes/ssd_dock/tmp/arc-redesign/final_field_elision.patch` (aplica sem conflito) e medir
-   de novo.
-5. Atualizar `docs/ARC-IMPLEMENTACAO.md` §9 com o resultado.
+**Próximos passos:**
+1. Corrigir as duas regressões acima. O diagnóstico novo da auditoria nomeia as
+   tabelas de raízes e o pai que ainda alcançam o objeto morto.
+2. Achar a origem do RSS do servidor HTTP no ARC real (80 MB contra 28 MB do
+   simples).
+3. Reaplicar `/Volumes/ssd_dock/tmp/arc-redesign/final_field_elision.patch` e medir de
+   novo.
 
 ## 29/10/2026, madrugada: mapas e `async` no JS, HTTP a 98,5% do Dart, reescrita do ARC
 

@@ -734,11 +734,10 @@ Nenhuma das três foi feita: o ganho só aparece junto com a reescrita da morte
 (metadados preguiçosos, descarte especializado por classe e reuso imediato da
 célula), que é o próximo passo de fato do ARC real.
 
-## 9. Redesenho do ARC real: contagem no objeto, descarte por classe e reuso (2026-10-29, em andamento)
+## 9. Redesenho do ARC real: contagem no objeto, descarte por classe e reuso (2026-10-29)
 
-Trabalho em andamento, **ainda não validado nem integrado**. O patch completo está em
-`scratchpad/parc/redesign_wip.patch` (sobre `fbd1c287`), cerca de 1,9 mil linhas em 14 arquivos
-do runtime e do emissor. Só o ARC real (`DARTFORGE_ARC_PREPARED=1` com morte imediata)
+No `main` desde `08039025` (cerca de 1,9 mil linhas em 14 arquivos do runtime e do
+emissor), validado e corrigido em `5213a57a` e `2562a400` (§9.1). Só o ARC real (`DARTFORGE_ARC_PREPARED=1` com morte imediata)
 muda; o tracing, o ARC simples (berçário), o ARC puro e o modo rápido mantêm o layout e
 os caminhos de hoje.
 
@@ -765,20 +764,42 @@ rodada):
 | servidor HTTP, ciclos por pedido | 163 mil | 1,04 M (3,7×, outra carga) | 438 mil (2,7×) |
 | servidor HTTP, RSS | 28 MB | 60 MB | 80 MB |
 
+### 9.1 Validação (2026-10-30)
+
+Num export limpo, a primeira rodada achou quatro defeitos:
+
+| Defeito | Efeito | Correção |
+| --- | --- | --- |
+| Uma classe alocada com vários números de campos (contextos de closure, quadros `async`) gerava `@df.drop.<cid>` e o auxiliar do filho duas vezes | 31 programas não compilavam no ARC real | Uma função por classe, a do menor número de campos; os outros tamanhos usam o mapa do cabeçalho. Classes a partir de `arc_word::DROP_CLASSES` (os quadros `async`, `0x3FFFFF00`) não ganham função, e o `register_drop` não dimensiona a tabela por elas |
+| Na auditoria (`DARTFORGE_ARC_CHECK=1`), a alocação Owned em linha tirava células da TLAB e do reuso sem chamar o runtime, e o *move* em linha para o campo de um objeto novo transformava um token de código em aresta | O inventário de tokens ficava velho: 104 programas abortavam | A auditoria não entrega TLAB nem listas de reuso ao código gerado (`ObjectSpace::audited_arc_word`), e o *move* em linha lê a cabeça da página (`HEAD_INLINE`): com 0, passa pelo runtime |
+| O corpo de um callback FFI devolvia só o endereço dos bytes da struct, copiados pela entrada C depois do retorno; a preparação solta a struct no último uso, antes da cópia | Com o reuso imediato, a célula já estava zerada: `16_ffi_structs_por_valor` devolvia zeros | O corpo recebe o buffer da entrada C (parâmetro `Ptr`, trivial para o ARC) e o preenche por `dartforge_ffi_compound_write`, que empresta a struct durante a cópia |
+| Lints: `write_literal` e o `transmute` da função de descarte fora da lista do teste `dart_ports` | clippy e teste vermelhos | O literal sai; o `transmute` entra na lista (folha `nounwind` que nunca chama Dart) |
+
+A auditoria ganhou uma mensagem para objeto alcançável já morto, com as tabelas de raízes
+(`Heap::root_tables_of`) e o pai que ainda o alcançam.
+
+Depois das correções:
+- testes de runtime e emit-native em release e debug: só as falhas que já existiam
+  antes do redesenho;
+- clippy limpo;
+- harness 160/160 nos 4 modos;
+- corpus nos modos ARC simples, real e virtual, cada um normal, com estresse e com
+  auditoria.
+
 **Em aberto:**
+* Duas regressões do redesenho no ARC real; no `fbd1c287` os dois programas passam:
+  * `87_classe_do_slot_sob_coleta` com auditoria: um `dartforge_arc_release` no corpo
+    `async` do `main` solta um objeto já morto. Só reproduz com o `main` inteiro, que
+    tem o `await Isolate.run`.
+  * `06_escuta_compartilhada` com estresse: a drenagem encontra morto um objeto da
+    fila de zeros (no `accept` do socket).
 * O RSS do servidor HTTP (80 MB contra 28). O RSS das strings foi resolvido na última
   rodada: era a lista de jovens das células reusadas.
-* A validação completa ainda não rodou: testes, clippy, o harness nos 4 modos e os 152
-  programas em três modos com estresse e auditoria. Passam os testes de
-  `heap::prompt_death_tests`, que agora cobrem reuso, a entrada velha no buffer e a
-  auditoria da palavra.
-* A elisão das cópias de campos `final` (`scratchpad/parc/final_field_elision.patch`)
-  ainda não foi reaplicada. Ela tira o par retain/release de `count()` nas árvores.
+* A elisão das cópias de campos `final`
+  (`/Volumes/ssd_dock/tmp/arc-redesign/final_field_elision.patch`) ainda não foi
+  reaplicada. Ela tira o par retain/release de `count()` nas árvores.
 * A função de descarte por classe só existe para as classes do programa alocadas Owned
   em linha; as do SDK seguem o mapa do cabeçalho.
-
-**Próximos passos:** achar a origem do RSS do servidor; validar o conjunto num export
-limpo; integrar em commits; reaplicar a elisão dos campos `final` e medir de novo.
 
 ## 5. Pendências
 
