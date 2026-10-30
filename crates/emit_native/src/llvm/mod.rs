@@ -8810,9 +8810,11 @@ fn rti_memo_insert(a: &str, b: &str, kind: &str, answer: &str) -> String {
 /// site ([`LlvmEmitter::emit_rti_test_cached`]), with the value key `key` already
 /// computed, or 0 for a value without a key. The thread's memo answers and
 /// refills the site; otherwise `dartforge_rti_e_cache` answers and fills both.
+/// A GC leaf: neither path collects, so with roots by maps its call is no
+/// statepoint (the value it receives needs no root across it).
 fn rti_is_probe_helper() -> String {
     format!(
-        "define internal i8 @df.rti_is_probe(ptr %c, i64 %key, i64 %v, i64 %t) noinline {{\n\
+        "define internal i8 @df.rti_is_probe(ptr %c, i64 %key, i64 %v, i64 %t) noinline \"gc-leaf-function\" {{\n\
 entry:\n\
   %valid = icmp ne i64 %key, 0\n\
   br i1 %valid, label %probe, label %runtime\n\
@@ -8842,10 +8844,11 @@ runtime:\n\
 /// cache of a use site ([`LlvmEmitter::emit_rti_evaluate_cached`]), with the key
 /// of `this` already computed, or 0 when `this` is not an object. The memo kind
 /// of `P<i>` is the class, so a negative class (no memo entry) and a missing key
-/// go to `dartforge_rti_eval_cache` directly.
+/// go to `dartforge_rti_eval_cache` directly. A GC leaf, like
+/// [`rti_is_probe_helper`].
 fn rti_eval_probe_helper() -> String {
     format!(
-        "define internal i64 @df.rti_eval_probe(ptr %c, i64 %key, i64 %m, i64 %h, i64 %cl) noinline {{\n\
+        "define internal i64 @df.rti_eval_probe(ptr %c, i64 %key, i64 %m, i64 %h, i64 %cl) noinline \"gc-leaf-function\" {{\n\
 entry:\n\
   %vcl = icmp sge i64 %cl, 0\n\
   %vkey = icmp ne i64 %key, 0\n\

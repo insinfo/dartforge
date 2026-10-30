@@ -46,7 +46,9 @@ use std::fmt::Write;
 ///   class are compared unit by unit inline, the one-character strings of
 ///   `String.[]` among them, whose hash is often not computed yet, by
 ///   `@df.string_units_equal`, out of line so that each comparison site stays
-///   small; only a one-byte string against a two-byte one goes to the runtime);
+///   small, and a GC leaf like the runtime comparison it falls back to, so with
+///   roots by maps its call is no statepoint; only a one-byte string against a
+///   two-byte one goes to the runtime);
 /// * `@df.string_equals_object(a, b)`: `==` of a string with an `Object?` (the
 ///   overlay's `_StringBase.==`): what is not a string is different;
 /// * `@df.string_write_units(d, at, s, from, n)`: the `n` units of `s` from
@@ -185,7 +187,7 @@ sim:
 nao:
   ret i1 false
 }
-define internal i1 @df.string_units_equal(i64 %a, i64 %b, i64 %n) noinline nounwind {
+define internal i1 @df.string_units_equal(i64 %a, i64 %b, i64 %n) noinline nounwind \"gc-leaf-function\" {
 entrada:
   %pa = inttoptr i64 %a to ptr
   %pb = inttoptr i64 %b to ptr
