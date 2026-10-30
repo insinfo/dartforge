@@ -109,8 +109,10 @@ const DART_STACK: usize = 8 * 1024 * 1024;
 /// 1 when the system does not tell (no check).
 fn thread_stack_limit() -> usize {
     // The `slack` sabotage (D8, docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §7.3):
-    // 4 KiB are not enough to build and throw the `StackOverflowError`.
-    let slack = if crate::heap::sabotage("slack") { 4 * 1024 } else { STACK_SLACK };
+    // without slack, building and throwing the `StackOverflowError` overflows the
+    // stack. (4 KiB were not enough on Windows x86-64, but they are for the code
+    // with roots by maps on macOS arm64.)
+    let slack = if crate::heap::sabotage("slack") { 0 } else { STACK_SLACK };
     match stack_bounds() {
         Some((low, high)) if low != 0 => (low + slack).max(high.saturating_sub(DART_STACK)),
         _ => 1,

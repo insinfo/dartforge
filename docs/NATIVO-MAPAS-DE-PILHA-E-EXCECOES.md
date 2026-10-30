@@ -2671,7 +2671,7 @@ com as saídas calculadas à mão, e as sabotagens:
 |---|---|---|---|
 | D5 | `sombra` | `dirty_frame`: o quadro nasce com 4098 (forma de handle, nenhum bloco) em vez de zero | `EN/llvm/mod.rs`, a abertura do quadro |
 | D5 | `mapas` | `no_fake_use` | — |
-| D8 | `mapas`, `checagem` e `tabelas` | `slack` (runtime): a folga da pilha de 4 KiB em vez de 256 KiB | `RT/gc_raizes.rs`, `limite_da_pilha_da_thread` |
+| D8 | `mapas`, `checagem` e `tabelas` | `slack` (runtime): sem folga da pilha em vez de 256 KiB (4 KiB bastavam no macOS arm64; 2026-10-30) | `RT/gc_raizes.rs`, `limite_da_pilha_da_thread` |
 | D9 | `mapas`, `tabelas` | `no_ports` (runtime): as portas não são registradas e o runtime chama Dart direto | `RT/excecoes_tabelas.rs`, `dartforge_register_ports` |
 
 O D9 usa `Function.apply`, que o runtime faz pela porta `dart_r3` (`RT/closures.rs`): a exceção do
@@ -2906,6 +2906,37 @@ inteiro está no §13.16, revisão de 2026-10-08: B0/A0 = 0,972 e B1/A0 = 0,961)
 | `formas` | 5,38 | 7,53 | 5,29 |
 | `fib` | 10,88 | 11,40 | 10,37 |
 | `closures` | 40,95 | 30,78 | 30,12 |
+
+### 14.13 B1 no macOS: três defeitos e a medida (2026-10-30)
+
+O B1 (`--exceptions tables --roots maps`) nunca tinha ligado no macOS. A rodada 7 do HTTP achou três
+defeitos, um atrás do outro:
+
+| Defeito | De quem | Efeito | Correção |
+| --- | --- | --- | --- |
+| O `MergeFunctions` transforma uma função com parâmetro `returned` em thunk e copia o atributo para a chamada; o `rewrite-statepoints-for-gc` copia todos os atributos de argumento para o `gc.statepoint` (desde o #68475, LLVM 18), e `returned` não pode estar num argumento de uma chamada que devolve `token` | LLVM (22.1.8, 23.1.4 e `main`) | `ld64.lld` aborta no verificador do LTO | No DartForge, sem `MergeFunctions` com raízes por mapas (`driver::merge_functions_at_link`). No LLVM, issue [#237112](https://github.com/llvm/llvm-project/issues/237112) e PR [#237129](https://github.com/llvm/llvm-project/pull/237129) |
+| Os portos `df.port.*` e a entrada C do callback FFI chamam o corpo Dart com `invoke` e pouso `{ ptr, i32 }`; no LTO o corpo (função `gc`, pousos `token`) entra por inlining e a função fica com os dois tipos | DartForge | 13 programas do corpus não ligavam | `noinline` nessas chamadas com raízes por mapas (`gc_body_kept_out`) |
+| As sondas `@df.rti_is_probe`/`@df.rti_eval_probe` (memo de RTI, `1e1bb1f3`) não eram folhas de GC; viravam statepoint com uma referência como argumento fora do `"deopt"` | DartForge | O verificador de RS4GC recusava o SDK de desenvolvimento (os 4 testes dirigidos) | `"gc-leaf-function"`: os dois caminhos só leem e chamam externs que não coletam |
+
+Quem mais é exposto ao defeito do LLVM foi verificado no código de cada projeto: só quem roda o RS4GC
+oficial depois do `MergeFunctions`. O Perry roda o RS4GC antes de otimizar; o JLLVM o põe no
+`OptimizerLast`, que vem antes do `MergeFunctions`; o gollvm tem a mesma ordem nossa, mas a cópia
+própria do passo não copia atributos de argumento. O passo próprio do Cangjie (`CJRewriteStatepoint`,
+LLVM 15) copia o conjunto inteiro quando há `noundef`, e quebra com `noundef returned`.
+
+Medida no servidor e nas árvores (produção, carga < 3,5, mediana de 4 rodadas alternadas; árvores, de
+5 processos):
+
+| | A0 | A1 com contexto | B1 | B1 com o RS4GC antes do `lto<O2>` (como o Perry) |
+|---|---:|---:|---:|---:|
+| pedidos/s | 67,6 mil | 68,6 mil | 61,3 mil | 58,5 mil |
+| instruções por pedido | 186,2 mil | 185,8 mil | 233,5 mil | 240,8 mil |
+| árvores, ms | 12,48 | 12,43 | 17,88 | 17,85 |
+| executável do servidor | 4,52 MB | 4,70 MB | 7,84 MB | 8,05 MB |
+
+No macOS as raízes ficam no slot da pilha (o RS4GC roda dentro do LTO do `lld`, sem a forma
+`"deopt"` do §14.12), e o B1 perde em tudo. O RS4GC antes da otimização evita o defeito do LLVM, mas
+perde o inlining através das chamadas e fica ainda mais lento.
 
 ## 15. Roteiro de implementação detalhado
 

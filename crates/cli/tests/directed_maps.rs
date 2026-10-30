@@ -151,8 +151,8 @@ const CASES: &[Case] = &[
         emitter_sabotage: Some("no_fake_use"),
         runtime_sabotage: None,
     },
-    // D8: the caught `StackOverflowError`, in both exception models; with the
-    // 4 KiB slack, building and throwing the error really overflows the stack.
+    // D8: the caught `StackOverflowError`, in both exception models; with no
+    // slack, building and throwing the error really overflows the stack.
     Case {
         file: "gc_d08_estouro_de_pilha.dart",
         expected: "3003 0\n",
