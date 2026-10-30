@@ -725,8 +725,10 @@ impl<'a> LlvmEmitter<'a> {
     /// production SDK modules emit the same pairs, so a direct call to a
     /// `df.dart$3a…` function of another module uses it too.
     ///
-    /// Only for the production AOT of tracing memory on the shadow stack with
-    /// exceptions by check, outside WebAssembly; elsewhere the request is ignored.
+    /// Only for the production AOT of tracing memory on the shadow stack (with
+    /// exceptions by check or by tables), outside WebAssembly; elsewhere the request
+    /// is ignored. With tables, a call with a landing pad becomes an `invoke` of the
+    /// same `f$cx` ([`Self::make_invoke`]).
     pub fn with_context_parameter(mut self, yes: bool) -> Self {
         self.context_parameter = yes;
         self
@@ -7299,7 +7301,6 @@ impl<'a> LlvmEmitter<'a> {
             && context_parameter_enabled()
             && self.static_objects
             && !self.module.arc_memory
-            && !self.module.table_exceptions
             && !self.maps
             && !crate::target::is_wasm()
     }
