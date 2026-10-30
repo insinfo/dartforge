@@ -1709,8 +1709,11 @@ pub extern "C" fn dartforge_arc_retain(value: i64) {
 pub extern "C" fn dartforge_arc_release(value: i64) {
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
-        h.release_code_owner(value);
         // The real ARC: the object whose last owner this was dies here.
+        if h.prompt_release_last(value) {
+            return;
+        }
+        h.release_code_owner(value);
         h.arc_settle();
     });
 }

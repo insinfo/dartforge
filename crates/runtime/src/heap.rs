@@ -7806,9 +7806,13 @@ impl Heap {
                         && usize::from(fields) == n
                         && !state.trace_log
                     {
-                        let mut out = [0i64; 32];
-                        let k = f(h, out.as_mut_ptr()) as usize;
-                        for &v in &out[..k] {
+                        // Written up to the count it returns (one slot per
+                        // reference field, at most 32): not zeroed on each death.
+                        let mut out = std::mem::MaybeUninit::<[i64; 32]>::uninit();
+                        let k = f(h, out.as_mut_ptr().cast()) as usize;
+                        debug_assert!(k <= 32);
+                        let out = std::slice::from_raw_parts(out.as_ptr().cast::<i64>(), k.min(32));
+                        for &v in out {
                             if v & 1 != 0 {
                                 state.zeros.push(crate::arc::ArcId {
                                     handle: v & !1,
@@ -8756,6 +8760,81 @@ impl Heap {
     ///
     /// Called where no native holds an uncounted reference: the code's release, and
     /// the end of the runtime entries that release or observe the dead.
+    /// The real ARC's release of the code's last token of a plain object, the path
+    /// of Swift's `swift_release`: a live object of the space whose count goes from
+    /// one to zero, with no side state (`OBSERVED`, a raw-write snapshot, a deferred
+    /// zero, a cycle candidate, an out-of-line body or an attachment), dies here and
+    /// its children cascade, without the settle point's work around it (the inline
+    /// candidates, the purge threshold, the observational roots, the side tables).
+    /// Returns false, touching nothing, when anything needs the general path
+    /// ([`Self::release_code_owner`] then [`Self::arc_settle`]): the audit, a pending
+    /// raw write or zero, ephemerons, an observational root of the runtime. A death
+    /// of the cascade that takes the generic discard ends in the full settle point.
+    #[allow(unsafe_code)]
+    pub(crate) fn prompt_release_last(&mut self, h: Ref) -> bool {
+        if !self.prompt_death
+            || self.collection_deferred > 0
+            || self.virtual_code_tokens
+            || self.code_inventory()
+            || !smi::e_handle(h)
+            || !self.ephemerons.is_empty()
+            || self.scratch_roots.iter().any(|&r| r != 0)
+            || self.empty_storages.iter().any(|&r| r != 0)
+            || self.frames.iter().any(|(_, _, owner)| !*owner)
+        {
+            return false;
+        }
+        let Some(arc) = self.arc.get() else {
+            return false;
+        };
+        if arc.state.in_object.is_none()
+            || arc.state.trace_log
+            || !arc.snapshots.is_empty()
+            || arc.state.ha_zeros()
+            || arc.state.has_deferred()
+        {
+            return false;
+        }
+        // SAFETY: a handle: a block of the space or a static.
+        let p = unsafe { prompt_word(h) };
+        if p.is_null() {
+            return false;
+        }
+        // SAFETY: the in-object word of a block of the space.
+        let x = unsafe { *p };
+        if x & (arc_word::LIVE | arc_word::COLLECTING | arc_word::RC) != arc_word::LIVE | 1
+            || x & (arc_word::OBSERVED
+                | arc_word::SNAPSHOT
+                | arc_word::DEFERRED
+                | arc_word::CANDIDATE)
+                != 0
+        {
+            return false;
+        }
+        let b = (h - HANDLE_OFFSET) as *mut Header;
+        // SAFETY: a block of the space (it has an in-object word).
+        if unsafe { (*b).flags } & (block_flags::OUT_OF_LINE | block_flags::ATTACHMENT) != 0 {
+            return false;
+        }
+        let x = x - 1;
+        // SAFETY: as above.
+        unsafe { *p = x };
+        let mut arc = self.arc.take().expect("ARC on");
+        arc.state.statistics.seen_zeros += 1;
+        self.prompt_die(&mut arc.state, h, b, p, x);
+        arc.state.statistics.dead_by_rc += 1;
+        if arc.state.ha_zeros() {
+            // No observational root (checked above): nothing protects a zero.
+            self.arc_drain_zeros(&mut arc, &|_| false);
+        }
+        let general = arc.state.has_dead() || arc.state.ha_zeros() || arc.state.has_deferred();
+        self.arc.set(arc);
+        if general {
+            self.arc_settle();
+        }
+        true
+    }
+
     pub(crate) fn arc_settle(&mut self) {
         if !self.prompt_death || self.collection_deferred > 0 {
             return;

@@ -1356,6 +1356,12 @@ impl ArcHeapState {
         !self.deferred_set.is_empty()
     }
 
+    /// Are there logical deaths of the generic discard not yet handed to the
+    /// reclaimer ([`Self::transfer_dead`])?
+    pub(crate) fn has_dead(&self) -> bool {
+        !self.dead_set.is_empty()
+    }
+
     /// The discard transaction of set `d` (§19.4): marks them all `Collecting`; for
     /// each strong occurrence `u→v` with `u` in `d`, releases `v` if `v` is not in
     /// `d`; breaks the edges; marks them `Dead` and publishes the dead ones to the
