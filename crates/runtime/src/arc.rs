@@ -1509,8 +1509,10 @@ impl ArcHeapState {
         protected: &dyn Fn(Ref) -> bool,
         s: &mut CycleScratch,
     ) -> Result<usize, ArcError> {
-        let mut candidates =
-            std::mem::replace(&mut self.candidates, std::mem::take(&mut s.spare_candidates));
+        let mut candidates = std::mem::replace(
+            &mut self.candidates,
+            std::mem::take(&mut s.spare_candidates),
+        );
         // Detach every old backlink before callbacks can requeue a protected
         // identity into the new vector. Old indices must never name that vector.
         for id in &candidates {

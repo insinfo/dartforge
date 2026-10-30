@@ -2599,7 +2599,11 @@ pub(crate) fn process_memory() -> (usize, usize, usize) {
             }
             malloc_zone_statistics(std::ptr::null_mut(), &mut heap);
         }
-        (info.resident_size as usize, info.resident_size_max as usize, heap.size_in_use)
+        (
+            info.resident_size as usize,
+            info.resident_size_max as usize,
+            heap.size_in_use,
+        )
     }
     #[cfg(all(not(windows), not(target_os = "macos")))]
     {
