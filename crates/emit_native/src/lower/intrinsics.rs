@@ -155,7 +155,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             (PrimitiveKind::Double, "toDouble" | "abs" | "toInt" | "truncate", true) => name_str,
             _ => return None,
         };
-        let v = self.lower_expr(ast, recv);
+        // The receiver keeps the `?.` chain it may end (`t?.n.isEven`, N3).
+        let v = self.lower_target(ast, recv);
         if self.is_terminated() {
             return Some(Operand::Constant(Constant::Null));
         }
@@ -202,7 +203,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             return None;
         }
-        let a = self.lower_expr(ast, *recv);
+        let a = self.lower_target(ast, *recv);
         if self.is_terminated() {
             return Some(Operand::Constant(Constant::Null));
         }
@@ -275,7 +276,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if Some(*class) != self.ctx.core.num_class || self.ctx.arc_memory {
             return None;
         }
-        let v = self.lower_expr(ast, *recv);
+        let v = self.lower_target(ast, *recv);
         if self.is_terminated() {
             return Some(Operand::Constant(Constant::Null));
         }
@@ -381,7 +382,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if Some(*class) != expected {
             return None;
         }
-        let list = self.lower_expr(ast, *recv);
+        // The receiver keeps the `?.` chain it may end (`t?.list.add(x)`, N3).
+        let list = self.lower_target(ast, *recv);
         if self.is_terminated() {
             return Some(Operand::Constant(Constant::Null));
         }
@@ -521,7 +523,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if recipe.variables {
             return None;
         }
-        let list = self.lower_expr(ast, *recv);
+        // The receiver keeps the `?.` chain it may end (`t?.list.add(x)`, N3).
+        let list = self.lower_target(ast, *recv);
         if self.is_terminated() {
             return Some(Operand::Constant(Constant::Null));
         }
