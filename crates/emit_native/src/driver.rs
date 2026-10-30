@@ -256,10 +256,7 @@ pub fn compile_and_link(
                 .parent()
                 .unwrap_or(Path::new("."))
                 .join(s.dll.file_name().unwrap_or_default());
-            if !dest.is_file() && std::fs::hard_link(&s.dll, &dest).is_err() {
-                std::fs::copy(&s.dll, &dest)
-                    .map_err(|e| format!("could not put the SDK DLL in {}: {e}", dest.display()))?;
-            }
+            place_sdk_dll(&s.dll, &dest)?;
         }
         if options.timings {
             eprintln!("  Parts:     {} objects", objects.len());
@@ -370,10 +367,7 @@ pub fn compile_and_link(
             .parent()
             .unwrap_or(Path::new("."))
             .join(s.dll.file_name().unwrap_or_default());
-        if !dest.is_file() && std::fs::hard_link(&s.dll, &dest).is_err() {
-            std::fs::copy(&s.dll, &dest)
-                .map_err(|e| format!("could not put the SDK DLL in {}: {e}", dest.display()))?;
-        }
+        place_sdk_dll(&s.dll, &dest)?;
     }
     let link_duration = t_link.elapsed();
 
@@ -387,6 +381,28 @@ pub fn compile_and_link(
         clang: clang_duration,
         link: link_duration,
         cache_object: matches!(from_cache, Some((_, _, true))),
+    })
+}
+
+/// Puts the cached SDK shared library `dll` next to the executable, at `dest`: a
+/// physical link, or a copy only if the volume is another. A `dest` that exists (or
+/// that a concurrent compilation linked first) stays: copying over it would
+/// truncate the cache's own file when it is the same inode.
+fn place_sdk_dll(dll: &Path, dest: &Path) -> Result<(), String> {
+    if dest.is_file() {
+        return Ok(());
+    }
+    match std::fs::hard_link(dll, dest) {
+        Ok(()) => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+        Err(_) => {}
+    }
+    let fail = |e: std::io::Error| format!("could not put the SDK DLL in {}: {e}", dest.display());
+    let tmp = dest.with_extension(format!("tmp.{}", std::process::id()));
+    std::fs::copy(dll, &tmp).map_err(fail)?;
+    std::fs::rename(&tmp, dest).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        fail(e)
     })
 }
 
