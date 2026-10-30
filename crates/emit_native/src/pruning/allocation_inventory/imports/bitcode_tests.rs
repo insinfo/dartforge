@@ -59,7 +59,11 @@ pub(super) fn compare_selected_objects(
         let filename = object.file_name().unwrap().to_str().unwrap();
         let module = format!("dart:{}", object.file_stem().unwrap().to_str().unwrap());
         let source = raw.modules.iter().find(|m| m.module == module).unwrap();
-        assert!(source.image_census.is_clean());
+        assert!(
+            source.image_census.is_clean(),
+            "{module}: image obligations {:?}",
+            source.image_census.obligations
+        );
         let members: HashSet<_> = source
             .image_census
             .members
