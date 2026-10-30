@@ -558,6 +558,44 @@ pub struct ArcHeapState {
     /// The dead candidates the last candidate pass found
     /// ([`Self::take_dead_candidates`]): their cells can be reused now.
     dead_candidates: Vec<Ref>,
+    /// The buffers of the cycle rounds, kept between rounds.
+    scratch: CycleScratch,
+    /// The set of a batch discard ([`Self::discard`]), empty between discards.
+    discard_items: HashSet<Ref>,
+}
+
+/// The working buffers of [`ArcHeapState::collect_cycles`], empty between uses but keeping their capacity: a round of the real ARC can examine
+/// hundreds of thousands of objects, and allocating these vectors anew each round
+/// left the system allocator's medium zone with tens of MB of freed, resident pages.
+#[derive(Default)]
+struct CycleScratch {
+    /// The other candidate buffer: the round takes the full one and leaves this one,
+    /// empty, to receive the candidates queued meanwhile.
+    spare_candidates: Vec<ArcId>,
+    /// The seeds, then the walk's stack.
+    stack: Vec<Ref>,
+    /// Region `R` and the dense index of each of its handles.
+    region: Vec<Ref>,
+    index: HashMap<Ref, usize>,
+    /// `rc` minus the occurrences internal to `R`.
+    trial: Vec<i64>,
+    /// The survivors of `R` and the stack that propagates survival.
+    live: Vec<bool>,
+    live_stack: Vec<usize>,
+    /// The dead set of the round.
+    dead: Vec<Ref>,
+}
+
+impl CycleScratch {
+    fn clear(&mut self) {
+        self.stack.clear();
+        self.region.clear();
+        self.index.clear();
+        self.trial.clear();
+        self.live.clear();
+        self.live_stack.clear();
+        self.dead.clear();
+    }
 }
 
 /// Reads an in-object word ([`ArcHeapState::in_object`]).
@@ -1343,11 +1381,10 @@ impl ArcHeapState {
         // edge is the object's own, the set (one allocation per death) is not
         // built, and the edges are read and cleared in a single walk.
         let single = if d.len() == 1 { Some(d[0]) } else { None };
-        let item_set: HashSet<Ref> = if single.is_some() {
-            HashSet::default()
-        } else {
-            d.iter().copied().collect()
-        };
+        let mut item_set = std::mem::take(&mut self.discard_items);
+        if single.is_none() {
+            item_set.extend(d.iter().copied());
+        }
         let internal = |v: Ref| match single {
             Some(u) => u == v,
             None => item_set.contains(&v),
@@ -1413,6 +1450,8 @@ impl ArcHeapState {
             }
         }
         self.exits = exits;
+        item_set.clear();
+        self.discard_items = item_set;
         for &u in d {
             if self.trace_log {
                 eprintln!("[arc-trace] die {u}");
@@ -1457,7 +1496,21 @@ impl ArcHeapState {
         graph: &mut dyn ArcGraph,
         protected: &dyn Fn(Ref) -> bool,
     ) -> Result<usize, ArcError> {
-        let candidates = std::mem::take(&mut self.candidates);
+        let mut scratch = std::mem::take(&mut self.scratch);
+        let result = self.collect_cycles_in(graph, protected, &mut scratch);
+        scratch.clear();
+        self.scratch = scratch;
+        result
+    }
+
+    fn collect_cycles_in(
+        &mut self,
+        graph: &mut dyn ArcGraph,
+        protected: &dyn Fn(Ref) -> bool,
+        s: &mut CycleScratch,
+    ) -> Result<usize, ArcError> {
+        let mut candidates =
+            std::mem::replace(&mut self.candidates, std::mem::take(&mut s.spare_candidates));
         // Detach every old backlink before callbacks can requeue a protected
         // identity into the new vector. Old indices must never name that vector.
         for id in &candidates {
@@ -1482,8 +1535,7 @@ impl ArcHeapState {
                 m.candidate_index = u32::MAX;
             }
         }
-        let mut seeds: Vec<Ref> = Vec::new();
-        for id in candidates {
+        for id in candidates.drain(..) {
             let Some(m) = self
                 .meta(id.handle)
                 .filter(|m| m.generation == id.generation)
@@ -1494,22 +1546,21 @@ impl ArcHeapState {
                 if protected(id.handle) {
                     self.add_candidate(id.handle);
                 } else {
-                    seeds.push(id.handle);
+                    s.stack.push(id.handle);
                 }
             }
         }
-        if seeds.is_empty() {
+        s.spare_candidates = candidates;
+        if s.stack.is_empty() {
             return Ok(0);
         }
         self.statistics.cycle_rounds += 1;
         // The protected root stays out of R: its edges remain external inputs in the
         // trial. Requeuing it allows collecting it when the root disappears.
-        let mut r: Vec<Ref> = Vec::new();
         // A dense index per handle; counters and marks live in vectors, without three
         // distinct hash tables for the same region.
-        let mut in_r: HashMap<Ref, usize> = HashMap::default();
-        let mut stack = seeds;
-        while let Some(x) = stack.pop() {
+        let (r, in_r) = (&mut s.region, &mut s.index);
+        while let Some(x) = s.stack.pop() {
             let std::collections::hash_map::Entry::Vacant(input) = in_r.entry(x) else {
                 continue;
             };
@@ -1527,17 +1578,15 @@ impl ArcHeapState {
             r.push(x);
             graph.edges(x, &mut |v| {
                 if e_handle(v) {
-                    stack.push(v);
+                    s.stack.push(v);
                 }
             });
         }
         self.statistics.examined += r.len() as u64;
-        // trial = rc − internal occurrences.
-        let mut trial: Vec<i128> = r
-            .iter()
-            .map(|&x| self.meta(x).map_or(0, |m| m.rc) as i128)
-            .collect();
-        for &u in &r {
+        // trial = rc − internal occurrences (the count has 40 bits).
+        let trial = &mut s.trial;
+        trial.extend(r.iter().map(|&x| self.meta(x).map_or(0, |m| m.rc) as i64));
+        for &u in r.iter() {
             graph.edges(u, &mut |v| {
                 if let Some(&ix) = in_r.get(&v) {
                     trial[ix] -= 1;
@@ -1548,8 +1597,8 @@ impl ArcHeapState {
             return Err(ArcError::NegativeTrial(r[ix]));
         }
         // Survivors: positive trial, under construction or protected; they propagate.
-        let mut live_set = vec![false; r.len()];
-        let mut stack: Vec<usize> = Vec::new();
+        let (live_set, stack) = (&mut s.live, &mut s.live_stack);
+        live_set.resize(r.len(), false);
         for (ix, &x) in r.iter().enumerate() {
             let m = self
                 .meta(x)
@@ -1585,16 +1634,16 @@ impl ArcHeapState {
                 self.add_candidate(x);
             }
         }
-        let dead_set: Vec<Ref> = r
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, x)| (!live_set[i]).then_some(x))
-            .collect();
-        if dead_set.is_empty() {
+        s.dead.extend(
+            r.iter()
+                .zip(live_set.iter())
+                .filter_map(|(&x, &live)| (!live).then_some(x)),
+        );
+        if s.dead.is_empty() {
             return Ok(0);
         }
-        let n = dead_set.len();
-        self.discard(graph, &dead_set)?;
+        let n = s.dead.len();
+        self.discard(graph, &s.dead)?;
         self.statistics.dead_by_cycle += n as u64;
         Ok(n)
     }

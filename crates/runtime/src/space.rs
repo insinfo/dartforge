@@ -1749,7 +1749,8 @@ impl ObjectSpace {
             }
         }
         if !aging {
-            for b in std::mem::take(&mut self.remembered) {
+            // Drained in place: the list keeps its capacity for the next collection.
+            for b in self.remembered.drain(..) {
                 // SAFETY: remembered block, old.
                 unsafe { (*b).state = OLD };
             }

@@ -1915,6 +1915,19 @@ impl Schedule {
 }
 
 #[derive(Debug)]
+/// The working vectors of [`Heap::drain_arc`].
+#[derive(Default)]
+struct DrainScratch {
+    /// The blocks handed out since the last drain.
+    young: Vec<*mut Header>,
+    /// The young objects that died.
+    dead_young: Vec<Ref>,
+    /// The dead of one pass of the loop, from [`crate::arc::ArcHeapState::transfer_dead`].
+    fresh: Vec<Ref>,
+    /// The dead the drain reclaims one by one.
+    dead_rc: Vec<Ref>,
+}
+
 pub struct Heap {
     /// Identifier, slots and category: `true` counts each occurrence in ARC.
     frames: Vec<(i64, Vec<i64>, bool)>,
@@ -2027,6 +2040,10 @@ pub struct Heap {
     /// The objects that died at a settle point, waiting for the physical reclaimer of
     /// the next drain (the young ones go with the sweep of the young).
     prompt_dead: Vec<Ref>,
+    /// The working vectors of the ARC drain ([`Heap::drain_arc`]), empty between
+    /// drains but keeping their capacity, so the drains do not keep reallocating
+    /// them in the system allocator.
+    drain_scratch: DrainScratch,
     /// `late` fields already written, by handle and physical index. The mark stays
     /// outside the value: zero and null are valid program assignments.
     late_fields_initialized: crate::hash::HashSet<(i64, i64)>,
@@ -2252,6 +2269,7 @@ impl Heap {
             virtual_code_tokens: false,
             prompt_death: false,
             prompt_dead: Vec::new(),
+            drain_scratch: DrainScratch::default(),
             reuse_bound: [0; crate::layout::context::REUSE_CLASSES + 1],
             reuse_stats: (0, 0, 0),
             inline_candidates: Vec::new(),
@@ -9011,7 +9029,7 @@ impl Heap {
             phases.push(start.elapsed().as_micros());
         }
         // 2. The young objects only the roots see.
-        let mut young_set = Vec::new();
+        let mut young_set = std::mem::take(&mut self.drain_scratch.young);
         self.objects.young_handed_out(&mut |b| young_set.push(b));
         // Only the roots can add registrations at this stage. Checking
         // all young objects here cost a metadata lookup per allocation,
@@ -9031,7 +9049,7 @@ impl Heap {
             phases.push(start.elapsed().as_micros());
         }
         // 4. The young: the registered stays, the rest died.
-        let mut dead_young: Vec<Ref> = Vec::new();
+        let mut dead_young = std::mem::take(&mut self.drain_scratch.dead_young);
         let n_young = young_set.len();
         for &b in &young_set {
             let h = b as i64 + HANDLE_OFFSET;
@@ -9109,7 +9127,8 @@ impl Heap {
         let mut attachment_edges = Vec::new();
         let mut natives = Vec::new();
         let mut finalize = Vec::new();
-        let mut dead_rc: Vec<Ref> = Vec::new();
+        let mut dead_rc = std::mem::take(&mut self.drain_scratch.dead_rc);
+        let mut fresh = std::mem::take(&mut self.drain_scratch.fresh);
         let mut first_one = true;
         arc.state.resume_deferred();
         // The loop in parts, for the trace: zeros, cycles, ephemeron fixed
@@ -9150,7 +9169,7 @@ impl Heap {
                 }
             }
             let t3 = trace.then(crate::clock::Instant::now);
-            let mut fresh = Vec::new();
+            fresh.clear();
             let amount = arc.state.transfer_dead(&mut fresh);
             self.hold_dead_candidates(&arc, &fresh, &mut dead_rc);
             // Young objects also require side cleanup in the first round, but
@@ -9337,6 +9356,16 @@ impl Heap {
             );
         }
         self.arc.set(arc);
+        young_set.clear();
+        dead_young.clear();
+        fresh.clear();
+        dead_rc.clear();
+        self.drain_scratch = DrainScratch {
+            young: young_set,
+            dead_young,
+            fresh,
+            dead_rc,
+        };
         for (finalizer, pair) in finalize {
             finalizer(pair);
         }
