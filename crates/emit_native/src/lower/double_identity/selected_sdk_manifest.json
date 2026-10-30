@@ -69,6 +69,11 @@
       "source_blake3": "f5d9bf54d7b921013b426ef18bea562ad24c275254e51d0faa7105e216bdadb3"
     },
     {
+      "library": "dart:_http",
+      "role": 3,
+      "source_blake3": "caf325f175990555504ebfa1d3ff935dec09411f5fd4d8e2b4ae98bc8e87a97e"
+    },
+    {
       "library": "dart:_internal",
       "role": 1,
       "source_blake3": "04cc2083c580cd47983f9e3a1e1b46aecef64a9b3f91fc3195f700c24cabff19"
@@ -136,17 +141,17 @@
     {
       "library": "dart:_internal",
       "role": 3,
+      "source_blake3": "0d0925216449e5f831c90b75a32c3ca88ba74e6ab970e8746590e49d940fa6bd"
+    },
+    {
+      "library": "dart:_internal",
+      "role": 3,
       "source_blake3": "35a934a991a01a99996bff7cc62ceceb833731fcc77659bd9fa657c005abaeba"
     },
     {
       "library": "dart:_internal",
       "role": 3,
       "source_blake3": "543216a576473c74e89af49e1c4773559e892c8a51c6b1e1df9e99c58fbd1522"
-    },
-    {
-      "library": "dart:_internal",
-      "role": 3,
-      "source_blake3": "0d0925216449e5f831c90b75a32c3ca88ba74e6ab970e8746590e49d940fa6bd"
     },
     {
       "library": "dart:_internal",
@@ -601,22 +606,17 @@
     {
       "library": "dart:core",
       "role": 3,
-      "source_blake3": "3dd57e4c980cc31213815fe5068a88d3313335971a4f48bfc31f3f4d3e267d27"
-    },
-    {
-      "library": "dart:core",
-      "role": 3,
       "source_blake3": "301080aa6de1fe5191a55a04dfa614e38e7a34b9bc8361c2d474b7982bb734cc"
     },
     {
       "library": "dart:core",
       "role": 3,
-      "source_blake3": "535c8921be2f6b90db983fb28c83c42669b06de8aa547c4ab76e42e2a81d8d71"
+      "source_blake3": "3dd57e4c980cc31213815fe5068a88d3313335971a4f48bfc31f3f4d3e267d27"
     },
     {
       "library": "dart:core",
       "role": 3,
-      "source_blake3": "76238958ab74a74403e3af6b17f0d02aa3995c662af68c50f3333ce766acc3ec"
+      "source_blake3": "535c8921be2f6b90db983fb28c83c42669b06de8aa547c4ab76e42e2a81d8d71"
     },
     {
       "library": "dart:core",
@@ -642,6 +642,11 @@
       "library": "dart:core",
       "role": 3,
       "source_blake3": "6cbfb2b7387add05998645a2d7a1213e9e9da17c1c87578e26edc79ac0fb16df"
+    },
+    {
+      "library": "dart:core",
+      "role": 3,
+      "source_blake3": "76238958ab74a74403e3af6b17f0d02aa3995c662af68c50f3333ce766acc3ec"
     },
     {
       "library": "dart:core",
