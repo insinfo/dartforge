@@ -914,7 +914,10 @@ fn constant_interpolation_folds_values_and_preserves_unknowns() {
     }
     assert!(function("floating").contains("call i64 @dartforge_to_string_f64"));
     assert!(function("nestedFloating").contains("call i64 @dartforge_string_join_typed"));
-    assert!(function("environmentText").contains("call i64 @dartforge_string_join_typed"));
+    // The environment is the compilation's (`lower/environment.rs`): an undefined
+    // key takes its default, so `'$environment'` is the constant `'true'`.
+    assert!(!function("environmentText").contains("call i64 @dartforge_string_join_typed"));
+    assert!(function("environmentText").contains("call i64 @dartforge_string_new"));
     assert!(ir.contains("ABABABABABABABAB"));
     // The unknown getter and user toString remain observable, rather than being
     // evaluated by the compilation-time constant engine.
