@@ -494,8 +494,11 @@ pub fn build_outline(
                                 public_declaration: None,
                             });
 
-                            // Implicit setter if not const/final
-                            let setter_id = if !vars.final_ && !vars.const_ {
+                            // Implicit setter if not const and not final — a `late final`
+                            // without an initializer has one, assignable once.
+                            let setter_id = if !vars.const_
+                                && (!vars.final_ || (vars.late && var.initializer.is_none()))
+                            {
                                 let sid = FunctionElementId(pools.functions.len() as u32);
                                 pools.functions.push(FunctionElement {
                                     name: var_sym,
@@ -1734,7 +1737,11 @@ pub(crate) fn extract_members(
                         public_declaration: None,
                     });
 
-                    let setter_id = if !vars.final_ && !vars.const_ {
+                    // A `late final` field without an initializer has an implicit
+                    // setter too, assignable once.
+                    let setter_id = if !vars.const_
+                        && (!vars.final_ || (vars.late && var.initializer.is_none()))
+                    {
                         let sid = FunctionElementId(pools.functions.len() as u32);
                         pools.functions.push(FunctionElement {
                             name: var_sym,
