@@ -66,6 +66,38 @@ fn standalone_and_duplicate_archive_members_keep_identity_and_digest() {
     }
 }
 
+/// A COFF short import member (`IMPORT_OBJECT_HEADER`) of `symbol` from `dll`, x86-64.
+fn short_import(symbol: &[u8], dll: &[u8]) -> Vec<u8> {
+    let data = [symbol, b"\0", dll, b"\0"].concat();
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&0u16.to_le_bytes()); // Sig1
+    bytes.extend_from_slice(&0xffffu16.to_le_bytes()); // Sig2
+    bytes.extend_from_slice(&0u16.to_le_bytes()); // Version
+    bytes.extend_from_slice(&0x8664u16.to_le_bytes()); // Machine: AMD64
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // TimeDateStamp
+    bytes.extend_from_slice(&(data.len() as u32).to_le_bytes()); // SizeOfData
+    bytes.extend_from_slice(&0u16.to_le_bytes()); // Ordinal/Hint
+    bytes.extend_from_slice(&(1u16 << 2).to_le_bytes()); // IMPORT_OBJECT_CODE, by name
+    bytes.extend_from_slice(&data);
+    bytes
+}
+
+#[test]
+fn coff_short_imports_are_members_without_sections() {
+    let object = minimal_macho();
+    let import = short_import(b"GetLastError", b"kernel32.dll");
+    let data = archive(&[(b"kernel32.dll", &import), (b"valid.o", &object)], false);
+    let result = inspect(&data).unwrap();
+    assert_eq!(result.members.len(), 2);
+    let member = &result.members[0];
+    assert_eq!(member.format, "CoffImport");
+    assert_eq!(member.architecture, "X86_64");
+    assert!(member.sections.is_empty() && member.markers.is_empty());
+    let marker = short_import(b"df.img.anchor", b"kernel32.dll");
+    let data = archive(&[(b"kernel32.dll", &marker)], false);
+    assert!(inspect(&data).is_err());
+}
+
 #[test]
 fn bsd_member_names_are_bytes_and_do_not_need_utf8() {
     let object = minimal_macho();

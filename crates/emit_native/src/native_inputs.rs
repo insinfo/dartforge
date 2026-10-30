@@ -97,6 +97,29 @@ pub(crate) fn macho_commands(file: &object::File<'_>) -> Result<Vec<String>, Str
 }
 
 fn member(name: &[u8], bytes: &[u8], offset: u64) -> Result<Member, String> {
+    // A COFF short import member (an import library's `IMPORT_OBJECT_HEADER`, as
+    // in the runtime archive's `raw-dylib` imports of `kernel32.dll`) declares one
+    // DLL import: no section, no data, no definition the image could hide in. It
+    // stays a member without sections; the import of a marker name is refused.
+    if let Ok(import) = object::read::coff::ImportFile::parse(bytes) {
+        if marker_name(import.symbol()) {
+            return Err("COFF short import of an image marker".into());
+        }
+        return Ok(Member {
+            name: name.to_vec(),
+            input_range: (
+                offset,
+                u64::try_from(bytes.len()).map_err(|_| "native input too large")?,
+            ),
+            digest: blake3::hash(bytes).to_hex().to_string(),
+            format: "CoffImport".into(),
+            architecture: format!("{:?}", import.architecture()),
+            little_endian: true,
+            sections: Vec::new(),
+            markers: Vec::new(),
+            macho_linker_options: Vec::new(),
+        });
+    }
     let file = object::File::parse(bytes).map_err(|e| e.to_string())?;
     if file.kind() != object::ObjectKind::Relocatable {
         return Err("native input is not a relocatable object".into());
@@ -172,7 +195,8 @@ fn member(name: &[u8], bytes: &[u8], offset: u64) -> Result<Member, String> {
 /// ```
 ///
 /// # Errors
-/// Rejects unknown formats, raw bitcode, thin/nested archives, COFF short import members,
+/// Rejects unknown formats, raw bitcode, thin/nested archives, a COFF short import of
+/// an image marker (other short imports are members without sections),
 /// non-relocatable images, malformed member/section data and failed Mach-O load
 /// commands. No partial inventory is returned when an inspected member fails.
 pub fn inspect(bytes: &[u8]) -> Result<Inventory, String> {
