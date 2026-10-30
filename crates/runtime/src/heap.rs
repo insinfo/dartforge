@@ -7628,9 +7628,15 @@ impl Heap {
     }
 
     /// Splits the dead an ARC round handed over (`fresh`): a dead cycle candidate of
-    /// the in-object word stays out of reclamation — its block marked, so that the
-    /// young sweep keeps it — until a candidate pass lets the buffer forget it
-    /// (`ArcHeapState::take_dead_candidates`); the others go to `out`.
+    /// the in-object word in a large region stays out of reclamation — its block
+    /// marked, so that the young sweep keeps it — until a candidate pass lets the
+    /// buffer forget it (`ArcHeapState::take_dead_candidates`); the others go to
+    /// `out`. A dead candidate of a class page goes to `out` too, and loses its
+    /// `CANDIDATE` flag, as in [`Self::prompt_dispose`]: the candidate pass then
+    /// drops its buffer entry instead of reclaiming the block a second time (the
+    /// second release left the block twice on the free ranges, and a later
+    /// allocation zeroed a live object handed the same cell).
+    #[allow(unsafe_code)]
     fn hold_dead_candidates(&self, arc: &HeapArc, fresh: &[Ref], out: &mut Vec<Ref>) {
         if arc.state.in_object.is_none() {
             out.extend_from_slice(fresh);
@@ -7649,7 +7655,12 @@ impl Heap {
                     // SAFETY: a block of the space (it has an in-object word).
                     unsafe { mark_block((h - HANDLE_OFFSET) as *const Header) };
                 }
-                _ => out.push(h),
+                Some(p) => {
+                    // SAFETY: the in-object word of a block of the space.
+                    unsafe { *p &= !crate::layout::arc_word::CANDIDATE };
+                    out.push(h);
+                }
+                None => out.push(h),
             }
         }
     }
@@ -11424,6 +11435,36 @@ mod prompt_death_tests {
         release(&mut heap, object);
         assert_eq!(FINALIZED.load(std::sync::atomic::Ordering::SeqCst), 77);
         assert!(heap.finalizable.is_empty());
+    }
+
+    /// A cycle candidate that dies through the generic discard (here, its finalizer
+    /// attachment) at a settle point is reclaimed once: the drain used to release it
+    /// from the settle point's dead and again as a dead candidate, leaving its block
+    /// twice on the free ranges, so two later allocations shared one cell. Test heaps
+    /// have no reuse lists, as under `--gc-stress` and `DARTFORGE_ARC_CHECK=1`.
+    #[test]
+    fn dead_candidate_of_the_generic_discard_is_reclaimed_once() {
+        let mut heap = heap_prompt();
+        // Its own finalizer: `FINALIZED` belongs to the test above, which runs in
+        // parallel.
+        fn ignore(_: usize) {}
+        let object = owned(&mut heap, 1);
+        heap.attach_finalizable(object, ignore, 5);
+        heap.retain_code_owner(object);
+        // Old, and a candidate: a release that leaves it above zero.
+        heap.collect();
+        release(&mut heap, object);
+        assert!(!dead(&heap, object));
+        let live_before = heap.objects.live_set;
+        release(&mut heap, object);
+        assert!(dead(&heap, object));
+        // A minor drain: no cycle round consumes the candidate buffer first.
+        heap.run_collection(true);
+        assert_eq!(
+            heap.objects.live_set,
+            live_before - 1,
+            "the dead block was released more than once"
+        );
     }
 
     #[test]
