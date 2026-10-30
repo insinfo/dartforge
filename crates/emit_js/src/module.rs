@@ -3089,7 +3089,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         && class.supertype_class == ctx.object
         && class.mixin_classes.is_empty()
         && !fields.is_empty()
-        && (ctx.filter.is_none() || ctx.is_mixed_in(c));
+        && (!ctx.production() || ctx.is_mixed_in(c));
     if is_mixin || class.modifiers.mixin || legacy_mixin {
         let mut body = Writer {
             indent: 1,
