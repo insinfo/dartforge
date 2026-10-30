@@ -539,6 +539,7 @@ fn emit_sdk_modules(
     };
     let mut exit = Vec::new();
     for (index, (uri, module)) in modules.iter().enumerate() {
+        crate::duplicates::report(uri, module);
         // The SDK DLL stays loaded for the whole process: the literals are
         // static objects in the JIT too (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
         let ir = crate::llvm::LlvmEmitter::new(module)

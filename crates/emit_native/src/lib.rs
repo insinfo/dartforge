@@ -8,6 +8,7 @@ pub mod cross;
 #[cfg(feature = "embedded-llvm")]
 pub mod distributed_lto;
 pub mod driver;
+pub mod duplicates;
 pub mod erasure;
 mod finalizables;
 pub mod gcmap;
@@ -784,6 +785,7 @@ fn emit_ir_internal(
         Ok(v) => v == "1",
         Err(_) => large,
     };
+    duplicates::report("program", &hir_module);
     let emitter = llvm::LlvmEmitter::new(&hir_module)
         .with_previous_area(previous_area)
         .with_lean_area(lean)
