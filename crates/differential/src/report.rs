@@ -405,8 +405,8 @@ pub fn format_report(results: &[ProgramResult]) -> String {
             );
         }
         if !native {
-            match (r.ddc_vs_dart(), &r.program.diverge_ddc) {
-                (Some(d), None) => {
+            match (r.ddc_vs_dart(), r.program.expects_ddc_difference()) {
+                (Some(d), false) => {
                     ddc_warnings += 1;
                     let _ = writeln!(out, "DDC≠VM {name}  ({})", describe(d));
                     let _ = write!(
@@ -425,7 +425,13 @@ pub fn format_report(results: &[ProgramResult]) -> String {
                         truncate(r.ddc.first_stderr_line(), 80)
                     );
                 }
-                (None, Some(reason)) => {
+                (None, true) => {
+                    let reason = r
+                        .program
+                        .diverge_ddc
+                        .as_deref()
+                        .or(r.program.ddc_wrong.as_deref())
+                        .unwrap_or_default();
                     let _ = writeln!(
                         out,
                         "WARN   {name}  header declares a DDC divergence but the outputs match: {reason}"
@@ -637,16 +643,16 @@ pub fn format_report(results: &[ProgramResult]) -> String {
     if !native {
         let _ = writeln!(
             out,
-            "DDC×VM: {}/{total} match (not counting {} with a declared divergence)",
+            "DDC×VM: {}/{total} match (not counting {} with a declared divergence or DDC defect)",
             total
                 - ddc_warnings
                 - results
                     .iter()
-                    .filter(|r| r.program.diverge_ddc.is_some())
+                    .filter(|r| r.program.expects_ddc_difference())
                     .count(),
             results
                 .iter()
-                .filter(|r| r.program.diverge_ddc.is_some())
+                .filter(|r| r.program.expects_ddc_difference())
                 .count()
         );
     }

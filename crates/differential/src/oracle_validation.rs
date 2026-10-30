@@ -23,7 +23,7 @@ impl ProgramResult {
     /// assert!(result.oracle_failure().is_none());
     /// ```
     pub fn oracle_failure(&self) -> Option<String> {
-        if !self.native && self.ddc.code != 0 {
+        if !self.native && self.ddc.code != 0 && self.program.ddc_wrong.is_none() {
             return Some(failure("DDC", &self.ddc));
         }
         let declared_web_rejection = !self.native
@@ -191,6 +191,15 @@ mod tests {
             )
         );
         assert!(report.contains("DART!"), "the VM rejection remains visible");
+    }
+
+    #[test]
+    fn declared_ddc_defect_keeps_the_oracle_valid_but_not_a_failed_vm() {
+        let mut r = result(output(0, "ok\n"), output(255, "RangeError"), false, false);
+        r.program.ddc_wrong = Some("wrong capture".into());
+        assert!(r.oracle_failure().is_none());
+        r.dart = output(255, "Unhandled exception");
+        assert!(r.oracle_failure().is_some());
     }
 
     #[test]

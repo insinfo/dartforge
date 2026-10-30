@@ -43,6 +43,11 @@ pub struct Program {
     /// Reason declared in the header (`// diverge-hosts: …`) when the browser
     /// and the executor print different things by definition.
     pub diverge_hosts: Option<String>,
+    /// Reason declared in the header (`// ddc-wrong: …`) when `dartdevc` has a
+    /// known defect on the program (it prints something else or throws) and the VM
+    /// is right: the reference stays the VM, and DDC's failure does not invalidate
+    /// the oracle — the harness checks that the defect still happens.
+    pub ddc_wrong: Option<String>,
     /// `// requer-dart: x.y`: the current version the program runs in (3.6 without the header).
     pub requires: LanguageVersion,
     /// The entry's `// @dart=x.y`, when present.
@@ -60,6 +65,7 @@ pub struct Program {
 pub struct Header {
     pub diverge_ddc: Option<String>,
     pub diverge_hosts: Option<String>,
+    pub ddc_wrong: Option<String>,
     pub requires: Option<LanguageVersion>,
     pub compile_error: bool,
     pub experiments: Vec<String>,
@@ -77,6 +83,8 @@ pub fn read_header(source: &str) -> Header {
             c.diverge_ddc.get_or_insert_with(|| m.trim().to_string());
         } else if let Some(m) = rest.strip_prefix("diverge-hosts:") {
             c.diverge_hosts.get_or_insert_with(|| m.trim().to_string());
+        } else if let Some(m) = rest.strip_prefix("ddc-wrong:") {
+            c.ddc_wrong.get_or_insert_with(|| m.trim().to_string());
         } else if let Some(v) = rest.strip_prefix("requer-dart:") {
             c.requires = c.requires.or(LanguageVersion::parse(v));
         } else if rest.trim_end() == "erro-de-compilacao" {
@@ -113,6 +121,7 @@ impl Program {
             files,
             diverge_ddc: c.diverge_ddc,
             diverge_hosts: c.diverge_hosts,
+            ddc_wrong: c.ddc_wrong,
             requires: c.requires.unwrap_or(LanguageVersion::FLOOR),
             marker: dartforge_frontend::features::version_marker(&source).map(|m| m.0),
             compile_error: c.compile_error,
@@ -130,6 +139,7 @@ impl Program {
             files: vec![],
             diverge_ddc: None,
             diverge_hosts: None,
+            ddc_wrong: None,
             requires: LanguageVersion::FLOOR,
             marker: None,
             compile_error: false,
@@ -169,6 +179,12 @@ impl Program {
     /// target.
     pub fn reference_is_ddc(&self) -> bool {
         self.diverge_ddc.is_some()
+    }
+
+    /// DDC is expected to differ from the VM: a declared web divergence or a known
+    /// DDC defect.
+    pub fn expects_ddc_difference(&self) -> bool {
+        self.diverge_ddc.is_some() || self.ddc_wrong.is_some()
     }
 }
 
@@ -316,6 +332,13 @@ mod tests {
             Some("64-bit int".into())
         );
         assert_eq!(read_diverge_ddc("void main() {}"), None);
+    }
+
+    #[test]
+    fn ddc_defect_header() {
+        let h = read_header("// ddc-wrong: wrong capture\nvoid main() {}");
+        assert_eq!(h.ddc_wrong, Some("wrong capture".into()));
+        assert_eq!(h.diverge_ddc, None);
     }
 
     #[test]

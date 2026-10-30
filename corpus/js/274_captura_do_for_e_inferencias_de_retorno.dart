@@ -1,3 +1,4 @@
+// ddc-wrong: dartdevc 3.6.2 gives a closure in a `for` initializer the variables of the last iteration ([4, 4, 4, 4]) and then throws a RangeError; the VM is right.
 // A closure in a `for` initializer captures the variables of the first
 // iteration (a JS `for` would give it a separate copy). A local `async`
 // function infers its return type from every `return`, also those of a branch

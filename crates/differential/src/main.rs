@@ -463,7 +463,7 @@ fn main() {
                     "DART!"
                 } else if r.native {
                     "DART"
-                } else if r.ddc_vs_dart().is_none() == r.program.diverge_ddc.is_none() {
+                } else if r.ddc_vs_dart().is_none() != r.program.expects_ddc_difference() {
                     "ok"
                 } else {
                     "DDC≠VM"
@@ -522,7 +522,7 @@ fn main() {
             } else {
                 results.iter().all(|r| {
                     r.oracle_failure().is_none()
-                        && (r.ddc_vs_dart().is_none() != r.program.diverge_ddc.is_some())
+                        && (r.ddc_vs_dart().is_none() != r.program.expects_ddc_difference())
                 })
             };
             if !all_ok {

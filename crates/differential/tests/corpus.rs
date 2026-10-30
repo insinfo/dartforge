@@ -45,15 +45,15 @@ fn corpus_has_valid_oracles() {
     );
     let vm_valid = results.iter().filter(|r| r.dart.code == 0).count();
     println!(
-        "Validated {} programs: {vm_valid} valid VM oracle results, {} declared VM platform rejections; DDC oracle valid for all.",
+        "Validated {} programs: {vm_valid} valid VM oracle results, {} declared VM platform rejections; DDC oracle valid for all but the declared DDC defects.",
         results.len(),
         results.len() - vm_valid
     );
 }
 
 /// `dartdevc`+Node reproduces the VM on 100% of the corpus, except the
-/// programs whose header declares `// diverge-ddc: reason` — those must
-/// actually diverge.
+/// programs whose header declares `// diverge-ddc: reason` or
+/// `// ddc-wrong: reason` — those must actually diverge.
 #[test]
 #[ignore]
 fn ddc_matches_dart_run() {
@@ -75,7 +75,12 @@ fn ddc_matches_dart_run() {
             problems.push(format!("{}: {failure}", r.program.name));
             continue;
         }
-        match (r.ddc_vs_dart(), &r.program.diverge_ddc) {
+        let declared = r
+            .program
+            .diverge_ddc
+            .as_deref()
+            .or(r.program.ddc_wrong.as_deref());
+        match (r.ddc_vs_dart(), declared) {
             (Some(d), None) => problems.push(format!(
                 "{}: DDC ≠ VM ({d:?}); ddc stderr: {}",
                 r.program.name,
