@@ -408,7 +408,7 @@ fn fresh_classic_and_chained_images_cover_real_rebases_and_binds() {
         );
         for chained in [false, true] {
             let output = directory.path().join(format!("{architecture}-{chained}"));
-            let result = std::process::Command::new("ld64.lld")
+            let result = std::process::Command::new(crate::linked_images::lld_tool("ld64.lld"))
                 .args([
                     "-arch",
                     architecture,

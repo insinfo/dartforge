@@ -180,5 +180,17 @@ pub fn inspect(bytes: &[u8]) -> Result<Inventory, String> {
     })
 }
 
+/// The LLD tool `name` as the tests run it: on Windows a name with a dot
+/// (`ld.lld`, `ld64.lld`) needs its `.exe`, which `Command` only appends to a name
+/// without one.
+#[cfg(test)]
+pub(crate) fn lld_tool(name: &str) -> String {
+    if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests;

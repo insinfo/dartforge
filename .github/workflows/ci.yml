@@ -360,6 +360,9 @@ jobs:
           echo "DARTFORGE_LLVM_DIR=$prefix" >> "$GITHUB_ENV"
           echo "LLVM_SYS_221_PREFIX=$prefix" >> "$GITHUB_ENV"
           echo "DARTFORGE_LLVM_LINK=shared" >> "$GITHUB_ENV"
+          # The unsuffixed tools (ld.lld, lld-link, ld64.lld) that the linked-image
+          # tests run by name.
+          echo "$prefix/bin" >> "$GITHUB_PATH"
       - if: runner.os == 'macOS'
         uses: ./.github/actions/llvm-unix
       - name: Pinned Rust (rust-toolchain.toml)

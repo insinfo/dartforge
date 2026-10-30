@@ -207,7 +207,7 @@ fn fresh_linked_pe_images_cover_multiple_blocks_and_preserve_string_bytes() {
             "{target}: {}",
             String::from_utf8_lossy(&result.stderr)
         );
-        let result = std::process::Command::new("lld-link")
+        let result = std::process::Command::new(crate::linked_images::lld_tool("lld-link"))
             .args([
                 "/entry:entry",
                 "/subsystem:console",

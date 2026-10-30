@@ -188,7 +188,7 @@ fn fresh_linked_sections_match_storage_and_reject_mutated_file_bytes() {
             String::from_utf8_lossy(&result.stderr)
         );
         assert!(inspect(&std::fs::read(&object).unwrap()).is_err());
-        let mut command = std::process::Command::new(linker);
+        let mut command = std::process::Command::new(super::lld_tool(linker));
         command.args(options).arg(&object);
         if linker == "lld-link" {
             command.arg(format!("/out:{}", output.display()));

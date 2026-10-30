@@ -320,7 +320,7 @@ fn fresh_pie_rela_and_packed_relr_tables_match_targets_and_detect_corruption() {
             String::from_utf8_lossy(&result.stderr)
         );
         for packed in [false, true] {
-            let mut command = std::process::Command::new("ld.lld");
+            let mut command = std::process::Command::new(crate::linked_images::lld_tool("ld.lld"));
             command
                 .args(["-pie", "--no-dynamic-linker", "-e", "entry"])
                 .arg(&object)
