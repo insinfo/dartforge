@@ -55,7 +55,9 @@ class ComNsmPoda {
 
 void main() {
   final p = Poda(3);
-  dynamic d = p;
+  // Read back from a list of `Object`: the compiler cannot know the class of `d`,
+  // so its accesses keep going through the dynamic entries (`$c`, `$g`, `$s`).
+  dynamic d = <Object>[p].first;
   print(d.usadoDinamicoPoda(4));
   print(p.usadoDiretoPoda(5));
   print(d.lidoPorGetterPoda);
