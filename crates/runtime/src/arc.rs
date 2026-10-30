@@ -726,8 +726,9 @@ impl ArcHeapState {
             .expect("ARC: generation exhausted");
         if self.trace_log {
             eprintln!(
-                "[arc-trace] register {h} already={}",
-                self.meta(h).is_some()
+                "[arc-trace] register {h} already={} word={:?}",
+                self.meta(h).is_some(),
+                self.word_of(h).map(|p| format!("{:#x}", rd(p)))
             );
         }
         if let Some(p) = self.word_of(h) {
@@ -891,6 +892,9 @@ impl ArcHeapState {
         if let Some(p) = self.word_of(h) {
             let x = rd(p);
             if x & word::LIVE == 0 {
+                if self.trace_log {
+                    eprintln!("[arc-trace] young-dead {h} word={x:#x}");
+                }
                 return false;
             }
             // The real ARC needs no candidate here: the code's owners count, so the

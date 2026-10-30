@@ -7356,6 +7356,12 @@ fn prompt_release(state: &mut crate::arc::ArcHeapState, v: Ref, parent: Ref) {
     }
     // SAFETY: the in-object word of a block of the space.
     let y = unsafe { *p }.wrapping_sub(1);
+    if state.trace_log {
+        eprintln!(
+            "[arc-trace] child-release {v} rc={} parent {parent}",
+            y & arc_word::RC
+        );
+    }
     if y & (arc_word::LIVE | arc_word::COLLECTING) == arc_word::LIVE
         && (y & arc_word::RC == 0 || y & (arc_word::CANDIDATE | arc_word::CYCLE_FREE) != 0)
     {
@@ -7756,15 +7762,24 @@ impl Heap {
         p: *mut u64,
         x: u64,
     ) {
+        if state.trace_log {
+            // SAFETY: the live block of `h`.
+            eprintln!("[arc-trace] prompt-die {h} cid {}", unsafe {
+                (*b).class_id
+            });
+        }
         // SAFETY: the live block of `h`, with an inline body (no out-of-line one).
         unsafe {
             let fields = fields_of(b);
             match (*b).flags & block_flags::FORMAT {
                 block_flags::INSTANCE => {
                     let n = usize::from((*b).n);
-                    // The class's drop function, generated for its field count.
+                    // The class's drop function, generated for its field count. With
+                    // `DARTFORGE_ARC_TRACE=1` the children go through `prompt_release`
+                    // instead, so the trace shows every decrement.
                     if let Some(&(fields, Some(f))) = self.arc_drops.get((*b).class_id as usize)
                         && usize::from(fields) == n
+                        && !state.trace_log
                     {
                         let mut out = [0i64; 32];
                         let k = f(h, out.as_mut_ptr()) as usize;
