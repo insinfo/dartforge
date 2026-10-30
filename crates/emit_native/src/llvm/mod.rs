@@ -2538,6 +2538,13 @@ impl<'a> LlvmEmitter<'a> {
                         let i = *i;
                         let only = self.coerce(&args[0].0, Type::I64);
                         let sv = self.coerce(&args[2].0, Type::I64);
+                        // The slow path is the original call: the checked write keeps
+                        // its layouts (the extern is declared by its use there).
+                        let slow_args: Vec<String> = args
+                            .iter()
+                            .map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coerce(a, *t)))
+                            .collect();
+                        let slow_args = slow_args.join(", ");
                         let direct = self.direct_body(&args[0].0);
                         writeln!(
                             self.out,
@@ -2552,7 +2559,7 @@ impl<'a> LlvmEmitter<'a> {
                         .unwrap();
                         writeln!(
                             self.out,
-                            "  call void @dartforge_arc_write_field_ref_v1(i64 {only}, i64 {i}, i64 {sv})\n  br label %wi{v}.fim\nwi{v}.fast:"
+                            "  call void @{name}({slow_args})\n  br label %wi{v}.fim\nwi{v}.fast:"
                         )
                         .unwrap();
                         self.emit_field_addresses_of(v, &only, direct);
@@ -6468,8 +6475,12 @@ impl<'a> LlvmEmitter<'a> {
     fn prompt_inline_write(&self, v: u32, name: &str, args: &[(Operand, Type)]) -> bool {
         self.module.arc_prompt_death
             && self.arc_tag_guards
-            && name == "dartforge_arc_write_field_ref_v1"
-            && args.len() == 3
+            && !audited_arc_abi()
+            // The checked write's layouts are the preparation's choice, as for the
+            // inline checked reads ([`Self::prepared_inline_field`]); its slow path
+            // keeps the runtime's check.
+            && ((name == "dartforge_arc_write_field_ref_v1" && args.len() == 3)
+                || (name == "dartforge_arc_write_field_ref_checked_v1" && args.len() == 5))
             && !self.moved_writes.contains(&v)
             && matches!(&args[1].0, Operand::Constant(Constant::Int(i)) if (0..INLINE_FIELDS as i64).contains(i))
             && !args.iter().any(|(a, _)| {
