@@ -134,11 +134,14 @@ fn run_through_jit(dir: &Path, ir: &str) -> Execution {
 /// (the effects table, single source on the emitter side). The JIT table is
 /// generated from the runtime source. When the two diverge, the AOT fails at linking
 /// and the JIT at the pre-check; this test reports it first, without LLVM or Clang.
+/// The WebAssembly-only externs (`externs::WASM_ONLY`) are not declared in a native
+/// module.
 #[test]
 fn every_emitter_extern_exists_in_runtime() {
     let declared_set: Vec<&str> = dartforge_emit_native::llvm::externs::EXTERNS
         .iter()
         .map(|e| e.name())
+        .filter(|name| !dartforge_emit_native::llvm::externs::WASM_ONLY.contains(name))
         .collect();
     assert!(
         declared_set.len() > 100,
