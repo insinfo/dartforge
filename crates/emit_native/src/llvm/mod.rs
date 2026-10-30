@@ -1645,6 +1645,8 @@ impl<'a> LlvmEmitter<'a> {
 
                     } else if Self::rti_test_cached(i) {
                         Some((b.id.0, format!("rt{v}.fim")))
+                    } else if self.prepared_inline_box_int(i) {
+                        Some((b.id.0, format!("bi{v}.fim")))
                     } else if self.typed_registration_inline(i) {
                         Some((b.id.0, format!("tn{v}.fim")))
                     } else if !self.maps && Self::list_elem_exact_cached(i) {
@@ -2671,6 +2673,29 @@ impl<'a> LlvmEmitter<'a> {
                         )
                         .unwrap();
                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
+                    }
+                    Instruction::CallRuntime { args, .. } if self.prepared_inline_box_int(inst) => {
+                        let x = self.coerce(&args[0].0, Type::I64);
+                        writeln!(
+                            self.out,
+                            "  %bis{v} = shl i64 {x}, 1\n  %bib{v} = ashr i64 %bis{v}, 1\n  %bif{v} = icmp eq i64 %bib{v}, {x}\n  br i1 %bif{v}, label %bi{v}.smi, label %bi{v}.slow\nbi{v}.smi:\n  %bit{v} = or i64 %bis{v}, 1\n  br label %bi{v}.fim\nbi{v}.slow:\n  %biw{v} = call i64 @dartforge_arc_box_int_owned_v1(i64 {x})\n  br label %bi{v}.fim\nbi{v}.fim:\n  %v{v} = phi i64 [ %bit{v}, %bi{v}.smi ], [ %biw{v}, %bi{v}.slow ]"
+                        )
+                        .unwrap();
+                        self.current_label = format!("bi{v}.fim");
+                    }
+                    Instruction::CallRuntime { name, args, .. }
+                        if self.prepared_inline_argument(name, args) =>
+                    {
+                        let base = self.coerce(&args[0].0, Type::Ptr);
+                        let Operand::Constant(Constant::Int(ix)) = args[2].0 else {
+                            unreachable!("checked at the guard")
+                        };
+                        writeln!(
+                            self.out,
+                            "  %aga{v} = getelementptr inbounds i64, ptr {base}, i64 {ix}\n  %v{v} = load i64, ptr %aga{v}, align 8\n  call void @{}(i64 %v{v})",
+                            arc_tag_guards::RETAIN
+                        )
+                        .unwrap();
                     }
                     Instruction::CallRuntime { name, args, .. }
                         if self.prepared_inline_list(name, args).is_some() =>
@@ -6392,7 +6417,9 @@ impl<'a> LlvmEmitter<'a> {
             return None;
         }
         let (write, reference) = match name {
-            "dartforge_arc_read_field_ref_v1"
+            // A `Ref` capture of a closure environment (`_Context` instance), borrowed.
+            "dartforge_arc_env_ref_v1"
+            | "dartforge_arc_read_field_ref_v1"
             | "dartforge_arc_read_field_late_ref_v1"
             | "dartforge_arc_read_field_scalar_v1"
             | "dartforge_arc_read_field_scalar_checked_v1" => (false, false),
@@ -6466,6 +6493,29 @@ impl<'a> LlvmEmitter<'a> {
             }
             _ => return None,
         })
+    }
+
+    /// The real ARC's Owned int box that comes out inline: a value in the `Smi`
+    /// range is the tagged `Smi` (no counter), any other calls the runtime for a
+    /// `_Mint`. Its block ends at `bi{v}.fim`.
+    fn prepared_inline_box_int(&self, i: &Instruction) -> bool {
+        matches!(i, Instruction::CallRuntime { name, args, .. }
+            if name == "dartforge_arc_box_int_owned_v1"
+                && args.len() == 1
+                && self.module.arc_prompt_death
+                && !audited_arc_abi())
+    }
+
+    /// The real ARC's Owned read of a `Ref` argument of the uniform ABI that comes
+    /// out inline: the descriptor's bounds are the preparation's (the index is
+    /// constant and below the declared count), the load and the inline retain.
+    fn prepared_inline_argument(&self, name: &str, args: &[(Operand, Type)]) -> bool {
+        name == "dartforge_arc_argument_owned_v1"
+            && args.len() == 3
+            && self.module.arc_prompt_death
+            && self.arc_tag_guards
+            && !audited_arc_abi()
+            && matches!(args[2].0, Operand::Constant(Constant::Int(i)) if i >= 0)
     }
 
     /// The real ARC's `Ref` write that comes out inline (the owner test, then the
