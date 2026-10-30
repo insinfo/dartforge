@@ -68,6 +68,27 @@ padrão, não há funções `gc`. As correções acima valem para qualquer modo 
   - o teste da interpolação de `fromEnvironment` espera a constante dobrada, que é a
     semântica certa.
 
+**Segundo lote do CI (30/10, tarde, `eff6d02e`…`f0e2cc74`).** O CI de `ae6509a1` ainda
+ficou vermelho. Corrigido e validado localmente (export limpo: harness 161/161 nos 4
+modos, corpus JS 274/274 em desenvolvimento e produção, testes ignorados e clippy limpos;
+só o `ng_generator` falha no export, por não ter o `dart pub get` do `corpus/ngdart`):
+- campo, `static` e variável de topo `late final` sem inicializador ganham o setter
+  implícito (uma escrita; a segunda lança `LateError`). Programa 166;
+- o cabeçalho `ddc-wrong:` declara um defeito conhecido do DDC sem invalidar o oráculo
+  (programa 274: closure no inicializador do `for`);
+- o JS de desenvolvimento com filtro emitia a classe de mixin legado como classe comum;
+- os testes de imagens ligadas acham `ld.lld`, `lld-link` e `ld64.lld` com `.exe` no
+  Windows, e o job Linux põe o `bin` do LLVM no `PATH`;
+- o teste dos externs do JIT ignora os externs só do wasm;
+- o teste de importação de bitcode do `allocation_inventory` (falha só no CI) imprime o
+  módulo e as obrigações: a próxima rodada mostra a causa.
+
+**O `33_mensagens_de_controle` não é defeito.** O `dartforge aot` sem `--optimize`
+mantém os asserts, como `dart run --enable-asserts`; com asserts a VM também imprime
+`do outro lado: null` (o `assert(available > 0)` do `_NativeSocket.read` fecha o soquete).
+A referência do script `arcmodes.sh` vinha de `dart run` sem asserts, o mesmo artefato do
+`158_assert…`. O script passou a usar `--enable-asserts`.
+
 **Funções duplicadas.** `DARTFORGE_DUPLICATES=1` imprime as funções HIR de corpo igual em
 dois níveis: exato, e refinado (chamando funções equivalentes, o caso dos pacotes copiados
 para dentro do projeto).
@@ -157,11 +178,10 @@ ciclo morto pelo descarte genérico era liberado duas vezes. Detalhes em
 `docs/ARC-IMPLEMENTACAO.md` §9.1. O corpus passa nos três modos ARC, cada um normal, com
 estresse e com auditoria.
 
-**O que ainda falha no corpus ARC:**
-- **Anteriores ao WIP:** `33_mensagens_de_controle` imprime `null` no lugar de
-  `[1, 2, 3]` nos três modos ARC.
-- **Artefato do script:** `158_assert…` diverge porque a referência vem de `dart run`
-  sem asserts.
+**O que divergia no corpus ARC era artefato do script:** `33_mensagens_de_controle` e
+`158_assert…` dependem dos asserts, e a referência vinha de `dart run` sem eles (ver o
+segundo lote do CI, acima). O `arcmodes.sh` agora gera a referência com
+`--enable-asserts`.
 
 **Scripts** em `/Volumes/ssd_dock/tmp/arc-redesign/rarc`: `full.sh TAG`, que roda build,
 testes, clippy, harness e corpus ARC no export `v1`; `tests.sh`, `harness.sh` e
