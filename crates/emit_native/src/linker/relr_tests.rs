@@ -43,8 +43,10 @@ fn explicit_policy_keeps_default_commands_and_rejects_invalid_values() {
 #[test]
 #[ignore = "requires a matching Linux link sysroot and Clang/LLD"]
 fn glibc_fixture_links_both_modes_with_versioned_relr_requirement() {
-    let root =
-        std::env::var_os("DARTFORGE_TEST_LINUX_SYSROOT").expect("DARTFORGE_TEST_LINUX_SYSROOT");
+    let Some(root) = std::env::var_os("DARTFORGE_TEST_LINUX_SYSROOT") else {
+        eprintln!("DARTFORGE_TEST_LINUX_SYSROOT is not set; skipped");
+        return;
+    };
     let root = PathBuf::from(root);
     let sysroot = SysrootLinux::from_dir(&root).unwrap();
     let artifacts = std::env::var_os("DARTFORGE_RELR_TEST_OUTPUT").map(PathBuf::from);
