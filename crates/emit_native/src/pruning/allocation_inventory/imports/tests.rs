@@ -545,8 +545,23 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
     let runtime = crate::cache::RuntimeCache::for_production()
         .unwrap()
         .lib_path;
-    let inventory = Inventory::load(directory, &sdk.key, true, &names, &runtime)
-        .expect("selected SDK inventory must be readable");
+    let inventory =
+        Inventory::load(directory, &sdk.key, true, &names, &runtime).unwrap_or_else(|| {
+            // Only on the Windows CI so far: say which step refused it.
+            let verified = super::super::publication::read_verified(
+                directory, &sdk.key, true, &names, &runtime,
+            )
+            .is_some();
+            let files: Vec<_> = std::fs::read_dir(directory)
+                .map(|d| d.filter_map(Result::ok).map(|e| e.file_name()).collect())
+                .unwrap_or_default();
+            panic!(
+                "selected SDK inventory must be readable (publication verified: {verified}; \
+                 runtime {}; directory {}: {files:?})",
+                runtime.display(),
+                directory.display()
+            )
+        });
     let summaries = crate::pruning::read_summaries(&sdk.summaries).unwrap();
     let refs: Vec<_> = summaries.iter().map(|s| s.as_ref()).collect();
     assert!(
