@@ -7164,6 +7164,13 @@ pub struct HeapArc {
     /// this size. A round that frees little doubles it (the candidates were live
     /// structures, like a large map), one that frees much brings it back down.
     cycle_threshold: usize,
+    /// The candidate queue size at which a settle point purges the dead
+    /// candidates ([`Heap::arc_settle`]); a queue of live ones doubles it, and the
+    /// drain's cycle round brings it back to [`Self::cycle_threshold`]. Kept apart
+    /// from that threshold: raising the round's own threshold at the settle points
+    /// kept the queue below it at every drain, and the cyclic garbage waited for
+    /// the full collection.
+    purge_threshold: usize,
 }
 
 impl std::fmt::Debug for HeapArc {
@@ -8093,6 +8100,7 @@ impl Heap {
             pure: !nursery,
             old_to_young: Vec::new(),
             cycle_threshold: PROMPT_CYCLE_THRESHOLD,
+            purge_threshold: PROMPT_CYCLE_THRESHOLD,
         });
         arc.state.trace_log =
             crate::console::env_var("DARTFORGE_ARC_TRACE").is_ok_and(|v| v == "1");
@@ -8758,11 +8766,11 @@ impl Heap {
         };
         // The candidate buffer between drains (the reuse lists make drains rare):
         // the entries of candidates that died leave it, and a buffer of live
-        // candidates doubles the threshold until the drain's cycle round.
-        if arc.state.candidates() >= arc.cycle_threshold {
+        // candidates doubles the purge threshold until the drain's cycle round.
+        if arc.state.candidates() >= arc.purge_threshold {
             arc.state.purge_dead_candidates();
-            if arc.state.candidates() * 2 > arc.cycle_threshold {
-                arc.cycle_threshold = arc.cycle_threshold.saturating_mul(2);
+            if arc.state.candidates() * 2 > arc.purge_threshold {
+                arc.purge_threshold = arc.purge_threshold.saturating_mul(2);
             }
         }
         // Nothing to settle, the usual case of a settle point: one look at the queues.
@@ -9268,6 +9276,9 @@ impl Heap {
                 (arc.cycle_threshold / 2).max(PROMPT_CYCLE_THRESHOLD)
             };
         }
+        if cycles {
+            arc.purge_threshold = arc.cycle_threshold;
+        }
         // 6. Memory.
         // The settle points' dead: the young ones go with the sweep (their block was
         // handed out since the last drain and has no mark), the old ones one by one.
@@ -9332,7 +9343,7 @@ impl Heap {
                 .collect();
             let e = arc.state.statistics;
             eprintln!(
-                "[arc] {} us={} phases={} loop={}/{}/{}/{} young={n_young} young_dead={} snapshots={n_snapshots} counted={} retains={} releases={} rc_dead={} cycle_dead={} rounds={} examined={} candidates={} zeros_seen={} deferred={} reuse_cells={} reuse_bytes={:?}",
+                "[arc] {} us={} phases={} loop={}/{}/{}/{} young={n_young} young_dead={} snapshots={n_snapshots} counted={} retains={} releases={} rc_dead={} cycle_dead={} rounds={} examined={} candidates={} threshold={} zeros_seen={} deferred={} reuse_cells={} reuse_bytes={:?}",
                 if full { "full" } else { "drain" },
                 start.elapsed().as_micros(),
                 stages.join("/"),
@@ -9349,6 +9360,7 @@ impl Heap {
                 e.cycle_rounds,
                 e.examined,
                 arc.state.candidates(),
+                arc.cycle_threshold,
                 e.seen_zeros,
                 e.deferred_zeros,
                 self.reuse_cells(),
