@@ -2560,7 +2560,47 @@ pub(crate) fn process_memory() -> (usize, usize, usize) {
         }
         (c.current, c.peak, r.confirmed)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        /// `mach_task_basic_info` (`MACH_TASK_BASIC_INFO`).
+        #[repr(C)]
+        #[derive(Default)]
+        struct BasicInfo {
+            virtual_size: u64,
+            resident_size: u64,
+            resident_size_max: u64,
+            times: [i32; 4],
+            policy: i32,
+            suspend_count: i32,
+        }
+        /// `malloc_statistics_t`.
+        #[repr(C)]
+        #[derive(Default)]
+        struct MallocStatistics {
+            blocks_in_use: u32,
+            size_in_use: usize,
+            max_size_in_use: usize,
+            size_allocated: usize,
+        }
+        const MACH_TASK_BASIC_INFO: i32 = 20;
+        unsafe extern "C" {
+            static mach_task_self_: u32;
+            fn task_info(task: u32, flavor: i32, info: *mut BasicInfo, count: *mut u32) -> i32;
+            fn malloc_zone_statistics(zone: *mut std::ffi::c_void, stats: *mut MallocStatistics);
+        }
+        let mut info = BasicInfo::default();
+        let mut count = (std::mem::size_of::<BasicInfo>() / 4) as u32;
+        let mut heap = MallocStatistics::default();
+        // SAFETY: structures of the given size; a null zone sums every zone.
+        unsafe {
+            if task_info(mach_task_self_, MACH_TASK_BASIC_INFO, &mut info, &mut count) != 0 {
+                info = BasicInfo::default();
+            }
+            malloc_zone_statistics(std::ptr::null_mut(), &mut heap);
+        }
+        (info.resident_size as usize, info.resident_size_max as usize, heap.size_in_use)
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     {
         let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
         let field = |name_str: &str| {

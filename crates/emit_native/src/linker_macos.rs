@@ -172,6 +172,7 @@ pub const SYSTEM_LIBRARIES: &[SystemLibrary] = &[
             "_free",
             "_getenv",
             "_malloc",
+            "_malloc_zone_statistics",
             "_memchr",
             "_memcmp",
             "_memcpy",
