@@ -198,9 +198,34 @@ processo no macOS.
 das imagens do SDK não conhecia o atributo `"gc-leaf-function"`. Reproduzida aqui com
 `--features embedded-llvm` e corrigida (`8769a175`).
 
+**Comparação com o Swift e com o Dart VM (30/10, noite).** Mac mini M4, uma thread,
+4×8 conexões *keep-alive* por 5 s, mesma resposta HTTP (cabeçalhos do `dart:io`, corpo
+*chunked*). Servidores Swift e Dart crus em `/Volumes/ssd_dock/tmp/arc-redesign/rarc/swift`
+(`raw/main.swift` com `kqueue`, `nio/` com SwiftNIO, `dartraw/server.dart` com
+`RawServerSocket`). Ciclos por pedido (menos é melhor):
+
+| servidor | Swift `-O` | SwiftNIO | DartForge tracing | `dart compile exe` | DartForge ARC simples | DartForge ARC real |
+|---|---:|---:|---:|---:|---:|---:|
+| cru (mesmo código) | 25,9 mil | — | 37,9 mil | 40,2 mil | 44,1 mil | 102,6 → **90,0 mil** |
+| `HttpServer` do `dart:io` | — | 32,7 mil | 66 mil | 70 mil | 88 mil | 281 → **249 mil** |
+
+O tracing já gasta menos ciclos que o `dart compile exe` nos dois. Contra o Swift cru fica
+a 1,46×. O ARC real melhorou com quatro commits da noite: leituras de lista em linha
+(`d9eb0315`), morte da última liberação sem ponto de assentamento (`1a8987b6`, laço de
+alocar e soltar: 148 → 89 ciclos e 1017 → 714 instruções por iteração) e a escrita `Ref`
+verificada em linha (`d0a6afa2`).
+
+**Onde vai o tempo do ARC real** (perfil do servidor `dart:io` por `sample`): drenagem e
+rodada de ciclos (~18%: cerca de 58 objetos de lixo cíclico por pedido), pontos de
+assentamento (~18%), retains no runtime (~15%), escritas de campo e escopos nativos. Os
+retains que ainda vão ao runtime são de objetos novos do runtime com escrita crua
+pendente; registrar em linha os outros foi medido e não pagou (descartado).
+
 **Próximos passos:**
-1. A vazão do servidor no ARC real: 13,8 mil req/s, contra 47,2 mil no ARC simples
-   (281 contra 89 mil ciclos por pedido).
+1. A vazão do servidor no ARC real: 15,5 mil req/s, contra 48 mil no ARC simples
+   (249 contra 88 mil ciclos por pedido). Próximos alvos: o custo fixo de cada ponto de
+   assentamento (escopo nativo, escritas de lista, quadros), a rodada de ciclos e a morte
+   em linha no código gerado (o `release` que zera desaloca sem chamar o runtime).
 2. Reaplicar `/Volumes/ssd_dock/tmp/arc-redesign/final_field_elision.patch` e medir de
    novo.
 
