@@ -1252,6 +1252,54 @@ rastreamento, rastreamento com `DARTFORGE_CHECK_SHADOW=1`, `DARTFORGE_MEMORY=arc
 zeragem e as gravações e limpezas das raízes), a conferência de exceção (~4 mil), as sondas do
 memo de RTI (~200 por pedido) e o contexto por TLS nas entradas de seletor (~393 por pedido).
 
+## Rodada de 2026-10-30: vazão HTTP, rodada 7 — exceções por tabelas e mapas de pilha
+
+O que se mediu: as peças do desenho do Dart AOT. São as exceções por tabelas (A1,
+`--exceptions=tables`), as raízes por mapas (B0, `--roots=maps`) e a combinação das duas
+(B1). Medido no Mac mini M4 com o compilador de `1ee22fea`, `dartforge aot --optimize`, pelo
+método da rodada 6: contadores por thread do kernel, a thread do isolado, mediana de 4
+rodadas alternadas de 4 s com 4 × 8 conexões, cada uma começando com carga abaixo de 3,5. As
+árvores (`trees(14)` de `bench/comparison/bench.dart`, 40 rodadas) são a mediana de 5
+processos alternados.
+
+| | Dart AOT 3.6.2 | A0 (padrão) | A1 | B0 |
+|---|---:|---:|---:|---:|
+| pedidos/s | 71,6 mil | 67,7 mil | 68,4 mil | 61,4 mil |
+| instruções / ciclos por pedido | 176,3 / 51,8 mil | 186,4 / 54,8 mil | 190,5 / 54,1 mil | 232,0 / 60,3 mil |
+| usuário por pedido | 8,74 µs | 9,92 µs | 9,88 µs | 11,71 µs |
+| executável do servidor | 5,625 MB | 4,518 MB | 4,716 MB | 7,787 MB |
+| árvores, ms por rodada | 11,87 | 12,50 | 12,63 | 18,12 |
+
+**B1 não liga no macOS.** O `ld64.lld` aborta no verificador do LTO com `Incompatible argument
+and return types for 'returned' attribute`. O otimizador do LTO infere `returned` num
+argumento (o `this` de `EmptyIterable.skip$tc`), e o `rewrite-statepoints-for-gc` do LLVM
+22.1.8 copia o atributo para o argumento do `gc.statepoint`, que devolve um `token`. No macOS o
+RS4GC roda dentro do LTO do `lld` (`linker_macos.rs`), sem o passo do gerador embutido que
+limpa o IR antes. **B0 perde em tudo:** +72% de executável, −9% de pedidos/s e +45% de tempo
+nas árvores. No macOS as raízes ficam no slot da pilha (o padrão do LLVM), não no registrador
+preservado da forma `"deopt"` (§14.12 de `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md`); cada raiz
+custa uma gravação e uma recarga em toda chamada que coleta. A combinação com mapas não é o
+caminho para os ~1,5% que faltam.
+
+**A1 com o contexto por argumento (`2d8f2dc5`).** O A1 perdia o contexto passado por
+argumento (os gêmeos `f$cx`), que só existia nas exceções por conferência; com tabelas, a
+chamada com pouso vira um `invoke` do mesmo `f$cx`. Segunda rodada alternada (carga de 3,2 a
+3,5):
+
+| | Dart AOT 3.6.2 | A0 | A1 sem contexto | A1 com contexto |
+|---|---:|---:|---:|---:|
+| pedidos/s | 70,2 mil | 68,2 mil | 68,7 mil | **69,5 mil** (99,0% do Dart) |
+| instruções / ciclos por pedido | 176,3 / 52,4 mil | 186,5 / 54,2 mil | 190,6 / 53,6 mil | 185,7 / 53,1 mil |
+| usuário por pedido | 8,86 µs | 9,85 µs | 9,87 µs | 9,74 µs |
+| executável do servidor | 5,625 MB | 4,518 MB | 4,716 MB | 4,699 MB |
+| árvores, ms por rodada | | 12,48 | 12,61 | 12,43 |
+
+O A1 com contexto ganhou do A0 nas 4 rodadas, de +1,6% a +3,1% em pedidos/s, com menos
+instruções e ciclos que os dois. O custo são +181 KB de executável (as LSDAs), que continua
+16% menor que o do Dart. O corpus passa nos modos A1 otimizado e A1 com estresse (160/160).
+O A0 continua o padrão: virar o padrão exige corrigir antes o desenrolar lento de um
+`StackOverflowError` profundo no A1 (item 6 das lacunas).
+
 ## O que entrou nesta rodada
 
 - `35f3270f`: `(x: 1) is Record` dava falso (programa 85).

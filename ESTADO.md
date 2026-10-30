@@ -1,46 +1,42 @@
 # Estado do DartForge — 2026-10-30
 
-## Prioridade para 29/10/2026: HTTP com o desenho completo do Dart AOT
+## Prioridade para 30/10/2026: HTTP a 99% do Dart com o A1 e o contexto por argumento
 
-O HTTP nativo está em 98,5% do Dart: 69,8k contra 70,9k req/s. Medido por
-thread na sexta rodada, o que sobra é:
-- a pilha sombra, ~6% das instruções por requisição;
-- as conferências de exceção pendente, ~2%;
-- ~200 consultas ao memo de RTI;
-- ~393 leituras do contexto da thread.
+A rodada 7 de 30/10 mediu as peças do desenho do Dart AOT no servidor e no `trees`, pelo
+método da rodada 6 (contadores da thread do isolate, carga < 3,5, `load_keepalive.dart`).
+Os detalhes estão em `RELATORIO-PRONTIDAO-PRODUCAO.md`, na seção "rodada 7".
 
-**Já temos as duas peças do desenho do Dart AOT:**
-- `--exceptions tables` (A1): `invoke`/`landingpad` Itanium com personalidade
-  própria, de custo zero no caminho normal;
-- `--roots maps`: mapas de pilha do LLVM no lugar da pilha sombra. Veja
-  `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md`.
+| | Dart 3.6.2 | A0 (padrão) | A1 | A1 + contexto (`2d8f2dc5`) | B0 (mapas) |
+|---|---:|---:|---:|---:|---:|
+| req/s | 70,2k | 68,2k | 68,7k | **69,5k (99,0%)** | 61,4k* |
+| instruções/req | 176,3k | 186,5k | 190,6k | 185,7k | 232,0k |
+| ciclos/req | 52,4k | 54,2k | 53,6k | 53,1k | 60,3k |
+| executável | 5,63 MB | 4,52 MB | 4,72 MB | 4,70 MB | 7,79 MB |
+| trees (ms) | 11,87* | 12,48 | 12,61 | 12,43 | 18,12* |
 
-O padrão continua sendo `--exceptions check --roots shadow` (A0), e o
-relatório de prontidão recomenda o A0 em produção.
+\* Valores da primeira rodada de 30/10; os demais são da segunda, que alternou só Dart, A0,
+A1 e A1 com contexto.
 
-**O A1 sozinho foi medido no servidor na sexta rodada e não compensou:**
-- +2k instruções por requisição, porque o A1 perde o contexto passado por
-  argumento, que só existe no A0;
-- ciclos praticamente iguais;
-- +148 KB de executável, das LSDAs.
+**O que a rodada mostrou:**
+- **Mapas de pilha não servem no macOS:**
+  - **B1 (`--exceptions tables --roots maps`) não liga.** O LTO do `ld64.lld` infere
+    `returned` num argumento, e o `rewrite-statepoints-for-gc` do LLVM 22.1.8 o copia para
+    o `gc.statepoint`; o verificador rejeita o módulo.
+  - **B0 perde em tudo:** +72% de executável e +45% no `trees`. As raízes ficam no slot da
+    pilha, e não no registrador preservado da forma `"deopt"`.
+- **O A1 com contexto por argumento ganhou do A0 nas 4 rodadas:** de +1,6% a +3,1% em
+  req/s, com menos instruções e ciclos. Custa +181 KB de executável (as LSDAs). O corpus
+  passa em A1 otimizado e com estresse.
 
-Desenrolar um `StackOverflowError` profundo no A1 continua lento. Nunca medimos
-o servidor com a combinação `--exceptions tables --roots maps`.
-
-**Tarefa:**
-1. Medir o servidor HTTP e o `trees` com `--exceptions tables --roots maps`
-   contra o A0, com a mesma metodologia da sexta rodada:
-   `load_keepalive.dart`, carga abaixo de 3,5 e contadores da thread do
-   isolate.
-2. Levar o contexto passado por argumento (os gêmeos `f$cx`) para o A1.
-3. Se a combinação ganhar, corrigir o desenrolar lento de `StackOverflowError`
-   e avaliar se vira o padrão em algum alvo.
-
-A meta é fechar os ~1,5% que faltam para o Dart sem aumentar o executável de
-forma relevante.
-
-**Também em andamento:** a reescrita do núcleo do ARC de verdade. Veja a
-seção abaixo e `docs/ARC-IMPLEMENTACAO.md`.
+**Próximos passos:**
+1. Corrigir o desenrolar lento de `StackOverflowError` profundo no A1: ~1,5 µs por
+   quadro no macOS, porque o dyld relê o Mach-O a cada quadro. Depois, propor ao
+   proprietário o A1 com contexto como padrão do AOT nativo. Hoje o padrão é o A0, e o
+   relatório de prontidão recomenda o A0.
+2. Fechar o ~1% que sobra contra o Dart: as sondas do memo de RTI (~200 por pedido) e o
+   contexto por TLS nas entradas de seletor (~393 por pedido).
+3. Os mapas de pilha só voltam com o RS4GC fora do LTO do `lld` e com a forma `"deopt"`.
+   Antes disso, contornar o `returned` (tirar o atributo antes do RS4GC).
 
 ## Segunda prioridade para 30/10/2026: concluir a reescrita do ARC de verdade
 
