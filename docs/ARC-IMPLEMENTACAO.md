@@ -786,13 +786,26 @@ Depois das correções:
 - corpus nos modos ARC simples, real e virtual, cada um normal, com estresse e com
   auditoria.
 
+**As duas regressões que restavam** (`87_classe_do_slot_sob_coleta` com auditoria e
+`06_escuta_compartilhada` com estresse) eram o mesmo defeito, corrigido em 30/10:
+- **O defeito:** um candidato a ciclo de página de classe que morria pelo descarte
+  genérico (com `SNAPSHOT`, `OBSERVED`, corpo fora de linha ou anexo) ficava com a palavra
+  `DEAD | CANDIDATE` e ia para `prompt_dead`.
+- **A segunda liberação:** na drenagem, o `purge_dead_candidates` o entregava de novo
+  pelo buffer de candidatos, e o bloco era liberado duas vezes. Ficava duas vezes nas
+  faixas livres, e uma alocação posterior zerava o objeto vivo que já ocupava a célula.
+- **Por que só nesses modos:** só aparece sem listas de reuso, como sob a auditoria e o
+  estresse; com reuso, o caminho rápido devolvia a célula antes.
+- **A correção:** o `Heap::hold_dead_candidates` tira a flag `CANDIDATE`, como o
+  `prompt_dispose` já fazia. O teste é
+  `dead_candidate_of_the_generic_discard_is_reclaimed_once`.
+
+Para achar o defeito, o trace (`DARTFORGE_ARC_TRACE=1`) passou a mostrar também os
+decrementos dos filhos (`child-release`), a morte em linha (`prompt-die`), o jovem dado
+como morto (`young-dead`) e a palavra no registro. Com o trace ligado, a função de
+descarte gerada é desviada para o caminho que registra.
+
 **Em aberto:**
-* Duas regressões do redesenho no ARC real; no `fbd1c287` os dois programas passam:
-  * `87_classe_do_slot_sob_coleta` com auditoria: um `dartforge_arc_release` no corpo
-    `async` do `main` solta um objeto já morto. Só reproduz com o `main` inteiro, que
-    tem o `await Isolate.run`.
-  * `06_escuta_compartilhada` com estresse: a drenagem encontra morto um objeto da
-    fila de zeros (no `accept` do socket).
 * O RSS do servidor HTTP (80 MB contra 28). O RSS das strings foi resolvido na última
   rodada: era a lista de jovens das células reusadas.
 * A elisão das cópias de campos `final`

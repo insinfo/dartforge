@@ -6,8 +6,8 @@ O proprietário pediu para seguir sem parar, nesta ordem, com commit, push e o C
 pelo `gh` a cada lote:
 1. **CI verde.** Estava vermelho desde pelo menos 27/10 (detalhes abaixo). Conferir o
    resultado do lote de 30/10 e corrigir o que sobrar.
-2. **ARC de verdade:** as duas regressões que restam (`87` na auditoria, `06` sob
-   estresse; segunda prioridade, abaixo) e o RSS do servidor HTTP.
+2. **ARC de verdade:** o RSS do servidor HTTP no ARC real e a elisão das cópias de
+   campos `final`. As duas regressões do WIP foram corrigidas em 30/10 (abaixo).
 3. **Modo de mapas de pilha:** agora liga e passa no macOS, mas perde para o A1 (seção de
    30/10 abaixo). Melhorar só com medida: a forma `"deopt"` no LTO do `lld`.
 4. **Fusão de funções duplicadas no HIR** (seção de 30/10 abaixo), para o nativo, o JS e o
@@ -151,13 +151,13 @@ desenho e as medidas estão em `docs/ARC-IMPLEMENTACAO.md` §9.
 - corpus nos modos ARC simples, real e virtual, cada um normal, com estresse e com
   auditoria.
 
+**As duas regressões do WIP foram corrigidas em 30/10.** `87_classe_do_slot_sob_coleta`
+(auditoria) e `06_escuta_compartilhada` (estresse) eram o mesmo defeito: um candidato a
+ciclo morto pelo descarte genérico era liberado duas vezes. Detalhes em
+`docs/ARC-IMPLEMENTACAO.md` §9.1. O corpus passa nos três modos ARC, cada um normal, com
+estresse e com auditoria.
+
 **O que ainda falha no corpus ARC:**
-- **Regressões do WIP, só no ARC real:**
-  - `87_classe_do_slot_sob_coleta` com `DARTFORGE_ARC_CHECK=1`: um
-    `dartforge_arc_release` no corpo `async` do `main` solta um objeto já morto. Só
-    reproduz com o `main` inteiro, que tem o `await Isolate.run`; os recortes passam.
-  - `06_escuta_compartilhada` com `DARTFORGE_GC_STRESS=1`: a drenagem encontra
-    morto um objeto da fila de zeros, no `accept` do socket.
 - **Anteriores ao WIP:** `33_mensagens_de_controle` imprime `null` no lugar de
   `[1, 2, 3]` nos três modos ARC.
 - **Artefato do script:** `158_assert…` diverge porque a referência vem de `dart run`
@@ -168,11 +168,9 @@ testes, clippy, harness e corpus ARC no export `v1`; `tests.sh`, `harness.sh` e
 `arcmodes.sh`; `tc/httpth.sh`, que mede o HTTP com os contadores da thread do isolate.
 
 **Próximos passos:**
-1. Corrigir as duas regressões acima. O diagnóstico novo da auditoria nomeia as
-   tabelas de raízes e o pai que ainda alcançam o objeto morto.
-2. Achar a origem do RSS do servidor HTTP no ARC real (80 MB contra 28 MB do
+1. Achar a origem do RSS do servidor HTTP no ARC real (80 MB contra 28 MB do
    simples).
-3. Reaplicar `/Volumes/ssd_dock/tmp/arc-redesign/final_field_elision.patch` e medir de
+2. Reaplicar `/Volumes/ssd_dock/tmp/arc-redesign/final_field_elision.patch` e medir de
    novo.
 
 ## 29/10/2026, madrugada: mapas e `async` no JS, HTTP a 98,5% do Dart, reescrita do ARC
