@@ -5868,9 +5868,10 @@ impl<'a> LlvmEmitter<'a> {
                 if empty {
                     writeln!(
                         self.out,
-                        "  invoke void @{}({}) to label %tcont unwind label %tlp",
+                        "  invoke void @{}({}){} to label %tcont unwind label %tlp",
                         cb.body,
-                        args.join(", ")
+                        args.join(", "),
+                        self.gc_body_kept_out()
                     )
                     .unwrap();
                     self.out.push_str(landing_pad);
@@ -5883,9 +5884,10 @@ impl<'a> LlvmEmitter<'a> {
                     };
                     writeln!(
                         self.out,
-                        "  %r.ok = invoke {hr} @{}({}) to label %tok unwind label %tlp",
+                        "  %r.ok = invoke {hr} @{}({}){} to label %tok unwind label %tlp",
                         cb.body,
-                        args.join(", ")
+                        args.join(", "),
+                        self.gc_body_kept_out()
                     )
                     .unwrap();
                     self.out.push_str(landing_pad);
@@ -6013,6 +6015,15 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(self.out, "  {}", entry_call(by_tables, &entry, args)).unwrap();
     }
 
+    /// The call-site attribute of an `invoke` from code outside `gc` (a port, a
+    /// callback's C entry) into a Dart function: with roots by maps, ` noinline`.
+    /// The Dart function is a `gc` function whose landing pads are `token`s; inlined
+    /// into a caller whose own landing pad is `{ ptr, i32 }`, both types would end up
+    /// in one function, which the verifier rejects.
+    fn gc_body_kept_out(&self) -> &'static str {
+        if self.maps { " noinline" } else { "" }
+    }
+
     /// Exceptions by tables: the ports through which the runtime calls Dart
     /// code (`runtime/src/exceptions_tables.rs`), one per signature —
     /// `@df.port.<v|r><n>(function, n words)`, `v` without a value and `r`
@@ -6041,8 +6052,9 @@ impl<'a> LlvmEmitter<'a> {
                 );
                 writeln!(
                     self.out,
-                    "  {result}invoke {typ} %f({}) to label %volta unwind label %pouso",
-                    args.join(", ")
+                    "  {result}invoke {typ} %f({}){} to label %volta unwind label %pouso",
+                    args.join(", "),
+                    self.gc_body_kept_out()
                 )
                 .unwrap();
                 writeln!(
