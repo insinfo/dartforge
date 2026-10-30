@@ -1,5 +1,87 @@
 # Estado do DartForge — 2026-10-30
 
+## Ordem de trabalho a partir de 30/10/2026
+
+O proprietário pediu para seguir sem parar, nesta ordem, com commit, push e o CI conferido
+pelo `gh` a cada lote:
+1. **CI verde.** Estava vermelho desde pelo menos 27/10 (detalhes abaixo). Conferir o
+   resultado do lote de 30/10 e corrigir o que sobrar.
+2. **ARC de verdade:** as duas regressões que restam (`87` na auditoria, `06` sob
+   estresse; segunda prioridade, abaixo) e o RSS do servidor HTTP.
+3. **Modo de mapas de pilha:** agora liga e passa no macOS, mas perde para o A1 (seção de
+   30/10 abaixo). Melhorar só com medida: a forma `"deopt"` no LTO do `lld`.
+4. **Fusão de funções duplicadas no HIR** (seção de 30/10 abaixo), para o nativo, o JS e o
+   wasm.
+
+## 30/10/2026: modo de mapas no macOS, defeito do LLVM, CI e funções duplicadas
+
+**O B1 (`--exceptions tables --roots maps`) passou a ligar e a passar no macOS.** Os
+detalhes estão em `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` §14.13. Eram três defeitos:
+- **Do LLVM (22.1.8, 23.1.4 e `main`):** o `MergeFunctions` copia `returned` para a chamada
+  do thunk, e o `rewrite-statepoints-for-gc` o copia para o `gc.statepoint`, que devolve
+  `token`. Provado com 5 linhas de IR no `opt` oficial. Origem: o PR #68475 (LLVM 18).
+  - Issue: https://github.com/llvm/llvm-project/issues/237112
+  - PR com a correção e testes (aprovado pelo proprietário, aberto do fork
+    `insinfo/llvm-project`): https://github.com/llvm/llvm-project/pull/237129
+  - **Contorno no DartForge:** sem `MergeFunctions` com raízes por mapas
+    (`driver::merge_functions_at_link`).
+- **Nosso:** os portos `df.port.*` e a entrada C do callback FFI faziam o LTO misturar
+  pousos `{ ptr, i32 }` e `token` na mesma função. Agora há `noinline` nessas chamadas
+  com mapas.
+- **Nosso, desde `1e1bb1f3`:** as sondas de RTI e o `df.string_units_equal` não eram
+  folhas de GC. Agora são `"gc-leaf-function"`.
+
+A sabotagem `slack` dos testes dirigidos passou a zerar a folga: 4 KiB bastavam no macOS
+arm64. Com isso, os 4 testes dirigidos de mapas passam no macOS.
+
+**Quem mais tem o defeito do LLVM** (verificado no código de cada projeto, em
+`/Volumes/ssd_dock/references`):
+- **Exposto:** o passo próprio do Cangjie (`CJRewriteStatepoint`) quebra com
+  `noundef returned`; provado com o `opt` compilado do fork deles.
+- **Imune pela ordem dos passos:** Perry e JLLVM.
+- **Imune só pela cópia antiga do passo:** gollvm.
+- **Não usam o RS4GC:** TinyGo, Julia, Kotlin/Native, Clasp, Swift, Nim, Koka, CSharpLLVM,
+  il2bc. O llilc usa, mas é da época do LLVM 3.x.
+
+**Medida do modo de mapas** (servidor, mediana de 4 rodadas alternadas):
+
+| | A0 | A1 com contexto | B1 | B1 com o RS4GC antes do `lto<O2>` (como o Perry) |
+|---|---:|---:|---:|---:|
+| req/s | 67,6k | **68,6k** | 61,3k | 58,5k |
+| trees (ms) | 12,48 | **12,43** | 17,88 | 17,85 |
+
+O caminho do Perry evita o defeito, mas perde o inlining e fica ainda mais lento.
+
+**O ARC real** só passa pelo RS4GC com `--roots maps` (opcional). Na pilha-sombra, que é o
+padrão, não há funções `gc`. As correções acima valem para qualquer modo de memória.
+
+**CI.** Vermelho há dias, por causas anteriores a hoje. Corrigidas e validadas localmente:
+- **Linux e macOS:** o `reload` do JIT recusava as declarações dos externs do fragmento só
+  do wasm (`dartforge_js_*`). O nativo deixou de declará-los.
+- **Windows, N15 e Heavy `build`:** a action `llvm-windows` não trazia `clang-cl`,
+  `llvm-lib` e os headers C++ que a ponte COFF do JIT (`crates/jit/build.rs`) usa.
+- **Heavy, testes ignorados:**
+  - os testes de imagens gravadas e do sysroot glibc agora pulam sem o insumo;
+  - o programa 81 voltou a ter acessos dinâmicos de verdade (a desvirtualização
+    escondia as entradas `$g`);
+  - o manifesto do SDK selecionado ganhou o patch do `http` (`722e654b`);
+  - o teste da interpolação de `fromEnvironment` espera a constante dobrada, que é a
+    semântica certa.
+
+**Funções duplicadas.** `DARTFORGE_DUPLICATES=1` imprime as funções HIR de corpo igual em
+dois níveis: exato, e refinado (chamando funções equivalentes, o caso dos pacotes copiados
+para dentro do projeto).
+
+| alvo | instruções HIR | duplicadas, refinado |
+|---|---:|---:|
+| SDK (servidor, antes da poda) | 1,11 M | 5,2% (o `dart:typed_data`, 24%) |
+| `new_sali` backend (programa) | 4,53 M | 1,1% |
+
+O próximo passo é o passo de fusão no HIR. Função sem endereço tomado tem as chamadas
+redirecionadas; com endereço tomado, vira thunk e mantém a identidade do tear-off (programa
+80). A comparação inclui os planos do ARC, as tabelas de exceção e o rastro. Vale para o
+nativo, o JS e o wasm, e não depende do `MergeFunctions` do LLVM.
+
 ## Prioridade para 30/10/2026: HTTP a 99% do Dart com o A1 e o contexto por argumento
 
 A rodada 7 de 30/10 mediu as peças do desenho do Dart AOT no servidor e no `trees`, pelo
@@ -19,9 +101,7 @@ A1 e A1 com contexto.
 
 **O que a rodada mostrou:**
 - **Mapas de pilha não servem no macOS:**
-  - **B1 (`--exceptions tables --roots maps`) não liga.** O LTO do `ld64.lld` infere
-    `returned` num argumento, e o `rewrite-statepoints-for-gc` do LLVM 22.1.8 o copia para
-    o `gc.statepoint`; o verificador rejeita o módulo.
+  - **B1 (`--exceptions tables --roots maps`) não ligava;** corrigido na seção acima.
   - **B0 perde em tudo:** +72% de executável e +45% no `trees`. As raízes ficam no slot da
     pilha, e não no registrador preservado da forma `"deopt"`.
 - **O A1 com contexto por argumento ganhou do A0 nas 4 rodadas:** de +1,6% a +3,1% em
@@ -35,8 +115,8 @@ A1 e A1 com contexto.
    relatório de prontidão recomenda o A0.
 2. Fechar o ~1% que sobra contra o Dart: as sondas do memo de RTI (~200 por pedido) e o
    contexto por TLS nas entradas de seletor (~393 por pedido).
-3. Os mapas de pilha só voltam com o RS4GC fora do LTO do `lld` e com a forma `"deopt"`.
-   Antes disso, contornar o `returned` (tirar o atributo antes do RS4GC).
+3. Os mapas de pilha ligam e passam desde 30/10, mas perdem para o A1 no macOS. Só voltam
+   a competir com o RS4GC fora do LTO do `lld` e com a forma `"deopt"`.
 
 ## Segunda prioridade para 30/10/2026: concluir a reescrita do ARC de verdade
 
