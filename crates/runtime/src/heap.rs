@@ -201,8 +201,8 @@ pub const OUT_OF_LINE: u8 = crate::layout::flags::OUT_OF_LINE;
 use crate::layout::{arc_word, block_bytes, flags as block_flags};
 pub use crate::space::{ObjectSpace, block_size};
 use crate::space::{
-    TLAB_BLOCKS, body, body_refs, fields_of, is_reference, mark_block,
-    mark_reference, marked, new_out_of_line_body, release_out_of_line_body, shape,
+    TLAB_BLOCKS, body, body_refs, fields_of, is_reference, mark_block, mark_reference, marked,
+    new_out_of_line_body, release_out_of_line_body, shape,
 };
 
 /// The minor collection comes every `YOUNG_LIMIT` allocated bytes (the size of the
@@ -3491,7 +3491,10 @@ impl Heap {
     /// nor in test heaps.
     pub fn refill_tlab(&mut self, words: usize) {
         let n = words;
-        if n == 0 || n > TLAB_N {
+        // No TLAB under the real ARC's audit: the generated code's Owned allocation
+        // takes a TLAB block without calling the runtime, so its token would miss the
+        // inventory; the slow path's retain records it.
+        if n == 0 || n > TLAB_N || self.objects.audited_arc_word() {
             return;
         }
         let Some(c) = self.tlab_context() else { return };
@@ -4411,6 +4414,46 @@ impl Heap {
     /// from the roots and sweeps everything; what survives becomes old.
     pub fn collect(&mut self) {
         self.run_collection(false);
+    }
+
+    /// The root tables of [`Heap::root_list`] that hold `h` (the audit's messages).
+    #[allow(unsafe_code)]
+    fn root_tables_of(&self, h: Ref) -> Vec<&'static str> {
+        let mut kinds = Vec::new();
+        let areas = self.area_roots.iter().any(|(area, slots)| {
+            slots.iter().any(|&slot| {
+                // SAFETY: as in `root_list`.
+                let value = unsafe { area.add(slot as usize).read() };
+                value == h
+            })
+        });
+        let tables: [(&str, bool); 13] = [
+            ("areas", areas),
+            ("messages", self.message_owners.values().any(|&v| v == h)),
+            ("code tokens", self.code_owners.contains_key(&h)),
+            ("enums", self.enum_values.values().any(|&v| v == h)),
+            ("tear-offs", self.tearoffs.values().any(|&v| v == h)),
+            ("literals", self.literals.values().any(|&v| v == h)),
+            (
+                "canonical",
+                self.canonical_instances.values().any(|&v| v == h),
+            ),
+            ("globals", self.globals.values().any(|&v| v == h)),
+            ("runtime", self.runtime_roots.contains(&h)),
+            ("scratch", self.scratch_roots.contains(&h)),
+            ("empty storages", self.empty_storages.contains(&h)),
+            ("finalizations", self.ready_finalizations.contains(&h)),
+            (
+                "native frames",
+                self.frames.iter().any(|(_, roots, _)| roots.contains(&h)),
+            ),
+        ];
+        for (name, held) in tables {
+            if held {
+                kinds.push(name);
+            }
+        }
+        kinds
     }
 
     /// Pushes the roots into `dest`: the runtime's permanent ones, the
@@ -7599,8 +7642,9 @@ impl Heap {
                 // (`Heap::prompt_dispose`).
                 Some(p)
                     if unsafe { *p } & crate::layout::arc_word::CANDIDATE != 0
-                        && unsafe { crate::space::arc_block_size((h - HANDLE_OFFSET) as *const Header) }
-                            > block_bytes(crate::layout::LARGEST_MEDIUM) =>
+                        && unsafe {
+                            crate::space::arc_block_size((h - HANDLE_OFFSET) as *const Header)
+                        } > block_bytes(crate::layout::LARGEST_MEDIUM) =>
                 {
                     // SAFETY: a block of the space (it has an in-object word).
                     unsafe { mark_block((h - HANDLE_OFFSET) as *const Header) };
@@ -7609,7 +7653,6 @@ impl Heap {
             }
         }
     }
-
 
     /// The zero queue of the ARC: each live object with a zero count and no
     /// observational root dies, its children lose an occurrence, and so on (an
@@ -7799,7 +7842,9 @@ impl Heap {
     /// in-object word is on.
     #[inline]
     fn reuse_context(&self) -> Option<&'static Context> {
-        if self.objects.extra == 0 || !self.runtime_tlab {
+        // The audit keeps no reuse lists: the generated code takes their cells
+        // without calling the runtime, so their tokens would miss the inventory.
+        if self.objects.extra == 0 || !self.runtime_tlab || self.objects.audited_arc_word() {
             return None;
         }
         // SAFETY: `context` is the `Context` of this thread (`for_isolate`), a
@@ -8597,14 +8642,17 @@ impl Heap {
         let (Ok(cid), Ok(fields)) = (usize::try_from(cid), u16::try_from(fields)) else {
             return;
         };
-        if f == 0 || usize::from(fields) > 32 {
+        if f == 0 || usize::from(fields) > 32 || cid >= crate::layout::arc_word::DROP_CLASSES {
             return;
         }
         if self.arc_drops.len() <= cid {
             self.arc_drops.resize(cid + 1, (0, None));
         }
         // SAFETY: the contract of `dartforge_arc_register_drops_v1`.
-        self.arc_drops[cid] = (fields, Some(unsafe { std::mem::transmute::<usize, DropFunction>(f as usize) }));
+        self.arc_drops[cid] = (
+            fields,
+            Some(unsafe { std::mem::transmute::<usize, DropFunction>(f as usize) }),
+        );
     }
 
     /// Moves the candidates the generated code flagged inline (`Context::candidates`)
@@ -9317,6 +9365,33 @@ impl Heap {
             {
                 continue;
             }
+            // A block freed (or a young one that died: its header is zeroed) while
+            // something still reaches it.
+            #[allow(unsafe_code)]
+            if self
+                .space_block(h)
+                .is_some_and(|b| unsafe { (*b).state } == 0)
+            {
+                let parent = origin.get(&h).copied();
+                let place = parent.map(|x| {
+                    let c = self.header(x);
+                    let pos = self.words(x).iter().position(|&w| w == h);
+                    format!(
+                        "cid {} state {} n {} position {pos:?}",
+                        c.class_id, c.state, c.n
+                    )
+                });
+                panic!(
+                    "ARC bug: reachable object already dead: handle {h}, word {:?}, roots {:?}; reached from {parent:?} ({})",
+                    // SAFETY: the in-object word of a block of the space.
+                    arc.state
+                        .in_object
+                        .and_then(|f| unsafe { f(h).as_ref().copied() })
+                        .map(|w| format!("{w:#x}")),
+                    self.root_tables_of(h),
+                    place.unwrap_or_default()
+                );
+            }
             // A young survivor (the nursery's aging) has no count yet.
             if !arc.state.alive(h)
                 && !(!arc.pure && crate::layout::state::is_young(self.header(h).state))
@@ -9371,7 +9446,11 @@ impl Heap {
                 // The holders the recount saw: the registered objects with an edge to the
                 // handle and the owning tables that hold it.
                 let mut parents = Vec::new();
-                for p in state.registered_handles().into_iter().chain(in_object.iter().copied()) {
+                for p in state
+                    .registered_handles()
+                    .into_iter()
+                    .chain(in_object.iter().copied())
+                {
                     let mut n = 0;
                     crate::arc::ArcGraph::edges(&graph, p, &mut |v| n += usize::from(v == handle));
                     if n > 0 {
@@ -11376,7 +11455,10 @@ mod prompt_death_tests {
             let head = page as *const u64;
             let size = head.add(arc_word::HEAD_INLINE / 8).read();
             assert_eq!(size, head.add(arc_word::HEAD_SIZE / 8).read());
-            assert_eq!(size as usize, layout::block_bytes(layout::instance_words(2) + 1));
+            assert_eq!(
+                size as usize,
+                layout::block_bytes(layout::instance_words(2) + 1)
+            );
             let word = (b + size - 8) as *mut u64;
             assert_eq!(word.read(), arc_word::LIVE | 1, "the factory's token");
             // The code's inline retain and release.
@@ -11429,13 +11511,24 @@ mod prompt_death_tests {
             let object = owned(&mut heap, 1);
             heap.retain_code_owner(object);
             release(&mut heap, object);
-            assert!(heap.arc.as_ref().unwrap().state.meta(object).unwrap().candidate);
+            assert!(
+                heap.arc
+                    .as_ref()
+                    .unwrap()
+                    .state
+                    .meta(object)
+                    .unwrap()
+                    .candidate
+            );
             release(&mut heap, object);
             assert!(dead(&heap, object));
             let again = owned(&mut heap, 1);
             assert_eq!(again, object);
             heap.collect();
-            assert!(heap.is_live_object(again), "the new object survives the round");
+            assert!(
+                heap.is_live_object(again),
+                "the new object survives the round"
+            );
             release(&mut heap, again);
             assert!(dead(&heap, again));
         }

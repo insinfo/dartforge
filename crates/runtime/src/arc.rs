@@ -740,7 +740,10 @@ impl ArcHeapState {
             // stay.
             wr(
                 p,
-                (rd(p) & (word::OBSERVED | word::SNAPSHOT)) | word::LIVE | cycle_free | (rc & word::RC),
+                (rd(p) & (word::OBSERVED | word::SNAPSHOT))
+                    | word::LIVE
+                    | cycle_free
+                    | (rc & word::RC),
             );
             self.statistics.registered_set += 1;
             self.statistics.retains += rc;
@@ -1266,7 +1269,14 @@ impl ArcHeapState {
     pub(crate) fn set_snapshot(&mut self, h: Ref, on: bool) {
         if let Some(p) = self.word_of(h) {
             let x = rd(p);
-            wr(p, if on { x | word::SNAPSHOT } else { x & !word::SNAPSHOT });
+            wr(
+                p,
+                if on {
+                    x | word::SNAPSHOT
+                } else {
+                    x & !word::SNAPSHOT
+                },
+            );
         } else if let Some(m) = self.objects.get_mut(&h) {
             m.snapshot = on;
         }
@@ -1470,7 +1480,10 @@ impl ArcHeapState {
         }
         let mut seeds: Vec<Ref> = Vec::new();
         for id in candidates {
-            let Some(m) = self.meta(id.handle).filter(|m| m.generation == id.generation) else {
+            let Some(m) = self
+                .meta(id.handle)
+                .filter(|m| m.generation == id.generation)
+            else {
                 continue;
             };
             if m.state == ArcState::Live && m.rc > 0 && !m.immortal {
@@ -1534,7 +1547,9 @@ impl ArcHeapState {
         let mut live_set = vec![false; r.len()];
         let mut stack: Vec<usize> = Vec::new();
         for (ix, &x) in r.iter().enumerate() {
-            let m = self.meta(x).expect("ARC bug: region object without metadata");
+            let m = self
+                .meta(x)
+                .expect("ARC bug: region object without metadata");
             if trial[ix] > 0
                 || m.state == ArcState::Building
                 || m.conditionally_protected

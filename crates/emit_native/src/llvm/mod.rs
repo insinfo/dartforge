@@ -2582,7 +2582,10 @@ impl<'a> LlvmEmitter<'a> {
                         if name == "dartforge_arc_write_field_ref_v1"
                             && self.moved_writes.contains(&v)
                             && args.len() == 3
-                            && !matches!(&args[2].0, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)))
+                            && !matches!(
+                                &args[2].0,
+                                Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
+                            )
                             && self.first_fresh_write
                             && matches!((&args[0].0, &args[1].0),
                                 (Operand::Val(_), Operand::Constant(Constant::Int(i)))
@@ -2594,6 +2597,17 @@ impl<'a> LlvmEmitter<'a> {
                         let i = *i as usize;
                         let only = self.coerce(&args[0].0, Type::I64);
                         let sv = self.coerce(&args[2].0, Type::I64);
+                        // A page without the inline count (the audit, which keeps every
+                        // code token in the runtime's inventory) moves through the
+                        // runtime.
+                        writeln!(
+                            self.out,
+                            "  %mvb{v} = add i64 {only}, -{}\n  %mvg{v} = and i64 %mvb{v}, -{}\n  %mvp{v} = inttoptr i64 %mvg{v} to ptr\n  %mvs{v} = getelementptr inbounds i8, ptr %mvp{v}, i64 {}\n  %mvz{v} = load i64, ptr %mvs{v}, align 8\n  %mvr{v} = icmp eq i64 %mvz{v}, 0\n  br i1 %mvr{v}, label %mv{v}.runtime, label %mv{v}.inline\nmv{v}.runtime:\n  call void @dartforge_arc_write_field_ref_move_v1(i64 {only}, i64 {i}, i64 {sv})\n  br label %mv{v}.end\nmv{v}.inline:",
+                            layout::HANDLE_OFFSET,
+                            layout::PAGE,
+                            layout::arc_word::HEAD_INLINE
+                        )
+                        .unwrap();
                         self.emit_field_addresses_of(v, &only, true);
                         self.emit_field_write(
                             v,
@@ -2606,6 +2620,8 @@ impl<'a> LlvmEmitter<'a> {
                                 fresh: true,
                             },
                         );
+                        writeln!(self.out, "  br label %mv{v}.end\nmv{v}.end:").unwrap();
+                        self.current_label = format!("mv{v}.end");
                     }
                     // The real ARC's move into a field ([`moves_into_fields`]).
                     Instruction::CallRuntime { name, args, .. }
@@ -4959,18 +4975,26 @@ impl<'a> LlvmEmitter<'a> {
             // registrations of the libraries, the RTI and the embedder.
             // The real ARC's drop functions of the classes this program allocates
             // Owned inline, registered below.
-            let drops: Vec<(i64, i64)> = if self.module.arc_prompt_death && self.arc_tag_guards {
+            // One per class: a class allocated with several field counts (the
+            // closure contexts) gets the function of the smallest, and the runtime
+            // drops its other sizes through the header's map.
+            let mut drops: Vec<(i64, i64)> = if self.module.arc_prompt_death && self.arc_tag_guards
+            {
                 self.owned_classes.iter().copied().collect()
             } else {
                 Vec::new()
             };
+            drops.dedup_by_key(|(c, _)| *c);
             for &(c, n) in &drops {
-                self.out.push_str(&arc_tag_guards::drop_function(c, n as usize));
+                self.out
+                    .push_str(&arc_tag_guards::drop_function(c, n as usize));
             }
             if !drops.is_empty() {
                 let entries: Vec<String> = drops
                     .iter()
-                    .map(|(c, n)| format!("i64 {c}, i64 {n}, i64 ptrtoint (ptr @df.drop.{c} to i64)"))
+                    .map(|(c, n)| {
+                        format!("i64 {c}, i64 {n}, i64 ptrtoint (ptr @df.drop.{c} to i64)")
+                    })
                     .collect();
                 // `(class, fields, function)` triples.
                 writeln!(
@@ -6922,14 +6946,18 @@ impl<'a> LlvmEmitter<'a> {
         if let Some(f) = &table {
             self.annotate_external(f, Type::Ptr, &[]);
         }
-        if n as usize <= arc_tag_guards::DROP_FIELDS {
+        if n as usize <= arc_tag_guards::DROP_FIELDS
+            && usize::try_from(c).is_ok_and(|c| c < layout::arc_word::DROP_CLASSES)
+        {
             self.owned_classes.insert((c, n));
         }
         let test_registration = table.is_some() && !self.registered_at_startup(c);
         let w = layout::instance_words(n as usize);
         let class = w + 1;
         let size = layout::block_bytes(class);
-        let header = |state| layout::header_word(state, layout::flags::INSTANCE, n as usize, c as i32) as i64;
+        let header = |state| {
+            layout::header_word(state, layout::flags::INSTANCE, n as usize, c as i32) as i64
+        };
         let (young, old) = (header(layout::state::YOUNG), header(layout::state::OLD));
         let registered = layout::arc_word::LIVE | 1;
         let retain = self.arc_retain_target();
@@ -6986,7 +7014,10 @@ impl<'a> LlvmEmitter<'a> {
                 o,
                 "  %tl{v} = call i64 @dartforge_object_new_t(i64 {c}, i64 {n}, ptr @{f})"
             ),
-            None => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new(i64 {c}, i64 {n})"),
+            None => writeln!(
+                o,
+                "  %tl{v} = call i64 @dartforge_object_new(i64 {c}, i64 {n})"
+            ),
         }
         .unwrap();
         writeln!(

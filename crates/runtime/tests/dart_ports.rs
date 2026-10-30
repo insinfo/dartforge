@@ -42,6 +42,11 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "the C `NativeFinalizerFunction` of `dart:ffi`",
     ),
     (
+        "heap.rs",
+        "std::mem::transmute::<usize, DropFunction>(f as usize)",
+        "the per-class drop function the emitter generates (`@df.drop.<cid>`): a nounwind GC leaf that only reads the dead object's fields and adjusts their counts, never calls Dart and never throws",
+    ),
+    (
         "io_watcher.rs",
         "std::mem::transmute::<*mut c_void, _>(s(c\"FSEvent",
         "CoreServices functions found at run time",

@@ -1197,6 +1197,12 @@ impl ObjectSpace {
     /// The pages that already hold objects keep their head zeroed (the ARC keeps their
     /// objects in its side table) and leave allocation: their free ranges are dropped
     /// now and their dead blocks are never handed out again.
+    /// The real ARC's audit: the in-object word is on, but the generated code counts
+    /// and allocates through the runtime, which keeps every token in its inventory.
+    pub(crate) fn audited_arc_word(&self) -> bool {
+        self.extra == 1 && !self.inline_counts
+    }
+
     pub(crate) fn enable_arc_word(&mut self, inline: bool) {
         if self.extra == 1 {
             return;
@@ -1232,10 +1238,7 @@ impl ObjectSpace {
         } as u64;
         // SAFETY: the head of a page of this space (its mark bitmap).
         unsafe {
-            p.base
-                .add(arc_word::HEAD_SIZE)
-                .cast::<u64>()
-                .write(size);
+            p.base.add(arc_word::HEAD_SIZE).cast::<u64>().write(size);
             p.base
                 .add(arc_word::HEAD_INLINE)
                 .cast::<u64>()

@@ -633,6 +633,10 @@ pub const fn block_bytes(words: usize) -> usize {
 /// below 2⁴⁸ and reads as unregistered). Tracing and the nursery ARC keep the
 /// 16-byte header and the class of `w`.
 pub mod arc_word {
+    /// The class ids below which a class can have a drop function (the runtime keeps
+    /// them in a table indexed by class id); the classes above it, such as the
+    /// `async` frames, die through the header's map.
+    pub const DROP_CLASSES: usize = 1 << 16;
     /// The strong occurrences (owners plus edges).
     pub const RC: u64 = (1 << 40) - 1;
     /// Registered and alive: counted from now on. A zeroed word is a young object

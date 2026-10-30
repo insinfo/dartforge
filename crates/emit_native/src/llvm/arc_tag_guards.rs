@@ -212,18 +212,25 @@ pub(super) fn drop_function(c: i64, n: usize) -> String {
     for i in 0..n {
         writeln!(
             body,
-            "f{i}:\n  %k{i} = phi i64 [ {k}, %{pred} ]{more}\n  %bit{i} = and i32 %map, {}\n  %is{i} = icmp ne i32 %bit{i}, 0\n  br i1 %is{i}, label %r{i}, label %f{i}.n\nr{i}:\n  %fa{i} = getelementptr inbounds i8, ptr %bp, i64 {}\n  %v{i} = load i64, ptr %fa{i}, align 8\n  %kr{i} = call i64 @df.arc_drop_child(i64 %v{i}, ptr %out, i64 %k{i})\n  br label %f{i}.n\nf{i}.n:\n  %kn{i} = phi i64 [ %k{i}, %f{i} ], [ %kr{i}, %r{i} ]\n  br label %f{}",
+            "f{i}:\n  %k{i} = phi i64 [ {k}, %{pred} ]\n  %bit{i} = and i32 %map, {}\n  %is{i} = icmp ne i32 %bit{i}, 0\n  br i1 %is{i}, label %r{i}, label %f{i}.n\nr{i}:\n  %fa{i} = getelementptr inbounds i8, ptr %bp, i64 {}\n  %v{i} = load i64, ptr %fa{i}, align 8\n  %kr{i} = call i64 @df.arc_drop_child(i64 %v{i}, ptr %out, i64 %k{i})\n  br label %f{i}.n\nf{i}.n:\n  %kn{i} = phi i64 [ %k{i}, %f{i} ], [ %kr{i}, %r{i} ]\n  br label %f{}",
             1u32 << i,
             offsets::BODY + 8 * i,
             i + 1,
             pred = if i == 0 { "entry".to_string() } else { format!("f{}.n", i - 1) },
-            more = "",
         )
         .unwrap();
         k = format!("%kn{i}");
     }
-    let last = if n == 0 { "entry".to_string() } else { format!("f{}.n", n - 1) };
-    writeln!(body, "f{n}:\n  %kend = phi i64 [ {k}, %{last} ]\n  ret i64 %kend").unwrap();
+    let last = if n == 0 {
+        "entry".to_string()
+    } else {
+        format!("f{}.n", n - 1)
+    };
+    writeln!(
+        body,
+        "f{n}:\n  %kend = phi i64 [ {k}, %{last} ]\n  ret i64 %kend"
+    )
+    .unwrap();
     // `f0` follows `entry` directly; its phi names `entry` as the predecessor.
     let child = format!(
         r#"define internal i64 @df.arc_drop_child(i64 %value, ptr %out, i64 %k) alwaysinline nounwind "gc-leaf-function" {{
@@ -268,9 +275,15 @@ done:
     format!(
         "{child}define internal i64 @df.drop.{c}(i64 %h, ptr %out) nounwind {{\nentry:\n{body}}}\n"
     )
-    .replace("@df.arc_drop_child(i64 %value, ptr %out, i64 %k) alwaysinline", "@df.arc_drop_child.{C}(i64 %value, ptr %out, i64 %k) alwaysinline")
+    .replace(
+        "@df.arc_drop_child(i64 %value, ptr %out, i64 %k) alwaysinline",
+        "@df.arc_drop_child.{C}(i64 %value, ptr %out, i64 %k) alwaysinline",
+    )
     .replace("{C}", &c.to_string())
-    .replace("call i64 @df.arc_drop_child(", &format!("call i64 @df.arc_drop_child.{c}("))
+    .replace(
+        "call i64 @df.arc_drop_child(",
+        &format!("call i64 @df.arc_drop_child.{c}("),
+    )
 }
 
 /// The real ARC's test of the owner of an inline counted write
