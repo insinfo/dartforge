@@ -1175,7 +1175,11 @@ impl<'a> LlvmEmitter<'a> {
     fn emit_runtime_decls(&mut self) {
         self.out
             .push_str("; Declarations of the native Rust runtime (table in llvm/externs.rs)\n");
+        let wasm = crate::target::is_wasm();
         for e in externs::EXTERNS {
+            if !wasm && externs::WASM_ONLY.contains(&e.name()) {
+                continue;
+            }
             self.out.push_str(e.decl);
             // Roots by maps: the extern that does not collect is a leaf — the call
             // to it does not become a collection point (nor an entry in the map).

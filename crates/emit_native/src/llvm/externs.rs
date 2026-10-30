@@ -1798,6 +1798,17 @@ pub const EXTERNS: &[Extern] = &[
 pub const GLOBALS: &[(&str, &str)] = &[];
 
 /// Effects of extern `name`; an unknown one is conservative.
+/// The externs of the runtime fragments only WebAssembly has (`js_interop`,
+/// `WASM_ONLY` in `runtime/build.rs`): a native module does not declare them. An
+/// unused declaration costs the AOT nothing, but the JIT's reload checks every
+/// external reference of the new code against the session and refuses one the
+/// native runtime does not define.
+pub const WASM_ONLY: &[&str] = &[
+    "dartforge_js_string_to_js",
+    "dartforge_js_string_to_dart",
+    "dartforge_js_throw",
+];
+
 pub fn effects_of(name: &str) -> Effects {
     // The generic Owned thunk has the effects of the base, plus the retain.
     if let Some(base) = name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX) {
