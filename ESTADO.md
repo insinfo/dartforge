@@ -187,9 +187,20 @@ segundo lote do CI, acima). O `arcmodes.sh` agora gera a referência com
 testes, clippy, harness e corpus ARC no export `v1`; `tests.sh`, `harness.sh` e
 `arcmodes.sh`; `tc/httpth.sh`, que mede o HTTP com os contadores da thread do isolate.
 
+**O RSS do servidor HTTP no ARC real foi resolvido em 30/10** (`docs/ARC-IMPLEMENTACAO.md`
+§9.2): 70,1 → 23,8 MB (ARC simples 19,5, tracing 17,5). Eram os buffers da rodada de
+ciclos e da drenagem, refeitos a cada rodada (fragmentavam a zona *medium* do `malloc`),
+e o limiar da rodada de ciclos, que o ponto de assentamento dobrava: as rodadas só
+rodavam na coleta completa. O relatório `DARTFORGE_GC_MEMORY=1` passou a medir o
+processo no macOS.
+
+**CI:** a falha do `allocation_inventory` só no Linux era minha, de `592d7619`: o censo
+das imagens do SDK não conhecia o atributo `"gc-leaf-function"`. Reproduzida aqui com
+`--features embedded-llvm` e corrigida (`8769a175`).
+
 **Próximos passos:**
-1. Achar a origem do RSS do servidor HTTP no ARC real (80 MB contra 28 MB do
-   simples).
+1. A vazão do servidor no ARC real: 13,8 mil req/s, contra 47,2 mil no ARC simples
+   (281 contra 89 mil ciclos por pedido).
 2. Reaplicar `/Volumes/ssd_dock/tmp/arc-redesign/final_field_elision.patch` e medir de
    novo.
 

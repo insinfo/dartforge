@@ -805,9 +805,47 @@ decrementos dos filhos (`child-release`), a morte em linha (`prompt-die`), o jov
 como morto (`young-dead`) e a palavra no registro. Com o trace ligado, a função de
 descarte gerada é desviada para o caminho que registra.
 
+### 9.2 O RSS do servidor HTTP (2026-10-30)
+
+Medido com `bench/comparison/server.dart` (`--optimize`, 4×8 conexões por 5 s; a tabela
+da §9 usava outra carga e o modo de desenvolvimento):
+
+| | tracing | ARC simples | ARC real antes | ARC real agora |
+| --- | ---: | ---: | ---: | ---: |
+| RSS | 17,5 MB | 19,5 MB | 70,1 MB | **23,8 MB** |
+| req/s | 68,1 mil | 47,2 mil | 12,9 mil | 13,8 mil |
+
+**Como foi achado.** O `vmmap` trava neste macOS, e o relatório
+`DARTFORGE_GC_MEMORY=1` mostrava zeros para o processo; ele passou a ler o residente
+por `task_info` e os bytes do `malloc` por `malloc_zone_statistics`. As páginas de
+classe somavam 11 MB e o `malloc` em uso 11,5 MB, num residente de 58 MB. A
+contagem de páginas residentes por região (`proc_pidinfo(PROC_PIDREGIONINFO)`)
+pôs 34,5 MB na zona *medium* do `malloc` (tag 12), contra 2,8 MB no ARC simples. Um
+*shim* por `DYLD_INSERT_LIBRARIES` contou centenas de `realloc` de 128 KB a 2 MB por
+segundo, e a pilha de cada um (num binário com `--debug`) apontou para a rodada de
+ciclos, o buffer de candidatos e os vetores da drenagem.
+
+**Duas correções:**
+- **Buffers mantidos** (`27ef37e1`): a rodada de ciclos criava região, índice,
+  contagens de *trial* (`i128`), marcas e pilhas a cada vez, e o buffer de candidatos
+  era entregue e crescia de novo. Os vetores de até 2 MB, soltos a cada rodada,
+  deixavam páginas residentes na zona *medium*. Agora ficam, vazios, no
+  `ArcHeapState` (`CycleScratch`) e no `Heap` (`DrainScratch`); o *trial* é `i64`.
+  RSS 70 → 46 MB.
+- **Limiar da rodada** (`abc8117f`): o ponto de assentamento, ao ver a fila de
+  candidatos no limiar da rodada de ciclos, limpava os mortos e **dobrava o mesmo
+  limiar**. A drenagem nunca via a fila chegar nele: as rodadas só rodavam na coleta
+  completa (18 ms), com até 120 mil candidatos e o lixo cíclico vivo até lá. A limpeza
+  ganhou um limiar próprio, que volta ao da rodada a cada rodada. Agora há uma rodada
+  por drenagem (cerca de 11 mil candidatos, 1,2 ms) e nenhuma coleta completa sob
+  carga. RSS 46 → 24 MB.
+
+Cada pedido HTTP deixa uns 58 objetos de lixo cíclico (cerca de 12 mil por segundo),
+que só a rodada de ciclos libera.
+
 **Em aberto:**
-* O RSS do servidor HTTP (80 MB contra 28). O RSS das strings foi resolvido na última
-  rodada: era a lista de jovens das células reusadas.
+* A vazão do servidor no ARC real: 281 mil ciclos por pedido, contra 89 mil no ARC
+  simples (810 retains e 195 mortes por contagem por pedido).
 * A elisão das cópias de campos `final`
   (`/Volumes/ssd_dock/tmp/arc-redesign/final_field_elision.patch`) ainda não foi
   reaplicada. Ela tira o par retain/release de `count()` nas árvores.
