@@ -1503,6 +1503,10 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
+        decl: "declare void @dartforge_ffi_compound_write(ptr, i64, i64)",
+        effects: CONSERVATIVE,
+    },
+    Extern {
         decl: "declare void @dartforge_ffi_register_callback(ptr, i64, ptr)",
         effects: CONSERVATIVE,
     },

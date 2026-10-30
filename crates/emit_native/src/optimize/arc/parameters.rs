@@ -113,9 +113,10 @@ fn produce(
             if if rti {
                 types.get(&v) != Some(&Type::I64)
             } else {
+                // `Ptr`: a native address (the result buffer of a callback body).
                 !matches!(
                     types.get(&v),
-                    Some(Type::I64 | Type::F64 | Type::I1 | Type::I8)
+                    Some(Type::I64 | Type::F64 | Type::I1 | Type::I8 | Type::Ptr)
                 )
             } {
                 return Err(format!(

@@ -5709,11 +5709,13 @@ impl<'a> LlvmEmitter<'a> {
                 "active_callback:\n  %saida = alloca i64\n  %buf = alloca [{n} x i64]"
             )
             .unwrap();
+            // A returned struct's bytes: the body copies them in before it lets the
+            // struct go; with an exception it does not, and the return stays zeroed.
             if let Some((_, l)) = &ret {
+                let sz = l.size.div_ceil(16) * 16;
                 writeln!(
                     self.out,
-                    "  %rt = alloca [{} x i8], align 16",
-                    l.size.div_ceil(16) * 16
+                    "  %rt = alloca [{sz} x i8], align 16\n  call void @llvm.memset.p0.i64(ptr %rt, i8 0, i64 {sz}, i1 false)"
                 )
                 .unwrap();
             }
@@ -5847,6 +5849,10 @@ impl<'a> LlvmEmitter<'a> {
                     None => args.push(format!("{ty} %a{j}")),
                 }
             }
+            // A struct return: the body copies the bytes into `%rt` (`lower/ffi.rs`).
+            if ret.is_some() {
+                args.push("ptr %rt".to_string());
+            }
             let hr = cb.ret.hir_type().llvm_ir();
             let empty = matches!(cb.ret, NativeType::Prim(CType::Void));
             if by_tables {
@@ -5899,22 +5905,7 @@ impl<'a> LlvmEmitter<'a> {
                 )
                 .unwrap();
             }
-            // A returned struct: the bytes copied right away (before any
-            // allocation); with an exception the body returns 0 and the return is zeroed.
-            if let Some((_, l)) = &ret {
-                let sz = l.size.div_ceil(16) * 16;
-                writeln!(
-                    self.out,
-                    "  call void @llvm.memset.p0.i64(ptr %rt, i8 0, i64 {sz}, i1 false)"
-                )
-                .unwrap();
-                writeln!(
-                    self.out,
-                    "  call void @dartforge_ffi_copy_compound(ptr %rt, i64 %r, i64 {})",
-                    l.size
-                )
-                .unwrap();
-            }
+
             writeln!(
                 self.out,
                 "  %x = call i8 @dartforge_ffi_callback_exit(ptr %ctx, ptr %saida)"

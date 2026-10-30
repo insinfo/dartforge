@@ -900,6 +900,19 @@ pub extern "C" fn dartforge_ffi_compound_address(obj: i64) -> i64 {
     with_memory(base, offset, c.size as usize, |p| p as i64).unwrap_or(0)
 }
 
+/// Copies the `n` bytes of the struct/union `obj` into `dest`: the result of a
+/// callback that returns a struct by value, written into the C entry's buffer while
+/// the body still holds `obj` (its bytes can die with it under the real ARC).
+///
+/// # Safety
+/// `dest` has room for `n` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_ffi_compound_write(dest: *mut u8, obj: i64, n: i64) {
+    let origin = dartforge_ffi_compound_address(obj);
+    // SAFETY: guaranteed by the caller.
+    unsafe { dartforge_ffi_copy_compound(dest, origin, n) };
+}
+
 /// A new struct/union, over a `Uint8List` of its size (the value a native call
 /// returns by value, as in the VM).
 #[unsafe(no_mangle)]

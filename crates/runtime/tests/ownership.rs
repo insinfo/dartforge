@@ -479,6 +479,7 @@ fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
                         | "dartforge_ffi_closure_address"
                         | "dartforge_ffi_pointer_address"
                         | "dartforge_ffi_compound_address"
+                        | "dartforge_ffi_compound_write"
                         | "dartforge_ffi_native_symbol"
                         | "dartforge_rti_tuple_join"
                         | "dartforge_rti_tuple_len"

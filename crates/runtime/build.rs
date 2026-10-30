@@ -347,6 +347,8 @@ fn ownership_table(manifest: &std::path::Path, names: &[String], present: &[Stri
             ("mut:native", false) => ("*mut i64", "ParamMode::NativeAddress"),
             // Constant module bytes (a UTF-8 name), the same native address.
             ("bytes:native", false) => ("*const u8", "ParamMode::NativeAddress"),
+            // Native bytes the callee writes (a C entry's result buffer).
+            ("mutbytes:native", false) => ("*mut u8", "ParamMode::NativeAddress"),
             ("vector:native", false) => ("*const i64", "ParamMode::StaticVector"),
             ("table:native", false) => {
                 ("extern \"C\" fn() -> *const i64", "ParamMode::StaticTable")

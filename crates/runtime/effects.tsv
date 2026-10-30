@@ -152,6 +152,7 @@ dartforge_ffi_compound	1	1	1
 dartforge_ffi_compound_address	1	1	1
 dartforge_ffi_compound_copy	1	1	1
 dartforge_ffi_compound_new	1	1	1
+dartforge_ffi_compound_write	1	1	1
 dartforge_ffi_copy_compound	1	1	0
 dartforge_ffi_handle_new	0	0	0
 dartforge_ffi_handle_object	1	1	1

@@ -592,6 +592,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .enumerate()
             .map(|(i, t)| Operand::Val(self.add_param(format!("a{i}"), t.hir_type())))
             .collect();
+        // A struct returned by value: the C entry's result buffer, which the body fills
+        // while the struct is still alive (under the real ARC its cell can die and be
+        // reused as the body returns).
+        let result_buffer = matches!(a.ret, NativeType::Composite(_))
+            .then(|| Operand::Val(self.add_param("rt".to_string(), Type::Ptr)));
         // Under ARC, the context and the arguments arrive from the C entry already in
         // scalar representation (addresses, handles and numbers): Trivial.
         if self.ctx.arc_memory {
@@ -599,7 +604,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .func
                 .params
                 .iter()
-                .filter(|(_, _, t)| matches!(t, Type::I64 | Type::F64 | Type::I1 | Type::I8))
+                .filter(|(_, _, t)| {
+                    matches!(t, Type::I64 | Type::F64 | Type::I1 | Type::I8 | Type::Ptr)
+                })
                 .map(|(v, _, _)| *v)
                 .collect();
             self.dart_scalar_parameters
@@ -689,18 +696,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::I64,
                 ))
             }
-            // The address of the bytes of the returned struct: the C entry copies them
-            // before any other allocation.
-            NativeType::Composite(_) => {
+            // The bytes of the returned struct, copied into the C entry's buffer while
+            // the body still holds the struct (its bytes can die with it as the body
+            // returns); the C entry reads the buffer, not the result.
+            NativeType::Composite(layout) => {
                 let r = self.coerce(r, Type::Ref);
-                Some(self.emit_call_with_check(
+                let buffer = result_buffer.expect("the result buffer of a struct return");
+                self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: "dartforge_ffi_compound_address".to_string(),
-                        args: vec![(r, Type::Ref)],
-                        ret_ty: Type::I64,
+                        name: "dartforge_ffi_compound_write".to_string(),
+                        args: vec![
+                            (buffer, Type::Ptr),
+                            (r, Type::Ref),
+                            (
+                                Operand::Constant(Constant::Int(layout.size as i64)),
+                                Type::I64,
+                            ),
+                        ],
+                        ret_ty: Type::Void,
                     },
-                    Type::I64,
-                ))
+                    Type::Void,
+                );
+                Some(Operand::Constant(Constant::Int(0)))
             }
             NativeType::Prim(tc) => Some(self.coerce(r, tc.hir_type())),
         };
