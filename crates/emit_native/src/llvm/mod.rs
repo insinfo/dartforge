@@ -2666,6 +2666,41 @@ impl<'a> LlvmEmitter<'a> {
                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
                     }
                     Instruction::CallRuntime { name, args, .. }
+                        if self.prepared_inline_list(name, args).is_some() =>
+                    {
+                        let helper = self
+                            .prepared_inline_list(name, args)
+                            .expect("checked at the guard");
+                        let list = self.coerce(&args[0].0, Type::I64);
+                        if args.len() == 2 {
+                            let ix = self.coerce(&args[1].0, Type::I64);
+                            writeln!(self.out, "  %ls{v} = call i64 @df.list_storage(i64 {list})")
+                                .unwrap();
+                            writeln!(
+                                self.out,
+                                "  %v{v} = call i64 @df.list_read(i64 %ls{v}, i64 {ix})"
+                            )
+                            .unwrap();
+                            if helper == "df.list_read+retain" {
+                                writeln!(
+                                    self.out,
+                                    "  call void @{}(i64 %v{v})",
+                                    arc_tag_guards::RETAIN
+                                )
+                                .unwrap();
+                            }
+                        } else if helper == "df.list_shape" {
+                            // The shape of the list's storage, as the ABI reads it.
+                            writeln!(self.out, "  %ls{v} = call i64 @df.list_storage(i64 {list})")
+                                .unwrap();
+                            writeln!(self.out, "  %lf{v} = call i8 @df.list_shape(i64 %ls{v})")
+                                .unwrap();
+                            writeln!(self.out, "  %v{v} = zext i8 %lf{v} to i64").unwrap();
+                        } else {
+                            writeln!(self.out, "  %v{v} = call i64 @{helper}(i64 {list})").unwrap();
+                        }
+                    }
+                    Instruction::CallRuntime { name, args, .. }
                         if self
                             .prepared_inline_field(name, args)
                             .is_some_and(|w| w.write) =>
@@ -6387,6 +6422,42 @@ impl<'a> LlvmEmitter<'a> {
             index: *i as usize,
             write,
             reference,
+        })
+    }
+
+    /// The prepared list reads that come out inline: the length, the storage
+    /// (borrowed, kept alive by the list), its capacity and its shape, by the
+    /// tracing helpers of `ir_lists` (the real ARC keeps the list layout; its word
+    /// is at the end of the block). The audited ABI checks the whole list map in
+    /// the runtime on each call; the preparation already chose these lists, as it
+    /// does for the inline field reads ([`Self::prepared_inline_field`]).
+    fn prepared_inline_list(&self, name: &str, args: &[(Operand, Type)]) -> Option<&'static str> {
+        if !(self.module.arc_virtual_tokens || self.module.arc_prompt_death)
+            || audited_arc_abi()
+            || args.iter().any(|(a, _)| {
+                matches!(
+                    a,
+                    Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
+                )
+            })
+        {
+            return None;
+        }
+        Some(match (name, args.len()) {
+            ("dartforge_arc_list_len_v1", 1) => "df.list_len",
+            ("dartforge_arc_list_storage_ref_v1", 1) => "df.list_storage",
+            ("dartforge_arc_list_capacity_v1", 1) => "df.list_capacity",
+            ("dartforge_arc_list_shape_v1", 1) => "df.list_shape",
+            // An element, after the Dart index and shape guards (as the tracing
+            // `@df.list_read`): its bits, or a `Ref` with the code's token, counted
+            // inline by the real ARC's retain.
+            ("dartforge_arc_list_read_bits_v1", 2) => "df.list_read",
+            ("dartforge_arc_list_ref_owned_v1", 2)
+                if self.module.arc_prompt_death && self.arc_tag_guards =>
+            {
+                "df.list_read+retain"
+            }
+            _ => return None,
         })
     }
 
