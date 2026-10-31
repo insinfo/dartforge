@@ -305,6 +305,36 @@ pub fn is_compile_error(message: &str) -> bool {
         || (message.starts_with("The final variable '") && message.ends_with("because it's potentially unassigned at this point."))
 }
 
+/// The analyzer compile-time errors the compilers refuse a program on, beyond
+/// [`is_compile_error`]'s: those with no false positive on the valid programs
+/// of the SDK's `tests/language` suite. The others stay warnings for now — with
+/// all of them, 134 valid programs of the suite were refused on 31/10/2026
+/// (`type_argument_not_matching_bounds`, `experiment_not_enabled_off_by_default`,
+/// `invalid_assignment`…; ESTADO.md).
+pub const REJECTING_CODES: &[dartforge_diagnostics::Code] =
+    &[dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT];
+
+/// The diagnostic rejects compilation, as the CFE does: one of
+/// [`is_compile_error`]'s, or one of [`REJECTING_CODES`] at error severity
+/// (`use_of_void_result`: a `void` value used, which would run as `null`). The
+/// compilers (`compile-js`, `aot`, `run`, `dev`) refuse the program on it.
+///
+/// ```
+/// use dartforge_diagnostics::{Diagnostic, Span};
+/// use dartforge_diagnostics::codes::compile_time_error::{INVALID_ASSIGNMENT, USE_OF_VOID_RESULT};
+/// let span = Span { start: 0, end: 1 };
+/// let d = Diagnostic::with_code(USE_OF_VOID_RESULT, span, Vec::<String>::new());
+/// assert!(dartforge_types::codes::rejects_compilation(&d));
+/// let d = Diagnostic::with_code(INVALID_ASSIGNMENT, span, ["int", "String"]);
+/// assert!(!dartforge_types::codes::rejects_compilation(&d));
+/// assert!(!dartforge_types::codes::rejects_compilation(&Diagnostic::new("a hint", span)));
+/// ```
+pub fn rejects_compilation(d: &dartforge_diagnostics::Diagnostic) -> bool {
+    is_compile_error(&d.message)
+        || (d.severity == dartforge_diagnostics::Severity::Error
+            && d.code.is_some_and(|c| REJECTING_CODES.contains(&c)))
+}
+
 pub const WILDCARD_DOES_NOT_BIND: DiagnosticCode = DiagnosticCode::new(
     "undefined_identifier",
     "no visible '_': in a 3.7+ library, locals and parameters named '_' are wildcards and do not bind a name",

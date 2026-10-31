@@ -452,7 +452,7 @@ impl Session {
         let mut compile_errors = outline_diags
             .iter()
             .chain(body_diags.iter())
-            .filter(|diagnostic| dartforge_types::codes::is_compile_error(&diagnostic.message));
+            .filter(|diagnostic| dartforge_types::codes::rejects_compilation(diagnostic));
         if let Some(first_error) = compile_errors.next() {
             let message = format!(
                 "{} compilation error(s): {first_error}",

@@ -557,7 +557,7 @@ fn emit_ir_internal(
     let mut errors = outline_diags
         .iter()
         .chain(body_diags.iter())
-        .filter(|d| dartforge_types::codes::is_compile_error(&d.message));
+        .filter(|d| dartforge_types::codes::rejects_compilation(d));
     if let Some(first_one) = errors.next() {
         let mut msg = format!("error: {first_one}");
         for d in errors {

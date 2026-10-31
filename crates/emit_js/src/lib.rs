@@ -980,7 +980,7 @@ pub fn compile_with_options<R>(
     let errors: Vec<&dartforge_diagnostics::Diagnostic> = outline_diags
         .iter()
         .chain(body_diags.iter())
-        .filter(|d| dartforge_types::codes::is_compile_error(&d.message))
+        .filter(|d| dartforge_types::codes::rejects_compilation(d))
         .collect();
     if !errors.is_empty() {
         for d in &errors {
