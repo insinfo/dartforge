@@ -40,7 +40,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
 | Backend nativo (AOT e wasm): as 87 falhas da suíte `tests/language` | agente backend nativo |
 | AOT nativo: tempo de compilação (6× o `dart compile exe`) e tamanho de programa grande (1,4×) | agente AOT (desde 31/10, 17h) |
-| ARC real: 3× os ciclos do tracing no HTTP | a abrir |
+| ARC real: 3× os ciclos do tracing no HTTP (205 × 66 mil por pedido no `dart:io`; Swift cru 26 mil) | agente ARC real (desde 31/10, noite) |
 | LSP: medir o servidor oficial nos mesmos projetos e reduzir *hover*/*completion* | agente LSP |
 
 ## 31/10/2026: `dartforge pub` com o solucionador PubGrub do Pub e os subcomandos do dia a dia; relator `expanded` do `dart test`
