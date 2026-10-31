@@ -2414,7 +2414,7 @@ pub(crate) fn infer_at(
             });
             let after2 = std::mem::replace(&mut cx.flow, before);
             cx.flow = inf.join(&after1, &after2);
-            upper_bound_in_context(inf, t1, t2, ctx)
+            upper_bound_in_context(inf, cx, t1, t2, ctx)
         }
         ExprKind::Is { value, ty, negated } => {
             let (vf, ff) = type_test(inf, cx, *value, *ty, *negated, span);
@@ -2683,16 +2683,17 @@ fn await_context(inf: &mut BodyInferrer<'_>, k: TypeId) -> TypeId {
     }
 }
 
-/// UP of the branches with the `inference-update-3` rule: if UP does not fit
-/// the context but both branches do, the type is the context.
+/// UP of the branches with the `inference-update-3` rule (from 3.4): if UP
+/// does not fit the context but both branches do, the type is the context.
 pub(crate) fn upper_bound_in_context(
     inf: &mut BodyInferrer<'_>,
+    cx: &Body,
     t1: TypeId,
     t2: TypeId,
     ctx: TypeId,
 ) -> TypeId {
     let t = inf.up(t1, t2);
-    if inf.the_is_unknown(ctx) {
+    if inf.the_is_unknown(ctx) || !uses_context_upper_bound(inf, cx) {
         return t;
     }
     let s = inf.greatest_closure_of(ctx);
@@ -2703,6 +2704,16 @@ pub(crate) fn upper_bound_in_context(
     } else {
         t
     }
+}
+
+/// `inference-update-3` (3.4) applies in the body's library: the static type
+/// of `??`, `??=`, `?:` and a switch expression is the context when UP of the
+/// branches does not fit it but every branch does.
+pub(crate) fn uses_context_upper_bound(inf: &BodyInferrer<'_>, cx: &Body) -> bool {
+    inf.program
+        .library(cx.lib)
+        .features
+        .has(dartforge_frontend::Feature::InferenceUpdate3)
 }
 
 /// `checkForUseOfVoidResult`: an expression of type `void` used where a
@@ -5022,7 +5033,7 @@ fn binary(
             let after = cx.flow.clone();
             cx.flow = inf.join(&before, &after);
             let nn = inf.non_null(t1);
-            upper_bound_in_context(inf, nn, t2, ctx)
+            upper_bound_in_context(inf, cx, nn, t2, ctx)
         }
         _ => {
             let u = inf.core.unknown;
@@ -6235,7 +6246,16 @@ fn assignment(
                 if !without_read {
                     warn_dead_null(inf, cx, read, the_value);
                 }
-                let tv = infer(inf, cx, the_value, write);
+                // The context of `e` is the current (possibly promoted) type of a
+                // local, otherwise the write type (`inference-update-3`'s J). The
+                // implicit `call` tear-off still goes by the write type: `e` is
+                // not coerced to the promoted type.
+                let tv = if local.is_some() {
+                    let (t, _) = infer_keeping_context(inf, cx, the_value, read);
+                    record_implicit_call(inf, cx, the_value, t, write).unwrap_or(t)
+                } else {
+                    infer(inf, cx, the_value, write)
+                };
                 if !matches!(inf.table.get(write), Type::Void) {
                     void_use(inf, cx, the_value, tv);
                 }
@@ -6248,7 +6268,7 @@ fn assignment(
                 }
                 // `UP(NonNull(T1), T2)` against the context (inference-update-3).
                 let nn = inf.non_null(read);
-                let t = upper_bound_in_context(inf, nn, tv, ctx);
+                let t = upper_bound_in_context(inf, cx, nn, tv, ctx);
                 // The write only happens on the null branch (`ifNullExpression_
                 // rightBegin` … `write` … `ifNullExpression_end`): after the join the
                 // local is only potentially assigned if it was not before.

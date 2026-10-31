@@ -1061,7 +1061,7 @@ pub(crate) fn switch_expression(
     for &x in &types[1..] {
         acc = inf.up(acc, x);
     }
-    if !inf.the_is_unknown(ctx) {
+    if !inf.the_is_unknown(ctx) && super::expr::uses_context_upper_bound(inf, cx) {
         let s = inf.greatest_closure_of(ctx);
         if !inf.sub(acc, s) && types.iter().all(|&x| inf.sub(x, s)) {
             return s;

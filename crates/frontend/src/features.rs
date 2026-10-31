@@ -113,12 +113,20 @@ pub enum Feature {
     ClassModifiers,
     /// 3.0 — `sealed class`.
     SealedClass,
+    /// 2.18 — horizontal inference of generic calls (the arguments in stages,
+    /// function literals after the others) and deferred write captures.
+    InferenceUpdate1,
+    /// 3.2 — promotion of private final fields.
+    InferenceUpdate2,
+    /// 3.4 — `??`, `??=`, `?:` and switch expressions take the context type
+    /// when UP of the branches does not fit it.
+    InferenceUpdate3,
 }
 
 impl Feature {
     /// All of them, in declaration order (the index is the bit in
     /// [`LibraryFeatures`]).
-    pub const ALL: [Feature; 15] = [
+    pub const ALL: [Feature; 18] = [
         Feature::WildcardVariables,
         Feature::InferenceUsingBounds,
         Feature::NullAwareElements,
@@ -134,6 +142,9 @@ impl Feature {
         Feature::GenericMetadata,
         Feature::ClassModifiers,
         Feature::SealedClass,
+        Feature::InferenceUpdate1,
+        Feature::InferenceUpdate2,
+        Feature::InferenceUpdate3,
     ];
 
     /// Experiment name in `tools/experimental_features.yaml` (also the value of
@@ -155,6 +166,9 @@ impl Feature {
             Feature::GenericMetadata => "generic-metadata",
             Feature::ClassModifiers => "class-modifiers",
             Feature::SealedClass => "sealed-class",
+            Feature::InferenceUpdate1 => "inference-update-1",
+            Feature::InferenceUpdate2 => "inference-update-2",
+            Feature::InferenceUpdate3 => "inference-update-3",
         }
     }
 
@@ -176,6 +190,9 @@ impl Feature {
             Feature::NonfunctionTypeAliases => Some(LanguageVersion::new(2, 13)),
             Feature::GenericMetadata => Some(LanguageVersion::new(2, 14)),
             Feature::ClassModifiers | Feature::SealedClass => Some(LanguageVersion::new(3, 0)),
+            Feature::InferenceUpdate1 => Some(LanguageVersion::new(2, 18)),
+            Feature::InferenceUpdate2 => Some(LanguageVersion::new(3, 2)),
+            Feature::InferenceUpdate3 => Some(LanguageVersion::new(3, 4)),
         }
     }
 
@@ -478,12 +495,15 @@ mod tests {
     fn features_by_version() {
         let f36 = LibraryFeatures::new(v(3, 6), &[]);
         // Those after the floor are disabled in 3.6; the earlier ones (2.13, 2.14,
-        // 3.0) are enabled.
+        // 2.18, 3.0, 3.2, 3.4) are enabled.
         let old_ones = [
             Feature::NonfunctionTypeAliases,
             Feature::GenericMetadata,
             Feature::ClassModifiers,
             Feature::SealedClass,
+            Feature::InferenceUpdate1,
+            Feature::InferenceUpdate2,
+            Feature::InferenceUpdate3,
         ];
         assert!(
             Feature::ALL
@@ -499,6 +519,13 @@ mod tests {
             f214.has(Feature::GenericMetadata)
                 && f214.has(Feature::NonfunctionTypeAliases)
                 && !f214.has(Feature::ClassModifiers)
+                && !f214.has(Feature::InferenceUpdate1)
+        );
+        let f33 = LibraryFeatures::new(v(3, 3), &[]);
+        assert!(
+            f33.has(Feature::InferenceUpdate1)
+                && f33.has(Feature::InferenceUpdate2)
+                && !f33.has(Feature::InferenceUpdate3)
         );
         let f310 = LibraryFeatures::new(v(3, 10), &[]);
         assert!(

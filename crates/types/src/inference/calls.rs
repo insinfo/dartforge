@@ -290,21 +290,71 @@ fn verify_arity(
     }
 }
 
-/// The argument is a function literal with some untyped parameter (a
-/// candidate to be deferred in horizontal inference).
-fn deferrable_function_literal(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
-    let a = &inf.program.unit(cx.unit).ast;
-    match &a.expr(e).kind {
-        ExprKind::FunctionExpression(f) => {
-            let f = a.function(*f);
-            f.parameters.as_ref().is_some_and(|ps| {
-                ps.iter()
-                    .any(|p| p.ty.is_none() && p.function_parameters.is_none())
-            })
-        }
-        ExprKind::Parenthesized(i) => deferrable_function_literal(inf, cx, *i),
+/// The argument is a function literal (through parentheses): from 2.18
+/// (`inference-update-1`) it is inferred after the other arguments
+/// (`invocation_inferrer.dart`'s `_visitArguments`).
+fn function_literal(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
+    match &inf.program.unit(cx.unit).ast.expr(e).kind {
+        ExprKind::FunctionExpression(_) => true,
+        ExprKind::Parenthesized(i) => function_literal(inf, cx, *i),
         _ => false,
     }
+}
+
+/// The type parameters free in the parameter types of the formal function
+/// type `formal` that the function literal `e` does not type explicitly
+/// (`typeVarsFreeInParamParams`, 3.6.2 `invocation_inferrer.dart`): what the
+/// literal waits for. `list.fold(null, (int? x, y) => …)` waits for nothing:
+/// `x` is typed and `y`'s formal type is `int`.
+fn literal_dependencies(
+    inf: &BodyInferrer<'_>,
+    cx: &Body,
+    e: ExprId,
+    formal: TypeId,
+    type_params: &[TypeParamId],
+) -> Vec<TypeParamId> {
+    let a = &inf.program.unit(cx.unit).ast;
+    let f = match &a.expr(e).kind {
+        ExprKind::FunctionExpression(f) => a.function(*f),
+        ExprKind::Parenthesized(i) => {
+            return literal_dependencies(inf, cx, *i, formal, type_params);
+        }
+        _ => return Vec::new(),
+    };
+    let Type::Function {
+        positional,
+        optional,
+        named,
+        ..
+    } = inf.table.get(formal)
+    else {
+        return Vec::new();
+    };
+    let ps = f.parameters.as_deref().unwrap_or(&[]);
+    let typed = |p: &ast::Parameter| p.ty.is_some() || p.function_parameters.is_some();
+    let literal_positional: Vec<&ast::Parameter> = ps
+        .iter()
+        .filter(|p| p.kind != ast::ParameterKind::Named)
+        .collect();
+    let mut entries: Vec<TypeId> = Vec::new();
+    for (j, &t) in positional.iter().chain(optional.iter()).enumerate() {
+        if !literal_positional.get(j).is_some_and(|p| typed(p)) {
+            entries.push(t);
+        }
+    }
+    for &(n, t, _) in named.iter() {
+        let explicit = ps.iter().any(|p| {
+            p.kind == ast::ParameterKind::Named && p.name.map(|x| x.sym) == Some(n) && typed(p)
+        });
+        if !explicit {
+            entries.push(t);
+        }
+    }
+    type_params
+        .iter()
+        .copied()
+        .filter(|&v| entries.iter().any(|&t| mentions(inf, t, &[v])))
+        .collect()
 }
 
 fn mentions(inf: &BodyInferrer<'_>, t: TypeId, params: &[TypeParamId]) -> bool {
@@ -338,87 +388,129 @@ fn mentions(inf: &BodyInferrer<'_>, t: TypeId, params: &[TypeParamId]) -> bool {
     }
 }
 
-/// Order of horizontal inference (`inference-update-1`): the non-deferred
-/// arguments form stage 0; the deferred function literals follow the
-/// dependencies among themselves: a literal whose parameter types mention a
-/// variable that another deferred literal's return still provides waits for
-/// it. Those that only depend on already provided variables form the next
-/// stage (in text order); in a cycle, the remaining ones go together.
-/// Returns `(estágio, índice do argument)` in inference order.
+/// Order of horizontal inference (`inference-update-1`,
+/// `deferred_function_literal_heuristic.dart`): the arguments that are not
+/// deferred come first, in text order, tagged 0. A deferred literal waits for
+/// every argument whose formal type provides a variable it depends on (in its
+/// return, for a function type): its stage is one more than the latest of
+/// those, and the literals of a dependency cycle share one. Stage `s` is
+/// tagged `s + 1`; the first one (`1`) keeps the preliminary types chosen
+/// before the arguments, each later one chooses them again. Returns
+/// `(tag, argument index)` in inference order.
 fn horizontal_stages(
     inf: &BodyInferrer<'_>,
     type_params: &[TypeParamId],
     params: &[Option<TypeId>],
     deferred: &[bool],
+    dependencies: &[Vec<TypeParamId>],
 ) -> Vec<(usize, usize)> {
-    let mut order: Vec<(usize, usize)> = (0..deferred.len())
-        .filter(|&i| !deferred[i])
-        .map(|i| (0, i))
+    let n = deferred.len();
+    let provides: Vec<Vec<TypeParamId>> = (0..n)
+        .map(|i| {
+            let Some(p) = params[i] else {
+                return Vec::new();
+            };
+            let t = match inf.table.get(p) {
+                Type::Function { ret, .. } => *ret,
+                _ => p,
+            };
+            type_params
+                .iter()
+                .copied()
+                .filter(|&v| mentions(inf, t, &[v]))
+                .collect()
+        })
         .collect();
-    // For each deferred one: the variables it depends on (in the formal's
-    // parameter types) and those it provides (in the formal's return).
-    let mut remaining: Vec<(usize, Vec<TypeParamId>, Vec<TypeParamId>)> = Vec::new();
-    for i in (0..deferred.len()).filter(|&i| deferred[i]) {
-        let Some(p) = params[i] else { continue };
-        let (entries, output): (Vec<TypeId>, Option<TypeId>) = match inf.table.get(p) {
-            Type::Function {
-                ret,
-                positional,
-                optional,
-                named,
-                ..
-            } => (
-                positional
-                    .iter()
-                    .chain(optional.iter())
-                    .copied()
-                    .chain(named.iter().map(|(_, t, _)| *t))
-                    .collect(),
-                Some(*ret),
-            ),
-            _ => (vec![p], None),
-        };
-        let depends: Vec<TypeParamId> = type_params
+    // Edges from a deferred literal to the arguments it waits for.
+    let edges: Vec<Vec<usize>> = (0..n)
+        .map(|i| {
+            if !deferred[i] {
+                return Vec::new();
+            }
+            (0..n)
+                .filter(|&j| dependencies[i].iter().any(|v| provides[j].contains(v)))
+                .collect()
+        })
+        .collect();
+    let mut stage: Vec<Option<usize>> = vec![None; n];
+    for scc in strongly_connected(&edges) {
+        let s = scc
             .iter()
-            .copied()
-            .filter(|&v| entries.iter().any(|&t| mentions(inf, t, &[v])))
-            .collect();
-        let provides: Vec<TypeParamId> = type_params
-            .iter()
-            .copied()
-            .filter(|&v| output.is_some_and(|t| mentions(inf, t, &[v])))
-            .collect();
-        remaining.push((i, depends, provides));
-    }
-    let mut stage = 1;
-    while !remaining.is_empty() {
-        let ready: Vec<usize> = (0..remaining.len())
-            .filter(|&k| {
-                remaining[k].1.iter().all(|v| {
-                    !remaining
-                        .iter()
-                        .enumerate()
-                        .any(|(j, (_, _, provides))| j != k && provides.contains(v))
-                })
-            })
-            .collect();
-        let ready = if ready.is_empty() {
-            (0..remaining.len()).collect()
-        } else {
-            ready
-        };
-        for &k in &ready {
-            order.push((stage, remaining[k].0));
+            .flat_map(|&i| edges[i].iter())
+            .filter_map(|&j| stage[j].filter(|_| !scc.contains(&j)).map(|s| s + 1))
+            .max()
+            .unwrap_or(0);
+        for &i in &scc {
+            stage[i] = Some(s);
         }
-        let mut k = 0;
-        remaining.retain(|_| {
-            let stays = !ready.contains(&k);
-            k += 1;
-            stays
-        });
-        stage += 1;
     }
+    let mut order: Vec<(usize, usize)> = (0..n).filter(|&i| !deferred[i]).map(|i| (0, i)).collect();
+    let mut late: Vec<(usize, usize)> = (0..n)
+        .filter(|&i| deferred[i])
+        .map(|i| (stage[i].unwrap_or(0) + 1, i))
+        .collect();
+    late.sort();
+    order.extend(late);
     order
+}
+
+/// The strongly connected components of `edges`, each after the ones it
+/// reaches (Tarjan).
+fn strongly_connected(edges: &[Vec<usize>]) -> Vec<Vec<usize>> {
+    struct Walk<'a> {
+        edges: &'a [Vec<usize>],
+        index: Vec<Option<usize>>,
+        low: Vec<usize>,
+        on_stack: Vec<bool>,
+        stack: Vec<usize>,
+        next: usize,
+        out: Vec<Vec<usize>>,
+    }
+    fn visit(w: &mut Walk<'_>, v: usize) {
+        w.index[v] = Some(w.next);
+        w.low[v] = w.next;
+        w.next += 1;
+        w.stack.push(v);
+        w.on_stack[v] = true;
+        for k in 0..w.edges[v].len() {
+            let u = w.edges[v][k];
+            match w.index[u] {
+                None => {
+                    visit(w, u);
+                    w.low[v] = w.low[v].min(w.low[u]);
+                }
+                Some(iu) if w.on_stack[u] => w.low[v] = w.low[v].min(iu),
+                Some(_) => {}
+            }
+        }
+        if Some(w.low[v]) == w.index[v] {
+            let mut scc = Vec::new();
+            while let Some(u) = w.stack.pop() {
+                w.on_stack[u] = false;
+                scc.push(u);
+                if u == v {
+                    break;
+                }
+            }
+            w.out.push(scc);
+        }
+    }
+    let n = edges.len();
+    let mut w = Walk {
+        edges,
+        index: vec![None; n],
+        low: vec![0; n],
+        on_stack: vec![false; n],
+        stack: Vec::new(),
+        next: 0,
+        out: Vec::new(),
+    };
+    for v in 0..n {
+        if w.index[v].is_none() {
+            visit(&mut w, v);
+        }
+    }
+    w.out
 }
 
 /// `TYPE_ARGUMENT_NOT_MATCHING_BOUNDS` of explicit type arguments against
@@ -713,7 +805,20 @@ pub(crate) fn invoke(
     let params = argument_parameters(inf, &positional, &optional, &named, args);
     let numeric_context = inf.pending_numeric_context.take();
     if type_params.is_empty() {
-        for (a, p) in args.args.iter().zip(params.iter()) {
+        // From 2.18 the function literals go after the other arguments: their
+        // write captures do not take effect before those
+        // (`write_capture_deferral`).
+        let horizontal = inf
+            .program
+            .library(cx.lib)
+            .features
+            .has(dartforge_frontend::Feature::InferenceUpdate1);
+        let mut order: Vec<usize> = (0..args.args.len()).collect();
+        if horizontal {
+            order.sort_by_key(|&i| function_literal(inf, cx, args.args[i].value));
+        }
+        for i in order {
+            let (a, p) = (&args.args[i], &params[i]);
             // `x.clamp(a, b)` / `x.remainder(a)`: the analyzer's refined context.
             let c = match (numeric_context, a.name) {
                 (Some(c), None) => c,
@@ -750,20 +855,38 @@ pub(crate) fn invoke(
     let mut env = inf.env();
     let mut prelim = gi.choose_preliminary(&mut env);
     drop(env);
+    // Before 2.18 (`inference-update-1`) no argument waits: all of them are
+    // inferred in order, against the downwards context alone.
+    let horizontal = inf
+        .program
+        .library(cx.lib)
+        .features
+        .has(dartforge_frontend::Feature::InferenceUpdate1);
     let deferred: Vec<bool> = args
         .args
         .iter()
+        .map(|a| horizontal && function_literal(inf, cx, a.value))
+        .collect();
+    let dependencies: Vec<Vec<TypeParamId>> = args
+        .args
+        .iter()
         .zip(params.iter())
-        .map(|(a, p)| {
-            p.is_some_and(|p| mentions(inf, p, &type_params))
-                && deferrable_function_literal(inf, cx, a.value)
+        .zip(deferred.iter())
+        .map(|((a, p), &d)| match p {
+            Some(p) if d => literal_dependencies(inf, cx, a.value, *p, &type_params),
+            _ => Vec::new(),
         })
         .collect();
     let mut types: Vec<TypeId> = vec![inf.core.dynamic_; args.args.len()];
-    for (stage, i) in horizontal_stages(inf, &type_params, &params, &deferred) {
+    // The preliminary types are chosen again once per stage after the first
+    // deferred one: the arguments of one stage (a dependency cycle) do not
+    // see each other's constraints.
+    let mut chosen_for = 1;
+    for (stage, i) in horizontal_stages(inf, &type_params, &params, &deferred, &dependencies) {
         let a = &args.args[i];
         {
-            if stage > 0 {
+            if stage > chosen_for {
+                chosen_for = stage;
                 let mut env = inf.env();
                 prelim = gi.choose_preliminary(&mut env);
             }

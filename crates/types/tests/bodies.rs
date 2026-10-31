@@ -3290,3 +3290,107 @@ void main() => E(1).a();
     };
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+/// `Exactly<T>` of the SDK's `static_type_helper.dart`: a wrong static type is a
+/// `type_argument_not_matching_bounds` on `expectStaticType`.
+const STATIC_TYPE_HELPER: &str = r#"
+typedef Exactly<T> = T Function(T);
+extension StaticType<T> on T {
+  T expectStaticType<R extends Exactly<T>>() => this;
+}
+"#;
+
+/// The rule of `inference-update-3` follows the library's language version:
+/// at `// @dart=3.3` the type of `??` and `?:` is UP of the branches, not the
+/// context, while `inference-update-1` (2.18) still defers the function
+/// literal argument (its write capture does not demote the next argument).
+#[test]
+fn inference_updates_follow_the_language_version() {
+    let Some(diags) = constant_diagnostics_of(&format!(
+        r#"// @dart=3.3
+{STATIC_TYPE_HELPER}
+void f(Iterable<int>? a, List<num> b, bool c, int? i, void Function(void Function(), Object?) g) {{
+  Object? o = [0];
+  if (o is Iterable<num>) {{
+    o = (a ?? b)..expectStaticType<Exactly<Object>>();
+    o = (c ? a! : b)..expectStaticType<Exactly<Object>>();
+  }}
+  if (i != null) {{
+    g(() {{ i = null; }}, i..expectStaticType<Exactly<int>>());
+  }}
+}}
+
+void main() {{}}
+"#
+    )) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+/// Horizontal inference as the analyzer's `_FunctionLiteralDependencies`: a
+/// literal whose untyped parameters do not mention a type variable keeps the
+/// downwards preliminary types (`fold(null, (int? x, y) => …)` is `int?`), the
+/// literals of a dependency cycle share one stage, a literal waiting for
+/// another's return sees it, and every function literal goes after the other
+/// arguments, even in a non-generic call (`write_capture_deferral`).
+#[test]
+fn horizontal_inference_stages() {
+    let Some(diags) = constant_diagnostics_of(&format!(
+        r#"{STATIC_TYPE_HELPER}
+void stages(
+    List<int> list,
+    Map<T, U> Function<T, U>(T Function(U), U Function(T)) cycle,
+    V Function<T, U, V>(T Function(), U Function(T), V Function(U)) chain,
+    int? i,
+    void Function(void Function(), Object?) g) {{
+  list.fold(null, (int? x, y) => (x ?? 0) + y).expectStaticType<Exactly<int?>>();
+  list.fold(0, (a, b) => a + b).expectStaticType<Exactly<int>>();
+  cycle((x) => [x], (y) => {{y}})
+      .expectStaticType<Exactly<Map<List<Object?>, Set<Object?>>>>();
+  chain(() => [0], (x) => x.single, (y) => {{y}}).expectStaticType<Exactly<Set<int>>>();
+  if (i != null) {{
+    g(() {{ i = null; }}, i..expectStaticType<Exactly<int>>());
+    i.expectStaticType<Exactly<int?>>();
+  }}
+}}
+
+void main() {{}}
+"#
+    )) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+/// `x ??= e` with `x` a local: the context of `e` is the promoted type, but
+/// `e` is not coerced to it (no implicit `call` tear-off for a promoted
+/// `Function?`).
+#[test]
+fn if_null_assignment_context_of_a_promoted_local() {
+    let Some(diags) = constant_diagnostics_of(&format!(
+        r#"{STATIC_TYPE_HELPER}
+T contextType<T>(Object? o) => o as T;
+T context<T>(T x) => x;
+class CallableClass<T> {{
+  T call() => throw '';
+}}
+
+void f(CallableClass<int> callableClassInt) {{
+  var numQuestion = null as num?;
+  if (numQuestion is int?) {{
+    numQuestion ??= contextType(0)..expectStaticType<Exactly<int?>>();
+  }}
+  Object? local1 = null as Object?;
+  if (local1 is Function?) {{
+    context<Object>((local1 ??= callableClassInt)..expectStaticType<Exactly<Object>>());
+  }}
+}}
+
+void main() {{}}
+"#
+    )) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}
