@@ -22,7 +22,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 
 | Ferramenta | Resultado | Lacunas abertas |
 |---|---|---|
-| **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT: em medição**, primeira medição da história (modo `native` do script, `9c75b50a`). JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos) |
+| **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT** (primeira medição, 31/10, `dartforge aot --optimize`, 40 min): **2721 iguais à VM, 2775 (96,9%)** contando os 54 que os dois recusam. JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos). Nativo: 88 falhas, **87 iguais às do wasm** (mesmo backend): 63 exceções em tempo de execução (*tear-offs* e sua igualdade, RTI de tipos de função genéricos, checagens que não lançam), 9 programas que a VM recusa e nós aceitamos, 8 construções recusadas pelo backend, 6 saídas diferentes. A única exclusiva do nativo era o `dart.isVM` (corrigido em `cd23f5a5`) |
 | **`analyze`** | corpus do analisador **99,95%** (23.001/23.012: 11 ausências, 0 falsos positivos), 14/10. Erros a mais em `tests/language`: **231 → 107** (29 arquivos), 31/10 | análise de fluxo (`try/finally`, `== null`), UP com interseções, `noSuchMethod`, *wildcards* |
 | **`pub`** | só existe **`pub get`**: lockfile idêntico ao oficial em **16/18** projetos reais | `add`, `remove`, `upgrade`, `downgrade`, `outdated`, `deps` não existem; o solucionador não tem aprendizado de conflitos (`aggr` falha); pacote com *link* é recusado |
 | **`test`** | igual ao `dart test` em **22/22** execuções diferenciais; aceita `dart_test.yaml` e as anotações | só a plataforma `vm`; sem *coverage*, *watch* e `--fail-fast`; o relator `expanded` tem formato próprio |
@@ -37,7 +37,8 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | `analyze`: os 107 falsos positivos do verificador de tipos | agente verificador de tipos |
 | JS dev (subir sem `build_runner`, edição de template) e JS produção (`collatz`, `Set<int>`, `jsonEncode`, gzip dos programas pequenos, `async_await`) | agente JS |
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relatores, opções) | agente pub/test |
-| AOT nativo: falhas da suíte `tests/language`, tempo de compilação e tamanho de programa grande | sessão principal, depois do resultado da suíte |
+| Backend nativo (AOT e wasm): as 87 falhas da suíte `tests/language` | agente backend nativo |
+| AOT nativo: tempo de compilação (6× o `dart compile exe`) e tamanho de programa grande (1,4×); ARC real 3× os ciclos do tracing | a abrir |
 | LSP: medir o servidor oficial nos mesmos projetos e reduzir *hover*/*completion* | a abrir |
 
 ## 31/10/2026: verificador de tipos contra o `dart analyze`, `compareTo` do SDK e CI do macOS
