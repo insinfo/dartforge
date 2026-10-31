@@ -1,4 +1,68 @@
-# Estado do DartForge — 2026-10-30
+# Estado do DartForge — 2026-10-31
+
+## 31/10/2026: verificador de tipos contra o `dart analyze`, `compareTo` do SDK e CI do macOS
+
+**Falsos positivos do verificador.** Medida: `dartforge analyze --all` contra o
+`dart analyze` 3.6.2, nos 2.863 programas válidos da suíte `tests/language` (as chaves de
+`results/vm.json`), em lotes de 100 arquivos. Conta-se cada erro nosso que o oficial não
+relata na mesma linha. Ficam de fora os testes de `macros/`, que travam o `dart analyze`.
+- **Antes:** 231 erros a mais, em 70 arquivos. **Agora:** 152, em 39 arquivos.
+- **Versão de linguagem.** O verificador aplicava os `inference-update-1/2/3` (2.18, 3.2 e 3.4)
+  em qualquer biblioteca. Agora são `Feature`s com `enabledIn` (`crates/frontend/src/features.rs`)
+  e respeitam o `// @dart=x.y`: em 3.3, `??`, `??=`, `?:` e a expressão `switch` têm o tipo UP
+  dos ramos, não o do contexto. Era o maior grupo (`*_disabled_test`).
+- **Inferência horizontal como no analisador** (`_FunctionLiteralDependencies`):
+  - todo literal de função vai depois dos outros argumentos, mesmo em chamada não genérica.
+    A captura de escrita dele só vale depois da chamada;
+  - um literal só depende das variáveis que aparecem nos tipos formais dos seus parâmetros
+    **sem tipo**: `fold(null, (int? x, y) => …)` dá `int?`;
+  - o estágio de um literal é 1 + o maior estágio de quem fornece aquelas variáveis, e os
+    literais de um ciclo dividem um estágio;
+  - o primeiro estágio adiado usa os tipos preliminares de antes dos argumentos, e cada estágio
+    seguinte os escolhe de novo uma vez só.
+- **`x ??= e` com `x` local:** o contexto de `e` é o tipo promovido. A coerção de `call` segue o
+  tipo de escrita.
+- **Testes:** `inference_updates_follow_the_language_version`, `horizontal_inference_stages` e
+  `if_null_assignment_context_of_a_promoted_local` (`crates/types/tests/bodies.rs`). Os três
+  falham sem a correção.
+- **Antes, no mesmo dia:**
+  - a promoção do campo privado de representação de *extension type* (`7a9cafdb`);
+  - o portão de `use_of_void_result` nos quatro compiladores (`30a7e77d`,
+    `codes::REJECTING_CODES`).
+- **O que sobra (152):**
+  - análise de fluxo de `nnbd/flow_analysis` e `inference_update_2` (booleanos locais,
+    `try/finally`, promoção do escrutínio do `switch`);
+  - UP com interseções (`least_upper_bound_greatest_closure_*`, `S & int`);
+  - `noSuchMethod` em `invocation_mirror_test`;
+  - *wildcards* (`_` em `this._`, funções e *typedefs*);
+  - `variance`, `records/type_inference*` e o `throw` de `Object?`.
+
+**`compareTo` do SDK na produção JS.** `JSNumber.compareTo(num b)` e `JSString.compareTo`
+sobrescrevem `Comparable<T>.compareTo(T)`. A compilação própria do SDK só verificava parâmetros
+que mencionam os parâmetros de tipo da classe, então `[1, 'a'].sort()` ordenava em vez de lançar
+`TypeError`. A verificação passa a cobrir as sobrescritas, como já fazia nas classes do programa.
+`-O3` e `-O4` a tiram, como o `dart2js --omit-implicit-checks`. Programa novo:
+`corpus/js/277_covariancia_de_sobrescritas_do_sdk.dart` (excluído de `-O3` em
+`production_levels.tsv`). O corpus JS fica em 277/277 em dev, `-O1` e `-O2`; em `-O3`, 260/260; em
+`-O4`, 256/256.
+
+**CI do macOS com a `libLLVM-22.dylib` pré-ligada** (`deedea66`):
+- a pré-ligação leva 6 min e o *build* 10 min. O job chegou aos testes do JIT em 42 min; antes
+  passava de 3 h;
+- falhou com SIGBUS nos testes da biblioteca do `dartforge-jit`. Aqui reproduziu 1 vez em 29
+  (SIGSEGV), sempre com testes em paralelo;
+- o PC da falha é código do JIT já desmapeado, dentro do primeiro `run_reloadable_main` de
+  `callback_lifetime_tests`, enquanto outras sessões eram criadas e destruídas. É uma corrida de
+  tempo de vida entre sessões. Há um agente investigando.
+
+**Validação local** (`v8`, HEAD `17f8a7e6`):
+- nativo 163/163 em dev, `-O`, *gc-stress* e wasm;
+- JS dev e prod 276/276; suíte de linguagem 2756/2863;
+- `cargo test --release --workspace`, *doctests* do `types` e clippy limpos.
+
+Com as mudanças de tipos: suíte de linguagem 2756/2863 (só mudaram dois *hashes*), testes de
+`types`, `frontend` e `analysis` limpos. O *differential* falha em massa ("returned 0 but did not
+write") na primeira execução depois de recompilar, e passa na seguinte.
 
 ## 31/10/2026: JS de produção contra o `dart2js -O4` e o worker de desenvolvimento
 
