@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Runs the Dart SDK's tests/language suite on the VM, DDC, dart2wasm or DartForge
-(JS or WebAssembly).
+(JS, WebAssembly or native AOT).
 
 The suite is the one of a Dart SDK source checkout at a tag (3.6.2 by
 default), extracted into a work directory with `setup`; the programs are the
@@ -11,13 +11,17 @@ markers, `// [analyzer]`, `// [cfe]` or `// [web]` annotations), outside
 
 usage:
   run-language-suite.py setup --checkout DIR [--tag 3.6.2]
-  run-language-suite.py vm|ddc|dart2wasm|forge|wasm [--jobs N] [--out NAME] [filter...]
+  run-language-suite.py vm|ddc|dart2wasm|forge|wasm|native [--jobs N] [--out NAME] [filter...]
   run-language-suite.py compare [--wasm] OLD NEW   (regressions and fixes, by result name;
                                     --wasm also accepts dart2wasm's results)
 
 A tool's results go to <work>/results/<name>.json as {test: {code, out, err}};
 the other tools compare against vm.json and write <name>.fail.txt. With
 filters only the matching programs run and the results merge into the file.
+
+`native` compiles with `dartforge aot --optimize` (as `dart compile exe`: asserts
+off, like the VM run) and runs the executable; a program the VM refuses (254)
+that DartForge refuses too counts as rejected by both, as in `wasm`.
 
 `wasm` compiles with `dartforge compile-wasm` (production, as `dart compile
 wasm`) and runs the module in `dartforge-wasm-run` (Node through
@@ -126,6 +130,17 @@ def wasm(test):
     return {"code": c, "out": o, "err": e[-2000:]}
 
 
+def native(test):
+    # As `dart compile exe`: asserts off, like the VM run of vm.json.
+    d = work_dir("native", test)
+    exe = os.path.join(d, "main")
+    c, o, e = run([FORGE, "aot", test, exe, "--optimize", "--packages", os.path.join(SDK, ".dart_tool/package_config.json")], SDK, 300)
+    if c != 0 or not os.path.exists(exe):
+        return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
+    c, o, e = run([exe], d)
+    return {"code": c, "out": o, "err": e[-2000:]}
+
+
 def dart2wasm(test):
     d = work_dir("dart2wasm", test)
     module = os.path.join(d, "main.wasm")
@@ -160,7 +175,7 @@ def matches(tool, test, r, ref, alt):
     None."""
     if test in ref and same(r, ref[test]):
         return "vm"
-    if tool == "wasm" and test in ref and ref[test]["code"] == 254 and r["code"] == -1000:
+    if tool in ("wasm", "native") and test in ref and ref[test]["code"] == 254 and r["code"] == -1000:
         return "rejected"
     if tool == "wasm" and test in alt and test in ref:
         a = alt[test]
@@ -263,7 +278,7 @@ def main():
     tests = [l.strip() for l in open(lst) if l.strip()]
     if filters:
         tests = [t for t in tests if any(f in t for f in filters)]
-    fn = {"vm": vm, "ddc": ddc, "forge": forge, "wasm": wasm, "dart2wasm": dart2wasm}[tool]
+    fn = {"vm": vm, "ddc": ddc, "forge": forge, "wasm": wasm, "native": native, "dart2wasm": dart2wasm}[tool]
     os.makedirs(RES, exist_ok=True)
     path = os.path.join(RES, out + ".json")
     results = json.load(open(path)) if os.path.exists(path) and filters else {}
@@ -281,6 +296,9 @@ def main():
         ok = [t for t in tests if kinds[t]]
         bad = [t for t in tests if t not in ok]
         print("%s: %d/%d equal to the VM" % (tool, len([t for t in ok if kinds[t] == "vm"]), len(tests)))
+        if tool == "native":
+            print("%s: %d/%d equal to the VM or rejected by both (%d rejected)" % (
+                tool, len(ok), len(tests), len([t for t in ok if kinds[t] == "rejected"])))
         if tool == "wasm":
             print("%s: %d/%d equal to the VM or to dart2wasm (%d only to dart2wasm, %d rejected by both)" % (
                 tool, len(ok), len(tests), len([t for t in ok if kinds[t] == "dart2wasm"]),
