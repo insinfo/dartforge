@@ -35,11 +35,12 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 |---|---|
 | Wasm: tamanho do módulo e velocidade em alocação, JSON e strings | agente wasm |
 | `analyze`: os 107 falsos positivos do verificador de tipos | agente verificador de tipos |
-| JS dev (subir sem `build_runner`, edição de template) e JS produção (`collatz`, `Set<int>`, `jsonEncode`, gzip dos programas pequenos, `async_await`) | agente JS |
+| JS dev: subir de um checkout limpo sem `build_runner` e ganhar do webdev; edição de template abaixo de 2,2 s | agente JS dev |
+| JS produção: `collatz`, `Set<int>`, `jsonEncode`, `list_methods`, `map_str_int` no máximo iguais ao `dart2js -O4`; gzip dos programas pequenos abaixo dele; `async_await` comparado | agente JS produção (desde 31/10, 16h) |
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
 | Backend nativo (AOT e wasm): as 87 falhas da suíte `tests/language` | agente backend nativo |
 | AOT nativo: tempo de compilação (6× o `dart compile exe`) e tamanho de programa grande (1,4×); ARC real 3× os ciclos do tracing | a abrir |
-| LSP: medir o servidor oficial nos mesmos projetos e reduzir *hover*/*completion* | a abrir |
+| LSP: medir o servidor oficial nos mesmos projetos e reduzir *hover*/*completion* | agente LSP |
 
 ## 31/10/2026: `dartforge pub` com o solucionador PubGrub do Pub e os subcomandos do dia a dia; relator `expanded` do `dart test`
 
