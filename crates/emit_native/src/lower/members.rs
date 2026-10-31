@@ -1978,6 +1978,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .find(|a| a.name.is_none())
                 .and_then(|a| self.environment_value(self.unit_id, a.value, kind, has));
             let evaluated = self.evaluate_args(ast, args);
+            // dart2wasm has the environment only for constants: a `new
+            // bool.hasEnvironment(…)` (or any non-constant environment
+            // factory) has no implementation there and throws
+            // `NoSuchMethodError`; the VM answers it. The SDK's own sources
+            // keep the VM's (`_BigIntImpl._isIntrinsified`).
+            let library = self.ctx.program.unit(self.unit_id).library;
+            let sdk = self.ctx.program.libraries[library.0 as usize]
+                .uri
+                .starts_with("dart:");
+            if crate::target::is_wasm() && !self.in_const_context && !sdk {
+                return self.throw_nsm(if has {
+                    "hasEnvironment"
+                } else {
+                    "fromEnvironment"
+                });
+            }
             if let Some(value) = value {
                 let ty = match value {
                     Constant::Bool(_) => Type::I1,
