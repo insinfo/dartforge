@@ -1387,7 +1387,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.ctx.arc_memory {
             self.arc_shared_functions.insert(symbol_ent.clone());
         }
-        if !self.done_entries.contains(&symbol_ent) {
+        if !self.done_entries.contains(&symbol_ent)
+            && !self.entries_in_progress.contains(&symbol_ent)
+        {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
             let unit = self.unit_id;
@@ -1401,6 +1403,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // ABI skips the uniform entry, as with a closure.
             let typed = self.typed_tearoff_body(fid, &target, &name);
             let mut e = FnBuilder::new(self.ctx, unit, symbol_ent.clone(), name, Type::Ref);
+            e.entries_in_progress = self.entries_in_progress.clone();
+            e.entries_in_progress.push(symbol_ent.clone());
             let closure = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
             let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
@@ -1664,6 +1668,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(error) = self.interop_tearoff(fid, span) {
             return error;
         }
+        // A member nothing overrides tears off the same entry with and without
+        // `super.`: `super.m == m` holds, as in the VM (the same function and
+        // receiver).
+        let exact = exact && self.tearoff_by_selector(fid);
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = if exact {
             format!("{target}$tears")
