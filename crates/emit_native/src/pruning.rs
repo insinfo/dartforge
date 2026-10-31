@@ -439,6 +439,12 @@ pub struct Summary {
     /// Runtime subtype edges, including interfaces and mixins.
     pub parent_edges: Vec<(i64, i64)>,
     pub(crate) arc_ports: Vec<arc_ports::Inventory>,
+    /// Citations that only count once one of their producers is live
+    /// (`; df.ref-when <pattern>…` on the line before, in the program's
+    /// `df.prepare_isolate`): (citing definition, cited node, the patterns —
+    /// a symbol, or `*` for any text at either end). Not serialized: only the
+    /// program IR, summarized at its own link, carries the mark.
+    pub guarded_refs: Vec<(u32, u32, Vec<String>)>,
     index: HashMap<String, u32>,
 }
 
@@ -1031,8 +1037,23 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
     let mut current: Option<Definition> = None;
     let mut receiver_cone: Option<i64> = None;
     let mut receiver_exact: Option<Vec<i64>> = None;
+    let mut guard: Option<Vec<String>> = None;
     for l in ir.lines() {
         if let Some(d) = current.as_mut() {
+            if let Some(patterns) = l.trim().strip_prefix("; df.ref-when ") {
+                guard = Some(patterns.split_whitespace().map(str::to_string).collect());
+                continue;
+            }
+            if let Some(patterns) = guard.take()
+                && l.contains('@')
+            {
+                let refs: Vec<String> = cited(l).map(key).collect();
+                for x in refs {
+                    let i = r.id(&x);
+                    r.guarded_refs.push((d.name, i, patterns.clone()));
+                }
+                continue;
+            }
             if let Some(cone) = l.trim().strip_prefix("; df.selector-cone ") {
                 receiver_cone = cone.parse::<u32>().ok().map(i64::from);
                 receiver_exact = None;
@@ -1403,6 +1424,9 @@ struct Graph {
     strings: HashMap<i64, String>,
     /// The nodes some module defines (the others belong to the runtime or are external).
     defined: HashSet<u32>,
+    /// Guarded citations ([`Summary::guarded_refs`]) by citing node: the cited
+    /// node and the nodes whose liveness lets it in.
+    guarded: HashMap<u32, Vec<(u32, Vec<u32>)>>,
 }
 
 impl Graph {
@@ -1434,7 +1458,9 @@ impl Graph {
             tables: HashMap::new(),
             strings: HashMap::new(),
             defined: HashSet::new(),
+            guarded: HashMap::new(),
         };
+        let mut guarded_names: Vec<(u32, u32, &[String])> = Vec::new();
         for r in summaries {
             let map: Vec<u32> = r.names.iter().map(|n| g.id(n)).collect();
             for d in &r.definitions {
@@ -1463,6 +1489,28 @@ impl Graph {
             for (h, s) in &r.selectors {
                 g.strings.entry(*h).or_insert_with(|| s.clone());
             }
+            for (source, target, patterns) in &r.guarded_refs {
+                guarded_names.push((
+                    map[*source as usize],
+                    map[*target as usize],
+                    patterns.as_slice(),
+                ));
+            }
+        }
+        // The patterns resolve against every name of every summary: a producer
+        // no module cites never becomes live.
+        for (source, target, patterns) in guarded_names {
+            let producers: Vec<u32> = g
+                .names
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| patterns.iter().any(|p| name_matches(p, n)))
+                .map(|(i, _)| i as u32)
+                .collect();
+            g.guarded
+                .entry(source)
+                .or_default()
+                .push((target, producers));
         }
         g
     }
@@ -1534,11 +1582,26 @@ impl Graph {
             .iter()
             .filter_map(|n| self.index.get(*n).copied())
             .collect();
+        // Guarded citations waiting for a producer: producer → (cited, citer).
+        let mut waiting: HashMap<u32, Vec<(u32, u32)>> = HashMap::new();
         while let Some((node, cause)) = queue.pop() {
             if causes.contains_key(&node) {
                 continue;
             }
             causes.insert(node, cause);
+            if let Some(v) = waiting.remove(&node) {
+                queue.extend(v.into_iter().map(|(t, s)| (t, Cause::Ref(s))));
+            }
+            for (target, producers) in self.guarded.get(&node).into_iter().flatten() {
+                // Without pruning, a guarded citation is an ordinary one.
+                if !prune || producers.iter().any(|p| causes.contains_key(p)) {
+                    queue.push((*target, Cause::Ref(node)));
+                } else {
+                    for p in producers {
+                        waiting.entry(*p).or_default().push((*target, node));
+                    }
+                }
+            }
             if by_name.contains(&node) && !all {
                 all = true;
                 all_caller = Some(node);
@@ -1638,6 +1701,17 @@ impl Graph {
             all_pairs: all,
             strings: self.strings,
         }
+    }
+}
+
+/// `pattern` (a [`Summary::guarded_refs`] pattern: `*` for any text at either
+/// end) matches the node name `name`.
+fn name_matches(pattern: &str, name: &str) -> bool {
+    match (pattern.strip_prefix('*'), pattern.strip_suffix('*')) {
+        (Some(rest), _) if rest.ends_with('*') => name.contains(&rest[..rest.len() - 1]),
+        (Some(suffix), _) => name.ends_with(suffix),
+        (None, Some(prefix)) => name.starts_with(prefix),
+        (None, None) => name == pattern,
     }
 }
 
@@ -2546,6 +2620,34 @@ define i32 @main() {
         assert_eq!(again.externals, r.externals);
         assert_eq!(again.selectors, r.selectors);
         assert!(Summary::from_string("outra coisa\n").is_err());
+    }
+
+    /// A `df.ref-when` citation only keeps its node when a producer is live,
+    /// whichever comes first in the fixpoint; without pruning it always does.
+    #[test]
+    fn guarded_citation_waits_for_a_producer() {
+        let ir = |producer: &str| {
+            format!(
+                "define void @df.prepare_isolate() {{\n  ; df.ref-when dartforge_native_Simd* *df.box\n  call void @dartforge_register_table(i64 7, ptr @kept)\n  ret void\n}}\n\
+                 define void @kept() {{\n  ret void\n}}\n\
+                 define internal void @df.box() {{\n  ret void\n}}\n\
+                 define i32 @dartforge_run() {{\n  call void @df.prepare_isolate()\n  {producer}\n  ret i32 0\n}}\n"
+            )
+        };
+        let live = |text: &str, prune: bool| {
+            let s = summarize(text, "p", &[]);
+            let r = reach(&[&s], prune);
+            r.names
+                .iter()
+                .position(|n| n == "kept")
+                .is_some_and(|i| r.live(i as u32))
+        };
+        assert!(!live(&ir(""), true));
+        assert!(live(&ir(""), false));
+        assert!(live(&ir("call void @dartforge_native_Simd_add()"), true));
+        assert!(live(&ir("call void @df.box()"), true));
+        assert!(name_matches("*mid*", "a.mid.b"));
+        assert!(!name_matches("pre*", "a.pre"));
     }
 
     #[test]

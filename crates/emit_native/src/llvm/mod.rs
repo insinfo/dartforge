@@ -815,7 +815,7 @@ impl<'a> LlvmEmitter<'a> {
     /// The `@df.get_area` of the module: the fixed table in production.
     fn get_area_text(&self) -> &'static str {
         static FIXED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-        if self.lean_area && !crate::target::is_wasm() {
+        if self.lean_area {
             FIXED.get_or_init(|| {
                 GET_AREA_FIXED.replace("@@CAPACITY@@", &layout::context::AREA_CAPACITY.to_string())
             })
@@ -856,6 +856,7 @@ impl<'a> LlvmEmitter<'a> {
         );
         assert!(
             crate::target::is_unix()
+                || crate::target::is_wasm()
                 || !self
                     .module
                     .tables
@@ -1313,7 +1314,9 @@ impl<'a> LlvmEmitter<'a> {
             }
         }
         if self.module.table_exceptions {
-            self.out.push_str(if !crate::target::is_unix() {
+            self.out.push_str(if crate::target::is_wasm() {
+                EXCEPTIONS_BY_TABLES_WASM
+            } else if !crate::target::is_unix() {
                 EXCEPTIONS_BY_TABLES
             } else {
                 EXCEPTIONS_BY_TABLES_ITANIUM
@@ -1498,7 +1501,12 @@ impl<'a> LlvmEmitter<'a> {
         if has_resume {
             crate::optimize::arc::check_resumes(func, tab.unwrap()).expect("invalid Resume");
         }
-        let personality = if has_cleanup {
+        let wasm = crate::target::is_wasm();
+        let personality = if has_landing_pad && wasm {
+            // Native Wasm exceptions: LLVM's funclet model names the C++
+            // personality; catch-all pads never call it (`WasmEHPrepare`).
+            " personality ptr @__gxx_wasm_personality_v0"
+        } else if has_cleanup {
             " personality ptr @dartforge_personality_cleanup_itanium"
         } else if has_landing_pad {
             " personality ptr @dartforge_personality"
@@ -1681,7 +1689,14 @@ impl<'a> LlvmEmitter<'a> {
             .collect();
         // The landing pad with the Dart/foreign branch ends in `lpad{b}.dart`
         // (below): a `phi` emitted before it already needs the label.
-        if has_cleanup && let Some(t) = tab {
+        if wasm && let Some(t) = tab {
+            // The Wasm pad goes on after its `catchret` ([`wasm_catch_all`]).
+            for p in &t.landing_pads {
+                self.exit_labels
+                    .entry(p.0)
+                    .or_insert_with(|| format!("b{}.h", p.0));
+            }
+        } else if has_cleanup && let Some(t) = tab {
             for p in &t.landing_pads {
                 if t.exits.get(p) != Some(&ExceptionExit::Resume) {
                     self.exit_labels
@@ -1716,7 +1731,15 @@ impl<'a> LlvmEmitter<'a> {
             // frames) still chained — the top of the shadow stack goes back
             // to that of this function, before any other instruction.
             if tab.is_some_and(|t| t.landing_pads.contains(&block.id)) {
-                if tab.is_some_and(|t| t.exits.get(&block.id) == Some(&ExceptionExit::Resume)) {
+                if wasm {
+                    // Every Wasm pad catches all (a cleanup rethrows at its
+                    // `Resume`), and the handler runs after the `catchret`.
+                    let label = format!("b{}", block.id.0);
+                    self.out.push_str(&wasm_catch_all(&label));
+                    self.current_label = format!("{label}.h");
+                } else if tab
+                    .is_some_and(|t| t.exits.get(&block.id) == Some(&ExceptionExit::Resume))
+                {
                     writeln!(
                         self.out,
                         "  %lpad{} = landingpad {{ ptr, i32 }} cleanup",
@@ -1748,7 +1771,17 @@ impl<'a> LlvmEmitter<'a> {
                     )
                     .unwrap();
                 }
+                // The frames the exception crossed never gave their engine stack
+                // back: the budget is again that of this function's body.
+                if wasm && self.engine_budget {
+                    writeln!(
+                        self.out,
+                        "  store i32 %pilhae1, ptr @dartforge_engine_budget, align 4"
+                    )
+                    .unwrap();
+                }
                 if has_cleanup
+                    && !wasm
                     && tab.is_some_and(|t| t.exits.get(&block.id) != Some(&ExceptionExit::Resume))
                 {
                     // The inliner may combine catch and cleanup. A zero selector
@@ -1859,7 +1892,9 @@ impl<'a> LlvmEmitter<'a> {
                 if has_landing_pad && !self.has_frame {
                     writeln!(self.out, "  %topo0 = load ptr, ptr %ctxtopo, align 8").unwrap();
                 }
-                if self.tab.is_some() || crate::target::is_wasm() || Self::deepens_stack(func) {
+                // WebAssembly checks only the functions that can call Dart code,
+                // in both exception models (`wasm_frames.rs`).
+                if (self.tab.is_some() && !wasm) || Self::deepens_stack(func) {
                     self.emit_stack_check(func);
                 }
             }
@@ -3602,7 +3637,14 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  store ptr %gcant, ptr %ctxtopo, align 8")
                                 .unwrap();
                         }
-                        writeln!(self.out, "  resume {{ ptr, i32 }} %lpad{}", block.id.0).unwrap();
+                        if crate::target::is_wasm() {
+                            // The Wasm pad caught the exception: throwing again
+                            // goes on with the pending one.
+                            writeln!(self.out, "  call void @df.throw()\n  unreachable").unwrap();
+                        } else {
+                            writeln!(self.out, "  resume {{ ptr, i32 }} %lpad{}", block.id.0)
+                                .unwrap();
+                        }
                         continue;
                     }
                     Some(ExceptionExit::Guard) => {
@@ -3630,8 +3672,9 @@ impl<'a> LlvmEmitter<'a> {
             if self.stack_trace.is_some() && matches!(block.terminator, Terminator::Return(_)) {
                 writeln!(self.out, "  call void @dartforge_call_trace_exit()").unwrap();
             }
-            // WebAssembly: the frame goes back to the engine stack budget (every
-            // exit is a `ret`: exceptions return pending).
+            // WebAssembly: the frame goes back to the engine stack budget at
+            // every `ret`; an unwinding skips it, and the landing pad that
+            // catches sets the budget of its own function again.
             if self.engine_budget && matches!(block.terminator, Terminator::Return(_)) {
                 writeln!(
                     self.out,
@@ -5232,9 +5275,14 @@ impl<'a> LlvmEmitter<'a> {
             }
             // The tables of the classes of the runtime values (which do not go
             // through `dartforge_object_new_t`).
-            for c in self.module.runtime_cids.clone() {
+            for (position, c) in self.module.runtime_cids.clone().into_iter().enumerate() {
                 if let Some(f) = self.module.table_functions.get(&(c as u32)).cloned() {
                     self.annotate_external(&f, Type::Ptr, &[]);
+                    if let Some(producers) = runtime_table_producers(position) {
+                        // The link-time pruning keeps this table only when a
+                        // producer of the class is live (`pruning.rs`, `df.ref-when`).
+                        writeln!(self.out, "  ; df.ref-when {}", producers.join(" ")).unwrap();
+                    }
                     writeln!(
                         self.out,
                         "  call void @dartforge_register_table(i64 {c}, ptr @{f})"
@@ -5341,7 +5389,8 @@ impl<'a> LlvmEmitter<'a> {
             if self.module.table_exceptions {
                 writeln!(
                     self.out,
-                    "  call void @dartforge_register_ports(ptr @df.ports, i64 {N_PORTS})"
+                    "  call void @dartforge_register_ports(ptr @df.ports, i64 {})",
+                    ports_registered()
                 )
                 .unwrap();
             }
@@ -5400,7 +5449,8 @@ impl<'a> LlvmEmitter<'a> {
         if self.module.table_exceptions {
             writeln!(
                 self.out,
-                "  call void @dartforge_register_ports(ptr @df.ports, i64 {N_PORTS})"
+                "  call void @dartforge_register_ports(ptr @df.ports, i64 {})",
+                ports_registered()
             )
             .unwrap();
         }
@@ -5869,7 +5919,9 @@ impl<'a> LlvmEmitter<'a> {
             // `callback_without_pad` sabotage (D9 of §7.3) removes the landing pad.
             let by_tables =
                 self.module.table_exceptions && !crate::target::sabotage("callback_without_pad");
-            let personality = if by_tables {
+            let personality = if by_tables && crate::target::is_wasm() {
+                " personality ptr @__gxx_wasm_personality_v0"
+            } else if by_tables {
                 " personality ptr @dartforge_personality"
             } else {
                 ""
@@ -6060,7 +6112,24 @@ impl<'a> LlvmEmitter<'a> {
                 self.out.push_str(
                     "  %tctx = call ptr @dartforge_context()\n  %ttp = getelementptr inbounds i8, ptr %tctx, i64 8\n  %ttopo = load ptr, ptr %ttp, align 8\n",
                 );
-                let landing_pad = "tlp:\n  %tx = landingpad { ptr, i32 } catch ptr null\n  store ptr %ttopo, ptr %ttp, align 8\n  br label %tcont\n";
+                let wasm_pad;
+                let landing_pad = if crate::target::is_wasm() {
+                    // The engine stack budget the crossed frames did not give back.
+                    self.out
+                        .push_str("  %tbudget = load i32, ptr @dartforge_engine_budget, align 4\n");
+                    wasm_pad = format!(
+                        "tlp:\n{}  store ptr %ttopo, ptr %ttp, align 8\n  store i32 %tbudget, ptr @dartforge_engine_budget, align 4\n  br label %tcont\n",
+                        wasm_catch_all("tlp")
+                    );
+                    wasm_pad.as_str()
+                } else {
+                    "tlp:\n  %tx = landingpad { ptr, i32 } catch ptr null\n  store ptr %ttopo, ptr %ttp, align 8\n  br label %tcont\n"
+                };
+                let pad_end = if crate::target::is_wasm() {
+                    "tlp.h"
+                } else {
+                    "tlp"
+                };
                 if empty {
                     writeln!(
                         self.out,
@@ -6090,7 +6159,7 @@ impl<'a> LlvmEmitter<'a> {
                     self.out.push_str("tok:\n  br label %tcont\ntcont:\n");
                     writeln!(
                         self.out,
-                        "  %r = phi {hr} [ %r.ok, %tok ], [ {zero}, %tlp ]"
+                        "  %r = phi {hr} [ %r.ok, %tok ], [ {zero}, %{pad_end} ]"
                     )
                     .unwrap();
                 }
@@ -6241,11 +6310,22 @@ impl<'a> LlvmEmitter<'a> {
                 } else {
                     ("void", "", "ret void", "ret void")
                 };
-                writeln!(self.out, "define internal {typ} @{name_str}(ptr %f{params}) personality ptr @dartforge_personality {{")
+                let wasm = crate::target::is_wasm();
+                let personality = if wasm {
+                    "__gxx_wasm_personality_v0"
+                } else {
+                    "dartforge_personality"
+                };
+                writeln!(self.out, "define internal {typ} @{name_str}(ptr %f{params}) personality ptr @{personality} {{")
                     .unwrap();
                 self.out.push_str(
                     "entrada:\n  %ctx = call ptr @dartforge_context()\n  %tp = getelementptr inbounds i8, ptr %ctx, i64 8\n  %topo = load ptr, ptr %tp, align 8\n",
                 );
+                if wasm {
+                    // The engine stack budget the crossed frames did not give back.
+                    self.out
+                        .push_str("  %budget = load i32, ptr @dartforge_engine_budget, align 4\n");
+                }
                 writeln!(
                     self.out,
                     "  {result}invoke {typ} %f({}){} to label %volta unwind label %pouso",
@@ -6253,17 +6333,45 @@ impl<'a> LlvmEmitter<'a> {
                     self.gc_body_kept_out()
                 )
                 .unwrap();
-                writeln!(
-                    self.out,
-                    "volta:\n  {back}\npouso:\n  %lp = landingpad {{ ptr, i32 }} catch ptr null\n  store ptr %topo, ptr %tp, align 8\n  {pattern}\n}}"
-                )
-                .unwrap();
+                if wasm {
+                    writeln!(
+                        self.out,
+                        "volta:\n  {back}\npouso:\n{}  store ptr %topo, ptr %tp, align 8\n  store i32 %budget, ptr @dartforge_engine_budget, align 4\n  {pattern}\n}}",
+                        wasm_catch_all("pouso")
+                    )
+                    .unwrap();
+                } else {
+                    writeln!(
+                        self.out,
+                        "volta:\n  {back}\npouso:\n  %lp = landingpad {{ ptr, i32 }} catch ptr null\n  store ptr %topo, ptr %tp, align 8\n  {pattern}\n}}"
+                    )
+                    .unwrap();
+                }
                 table.push(format!("ptr @{name_str}"));
             }
         }
+        if crate::target::is_wasm() {
+            // WebAssembly checks the exact type of an indirect call: the uniform
+            // closure entry `(closure, arguments, descriptor)` that
+            // `Function.apply` calls (`runtime/src/closures.rs`) gets its own
+            // port, after the others (`WASM_APPLY_PORT`).
+            self.out.push_str(
+                "define internal i64 @df.port.apply(ptr %f, i64 %c, ptr %a, ptr %d) personality ptr @__gxx_wasm_personality_v0 {\n\
+                 entrada:\n  %ctx = call ptr @dartforge_context()\n  %tp = getelementptr inbounds i8, ptr %ctx, i64 8\n  %topo = load ptr, ptr %tp, align 8\n\
+                 \x20 %budget = load i32, ptr @dartforge_engine_budget, align 4\n\
+                 \x20 %r = invoke i64 %f(i64 %c, ptr %a, ptr %d) to label %volta unwind label %pouso\n\
+                 volta:\n  ret i64 %r\npouso:\n",
+            );
+            self.out.push_str(&wasm_catch_all("pouso"));
+            self.out.push_str(
+                "  store ptr %topo, ptr %tp, align 8\n  store i32 %budget, ptr @dartforge_engine_budget, align 4\n  ret i64 0\n}\n",
+            );
+            table.push("ptr @df.port.apply".to_string());
+        }
         writeln!(
             self.out,
-            "@df.ports = private unnamed_addr constant [{N_PORTS} x ptr] [{}]\n",
+            "@df.ports = private unnamed_addr constant [{} x ptr] [{}]\n",
+            table.len(),
             table.join(", ")
         )
         .unwrap();
@@ -6424,6 +6532,14 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(o, "  call void @df.throw()").unwrap();
             writeln!(o, "  unreachable").unwrap();
             writeln!(o, "pilha.ok:").unwrap();
+            if crate::target::is_wasm() {
+                writeln!(
+                    o,
+                    "  store i32 %pilhae1, ptr @dartforge_engine_budget, align 4"
+                )
+                .unwrap();
+                self.engine_budget = true;
+            }
             self.current_label = "pilha.ok".to_string();
             self.exit_labels
                 .entry(0)
@@ -8339,6 +8455,45 @@ fn leaf_helpers(text: &str) -> String {
 /// runtime has the same number (`DART_PORTS`, `exceptions_tables.rs`).
 const N_PORTS: usize = 16;
 
+/// The port of the uniform closure entry that WebAssembly adds after the
+/// [`N_PORTS`] by arity (`@df.port.apply`, `DART_PORTS` index 16).
+fn ports_registered() -> usize {
+    if crate::target::is_wasm() {
+        N_PORTS + 1
+    } else {
+        N_PORTS
+    }
+}
+
+/// [`EXCEPTIONS_BY_TABLES`] on WebAssembly, with native Wasm exceptions
+/// (`exnref`): `@df.throw` throws the C++ tag (`linker_wasm::EXCEPTION_TAG_OBJECT`) with no payload —
+/// the exception is the runtime's pending one — and every landing pad is a
+/// catch-all funclet ([`wasm_catch_all`]), which never calls the personality.
+const EXCEPTIONS_BY_TABLES_WASM: &str = "; Table exceptions (native Wasm exceptions)
+declare i32 @__gxx_wasm_personality_v0(...)
+declare void @llvm.wasm.throw(i32, ptr)
+declare void @dartforge_register_ports(ptr, i64)
+define internal void @df.throw() noreturn noinline cold {
+  call void @llvm.wasm.throw(i32 0, ptr null)
+  unreachable
+}
+";
+
+/// The head of a WebAssembly landing pad `label` (the label line itself
+/// already written): a `catchswitch` with one catch-all `catchpad` that returns
+/// at once to `<label>.h`, where the handler's code goes, outside any funclet
+/// (calls there need no `funclet` bundle). The exception value is not read:
+/// the runtime keeps it pending.
+fn wasm_catch_all(label: &str) -> String {
+    format!(
+        "  %{label}.cs = catchswitch within none [label %{label}.c] unwind to caller\n\
+         {label}.c:\n\
+         \x20 %{label}.cp = catchpad within %{label}.cs [ptr null]\n\
+         \x20 catchret from %{label}.cp to label %{label}.h\n\
+         {label}.h:\n"
+    )
+}
+
 /// What every module declares with exceptions by tables
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13):
 ///
@@ -8382,6 +8537,41 @@ define internal void @df.throw() noreturn noinline cold \"gc-leaf-function\" {
   unreachable
 }
 ";
+
+/// The runtime value classes (`sdk_module::runtime_cids`, by position) whose
+/// method table `df.prepare_isolate` registers only when something that can
+/// produce one is live, on WebAssembly: the patterns (an exact symbol, or
+/// `*` for any text at either end) of `df.ref-when`. `None`: always registered.
+///
+/// Every Dart-side allocation of a typed list or view cites its table itself
+/// (`dartforge_typed_new_t` and the inline registration test); the WebAssembly
+/// runtime, without `dart:io`, builds by itself only `Uint8List`s and
+/// `Uint8List` views (strings, the collector, the FFI's structs), copies of
+/// lists that already exist (port messages) and the SIMD values: those of its
+/// natives, of reading a SIMD list and of the inline boxing (`@df.simd_box`).
+/// A native executable keeps every table: its `dart:io` builds lists of any
+/// element type from bytes.
+fn runtime_table_producers(position: usize) -> Option<&'static [&'static str]> {
+    const TYPED: &[&str] = &["dartforge_typed_external*"];
+    const SIMD: &[&str] = &[
+        "dartforge_native_Float32x4*",
+        "dartforge_native_Int32x4*",
+        "dartforge_native_Float64x2*",
+        "dartforge_native_TypedData_GetFloat32x4",
+        "dartforge_native_TypedData_GetInt32x4",
+        "dartforge_native_TypedData_GetFloat64x2",
+        "dartforge_native_DartForge_typed_index_simd",
+        "*df.simd_box",
+    ];
+    if !crate::target::is_wasm() {
+        return None;
+    }
+    match position {
+        14 | 18..=29 => Some(TYPED),
+        15..=17 => Some(SIMD),
+        _ => None,
+    }
+}
 
 /// The call, at the program entry, of a Dart function without a value: direct
 /// or, with exceptions by tables, through the port of the arity
@@ -8432,7 +8622,7 @@ fn fnv(bytes: impl Iterator<Item = u8>) -> u64 {
 /// reference that is not a `Smi` (the `_Mint`, or the `TypeError`), the runtime.
 /// `internal` in each module and `alwaysinline`: the common path becomes three
 /// instructions in place of the call.
-/// The production `@df.get_area` (the lean area, outside WebAssembly): the runtime's
+/// The production `@df.get_area` (the lean area): the runtime's
 /// table of this thread always has `AREA_CAPACITY` entries and never moves while the
 /// module ids fit (`runtime/src/gc_roots.rs`), and a module's id and area, once set,
 /// never change in an executable that does not reload. The loads are invariant,

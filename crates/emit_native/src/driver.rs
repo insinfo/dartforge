@@ -777,6 +777,7 @@ fn link(
                 runtime: linkage.library(),
                 output,
                 debug_info,
+                exceptions: crate::target::table_exceptions()?,
             })
         }
     }

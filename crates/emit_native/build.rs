@@ -307,7 +307,13 @@ fn precompile_runtime() {
 /// The target of the WebAssembly runtime and the profile's features
 /// (`target::WASM_FEATURES`, docs/PLANO-WASM-MVP.md §3.1).
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
-const WASM_RUSTFLAGS: &str = "-Ctarget-feature=+simd128,+tail-call,+extended-const";
+/// `-Clinker-plugin-lto`: the archive carries LLVM bitcode (the toolchain's LLVM
+/// is the distribution's, `rust-toolchain.toml`), so the module's LTO optimizes
+/// the runtime with the program and the SDK — the runtime's small entries
+/// inline into Dart code and what nothing reaches leaves before code
+/// generation.
+const WASM_RUSTFLAGS: &str =
+    "-Ctarget-feature=+simd128,+tail-call,+extended-const\x1f-Clinker-plugin-lto";
 
 /// The fourth variant: the runtime `staticlib` of `wasm32-linear` modules
 /// (feature `aot`, [`ABORT`]), the same for every compiler host. It does not

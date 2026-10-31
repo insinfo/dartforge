@@ -44,7 +44,34 @@ pub struct Linkage<'a> {
     pub output: &'a Path,
     /// Keeps the DWARF and the name section (the browsers' debuggers read them).
     pub debug_info: bool,
+    /// Native Wasm exceptions (exceptions by tables, `target::table_exceptions`).
+    pub exceptions: bool,
 }
+
+/// Where [`link`] writes [`EXCEPTION_TAG_OBJECT`] for the link of `output`
+/// (removed after it).
+fn exception_tag_path(output: &Path) -> PathBuf {
+    let mut name = output.file_name().unwrap_or_default().to_os_string();
+    name.push(".eh-tag.o");
+    output.with_file_name(name)
+}
+
+/// The relocatable object that defines `__cpp_exception`, the tag of
+/// `llvm.wasm.throw(0, …)`: what Clang assembles from
+/// `.globl __cpp_exception` / `.tagtype __cpp_exception i32` /
+/// `__cpp_exception:` (test `exception_tag_object_is_what_clang_assembles`).
+/// LLVM does not define it, and a definition in a bitcode module's `asm`
+/// reaches LTO as a function symbol; the payload is unused (the exception is
+/// the runtime's pending one).
+pub const EXCEPTION_TAG_OBJECT: &[u8] = &[
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x85, 0x80, 0x80, 0x80, 0x00, 0x01, 0x60,
+    0x01, 0x7f, 0x00, 0x02, 0x98, 0x80, 0x80, 0x80, 0x00, 0x01, 0x03, 0x65, 0x6e, 0x76, 0x0f, 0x5f,
+    0x5f, 0x6c, 0x69, 0x6e, 0x65, 0x61, 0x72, 0x5f, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00,
+    0x00, 0x0d, 0x83, 0x80, 0x80, 0x80, 0x00, 0x01, 0x00, 0x00, 0x00, 0xa3, 0x80, 0x80, 0x80, 0x00,
+    0x07, 0x6c, 0x69, 0x6e, 0x6b, 0x69, 0x6e, 0x67, 0x02, 0x08, 0x94, 0x80, 0x80, 0x80, 0x00, 0x01,
+    0x04, 0x00, 0x00, 0x0f, 0x5f, 0x5f, 0x63, 0x70, 0x70, 0x5f, 0x65, 0x78, 0x63, 0x65, 0x70, 0x74,
+    0x69, 0x6f, 0x6e,
+];
 
 /// LLD of the same LLVM as `clang`: the distribution's, otherwise the one next to
 /// `clang`, otherwise `lld` on `PATH`. The packages ship `lld` without the
@@ -79,9 +106,37 @@ pub fn arguments(l: &Linkage<'_>) -> Vec<std::ffi::OsString> {
     // The LTO code generation of bitcode inputs (the SDK, production parts)
     // with the profile's features, as the objects get them.
     args.push("-mllvm".into());
-    args.push(format!("-mattr={}", crate::target::WASM_FEATURES).into());
+    if l.exceptions {
+        // Native Wasm exceptions (`target::table_exceptions`): the feature, the
+        // `wasm` model with `exnref` for the LTO code generation, and the tag
+        // that `llvm.wasm.throw` names.
+        args.push(
+            format!(
+                "-mattr={},+exception-handling",
+                crate::target::WASM_FEATURES
+            )
+            .into(),
+        );
+        for option in [
+            "-wasm-enable-eh",
+            "-exception-model=wasm",
+            "-wasm-use-legacy-eh=false",
+        ] {
+            args.push("-mllvm".into());
+            args.push(option.into());
+        }
+        args.push(exception_tag_path(l.output).into_os_string());
+    } else {
+        args.push(format!("-mattr={}", crate::target::WASM_FEATURES).into());
+    }
+    // `DARTFORGE_KEEP_SYMBOLS=1`: the name section stays, without the DWARF
+    // (profiling and the size breakdown per function).
     if !l.debug_info {
-        args.push("--strip-all".into());
+        args.push(if crate::linker::keep_symbols() {
+            "--strip-debug".into()
+        } else {
+            "--strip-all".into()
+        });
     }
     args
 }
@@ -91,10 +146,16 @@ pub fn arguments(l: &Linkage<'_>) -> Vec<std::ffi::OsString> {
 /// # Errors
 /// LLD's diagnostics (an unresolved symbol among them), or the gate's.
 pub fn link(l: &Linkage<'_>) -> Result<(), String> {
-    let exit = Command::new(l.lld)
-        .args(arguments(l))
-        .output()
-        .map_err(|e| format!("failed to run {}: {e}", l.lld.display()))?;
+    let tag = exception_tag_path(l.output);
+    if l.exceptions {
+        std::fs::write(&tag, EXCEPTION_TAG_OBJECT)
+            .map_err(|e| format!("cannot write {}: {e}", tag.display()))?;
+    }
+    let exit = Command::new(l.lld).args(arguments(l)).output();
+    if l.exceptions {
+        let _ = std::fs::remove_file(&tag);
+    }
+    let exit = exit.map_err(|e| format!("failed to run {}: {e}", l.lld.display()))?;
     if !exit.status.success() {
         let text = String::from_utf8_lossy(&exit.stderr);
         let lines: Vec<&str> = text
@@ -156,6 +217,7 @@ mod tests {
             runtime: Path::new("libdfrt.a"),
             output: Path::new("app.wasm"),
             debug_info: false,
+            exceptions: false,
         };
         let args: Vec<String> = arguments(&l)
             .iter()
@@ -168,6 +230,51 @@ mod tests {
         assert!(!args.iter().any(|a| a.contains("allow-undefined")
             || a.contains("import-undefined")
             || a.contains("unresolved-symbols")));
+    }
+
+    /// [`EXCEPTION_TAG_OBJECT`] is the object Clang assembles from the three
+    /// lines of the tag; with exceptions the link names it and the LTO code
+    /// generation gets the `wasm` model with `exnref`.
+    #[test]
+    fn exception_tag_object_is_what_clang_assembles() {
+        let dir = tempfile::tempdir().unwrap();
+        let clang = crate::driver::NativeDriverOptions::default().clang;
+        let source = dir.path().join("tag.s");
+        std::fs::write(
+            &source,
+            ".globl __cpp_exception\n.tagtype __cpp_exception i32\n__cpp_exception:\n",
+        )
+        .unwrap();
+        let object = dir.path().join("tag.o");
+        let status = Command::new(&clang)
+            .args([
+                "--target=wasm32-unknown-unknown",
+                "-mexception-handling",
+                "-c",
+            ])
+            .arg(&source)
+            .arg("-o")
+            .arg(&object)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(std::fs::read(&object).unwrap(), EXCEPTION_TAG_OBJECT);
+        let objects = [PathBuf::from("app.o")];
+        let l = Linkage {
+            lld: Path::new("lld"),
+            objects: &objects,
+            runtime: Path::new("libdfrt.a"),
+            output: Path::new("app.wasm"),
+            debug_info: false,
+            exceptions: true,
+        };
+        let args: Vec<String> = arguments(&l)
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert!(args.contains(&"app.wasm.eh-tag.o".to_string()));
+        assert!(args.contains(&"-wasm-use-legacy-eh=false".to_string()));
+        assert!(args.iter().any(|a| a.ends_with(",+exception-handling")));
     }
 
     /// The real wasm32 runtime (`RuntimeCache::for_wasm`) with the W2 proof
@@ -194,6 +301,7 @@ mod tests {
             runtime: &crate::cache::RuntimeCache::for_wasm().unwrap().lib_path,
             output: &output,
             debug_info: false,
+            exceptions: false,
         })
         .unwrap();
         let report = dartforge_wasm_gate::validate(
@@ -255,6 +363,7 @@ mod tests {
                 runtime: &runtime,
                 output: &output,
                 debug_info: false,
+                exceptions: false,
             });
             (result, output)
         };

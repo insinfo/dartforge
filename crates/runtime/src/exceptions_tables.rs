@@ -18,9 +18,11 @@
 // as before; nobody references the personality.
 
 /// The ports registered by the program module (`@df.ports`), by the index
-/// `2 × arity + (1 if it returns a value)`. Process-wide: they are code addresses,
-/// the same in every isolate. 0 = no port (`check` mode).
-static DART_PORTS: [std::sync::atomic::AtomicUsize; 16] = [
+/// `2 × arity + (1 if it returns a value)`, and on WebAssembly the port of the
+/// uniform closure entry at [`APPLY_PORT`]. Process-wide: they are code
+/// addresses, the same in every isolate. 0 = no port (`check` mode).
+static DART_PORTS: [std::sync::atomic::AtomicUsize; 17] = [
+    std::sync::atomic::AtomicUsize::new(0),
     std::sync::atomic::AtomicUsize::new(0),
     std::sync::atomic::AtomicUsize::new(0),
     std::sync::atomic::AtomicUsize::new(0),
@@ -101,6 +103,31 @@ fn landing_crosses_rust(frame: usize) -> bool {
 #[inline]
 fn dart_port(i: usize) -> usize {
     DART_PORTS[i].load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// WebAssembly: the index of `@df.port.apply`, the port of a uniform closure
+/// entry `(closure, arguments, descriptor)`. A WebAssembly indirect call checks
+/// the exact type, so the entry cannot go through the port of arity 3.
+#[cfg(target_arch = "wasm32")]
+const APPLY_PORT: usize = 16;
+
+/// WebAssembly: calls the uniform closure entry `code` (`Function.apply`)
+/// through its port when the module registered one (native Wasm exceptions:
+/// an exception the closure throws must not unwind the runtime's frames), or
+/// directly otherwise.
+#[cfg(target_arch = "wasm32")]
+#[allow(unsafe_code)]
+fn dart_apply(code: usize, function: i64, args: *const i64, desc: *const i64) -> i64 {
+    let p = dart_port(APPLY_PORT);
+    if p != 0 {
+        // SAFETY: the port receives the entry and its three arguments.
+        let g: extern "C" fn(usize, i64, *const i64, *const i64) -> i64 =
+            unsafe { std::mem::transmute(p) };
+        return g(code, function, args, desc);
+    }
+    // SAFETY: `code` is the table index of a uniform entry with this signature.
+    let entry: extern "C" fn(i64, *const i64, *const i64) -> i64 = unsafe { std::mem::transmute(code) };
+    entry(function, args, desc)
 }
 
 // The runtime's calls to Dart code, by signature: `dart_r<n>` returns the value

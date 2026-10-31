@@ -525,9 +525,8 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
 /// The options of `compile-native` that only mean something for a native
 /// executable, refused by `compile-wasm` instead of ignored.
 #[cfg(feature = "native")]
-const NATIVE_ONLY_OPTIONS: [&str; 6] = [
+const NATIVE_ONLY_OPTIONS: [&str; 5] = [
     "--cpu",
-    "--exceptions",
     "--memory",
     "--roots",
     "--stack-trace",
@@ -541,12 +540,14 @@ const NATIVE_ONLY_OPTIONS: [&str; 6] = [
 /// (`select_destination`); the pipeline is `compile-native`'s, without the
 /// options of a native executable.
 pub fn run_compile_wasm(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: dartforge compile-wasm <input.dart> -o <module.wasm> [--optimize] [--enable-asserts] [--debug] [--timings] [--sdk <lib>] [--packages <package_config.json>] [--dartforge-contracts verify|ignore] [--language-version x.y] [--enable-experiment=a,b]
+    let usage = "usage: dartforge compile-wasm <input.dart> -o <module.wasm> [--optimize] [--enable-asserts] [--debug] [--timings] [--exceptions check|tables] [--sdk <lib>] [--packages <package_config.json>] [--dartforge-contracts verify|ignore] [--language-version x.y] [--enable-experiment=a,b]
        dartforge compile-wasm <input.dart> --emit-ir -o <output.ll> [--digest] [...]
   WebAssembly over a 32-bit linear memory with DartForge's own collector, no
   WasmGC (the wasm32-linear profile); the module runs in browsers and in
   dartforge-wasm-run through host ABI v1 (docs/WASM-HOST-ABI-V1.md).
-  --optimize  production: asserts off and dart.vm.product true, as `dart compile wasm`";
+  --optimize    production: asserts off and dart.vm.product true, as `dart compile wasm`
+  --exceptions  check: the caller tests a pending exception after each call;
+                tables (the default): native Wasm exceptions (exnref, try_table/throw)";
     if args.is_empty() || args.iter().any(|a| a == "--help") {
         return Err(usage.into());
     }

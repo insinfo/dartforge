@@ -2814,6 +2814,48 @@ fn rejected_pattern(
     b.func
 }
 
+/// The `_dartforge*` helpers of the source SDK that the runtime looks up by
+/// name (`natives_lists.rs`, `helper`), the only ones registered at startup.
+/// The others are called directly by generated code: registering them would
+/// only keep them, and what they reach, alive in every program (a hello world
+/// carried `_dartforgeLoadLibrary` and the `Future` machinery). The test
+/// `runtime_helpers_match_the_runtime_lookups` keeps the list equal to the
+/// names the runtime sources mention.
+pub const RUNTIME_HELPERS: &[&str] = &[
+    "_dartforgeArgumentError",
+    "_dartforgeArgumentErrorValue",
+    "_dartforgeAssertionError",
+    "_dartforgeCallError",
+    "_dartforgeDatagram",
+    "_dartforgeDescribeError",
+    "_dartforgeFormatError",
+    "_dartforgeIndexError",
+    "_dartforgeJavaScriptError",
+    "_dartforgeLateError",
+    "_dartforgeListingEntry",
+    "_dartforgeListingError",
+    "_dartforgeMessageResources",
+    "_dartforgeNoSuchMethod",
+    "_dartforgeOSError",
+    "_dartforgePointer",
+    "_dartforgePortAndCapabilities",
+    "_dartforgeRangeError",
+    "_dartforgeReadyMessage",
+    "_dartforgeRebuildCopiedIndex",
+    "_dartforgeResourceDescriptor",
+    "_dartforgeResourceFile",
+    "_dartforgeResourcesMessage",
+    "_dartforgeSendPort",
+    "_dartforgeSetBaseUri",
+    "_dartforgeStackOverflowError",
+    "_dartforgeStartFailure",
+    "_dartforgeStartIo",
+    "_dartforgeStartIsolate",
+    "_dartforgeStateError",
+    "_dartforgeTypeError",
+    "_dartforgeUnsupportedError",
+];
+
 /// The adapters of the instance members of the classes of the module and the
 /// method tables of its concrete classes (source SDK).
 pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
@@ -2821,7 +2863,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
     for (fid, f) in ctx.program.functions.iter().enumerate() {
         let name_str = ctx.symbol_name(f.name);
         if f.class.is_none()
-            && name_str.starts_with("_dartforge")
+            && RUNTIME_HELPERS.contains(&name_str)
             && ctx.library_in_module(f.library)
         {
             module
@@ -4106,5 +4148,45 @@ mod arc_tests {
                 assert_eq!(m.dart_scalar_parameters.get(&symbol).is_some_and(|s| s.len() == 1), arc);
             }
         }).unwrap().join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod helper_tests {
+    /// Every `_dartforge*` name the runtime sources mention (the lookups of
+    /// `helper`, `isolate_helper`, `io_helper`, the error builders and the
+    /// helpers the runtime swaps itself) is in [`super::RUNTIME_HELPERS`], and
+    /// nothing else is: a helper the runtime looks up but the SDK does not
+    /// register would be missing at run time.
+    #[test]
+    fn runtime_helpers_match_the_runtime_lookups() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../runtime/src");
+        let mut found = std::collections::BTreeSet::new();
+        let mut pending = vec![dir];
+        while let Some(d) = pending.pop() {
+            for entry in std::fs::read_dir(&d).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).unwrap();
+                for (i, _) in text.match_indices("\"_dartforge") {
+                    let name: String = text[i + 1..]
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                        .collect();
+                    found.insert(name);
+                }
+            }
+        }
+        let listed: std::collections::BTreeSet<String> = super::RUNTIME_HELPERS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(found, listed);
     }
 }

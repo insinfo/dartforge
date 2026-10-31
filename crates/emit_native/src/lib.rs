@@ -857,16 +857,19 @@ fn emit_ir_internal(
     // which runs inside the linker's LTO on Mach-O and could not be validated
     // on this host. `options.optimize` links the runtime statically (a single
     // image): the slot of the context is then `dso_local`.
-    let llvm_ir = if crate::target::is_unix() && prune && !roots_by_maps {
-        let mode = if large {
-            sdk_module::ContextInTls::PerCall
+    // WebAssembly reads the address of its single context from a global
+    // (`sdk_module::context_in_wasm_global`).
+    let llvm_ir =
+        if (crate::target::is_unix() || crate::target::is_wasm()) && prune && !roots_by_maps {
+            let mode = if large {
+                sdk_module::ContextInTls::PerCall
+            } else {
+                sdk_module::ContextInTls::Inline
+            };
+            sdk_module::with_context_in_tls(&llvm_ir, mode, "df.ctx.tls.program", options.optimize)
         } else {
-            sdk_module::ContextInTls::Inline
+            llvm_ir
         };
-        sdk_module::with_context_in_tls(&llvm_ir, mode, "df.ctx.tls.program", options.optimize)
-    } else {
-        llvm_ir
-    };
     let llvm_duration = t_llvm.elapsed();
 
     let sdk_byte_count = sdk_bytes(&llvm_ir, &program);

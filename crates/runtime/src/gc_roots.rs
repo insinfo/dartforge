@@ -36,10 +36,21 @@ pub extern "C" fn dartforge_context() -> *const crate::heap::Context {
             }
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             publish_in_tsd(c);
+            #[cfg(target_arch = "wasm32")]
+            WASM_CONTEXT.store(std::ptr::from_ref(c).cast_mut(), std::sync::atomic::Ordering::Relaxed);
         }
         c as *const crate::heap::Context
     })
 }
+
+/// WebAssembly: the address of the module's only context, which the production
+/// prologue loads instead of calling [`dartforge_context`]
+/// (`sdk_module::context_in_wasm_global`). `dartforge_init` publishes it before
+/// any generated code runs, and it never changes: a module has one thread.
+#[cfg(target_arch = "wasm32")]
+#[unsafe(export_name = "dartforge_wasm_context")]
+pub static WASM_CONTEXT: std::sync::atomic::AtomicPtr<crate::heap::Context> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 
 /// The first `dartforge_context` of each thread also puts the address of the
 /// context in the `pthread` key slot that the production prologue reads directly

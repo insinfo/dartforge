@@ -813,11 +813,18 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
     // in the check model only a function that never throws got rid of
     // them). Removing it does not change the pending state anywhere, so the exits
     // computed above stay valid.
+    // A check where nothing can be pending — after a Dart call that unwinds,
+    // or one the shape of the lowering kept away from its site (a `?.` result
+    // merged before the check) — reads 0: the branch to the handler folds.
     let mut without_effect: HashSet<ValueId> = HashSet::new();
+    let mut clean_checks: HashSet<ValueId> = HashSet::new();
     for (k, b) in f.blocks.iter().enumerate() {
         let Some(mut e) = entry[k] else { continue };
         for (v, inst, _) in &b.instructions {
             if is_check(inst) {
+                if e == Pending::Cleans {
+                    clean_checks.insert(*v);
+                }
                 continue;
             }
             let ef = effect(inst, nl);
@@ -831,6 +838,15 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
         for b in &mut f.blocks {
             b.instructions
                 .retain(|(v, _, _)| !without_effect.contains(v));
+        }
+    }
+    if !clean_checks.is_empty() {
+        for b in &mut f.blocks {
+            for (v, inst, _) in &mut b.instructions {
+                if clean_checks.contains(v) {
+                    *inst = Instruction::Const(Constant::Int(0));
+                }
+            }
         }
     }
 }
@@ -898,6 +914,117 @@ mod tests {
             }],
             ..Default::default()
         }
+    }
+
+    /// A check the lowering left away from its site (here after a merge), where
+    /// the Dart call before it can only unwind, reads 0; a check after a
+    /// runtime call that leaves the exception pending stays.
+    #[test]
+    fn check_where_nothing_is_pending_reads_zero() {
+        let pending = |v: u32| {
+            (
+                ValueId(v),
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_pending".into(),
+                    args: Vec::new(),
+                    ret_ty: Type::I64,
+                },
+                Type::I64,
+            )
+        };
+        let test = |v: u32, p: u32| {
+            (
+                ValueId(v),
+                Instruction::ICmp(
+                    ICmpOp::Ne,
+                    Operand::Val(ValueId(p)),
+                    Operand::Constant(Constant::Int(0)),
+                ),
+                Type::I1,
+            )
+        };
+        let ret = |id: u32, v: Option<u32>| BasicBlock {
+            id: BlockId(id),
+            instructions: Vec::new(),
+            terminator: Terminator::Return(Some(
+                v.map_or(Operand::Constant(Constant::Null), |v| {
+                    Operand::Val(ValueId(v))
+                }),
+            )),
+        };
+        let cond = |v: u32, then: u32, other: u32| Terminator::CondBranch {
+            cond: Operand::Val(ValueId(v)),
+            then_block: BlockId(then),
+            else_block: BlockId(other),
+        };
+        let mut m = module();
+        let f = &mut m.functions[0];
+        f.blocks = vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::CallStatic {
+                            symbol: "pode_lancar".into(),
+                            args: Vec::new(),
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                    pending(1),
+                    test(2, 1),
+                ],
+                terminator: cond(2, 1, 2),
+            },
+            ret(1, None),
+            BasicBlock {
+                id: BlockId(2),
+                instructions: Vec::new(),
+                terminator: Terminator::Branch(BlockId(3)),
+            },
+            BasicBlock {
+                id: BlockId(3),
+                instructions: vec![pending(3), test(4, 3)],
+                terminator: cond(4, 4, 5),
+            },
+            ret(4, None),
+            ret(5, Some(0)),
+        ];
+        apply(&mut m);
+        let read = |m: &Module, v: u32| {
+            m.functions[0]
+                .blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .find(|(x, _, _)| x.0 == v)
+                .map(|(_, i, _)| i.clone())
+        };
+        assert!(matches!(
+            read(&m, 3),
+            Some(Instruction::Const(Constant::Int(0)))
+        ));
+        // After a runtime call that leaves the exception pending, the
+        // check is kept.
+        let mut m2 = module();
+        m2.functions[0].blocks[0].instructions = vec![
+            (
+                ValueId(0),
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_throw".into(),
+                    args: Vec::new(),
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ),
+            pending(1),
+            test(2, 1),
+        ];
+        m2.functions[0].blocks[0].terminator = cond(2, 1, 2);
+        m2.functions[0].blocks.push(ret(1, None));
+        m2.functions[0].blocks.push(ret(2, Some(0)));
+        apply(&mut m2);
+        assert!(read(&m2, 1).is_some_and(|i| is_check(&i)));
     }
 
     #[test]

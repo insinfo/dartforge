@@ -110,6 +110,7 @@ impl Generation {
         let mut args = vec!["-x", "ir", "-c", self.clang_level()];
         // In COFF, zero the TimeDateStamp: the object is a function of the key.
         args.extend(crate::target::object_flags());
+        args.extend(crate::target::exception_object_flags());
         if self.shared {
             args.extend(crate::target::shared_object_flags());
         }

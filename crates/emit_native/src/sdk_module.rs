@@ -586,7 +586,10 @@ fn emit_sdk_modules(
         // profile but roots by maps (`lib.rs`: the helper is not a declared leaf
         // of the statepoint pass). The production SDK only lives in the single
         // image of the executable: the slot of the context is `dso_local`.
-        let ir = if crate::target::is_unix() && production && !roots_by_maps {
+        let ir = if (crate::target::is_unix() || crate::target::is_wasm())
+            && production
+            && !roots_by_maps
+        {
             with_context_in_tls(&ir, ContextInTls::Free, "df.ctx.tls", true)
         } else {
             ir
@@ -775,9 +778,9 @@ fn sdk_key_with_overlay(
     if std::env::var("DARTFORGE_STACK_TRACE").is_ok_and(|v| v == "symbolic") {
         h.update(b"stack_trace=symbolic\0");
     }
-    // The exception model changes the code (`optimize/tables.rs`). The default
-    // does not enter the key: the usual SDK keeps the usual key.
-    if std::env::var("DARTFORGE_EXCEPTIONS").is_ok_and(|v| v == "tables") {
+    // The exception model changes the code (`optimize/tables.rs`). The native
+    // default does not enter the key: the usual SDK keeps the usual key.
+    if crate::target::table_exceptions().unwrap_or(false) {
         h.update(b"exceptions=tables\0");
     }
     // ARC memory changes the code (the stores through the runtime, the activation at the
@@ -1631,6 +1634,10 @@ pub fn with_context_in_tls(
         ContextInTls::Free => "",
         ContextInTls::PerCall => " noinline",
     };
+    if crate::target::is_wasm() {
+        s.push_str(&context_in_wasm_global(attribute));
+        return s;
+    }
     if crate::target::target_os() == crate::target::Os::MacOs && crate::target::is_aarch64() {
         s.push_str(&context_in_tsd(attribute, single_image));
         return s;
@@ -1640,6 +1647,21 @@ pub fn with_context_in_tls(
         s.push_str("declare nonnull ptr @llvm.threadlocal.address.p0(ptr nonnull)\n");
     }
     s
+}
+
+/// The `@df.context` of [`with_context_in_tls`] on WebAssembly: one load of the
+/// address the runtime publishes in `dartforge_wasm_context`
+/// (`runtime/src/gc_roots.rs`) before any generated code runs. A module has a
+/// single thread and a single context, so the load is invariant and has no
+/// slow path; before, every prologue called `dartforge_context`.
+pub(crate) fn context_in_wasm_global(attribute: &str) -> String {
+    format!(
+        "\n@dartforge_wasm_context = external global ptr, align 4\n\
+         define internal ptr @df.context() nounwind{attribute} {{\n\
+         \x20 %c = load ptr, ptr @dartforge_wasm_context, align 4, !invariant.load !{{}}\n\
+         \x20 ret ptr %c\n\
+         }}\n"
+    )
 }
 
 /// Exact native TLS cache emitted for a module's thread context.

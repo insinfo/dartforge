@@ -181,14 +181,23 @@ pub fn target_os() -> Os {
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13), through the variable
 /// `DARTFORGE_EXCEPTIONS` (the `--exceptions=` of `compile-native` sets it):
 ///
-/// * absent, empty or `check`: the exception is a pending state of the runtime that
-///   the caller checks after each call — the usual IR, byte for byte;
+/// * `check` (and, outside WebAssembly, absent or empty): the exception is a
+///   pending state of the runtime that the caller checks after each call — the
+///   usual IR, byte for byte;
 /// * `tables`: a Dart call that throws unwinds the stack up to the
 ///   `landingpad` of whoever handles it (`optimize/tables.rs`), with the
 ///   runtime's personality (`dartforge_personality`). Only on Windows
 ///   x86-64, the only target with the personality written, and without the function
 ///   call trace (`DARTFORGE_CALL_TRACE=1` counts entries and exits, and
 ///   unwinding skips the exits).
+///
+/// On WebAssembly `tables` is native Wasm exception handling with `exnref`
+/// (`try_table`, `throw`, `throw_ref`): the landing pads become catch-all
+/// funclets (`catchswitch`/`catchpad`), which LLVM lowers with
+/// `-fwasm-exceptions`, and the throw is `llvm.wasm.throw` with the C++ tag
+/// (`linker_wasm::EXCEPTION_TAG_OBJECT`); the exception itself stays the
+/// runtime's pending one. [`WASM_TABLES_BY_DEFAULT`] picks the model of an
+/// empty variable there.
 ///
 /// The program and the SDK have to come out in the same model: the variable goes into the key
 /// of the compiled SDK (`sdk_module::sdk_key`).
@@ -198,10 +207,14 @@ pub fn target_os() -> Os {
 pub fn table_exceptions() -> Result<bool, String> {
     let value = std::env::var("DARTFORGE_EXCEPTIONS").unwrap_or_default();
     match value.as_str() {
-        "" | "check" => Ok(false),
-        "tables" if is_wasm() => Err(
-            "exceptions by tables (--exceptions=tables) are not available for WebAssembly yet; use the default model".to_string(),
-        ),
+        "" => Ok(is_wasm() && WASM_TABLES_BY_DEFAULT),
+        "check" => Ok(false),
+        "tables" if is_wasm() => {
+            if std::env::var("DARTFORGE_CALL_TRACE").is_ok_and(|v| v == "1") {
+                return Err("exceptions by tables (--exceptions=tables) do not combine with DARTFORGE_CALL_TRACE=1".to_string());
+            }
+            Ok(true)
+        }
         "tables" => {
             // Windows x86-64 (SEH) and, through the runtime's Itanium
             // personality (Step 4, written and never run), Linux and macOS
@@ -606,6 +619,23 @@ pub const WASM_CPU: &str = "generic";
 /// `exnref` is in the profile too, but only the exception model by tables turns
 /// it on (it also needs LLVM's `-wasm-enable-eh`).
 pub const WASM_FEATURES: &str = "+simd128,+tail-call,+extended-const";
+
+/// The model of WebAssembly modules when `DARTFORGE_EXCEPTIONS` is empty
+/// ([`table_exceptions`]): native Wasm exceptions, which take the pending
+/// check off the normal path of every Dart call (smaller modules, measured
+/// in ESTADO.md on 31/10/2026). `--exceptions check` keeps the other model.
+pub const WASM_TABLES_BY_DEFAULT: bool = true;
+
+/// The Clang flags of the objects with native Wasm exceptions (exceptions by
+/// tables on WebAssembly): the `wasm` exception model and `exnref`, never
+/// the legacy proposal the profile refuses (`dartforge-wasm-gate`).
+pub fn exception_object_flags() -> &'static [&'static str] {
+    if is_wasm() && table_exceptions().unwrap_or(false) {
+        &["-fwasm-exceptions", "-mllvm", "-wasm-use-legacy-eh=false"]
+    } else {
+        &[]
+    }
+}
 
 /// Name of Clang in the `bin` folder of an LLVM distribution.
 pub fn clang_name() -> &'static str {

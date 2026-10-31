@@ -3,7 +3,8 @@
 //!
 //! The frames of the module live on the engine's own stack, not in the linear
 //! memory, so the linear stack check cannot see a recursion run out of it. The
-//! prologue of every function that calls (`LlvmEmitter::emit_stack_check`)
+//! prologue of every function that can call Dart code (`LlvmEmitter::emit_stack_check`;
+//! the others add one frame and the runtime's, which `ENGINE_RESERVE` covers)
 //! debits its frame from a budget the host gives (`dartforge_engine_budget`)
 //! and the returns give it back; below zero the function throws
 //! `StackOverflowError` before the engine traps. The size of a frame depends on
