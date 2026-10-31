@@ -192,6 +192,64 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         v
     }
 
+    /// `x op= v` with `x` a static member of an extension (`member`, the
+    /// field's accessor, the setter or the getter): the static field, or the
+    /// extension's static setter `x=` and, in the compound case, getter `x`.
+    fn assign_extension_static(
+        &mut self,
+        member: dartforge_elements::model::FunctionElementId,
+        sym: dartforge_intern::SymbolId,
+        ast: &ast::Ast,
+        op: ast::AssignOp,
+        value: Rhs,
+        span: Span,
+    ) -> Operand {
+        let composite = matches!(op, ast::AssignOp::Compound(_));
+        let ctx = self.ctx;
+        let f = &ctx.program.functions[member.0 as usize];
+        if let Some(vid) = f.variable {
+            let cur = composite.then(|| self.read_global(vid, span));
+            let v = self.combine(ast, op, cur, value);
+            self.downcast_global(op, value, vid, &v);
+            return self.store_global(vid, v, span);
+        }
+        let name = self.ctx.symbol_name(sym).to_string();
+        let Some(ext) = f.extension else {
+            return self.unsupported(&format!("assignment to `{name}`"), span);
+        };
+        let statics = &ctx.program.extensions[ext.0 as usize].static_members;
+        let setter = ctx
+            .interner
+            .lookup(&format!("{name}_="))
+            .and_then(|k| statics.get(&k).copied());
+        let getter = statics
+            .get(&sym)
+            .copied()
+            .filter(|g| ctx.program.functions[g.0 as usize].kind == FunctionKind::Getter);
+        let Some(setter) = setter else {
+            return self.unsupported(&format!("assignment to `{name}` without a setter"), span);
+        };
+        let cur = match (composite, getter) {
+            (true, Some(g)) => Some(self.call_direct(g.0 as usize, None, Vec::new())),
+            (true, None) => {
+                return self.unsupported(&format!("read of `{name}` without a getter"), span);
+            }
+            _ => None,
+        };
+        let v = self.combine(ast, op, cur, value);
+        if let Some(e) = self.dynamic_rhs(op, value)
+            && let Some(t) = self.setter_parameter_type(setter.0 as usize)
+        {
+            self.implicit_downcast(e, &v, t);
+            if self.is_terminated() {
+                return v;
+            }
+        }
+        let args = self.match_args(setter.0 as usize, &[(None, v.clone())]);
+        self.call_direct(setter.0 as usize, None, args);
+        v
+    }
+
     /// `r.x op= v` with `x` an instance member of an extension (`member`
     /// is the setter, or the getter when the resolution kept the read): the
     /// setter `x=` and, in the compound case, the getter `x` of the same extension, both
@@ -468,6 +526,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         if !self.ctx.program.functions[member.0 as usize].static_ =>
                     {
                         self.assign_extension(ast, op, None, member, sym, value, span)
+                    }
+                    // A static member of the enclosing extension named without
+                    // the extension: its field, or its setter (with its getter
+                    // for a compound assignment).
+                    Some(Resolved::ExtensionMember { member, .. }) => {
+                        self.assign_extension_static(member, sym, ast, op, value, span)
                     }
                     Some(Resolved::Element(Element::Variable(vid))) => {
                         let cur = if composite {

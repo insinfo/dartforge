@@ -271,6 +271,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.creation_type = self.ctx.get_type_raw(self.unit_id, expr_id);
             return self.instantiate(ast, fid, &arguments.args, expr.span);
         }
+        // `A()`/`A.name()` of a named mixin application (`class A = B with
+        // C;`), as `new A(…)`: without a declared constructor, that of the
+        // superclass it forwards to (`constructor_of`).
+        if let Some(fid) = self.mixin_application_creation(ast, *target, expr_id) {
+            self.creation_type = self.ctx.get_type_raw(self.unit_id, expr_id);
+            return self.instantiate(ast, fid, &arguments.args, expr.span);
+        }
 
         // Method calls on an object / collection
         if let ExprKind::Property {
@@ -701,6 +708,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
         }
 
+        // `super(…)` in a member: the superclass's `call` (`super.call(…)`).
+        if matches!(ast.expr(*target).kind, ExprKind::Super)
+            && let Some(call) = self.ctx.interner.lookup("call")
+        {
+            let evaluated = self.evaluate_args(ast, &arguments.args);
+            return self.call_super_method(call, &evaluated, expr.span);
+        }
         // Any other expression as the target (`f()()`, m['k']!(x),
         // (closure)(x)): its value is called (P1).
         if !matches!(ast.expr(*target).kind, ExprKind::Identifier(_)) {
@@ -709,6 +723,54 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.call_function_value(f, &evaluated);
         }
         self.unsupported_call(ast, target, expr)
+    }
+
+    /// The constructor that `A(…)`/`A.name(…)`/`p.A(…)` creates when `A` is a
+    /// named mixin application: the call's static type is the application,
+    /// and the target names the class (`A`, `p.A`) or its constructor
+    /// (`A.name`, `p.A.name`).
+    fn mixin_application_creation(
+        &mut self,
+        ast: &ast::Ast,
+        target: ExprId,
+        expr_id: ExprId,
+    ) -> Option<dartforge_elements::model::FunctionElementId> {
+        use dartforge_elements::model::{ClassKind, Element};
+        let t = self.ctx.get_type_raw(self.unit_id, expr_id)?;
+        let dartforge_types::table::Type::Interface { class: c, .. } = self.ctx.table.get(t) else {
+            return None;
+        };
+        let c = *c;
+        if self.ctx.program.classes[c.0 as usize].kind != ClassKind::MixinApplication {
+            return None;
+        }
+        let names_class = |e: ExprId| -> bool {
+            let lib = self.ctx.program.unit(self.unit_id).library;
+            let binding = match &ast.expr(e).kind {
+                ExprKind::Identifier(n) => self.ctx.program.lookup(lib, n.sym),
+                ExprKind::Property { target, name, .. } => match &ast.expr(*target).kind {
+                    ExprKind::Identifier(p) => {
+                        self.ctx.program.lookup_prefixed(lib, p.sym, name.sym)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            matches!(binding.and_then(|b| b.getter), Some(Element::Class(k)) if k == c)
+        };
+        let name = if names_class(target) {
+            self.ctx.interner.lookup("")?
+        } else {
+            match &ast.expr(target).kind {
+                ExprKind::Property {
+                    target: inner,
+                    name,
+                    ..
+                } if names_class(*inner) => name.sym,
+                _ => return None,
+            }
+        };
+        self.constructor_of(c, name)
     }
 
     /// The expression has a function type (or Function), or is a tear-off.

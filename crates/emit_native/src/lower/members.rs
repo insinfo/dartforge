@@ -182,6 +182,12 @@ fn devirtualization_cap_off() -> bool {
     })
 }
 
+/// The name of a referenced constructor, with `C.new` (`this.new(…)`,
+/// `super.new(…)`, `= C.new`) as the unnamed one (`None`), as Dart 2.15 made it.
+fn unnamed_new(ctx: &Context, name: Option<SymbolId>) -> Option<SymbolId> {
+    name.filter(|&n| ctx.symbol_name(n) != "new")
+}
+
 /// Does the function have a body that the lowering compiles?
 pub fn has_body(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
@@ -1485,7 +1491,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let r = c.redirect.as_ref()?;
         let saved = self.unit_id;
         self.unit_id = unit;
-        let target = self.type_constructor(ast.ty(r.ty), r.constructor.map(|n| n.sym));
+        let name = unnamed_new(self.ctx, r.constructor.map(|n| n.sym));
+        let target = self.type_constructor(ast.ty(r.ty), name);
         self.unit_id = saved;
         target.map(|f| f.0 as usize).filter(|&a| a != fid)
     }
@@ -1516,7 +1523,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let empty = self.ctx.interner.lookup("")?;
         match explicit {
             Some((name_str, args)) => {
-                let s = name_str.map(|n| n.sym).unwrap_or(empty);
+                let s = unnamed_new(self.ctx, name_str.map(|n| n.sym)).unwrap_or(empty);
                 let sf = sup_class.constructors.get(&s)?;
                 Some((
                     sf.0 as usize,
@@ -2351,6 +2358,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         evaluated: Vec<Evaluated>,
         span: Span,
     ) {
+        let name_str = unnamed_new(self.ctx, name_str);
         // The applied mixins run the initializers of their fields before
         // the superclass constructor, from the last to the first (each
         // application `S with M` is a class whose constructor initializes `M`
@@ -2426,7 +2434,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let Some(empty) = self.ctx.interner.lookup("") else {
                 return;
             };
-            let s = target.map(|n| n.sym).unwrap_or(empty);
+            let s = unnamed_new(self.ctx, target.map(|n| n.sym)).unwrap_or(empty);
             let Some(&tf) = class_ref.constructors.get(&s) else {
                 self.unsupported("redirected constructor not found", span);
                 return;
@@ -2966,7 +2974,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ([p, c, n], None) => (prefixed_class(p.sym, c.sym)?, Some(n.sym)),
             (parts, n) => (local_class(parts.last()?.sym)?, n),
         };
-        let key = name_str.or_else(|| self.ctx.interner.lookup(""))?;
+        let key = unnamed_new(self.ctx, name_str).or_else(|| self.ctx.interner.lookup(""))?;
         self.ctx.program.classes[c.0 as usize]
             .constructors
             .get(&key)
