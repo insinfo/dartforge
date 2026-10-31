@@ -380,7 +380,7 @@ jobs:
           key: llvm-dylib-22.1.8-${{ hashFiles('scripts/prelink-llvm-dylib.sh') }}
       - name: Prelinked libLLVM-22.dylib (macOS)
         if: runner.os == 'macOS' && steps.llvm-dylib.outputs.cache-hit != 'true'
-        run: scripts/prelink-llvm-dylib.sh "$DARTFORGE_LLVM_DIR" "$RUNNER_TEMP/llvm-dylib/libLLVM-22.dylib"
+        run: bash scripts/prelink-llvm-dylib.sh "$DARTFORGE_LLVM_DIR" "$RUNNER_TEMP/llvm-dylib/libLLVM-22.dylib"
       - if: runner.os == 'macOS'
         run: echo "DARTFORGE_LLVM_DYLIB=$RUNNER_TEMP/llvm-dylib/libLLVM-22.dylib" >> "$GITHUB_ENV"
       - name: Pinned Rust (rust-toolchain.toml)
