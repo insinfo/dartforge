@@ -331,7 +331,8 @@ jobs:
             # 150 was cut on 30/10 at the JIT tests: the emitter's tests with the
             # ignored ones alone took 51 min on the hosted runner.
             timeout_minutes: 210
-            build_jobs: 1
+            # Two: with the prelinked LLVM the links no longer compete for memory.
+            build_jobs: 2
     env:
       # Static LLVM links for multiple test/example executables competed for
       # the small macOS runner before any tests could start. Serialize those
@@ -367,6 +368,21 @@ jobs:
           echo "$prefix/bin" >> "$GITHUB_PATH"
       - if: runner.os == 'macOS'
         uses: ./.github/actions/llvm-unix
+      # The official macOS package only has bitcode archives: statically linked,
+      # every test executable ran LLVM's whole LTO again (the emitter's tests
+      # took 51 min). One prelinked libLLVM-22.dylib, cached, runs it once
+      # (scripts/prelink-llvm-dylib.sh, DARTFORGE_LLVM_DYLIB in crates/llvm).
+      - if: runner.os == 'macOS'
+        id: llvm-dylib
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/llvm-dylib
+          key: llvm-dylib-22.1.8-${{ hashFiles('scripts/prelink-llvm-dylib.sh') }}
+      - name: Prelinked libLLVM-22.dylib (macOS)
+        if: runner.os == 'macOS' && steps.llvm-dylib.outputs.cache-hit != 'true'
+        run: scripts/prelink-llvm-dylib.sh "$DARTFORGE_LLVM_DIR" "$RUNNER_TEMP/llvm-dylib/libLLVM-22.dylib"
+      - if: runner.os == 'macOS'
+        run: echo "DARTFORGE_LLVM_DYLIB=$RUNNER_TEMP/llvm-dylib/libLLVM-22.dylib" >> "$GITHUB_ENV"
       - name: Pinned Rust (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -610,6 +626,13 @@ jobs:
           dist=$(mktemp -d)/dartforge
           ./target/release/dartforge pack "$dist"
           du -sh "$dist"
+          # A shared LLVM from the build machine travels inside the distribution.
+          if [ "$RUNNER_OS" = macOS ]; then
+            if otool -L "$dist/bin/dartforge" | tail -n +2 | grep -v -E '^\s*(/usr/lib/|/System/|@executable_path/)'; then
+              echo "::error::the distribution links a library outside itself and the system"
+              exit 1
+            fi
+          fi
           d=$(mktemp -d)
           printf "import 'dart:isolate';\nFuture<void> main(List<String> a) async {\n  print('hi \${a.join(\",\")}');\n  print(await Isolate.run(() => [1, 2, 3].map((x) => x * x).toList()));\n}\n" > "$d/main.dart"
           expected=$'hi x,y\n[1, 4, 9]'

@@ -164,6 +164,9 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     if cfg!(windows) && llvm_dir.join("LLVM-C.dll").is_file() {
         copy(&llvm_dir.join("LLVM-C.dll"), &bin.join("LLVM-C.dll"))?;
     }
+    if cfg!(target_os = "macos") {
+        bundle_llvm_dylib(&bin.join(exe.file_name().ok_or("executable without a name")?))?;
+    }
 
     // The marker file; its keys are a serialized format and stay as they are.
     let marker = format!(
@@ -177,6 +180,60 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     );
     std::fs::write(lib.join(dartforge_elements::distribution::MARKER), marker)?;
     println!("distribution in {}", destination.display());
+    Ok(())
+}
+
+/// An executable built against a shared LLVM outside the system (the CI's
+/// prelinked `libLLVM-22.dylib`, `DARTFORGE_LLVM_DYLIB`) takes it along: the
+/// library goes next to it in `bin/`, its load command becomes
+/// `@executable_path/<name>` and the executable is signed again (ad hoc, as the
+/// linker signs it), so the distribution does not depend on the build machine.
+fn bundle_llvm_dylib(exe: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let out = std::process::Command::new("otool")
+        .arg("-L")
+        .arg(exe)
+        .output()?;
+    if !out.status.success() {
+        return Err(format!("otool -L failed on {}", exe.display()).into());
+    }
+    let bin = exe.parent().ok_or("executable without a directory")?;
+    for line in String::from_utf8_lossy(&out.stdout).lines().skip(1) {
+        let Some(dependency) = line.split_whitespace().next() else {
+            continue;
+        };
+        let path = Path::new(dependency);
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if !name.starts_with("libLLVM")
+            || !path.is_absolute()
+            || dependency.starts_with("/usr/lib/")
+            || dependency.starts_with("/System/")
+        {
+            continue;
+        }
+        copy(path, &bin.join(name))?;
+        let bundled = format!("@executable_path/{name}");
+        for (target, args) in [
+            (bin.join(name), ["-id", bundled.as_str(), ""]),
+            (exe.to_path_buf(), ["-change", dependency, bundled.as_str()]),
+        ] {
+            let st = std::process::Command::new("install_name_tool")
+                .args(args.iter().filter(|a| !a.is_empty()))
+                .arg(&target)
+                .status()?;
+            if !st.success() {
+                return Err(format!("install_name_tool failed on {}", target.display()).into());
+            }
+        }
+        for target in [bin.join(name), exe.to_path_buf()] {
+            let st = std::process::Command::new("codesign")
+                .args(["--force", "--sign", "-"])
+                .arg(&target)
+                .status()?;
+            if !st.success() {
+                return Err(format!("codesign failed on {}", target.display()).into());
+            }
+        }
+    }
     Ok(())
 }
 

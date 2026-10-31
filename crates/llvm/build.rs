@@ -26,6 +26,12 @@
 //! `llvm-config --link-shared`; fails if the installation does not have it),
 //! `static` (the `libLLVM*.a` through `llvm-config --link-static`) or `auto`, the
 //! default — the shared one when the installation offers it, otherwise static.
+//!
+//! `DARTFORGE_LLVM_DYLIB` names a shared library linked beforehand from an
+//! installation's static archives (`scripts/prelink-llvm-dylib.sh`), which
+//! `llvm-config` does not know about: the official macOS package only has
+//! bitcode archives, so every statically linked executable runs LLVM's whole LTO
+//! again, and the CI links its tests against one such library instead.
 use std::path::{Path, PathBuf};
 
 #[path = "build_support/installation.rs"]
@@ -85,6 +91,13 @@ fn main() {
     }
     println!("cargo::rustc-link-search=native={}", libdir.display());
     println!("cargo::rerun-if-env-changed=DARTFORGE_LLVM_LINK");
+    println!("cargo::rerun-if-env-changed=DARTFORGE_LLVM_DYLIB");
+    if let Some(dylib) = std::env::var_os("DARTFORGE_LLVM_DYLIB").filter(|v| !v.is_empty())
+        && !std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows")
+    {
+        link_prelinked(Path::new(&dylib));
+        return;
+    }
     let mode = std::env::var("DARTFORGE_LLVM_LINK").unwrap_or_else(|_| "auto".to_owned());
     let windows_target = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows");
     if windows_target {
@@ -185,6 +198,36 @@ fn link_shared(prefix: &Path) -> Result<(), String> {
         prefix.join("lib").display()
     );
     Ok(())
+}
+
+/// Linking against a shared library prelinked from the installation's static
+/// archives (`DARTFORGE_LLVM_DYLIB`, `lib<name>.dylib` or `lib<name>.so`): it
+/// already carries its system dependencies, and its install name is its
+/// absolute path, so the executables of the crates that depend on this one find
+/// it (an `rpath` from here reaches only this package's targets).
+fn link_prelinked(dylib: &Path) {
+    assert!(
+        dylib.is_file(),
+        "DARTFORGE_LLVM_DYLIB={} does not exist",
+        dylib.display()
+    );
+    println!("cargo::rerun-if-changed={}", dylib.display());
+    let directory = dylib
+        .parent()
+        .expect("DARTFORGE_LLVM_DYLIB has a directory");
+    let name = dylib
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| n.strip_prefix("lib"))
+        .and_then(|n| n.strip_suffix(".dylib").or_else(|| n.strip_suffix(".so")))
+        .unwrap_or_else(|| {
+            panic!(
+                "DARTFORGE_LLVM_DYLIB={} is not a lib<name>.dylib or lib<name>.so",
+                dylib.display()
+            )
+        });
+    println!("cargo::rustc-link-search=native={}", directory.display());
+    println!("cargo::rustc-link-lib=dylib={name}");
 }
 
 /// Static linking outside Windows, through `llvm-config --link-static`.
