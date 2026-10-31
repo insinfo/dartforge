@@ -1093,6 +1093,39 @@ fn ref_type(u: &mut Universe, h: i64) -> i64 {
     }
 }
 
+/// The type `runtimeType` reports for the RTI type `t` of a value: the VM's
+/// list classes (`_List`, `_GrowableList`, `_ImmutableList`) are `List<E>`,
+/// also as the fields of a record, so `List<int>.filled(3, 1)`,
+/// `List<int>.filled(3, 1, growable: true)` and `List<int>.unmodifiable(…)`
+/// have the same `Type`, equal to `List<int>`, as in the VM.
+pub(crate) fn user_visible_type(t: i64) -> i64 {
+    RTI.with(|u| visible_type(&mut u.borrow_mut(), t))
+}
+
+fn visible_type(u: &mut Universe, t: i64) -> i64 {
+    match u.ty(t).clone() {
+        Type::Interface(c, args)
+            if u.rt.list != 0
+                && c != u.rt.list
+                && args.len() == 1
+                // Registered under their visible name, `List`, and
+                // implementing `List`.
+                && u.classes.get(&c).is_some_and(|(name, _)| name == "List")
+                && u.rules
+                    .get(&c)
+                    .is_some_and(|r| r.iter().any(|&(s, _)| s == u.rt.list)) =>
+        {
+            u.interface(u.rt.list, args)
+        }
+        Type::Record { pos, named } => {
+            let pos = pos.into_iter().map(|x| visible_type(u, x)).collect();
+            let named = named.into_iter().map(|(n, x)| (n, visible_type(u, x))).collect();
+            u.intern(Type::Record { pos, named })
+        }
+        _ => t,
+    }
+}
+
 /// The `_List` and `_GrowableList` natives receive the tuple of the constructor's
 /// type arguments as the last parameter. Converts `L<E>` into the type of the
 /// concrete object (`_List<E>` or `_GrowableList<E>`) that will be stored in the

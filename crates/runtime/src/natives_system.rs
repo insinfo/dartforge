@@ -178,7 +178,7 @@ pub extern "C" fn dartforge_native_Object_haveSameRuntimeType(a: i64, b: i64) ->
 /// and returns the isolate's canonical `Type` object.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_Object_runtimeType(this: i64) -> i64 {
-    dartforge_rti_object_type(dartforge_rti_of_value(this))
+    dartforge_rti_object_type(user_visible_type(dartforge_rti_of_value(this)))
 }
 
 // Weak references and ephemerons (`WeakReference`, `Expando`): the state lives in
