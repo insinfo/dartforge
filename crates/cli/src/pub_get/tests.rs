@@ -45,6 +45,11 @@ fn dart_intervals_and_sdk_compatibility() {
     let c = Constraint::parse(">= 1.0.0 < 2.0.0").unwrap();
     assert!(c.allows(&parse_version("1.5.0-dev.1").unwrap()));
     assert!(!c.allows(&parse_version("2.0.0-dev.1").unwrap()));
+    // pub_semver needs no space between bounds (seen in published pubspecs).
+    let c = Constraint::parse(">=2.0.0-dev<3.0.0").unwrap();
+    assert!(c.allows(&parse_version("2.0.0").unwrap()));
+    assert!(!c.allows(&parse_version("3.0.0").unwrap()));
+    assert!(Constraint::parse(">=").is_err());
     assert!(Constraint::parse("1.2.*").is_err());
     assert!(Constraint::parse("^1.0.0 || ^2.0.0").is_err());
     let c = Constraint::parse(">=2.12.0 <3.0.0").unwrap();
@@ -91,8 +96,10 @@ fn sdk_source_identity_conflicts_are_errors() {
             .unwrap_err()
             .contains("requires Dart SDK")
     );
+    // Git and workspaces are supported now; what stays outside the subset
+    // (relative repository paths, workspaces below language 3.5) is refused.
     for text in [
-        "name: app\nenvironment:\n  sdk: ^3.0.0\ndependencies:\n  foo:\n    git: https://example.com/foo\n",
+        "name: app\nenvironment:\n  sdk: ^3.0.0\ndependencies:\n  foo:\n    git: ../foo\n",
         "name: app\nworkspace: []\n",
     ] {
         assert!(
@@ -128,7 +135,8 @@ fn root_overrides_replace_transitive_sources_and_include_unused_packages() {
     output::write(&root, &m, &selected, &r.sdk).unwrap();
     let lock =
         manifest::yaml_json(&std::fs::read_to_string(root.join("pubspec.lock")).unwrap()).unwrap();
-    assert_eq!(lock["packages"]["b"]["dependency"], "direct overridden");
+    // Pub 3.6.2 keeps a root dependency direct even when it is also overridden.
+    assert_eq!(lock["packages"]["b"]["dependency"], "direct main");
     assert_eq!(lock["packages"]["extra"]["dependency"], "direct overridden");
 }
 
@@ -549,7 +557,8 @@ fn declared_sdk_packages_resolve_transitively_offline_and_write_sdk_lock_identit
         )
     );
     let text = std::fs::read_to_string(root.join("pubspec.lock")).unwrap();
-    assert!(text.contains("description: \"dart\"\n    source: sdk"));
+    // Pub writes identifier-like values without quotes.
+    assert!(text.contains("description: dart\n    source: sdk"));
     let config: serde_json::Value = serde_json::from_slice(
         &std::fs::read(root.join(".dart_tool/package_config.json")).unwrap(),
     )
@@ -563,7 +572,7 @@ fn declared_sdk_packages_resolve_transitively_offline_and_write_sdk_lock_identit
     assert_eq!(entry["languageVersion"], "3.4");
     assert_eq!(
         entry["rootUri"],
-        url::Url::from_directory_path(sdk.join("declared/one"))
+        url::Url::from_file_path(sdk.join("declared/one"))
             .unwrap()
             .as_str()
     );
@@ -879,4 +888,551 @@ fn validated_registry_updates_replace_offline_metadata() {
         .candidates("a", &host)
         .unwrap();
     assert_eq!(rows[0].manifest.version, semver::Version::new(2, 0, 0));
+}
+
+fn read_json(path: PathBuf) -> serde_json::Value {
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+#[test]
+fn relative_path_dependencies_stay_relative_like_pub() {
+    let f = Fixture::new();
+    let root = f.package(
+        "app",
+        "name: app\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  shared:\n    path: ../shared\n",
+    );
+    let shared = f.package(
+        "shared",
+        &format!(
+            "name: shared\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  absolute:\n    path: {}\n",
+            f.0.join("absolute").display()
+        ),
+    );
+    let absolute = f.package("absolute", "name: absolute\nenvironment:\n  sdk: ^3.0.0\n");
+    let manifest = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap();
+    let mut r = resolver(f.0.join("cache"));
+    let selected = r.resolve(&manifest, &root).unwrap();
+    output::write(&root, &manifest, &selected, &r.sdk).unwrap();
+    let lock =
+        manifest::yaml_json(&std::fs::read_to_string(root.join("pubspec.lock")).unwrap()).unwrap();
+    // The values `dart pub get` 3.6.2 writes for the same layout.
+    assert_eq!(
+        lock["packages"]["shared"]["description"],
+        serde_json::json!({"path": "../shared", "relative": true})
+    );
+    assert_eq!(
+        lock["packages"]["absolute"]["description"],
+        serde_json::json!({"path": absolute.to_str().unwrap(), "relative": false})
+    );
+    let config = read_json(root.join(".dart_tool/package_config.json"));
+    let uris: Vec<(&str, &str)> = config["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| (p["name"].as_str().unwrap(), p["rootUri"].as_str().unwrap()))
+        .collect();
+    let absolute_uri = url::Url::from_file_path(&absolute).unwrap().to_string();
+    assert_eq!(
+        uris,
+        [
+            ("absolute", absolute_uri.as_str()),
+            ("shared", "../../shared"),
+            ("app", "../")
+        ]
+    );
+    assert!(shared.join("pubspec.yaml").is_file());
+    assert!(!root.join(".dart_tool/pub/workspace_ref.json").exists());
+}
+
+const WORKSPACE_ROOT: &str = "name: ws_root\nenvironment:\n  sdk: ^3.6.0\nworkspace:\n  - pkgs/a\n  - pkgs/b\ndev_dependencies:\n  tool:\n    path: tool\n";
+
+#[test]
+fn workspace_members_resolve_together_at_the_root() {
+    let f = Fixture::new();
+    let root = f.package("ws", WORKSPACE_ROOT);
+    let a = f.package(
+        "ws/pkgs/a",
+        "name: a\nversion: 1.0.0\nenvironment:\n  sdk: ^3.6.0\nresolution: workspace\ndependencies:\n  b: ^0.2.0\n  local:\n    path: ../../local\ndependency_overrides:\n  pinned:\n    path: ../../pinned\n",
+    );
+    let b = f.package(
+        "ws/pkgs/b",
+        "name: b\nversion: 0.2.0\nenvironment:\n  sdk: ^3.5.0\nresolution: workspace\ndev_dependencies:\n  pinned:\n    path: ../../elsewhere\n",
+    );
+    f.package(
+        "ws/local",
+        "name: local\nversion: 3.0.0\nenvironment:\n  sdk: ^3.0.0\n",
+    );
+    f.package("ws/tool", "name: tool\nenvironment:\n  sdk: ^3.0.0\n");
+    f.package(
+        "ws/pinned",
+        "name: pinned\nversion: 1.0.0\nenvironment:\n  sdk: ^3.0.0\n",
+    );
+    f.package(
+        "ws/elsewhere",
+        "name: pinned\nversion: 9.0.0\nenvironment:\n  sdk: ^3.0.0\n",
+    );
+    // Stray files of a member are removed, as Pub reports and does.
+    std::fs::write(a.join("pubspec.lock"), "packages: {}\n").unwrap();
+    std::fs::create_dir_all(a.join(".dart_tool")).unwrap();
+    std::fs::write(a.join(".dart_tool/package_config.json"), "{}").unwrap();
+
+    let workspace = super::workspace(&a, "https://pub.dev").unwrap();
+    let names: Vec<&str> = workspace.iter().map(|(m, _)| m.name.as_str()).collect();
+    assert_eq!(names, ["ws_root", "a", "b"]);
+    assert_eq!(workspace[0].1, root);
+    assert_eq!(super::workspace(&root, "https://pub.dev").unwrap().len(), 3);
+
+    let mut r = resolver(f.0.join("cache"));
+    let selected = r.resolve_workspace(&workspace).unwrap();
+    assert_eq!(
+        selected.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["local", "pinned", "tool"]
+    );
+    // A member's override applies to the whole workspace.
+    assert_eq!(
+        selected["pinned"].candidate.manifest.version.to_string(),
+        "1.0.0"
+    );
+    output::write_workspace(&workspace, &selected, &r.sdk).unwrap();
+
+    let lock =
+        manifest::yaml_json(&std::fs::read_to_string(root.join("pubspec.lock")).unwrap()).unwrap();
+    assert_eq!(lock["packages"]["local"]["dependency"], "transitive");
+    assert_eq!(lock["packages"]["local"]["description"]["path"], "local");
+    assert_eq!(
+        lock["packages"]["pinned"]["dependency"],
+        "direct overridden"
+    );
+    assert_eq!(lock["packages"]["tool"]["dependency"], "direct dev");
+    assert_eq!(lock["sdks"]["dart"], ">=3.6.0 <4.0.0");
+    // Pub 3.6.2's text for this layout, apart from its two header lines.
+    assert_eq!(
+        std::fs::read_to_string(root.join("pubspec.lock")).unwrap(),
+        "# Generated by dartforge pub get.\npackages:\n  local:\n    dependency: transitive\n    description:\n      path: local\n      relative: true\n    source: path\n    version: \"3.0.0\"\n  pinned:\n    dependency: \"direct overridden\"\n    description:\n      path: pinned\n      relative: true\n    source: path\n    version: \"1.0.0\"\n  tool:\n    dependency: \"direct dev\"\n    description:\n      path: tool\n      relative: true\n    source: path\n    version: \"0.0.0\"\nsdks:\n  dart: \">=3.6.0 <4.0.0\"\n"
+    );
+    let config = read_json(root.join(".dart_tool/package_config.json"));
+    let entries: Vec<(&str, &str, &str)> = config["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                p["name"].as_str().unwrap(),
+                p["rootUri"].as_str().unwrap(),
+                p["languageVersion"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            ("local", "../local", "3.0"),
+            ("pinned", "../pinned", "3.0"),
+            ("tool", "../tool", "3.0"),
+            ("ws_root", "../", "3.6"),
+            ("a", "../pkgs/a", "3.6"),
+            ("b", "../pkgs/b", "3.5"),
+        ]
+    );
+    for (package, expected) in [(&root, "../.."), (&a, "../../../.."), (&b, "../../../..")] {
+        let text =
+            std::fs::read_to_string(package.join(".dart_tool/pub/workspace_ref.json")).unwrap();
+        assert_eq!(
+            text,
+            format!("{{\n  \"workspaceRoot\": \"{expected}\"\n}}\n")
+        );
+    }
+    assert!(!a.join("pubspec.lock").exists());
+    assert!(!a.join(".dart_tool/package_config.json").exists());
+    assert!(!b.join("pubspec.lock").exists());
+}
+
+#[test]
+fn workspace_errors_follow_pub() {
+    let f = Fixture::new();
+    f.package("ws", WORKSPACE_ROOT);
+    f.package("ws/tool", "name: tool\nenvironment:\n  sdk: ^3.0.0\n");
+    f.package(
+        "ws/pkgs/a",
+        "name: a\nenvironment:\n  sdk: ^3.6.0\nresolution: workspace\ndependencies:\n  b: ^9.0.0\n",
+    );
+    f.package(
+        "ws/pkgs/b",
+        "name: b\nversion: 0.2.0\nenvironment:\n  sdk: ^3.5.0\nresolution: workspace\n",
+    );
+    let unlisted = f.package(
+        "ws/pkgs/c",
+        "name: c\nenvironment:\n  sdk: ^3.6.0\nresolution: workspace\n",
+    );
+    let error = super::workspace(&unlisted, "https://pub.dev").unwrap_err();
+    assert!(
+        error.contains("But it has resolution `workspace`.\nBut found no workspace root including it in parent directories."),
+        "{error}"
+    );
+    // A sibling constraint that the workspace package does not satisfy fails.
+    let workspace = super::workspace(&f.0.join("ws"), "https://pub.dev").unwrap();
+    let error = resolver(f.0.join("cache"))
+        .resolve_workspace(&workspace)
+        .unwrap_err();
+    assert!(error.contains("no compatible version for b"), "{error}");
+    let old = f.package(
+        "old",
+        "name: old\nenvironment:\n  sdk: ^3.4.0\nworkspace:\n  - member\n",
+    );
+    f.package(
+        "old/member",
+        "name: member\nenvironment:\n  sdk: ^3.6.0\nresolution: workspace\n",
+    );
+    let error = manifest::Manifest::read(&old, "https://pub.dev", true).unwrap_err();
+    assert!(
+        error.contains("`workspace` and `resolution` requires at least language version 3.5"),
+        "{error}"
+    );
+    let plain = f.package(
+        "plain",
+        "name: plain\nenvironment:\n  sdk: ^3.6.0\nworkspace:\n  - member\n",
+    );
+    f.package(
+        "plain/member",
+        "name: member\nenvironment:\n  sdk: ^3.6.0\n",
+    );
+    let error = super::workspace(&plain, "https://pub.dev").unwrap_err();
+    assert!(error.contains("lacks `resolution: workspace`"), "{error}");
+    for (name, extra) in [
+        ("glob", "workspace:\n  - pkgs/*\n"),
+        ("local", "resolution: local\n"),
+    ] {
+        let path = f.package(
+            name,
+            &format!("name: {name}\nenvironment:\n  sdk: ^3.6.0\n{extra}"),
+        );
+        assert!(manifest::Manifest::read(&path, "https://pub.dev", true).is_err());
+    }
+}
+
+fn get(args: &[&str]) -> Result<u8, super::Failure> {
+    let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+    super::run(&args)
+}
+
+#[test]
+fn example_is_resolved_unless_disabled_and_dry_run_writes_nothing() {
+    let f = Fixture::new();
+    let root = f.package("pkg", "name: pkg\nenvironment:\n  sdk: ^3.6.0\n");
+    f.package(
+        "pkg/example",
+        "name: pkg_example\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  pkg:\n    path: ..\n",
+    );
+    let directory = root.to_str().unwrap();
+    assert_eq!(
+        get(&["--offline", "--dry-run", "-C", directory]).ok(),
+        Some(0)
+    );
+    assert!(!root.join("pubspec.lock").exists());
+    assert!(!root.join("example/pubspec.lock").exists());
+    assert_eq!(
+        get(&["--offline", "--no-example", "--directory", directory]).ok(),
+        Some(0)
+    );
+    assert!(root.join("pubspec.lock").is_file());
+    assert!(!root.join("example/pubspec.lock").exists());
+    assert_eq!(
+        get(&["--offline", &format!("--directory={directory}")]).ok(),
+        Some(0)
+    );
+    // The values `dart pub get` 3.6.2 writes for the example.
+    let config = read_json(root.join("example/.dart_tool/package_config.json"));
+    assert_eq!(config["packages"][0]["name"], "pkg");
+    assert_eq!(config["packages"][0]["rootUri"], "../../");
+    assert_eq!(config["packages"][1]["rootUri"], "../");
+    let lock =
+        manifest::yaml_json(&std::fs::read_to_string(root.join("example/pubspec.lock")).unwrap())
+            .unwrap();
+    assert_eq!(
+        lock["packages"]["pkg"]["description"],
+        serde_json::json!({"path": "..", "relative": true})
+    );
+    assert_eq!(get(&["--precompile"]).err().map(|e| e.code), Some(1));
+    assert_eq!(get(&["--upgrade"]).err().map(|e| e.code), Some(64));
+}
+
+#[test]
+fn enforce_lockfile_fails_without_or_with_a_stale_lock() {
+    let f = Fixture::new();
+    let root = f.package("app", "name: app\nenvironment:\n  sdk: ^3.6.0\n");
+    f.package(
+        "dep",
+        "name: dep\nversion: 1.0.0\nenvironment:\n  sdk: ^3.6.0\n",
+    );
+    let directory = root.to_str().unwrap();
+    let error = get(&["--offline", "--enforce-lockfile", "-C", directory])
+        .err()
+        .unwrap();
+    assert_eq!(error.code, 1);
+    assert!(
+        error
+            .message
+            .contains("Cannot do `--enforce-lockfile` without an existing `pubspec.lock`.")
+    );
+    assert_eq!(get(&["--offline", "-C", directory]).ok(), Some(0));
+    // A lockfile written by `dart pub get` with the same content is kept as is.
+    let pub_lock = "# Generated by pub\n# See https://dart.dev/tools/pub/glossary#lockfile\npackages: {}\nsdks:\n  dart: \">=3.6.0 <4.0.0\"\n";
+    std::fs::write(root.join("pubspec.lock"), pub_lock).unwrap();
+    assert_eq!(
+        get(&["--offline", "--enforce-lockfile", "-C", directory]).ok(),
+        Some(0)
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("pubspec.lock")).unwrap(),
+        pub_lock
+    );
+    std::fs::write(
+        root.join("pubspec.yaml"),
+        "name: app\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  dep:\n    path: ../dep\n",
+    )
+    .unwrap();
+    let error = get(&["--offline", "--enforce-lockfile", "-C", directory])
+        .err()
+        .unwrap();
+    assert_eq!(error.code, 65);
+    assert!(
+        error
+            .message
+            .starts_with("Unable to satisfy `pubspec.yaml` using `pubspec.lock`.")
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("pubspec.lock")).unwrap(),
+        pub_lock
+    );
+    assert_eq!(get(&["--offline", "-C", directory]).ok(), Some(0));
+    assert_eq!(
+        get(&["--offline", "--enforce-lockfile", "-C", directory]).ok(),
+        Some(0)
+    );
+}
+
+fn git(repository: &std::path::Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=DartForge",
+            "-c",
+            "user.email=dartforge@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "init.defaultBranch=main",
+        ])
+        .args(args)
+        .current_dir(repository)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+fn commit(repository: &std::path::Path, files: &[(&str, &str)]) -> String {
+    for (path, text) in files {
+        let path = repository.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    git(repository, &["add", "-A"]);
+    git(repository, &["commit", "-q", "-m", "change"]);
+    git(repository, &["rev-parse", "HEAD"])
+}
+
+#[test]
+fn git_dependencies_resolve_commits_and_lay_out_the_cache_like_pub() {
+    let f = Fixture::new();
+    let repository = f.0.join("repos/dep_repo.git");
+    std::fs::create_dir_all(&repository).unwrap();
+    git(&repository, &["init", "-q"]);
+    let first = commit(
+        &repository,
+        &[
+            (
+                "pubspec.yaml",
+                "name: dep\nversion: 1.2.3\nenvironment:\n  sdk: ^3.0.0\n",
+            ),
+            (
+                "sub/pkg/pubspec.yaml",
+                "name: inner\nversion: 0.1.0\nenvironment:\n  sdk: ^3.0.0\n",
+            ),
+        ],
+    );
+    let url = repository.to_str().unwrap().to_owned();
+    let root = f.package(
+        "app",
+        &format!(
+            "name: app\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  dep:\n    git: {url}\n  inner:\n    git:\n      url: {url}\n      path: ./sub//pkg\n      ref: main\n"
+        ),
+    );
+    let cache = f.0.join("cache");
+    let resolve = |locked: bool| {
+        let mut r = resolver::Resolver::new(
+            hosted::Hosted::new(cache.clone(), false, "https://pub.dev".into()),
+            semver::Version::new(3, 6, 2),
+            if locked {
+                output::read_lock(&root, "https://pub.dev").unwrap()
+            } else {
+                BTreeMap::new()
+            },
+        );
+        r.locked_digests = output::read_lock_digests(&root).unwrap();
+        let m = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap();
+        let selected = r.resolve(&m, &root).unwrap();
+        for value in selected.values() {
+            if let manifest::Source::Git { url, path, .. } = &value.source {
+                r.git
+                    .materialize(url, path, value.candidate.digest.as_deref().unwrap())
+                    .unwrap();
+            }
+        }
+        output::write(&root, &m, &selected, &r.sdk).unwrap();
+        selected
+    };
+    let selected = resolve(false);
+    assert_eq!(
+        selected["dep"].candidate.digest.as_deref(),
+        Some(first.as_str())
+    );
+    let lock =
+        manifest::yaml_json(&std::fs::read_to_string(root.join("pubspec.lock")).unwrap()).unwrap();
+    // The fields and values `dart pub get` 3.6.2 writes for the same layout.
+    assert_eq!(
+        lock["packages"]["dep"],
+        serde_json::json!({
+            "dependency": "direct main",
+            "description": {"path": ".", "ref": "HEAD", "resolved-ref": first, "url": url},
+            "source": "git",
+            "version": "1.2.3",
+        })
+    );
+    assert_eq!(lock["packages"]["inner"]["description"]["path"], "sub/pkg");
+    assert_eq!(lock["packages"]["inner"]["description"]["ref"], "main");
+    let checkout = cache.join(format!("git/dep_repo-{first}"));
+    assert!(checkout.join("sub/pkg/pubspec.yaml").is_file());
+    let packages = std::fs::read_to_string(checkout.join(".git/pub-packages")).unwrap();
+    assert_eq!(packages.split('\n').collect::<Vec<_>>(), [".", "sub/pkg"]);
+    assert!(cache.join("git/cache").read_dir().unwrap().count() == 1);
+    let config = read_json(root.join(".dart_tool/package_config.json"));
+    let uri = |name: &str| {
+        config["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == name)
+            .unwrap()["rootUri"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let base = url::Url::from_file_path(&checkout).unwrap().to_string();
+    assert_eq!(uri("dep"), format!("{base}/"));
+    assert_eq!(uri("inner"), format!("{base}/sub/pkg"));
+
+    // A new commit is not taken while the lockfile pins the old one.
+    let second = commit(
+        &repository,
+        &[(
+            "pubspec.yaml",
+            "name: dep\nversion: 1.3.0\nenvironment:\n  sdk: ^3.0.0\n",
+        )],
+    );
+    assert_eq!(
+        resolve(true)["dep"].candidate.digest.as_deref(),
+        Some(first.as_str())
+    );
+    let selected = resolve(false);
+    assert_eq!(
+        selected["dep"].candidate.digest.as_deref(),
+        Some(second.as_str())
+    );
+    assert_eq!(
+        selected["dep"].candidate.manifest.version.to_string(),
+        "1.3.0"
+    );
+
+    // Offline resolution cannot clone a repository that is not cached.
+    let mut offline = resolver::Resolver::new(
+        hosted::Hosted::new(f.0.join("empty-cache"), true, "https://pub.dev".into()),
+        semver::Version::new(3, 6, 2),
+        BTreeMap::new(),
+    );
+    let m = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap();
+    assert!(offline.resolve(&m, &root).unwrap_err().contains("offline"));
+}
+
+#[test]
+fn git_descriptions_are_validated_like_pub() {
+    let f = Fixture::new();
+    for (description, message) in [
+        ("git: relative/repo", "relative git repository paths"),
+        (
+            "git:\n      url: https://h/r\n      tag_pattern: v{{version}}",
+            "\"tag_pattern\"",
+        ),
+        (
+            "git:\n      url: https://h/r\n      path: ../out",
+            "inside the repository",
+        ),
+        ("git:\n      ref: main", "requires a url"),
+        (
+            "git: https://h/r\n    hosted: x",
+            "unsupported git dependency fields",
+        ),
+    ] {
+        let root = f.package(
+            "app",
+            &format!(
+                "name: app\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  dep:\n    {description}\n"
+            ),
+        );
+        let error = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap_err();
+        assert!(error.contains(message), "{description}: {error}");
+    }
+    let root = f.package(
+        "app",
+        "name: app\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  a:\n    git: git@github.com:org/a.git\n  b:\n    git: https://github.com/org/b\n    version: ^1.0.0\n",
+    );
+    let m = manifest::Manifest::read(&root, "https://pub.dev", true).unwrap();
+    assert_eq!(
+        m.dependencies["a"].source,
+        manifest::Source::Git {
+            url: "git@github.com:org/a.git".into(),
+            reference: "HEAD".into(),
+            path: ".".into(),
+        }
+    );
+    assert_eq!(m.dependencies["b"].constraint.text, "^1.0.0");
+}
+
+#[test]
+fn stale_locked_paths_from_other_systems_are_ignored() {
+    let f = Fixture::new();
+    let root = f.package(
+        "app",
+        "name: app\nenvironment:\n  sdk: ^3.6.0\ndependencies:\n  dep:\n    path: ../dep\n",
+    );
+    f.package(
+        "dep",
+        "name: dep\nversion: 1.0.0\nenvironment:\n  sdk: ^3.6.0\n",
+    );
+    std::fs::write(
+        root.join("pubspec.lock"),
+        "packages:\n  dep:\n    dependency: \"direct main\"\n    description:\n      path: \"C:\\\\Projects\\\\dep\"\n      relative: false\n    source: path\n    version: \"1.0.0\"\nsdks:\n  dart: \">=3.6.0 <4.0.0\"\n",
+    )
+    .unwrap();
+    assert_eq!(
+        get(&["--offline", "-C", root.to_str().unwrap()]).ok(),
+        Some(0)
+    );
+    let lock =
+        manifest::yaml_json(&std::fs::read_to_string(root.join("pubspec.lock")).unwrap()).unwrap();
+    assert_eq!(lock["packages"]["dep"]["description"]["path"], "../dep");
 }

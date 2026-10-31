@@ -37,21 +37,28 @@ impl Constraint {
             result.upper = Some((upper, false));
             return Ok(result);
         }
-        let words = text.split_whitespace().collect::<Vec<_>>();
+        // Like pub_semver, an operator is followed by a greedily read version,
+        // with or without spaces in between: `>=2.0.0-dev<3.0.0` is valid.
         let mut parts = Vec::new();
-        let mut index = 0;
-        while index < words.len() {
-            let word = words[index];
-            if [">=", "<=", ">", "<", "="].contains(&word) {
-                index += 1;
-                let number = words
-                    .get(index)
-                    .ok_or_else(|| format!("missing version after {word}"))?;
-                parts.push(format!("{word}{number}"));
-            } else {
-                parts.push(word.to_string());
+        let mut rest = text;
+        loop {
+            rest = rest.trim_start();
+            if rest.is_empty() {
+                break;
             }
-            index += 1;
+            let operator = [">=", "<=", ">", "<", "="]
+                .into_iter()
+                .find(|op| rest.starts_with(op))
+                .unwrap_or("");
+            rest = rest[operator.len()..].trim_start();
+            let end = rest
+                .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+')))
+                .unwrap_or(rest.len());
+            if end == 0 {
+                return Err(format!("missing version after {operator:?} in {text}"));
+            }
+            parts.push(format!("{operator}{}", &rest[..end]));
+            rest = &rest[end..];
         }
         for part in &parts {
             let (operator, number) = [">=", "<=", ">", "<", "="]

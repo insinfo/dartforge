@@ -138,6 +138,8 @@ impl Hosted {
                                 dependencies: std::collections::BTreeMap::new(),
                                 dev: std::collections::BTreeMap::new(),
                                 overrides: std::collections::BTreeMap::new(),
+                                workspace: Vec::new(),
+                                member: false,
                             },
                             Some(error),
                         )

@@ -96,16 +96,14 @@ fn main() -> ExitCode {
     }
     if args.first().is_some_and(|a| a == "pub") {
         if args.get(1).is_none_or(|a| a != "get") {
-            eprintln!(
-                "error: usage: dartforge pub get [--offline] [--directory <dir>] [--sdk <lib>] [--sdk-version <version>]"
-            );
+            eprintln!("error: {}", pub_get::USAGE);
             return ExitCode::from(64);
         }
         return match pub_get::run(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
+            Ok(code) => ExitCode::from(code),
             Err(error) => {
-                eprintln!("error: {error}");
-                ExitCode::FAILURE
+                eprintln!("error: {}", error.message);
+                ExitCode::from(error.code)
             }
         };
     }
