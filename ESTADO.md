@@ -10,8 +10,8 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 
 | Ferramenta | Velocidade | Tamanho e memória | Data |
 |---|---|---|---|
-| **JS dev** × DDC/webdev | compilar 1 arquivo: **7,6× mais rápido** (19 × 150 ms). Edição até a página, `limitless_ui`: corpo **1,7 × 3,7 s**, API **5,5 × 18 s**, template **3,1 × 2,2 s (perde)**. Início do zero: **166,6 × 114,4 s (perde**: precisa do `build_runner`). Código gerado ≈ igual ao DDC (`closures` 1,65×) | memória **0,5 × 3,9 GB**; JS em gzip **4,4 × 5,4 MB** (bruto 56 × 49 MB) | 31/10 (código gerado: 13/10) |
-| **JS produção** × `dart2js -O4` | ganha em `list_sort` (0,84×) e `collections/map` (0,79×); empata em `map_iterate` e `closures`; **perde** em `collatz` 1,51×, `Set<int>` 1,35×, `jsonEncode` 1,2–1,4×, `list_methods` 1,24×, `map_str_int` 1,20×. Compila **2–2,8× mais rápido** (-O2) | projetos grandes **0,90–0,94×** bruto, **0,96×** gzip; programas pequenos 0,96× bruto, mas **1,009× no gzip (perde)** | 31/10 |
+| **JS dev** × DDC/webdev | compilar 1 arquivo: **7,6× mais rápido** (19 × 150 ms). Início do zero, sem `build_runner`: **29,6 × 212,5 s** (`limitless_ui`) e **56,1 × 383,3 s** (`new_sali`). Edição até a página, `limitless_ui`: template **3,3 × 7,6 s**, corpo **2,4 × 8,1 s**, API **8,8 × 51,8 s** (máquina carregada: valem as razões). Código gerado ≈ igual ao DDC (`closures` 1,65×, 13/10) | memória **0,5 × 4,9 GB**; JS em gzip **4,4 × 5,4 MB** (bruto 56 × 49 MB) | 31/10 noite |
+| **JS produção** × `dart2js -O4` | ganha em `Set<int>` (9,7 × 15,3 ms), `list_sort` (0,84×) e `collections/map` (0,79×); empata em `collatz` (139 × 136 ms), `list_methods` (37 × 38 ms), `map_iterate` e `closures`; **perde** em `jsonEncode` 1,1–1,4×, `async_await` 1,5× (agora comparado), `map_str_int` 1,20×. Compila **2–2,8× mais rápido** (-O2) | projetos grandes **0,90–0,94×** bruto, **0,96×** gzip; programas pequenos 0,96× bruto, mas **1,003× no gzip (perde)** | 31/10 noite |
 | **LSP** × servidor de análise | por tecla em projeto grande: 175–383 ms. *Hover*/*completion* ~0,9 s no `new_sali/frontend`. O servidor oficial **não foi medido** nos mesmos projetos. Pedido a pedido (13/10): *references* 2,5 × 3,1 ms, *completion* 8,8 × 6,0 ms | **27–664 MiB × 737–1.402 MiB** (`new_sali`) | 31/10 e 13/10 |
 | **`analyze`** × `dart analyze` | `new_sali/backend`: ~5 s × 21,7 s frio (2,6 s com cache); `format`: **0,42 × 1,55 s** | — | 13–14/10 |
 | **`test`** / **`pub`** × `dart test` / `dart pub` | **não medido** | — | — |
@@ -35,8 +35,8 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 |---|---|
 | Wasm: tamanho do módulo e velocidade em alocação, JSON e strings | agente wasm |
 | `analyze`: falsos positivos do verificador de tipos (107 → 20) | concluído em 31/10; os 12 do *parser* (`augment`) ficam para o *parser* |
-| JS dev: subir de um checkout limpo sem `build_runner` e ganhar do webdev; edição de template abaixo de 2,2 s | agente JS dev |
-| JS produção: `collatz`, `Set<int>`, `jsonEncode`, `list_methods`, `map_str_int` no máximo iguais ao `dart2js -O4`; gzip dos programas pequenos abaixo dele; `async_await` comparado | agente JS produção (desde 31/10, 16h) |
+| JS dev: subir de um checkout limpo sem `build_runner`; edição de template | concluído em 31/10 (29,6 × 212,5 s; template 3,3 × 7,6 s) |
+| JS produção: `jsonEncode`, `async_await` e `map_str_int` no máximo iguais ao `dart2js -O4`; gzip dos programas pequenos abaixo dele (`collatz`, `Set<int>` e `list_methods` já resolvidos) | agente JS produção (desde 31/10, 16h) |
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
 | Backend nativo (AOT e wasm): as 87 falhas da suíte `tests/language` | agente backend nativo |
 | AOT nativo: tempo de compilação (6× o `dart compile exe`) e tamanho de programa grande (1,4×) | agente AOT (desde 31/10, 17h) |
@@ -104,6 +104,76 @@ os quadros da pilha nativa.
 `publish`/`token`/`login`, `--precompile`; no `test`, o protocolo JSON do package:test,
 os relatores `compact`/`github`, plataformas de navegador/node, coverage, watch e
 seleção por linha.
+
+## 31/10/2026, noite: `serve` sem `build_runner`, edição de template e formas de produção
+
+Detalhes em `docs/DEV-VS-DDC.md` (rodada da tarde) e
+`docs/JS-PRODUCAO-VELOCIDADE.md` §12. Commits `4713b145` (desenvolvimento)
+e `4e4f74bb` (produção). Validado localmente no macOS: corpus JS 277/277 em
+desenvolvimento e em `-O2`, 260/260 em `-O3`, 256/256 em `-O4` (os
+excluídos de `production_levels.tsv`); testes de `emit_js` e
+`emit_js_production` com os ignorados (182, 0 falhas); testes de `build` e
+`dev` com os ignorados (o `corpus_builders_through_the_native_executor`
+precisa de um compilador com `--features native`, pré-requisito do
+ambiente); `clippy -D warnings`; `rustfmt`; `tests/language` 2756/2863,
+sem regressões contra a v12.
+
+**Desenvolvimento.**
+- O `dartforge serve`/`dev` **sobe num checkout limpo, sem
+  `build_runner`** nem a VM: o motor nativo já gerava tudo (no
+  `limitless_ui`, 636 ações nativas em 2,5 s), mas a entrada relativa
+  (`serve web/main.dart`) dava raiz de pacote vazia e o carregador não
+  achava os `.template.dart` recém-gerados. `package_root` e a sessão
+  trabalham com caminhos absolutos.
+- Depois de qualquer edição de API, toda edição do `limitless_ui` refazia
+  o estágio A do ngdart de um pacote inteiro: o `example` mora dentro do
+  diretório do `limitless_ui` e as bibliotecas dele contavam como do
+  pacote de fora. "Do pacote" agora é `lib/`, `web/` ou `test/`; o
+  estágio B por `.dart` aceita uma biblioteca editada de outro pacote; o
+  índice do ngdart dos pacotes editáveis nasce com a primeira rodada. Na
+  sessão (relatório `total`, máquina carregada): corpo 0,85–2,1 →
+  0,23–0,56 s; API 3,3–5,5 → 1,4–3,5 s; template 0,57–1,0 → 0,33–0,62 s.
+- Servidor com *keep-alive* e `ETag` (`304` para o módulo que não mudou)
+  em vez de `no-store` + `Connection: close`.
+
+Contra o webdev (`scripts/compare-dev-ddc.mjs`; máquina **muito**
+carregada por outros agentes, carga 70–210: parede 2–4× a da manhã nas
+duas ferramentas, compare as razões e a CPU):
+
+| medida | DartForge | webdev |
+| --- | ---: | ---: |
+| `limitless_ui`, checkout limpo → primeira página | **29,6 s** (CPU 5,8 s, 0,52 GB) | 212,5 s (CPU 147,7 s, 4,94 GB) |
+| `new_sali`, checkout limpo → primeira página | **56,1 s** (CPU 9,4 s, 0,98 GB) | 383,3 s (CPU 210,9 s, 6,78 GB) |
+| `limitless_ui`, edição de corpo → código novo | **2,39 s** (CPU 0,71) | 8,13 s (CPU 3,99) |
+| `limitless_ui`, edição de API → código novo | **8,75 s** (CPU 2,48) | 51,75 s (CPU 47,90) |
+| `limitless_ui`, edição de template → código novo | **3,31 s** (CPU 0,88) | 7,63 s (CPU 2,82) |
+
+De manhã, sem essa carga, o template era 3,06 s nosso contra 2,16 s do
+webdev; o início do zero, 166,6 s (`build_runner` + `serve`) contra
+114,4 s. O início morno empatou em CPU (5,9 × 8,2 s; 9,4 × 9,6 s): o
+nosso refaz a compilação a cada processo.
+
+**Produção** (trabalho passado no meio da rodada ao agente de produção;
+medição parcial na §12): `IdentitySet` em células
+(`DARTFORGE_JSPROD_IDENTITY_SET_CELLS`; `Set<int>` 23,4 → 9,7 ms contra
+15,3 do `dart2js -O4`), locais nunca negativos para `x >> k` e `x % k`
+(`DARTFORGE_JSPROD_NONNEGATIVE_SHIFTS`; `collatz` 208 → 139 ms contra 136),
+`==` de primitivo sem despacho (`DARTFORGE_JSPROD_EQUALS_PRIMITIVES`;
+`list_methods` 47,0 → 37,1 contra 38,4), as *closures* do `await` uma vez
+por invocação (`DARTFORGE_JSPROD_AWAIT_CALLBACKS`), `List.filled` curto
+por laço (`DARTFORGE_JSPROD_SHORT_FILL`) e toda receita fechada de função
+no prelúdio (`DARTFORGE_JSPROD_SINGLE_RECIPES`); estas três medidas só à
+mão. O `async_await` entrou no `scripts/compare-js-production.py`: o
+prelúdio dá ao `dart2js` um `self` com `scheduleImmediate` por *promise*
+(o primitivo do nosso runtime); antes o agendador dele lançava e nada era
+impresso. Fica 1,5× do `dart2js`; o JSON a codificar, 1,1–1,4×; o gzip dos
+programas pequenos, 1,003× (16 programas) / 1,011× (os 15 de antes).
+
+**Próximos passos (desenvolvimento):** o primeiro carregamento antes do
+estágio e a recarga das unidades geradas (0,1–0,3 s numa edição de
+template); a edição de corpo do `new_sali`, que regenera o fecho de quem
+importa o *barrel* (216 arquivos, ~1 s), poderia cortar pelo hash de API
+mais o texto inteiro das anotações.
 
 ## 31/10/2026: verificador de tipos contra o `dart analyze`, `compareTo` do SDK e CI do macOS
 

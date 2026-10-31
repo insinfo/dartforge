@@ -341,3 +341,169 @@ de CPU e espera o resto (motor de build, escrita e recarga).
 2. **Edição de template no `limitless_ui`** (3,1 s de parede para ~1 s de
    CPU): medir onde a sessão espera.
 3. Os itens 2, 3, 5 e 6 da lista de 13/10 continuam.
+
+## Rodada de 2026-10-31, tarde: checkout limpo sem `build_runner` e edição de template
+
+Mesma máquina e mesmo script da rodada da manhã. Cópias novas dos dois
+projetos para o DartForge, **sem** `.dart_tool/build`, `.dart_tool/dartforge`
+nem saída anterior (`rsync` da cópia `ours` da manhã excluindo só isso; o
+`package_config.json` é o mesmo); o webdev continua nas cópias `ddc` da
+manhã. Resultados brutos no *scratchpad* da sessão.
+
+### 1. Por que o `serve` não subia num checkout limpo
+
+Não era falta de gerador: o motor nativo gera tudo o que a sessão lê (no
+`limitless_ui`, 643 ações, 636 nativas, 586 unidades do ngdart em 2,5 s;
+no `new_sali`, 977 ações em 4,3 s). O defeito era o caminho **relativo**:
+`dartforge serve web/main.dart` (como o script e o desenvolvedor chamam)
+dava `package_root("web/main.dart")` = `""` — o `pubspec.yaml` era achado
+no diretório atual, mas a raiz do pacote virava o caminho vazio, o motor
+montava as chaves das saídas com ela e o carregador, que trabalha com os
+caminhos absolutos do `package_config.json`, não achava o
+`app_component.template.dart` que acabara de ser gerado. Com o caminho
+absoluto a mesma sessão subia; com os gerados do `build_runner` no disco o
+*fallback* escondia o problema.
+
+Correções:
+* `dartforge_build::package_root` torna o caminho absoluto antes de subir
+  (teste `package_root_of_a_relative_input_is_absolute`);
+* `Session::new` (crate `dev`) trabalha com a entrada e o
+  `--packages` absolutos.
+
+Ficam 7 saídas do `ngx_dart` sem produtor no `limitless_ui` (as que o
+gerador não escreve; nenhuma é lida pela compilação) e, no `new_sali`, 7
+*templates* que o gerador nativo recusa (`[(x)]` no filho, `ngModel` sem
+diretiva, injeção não resolvida, `@ViewChild(Type)`), de componentes que o
+programa não carrega. Os 5 "pendentes" do Sass do `limitless_ui` são
+*partials* (`web/themes/_*.scss`), que o `sass_builder` também não compila.
+
+### 2. Onde a edição de template esperava
+
+Medido dentro da sessão (`DARTFORGE_ENGINE_TIMES=1`, `dartforge dev`, as
+mesmas edições do script: corpo, API, template, nessa ordem):
+
+* depois de uma edição de API, **toda** edição seguinte do `limitless_ui`
+  refazia o estágio A (o pacote inteiro) do ngdart. O `example` mora
+  **dentro** do diretório do pacote `limitless_ui`, e o teste "a
+  biblioteca é do pacote?" era `caminho.starts_with(raiz)`: as bibliotecas
+  do `example` contavam como do `limitless_ui`. A rodada do `limitless_ui`
+  registrava consultas sobre os arquivos do `example`, e o estágio B dele
+  (só o fecho de quem importa o arquivo editado) desistia porque o fecho
+  tinha arquivos sem *template* dele — estágio A do pacote, 0,5–1,3 s;
+* uma edição de API do `limitless_ui` levava o `example` ao estágio A
+  (193 arquivos, 1,2 s) e jogava fora o índice do ngdart, que a edição de
+  template seguinte reconstruía (0,5 s);
+* com os gerados do `build_runner` no disco, 8–10 ações por edição liam o
+  *fallback* (da medição da manhã: motor 1,2 s numa edição de template).
+
+Correções (`crates/build/src/natives/ng.rs`):
+* "do pacote" passa a ser "em `lib/`, `web/` ou `test/` do pacote"
+  (`in_package_dirs`), nas consultas do estágio A e nos dois atalhos do
+  estágio B;
+* o estágio B por `.dart` aceita uma biblioteca editada **de outro
+  pacote**: regenera os arquivos deste pacote que a alcançam por
+  `import`/`export` e mantém o índice; a consulta registrada para ela é o
+  `LibrarySource` que o estágio A já fazia (com o resumo novo), só quando
+  o pacote a alcança;
+* o índice do estágio B nasce com a primeira rodada nos pacotes que o
+  desenvolvedor edita (a raiz e as dependências `path`; não os `hosted`):
+  a primeira edição da sessão não paga os ~0,5 s de construí-lo.
+
+Antes → depois, mediana de 3 rodadas, relatório da sessão (`total`), no
+checkout limpo:
+
+| edição (`limitless_ui`) | antes | depois |
+| --- | ---: | ---: |
+| corpo | 0,85–2,1 s (366 ações, 215 unidades) | **0,23–0,56 s** (128 ações, 2 unidades) |
+| API pública | 3,3–5,5 s (283 unidades) | **1,4–3,5 s** (63 unidades) |
+| template | 0,57–1,0 s (índice reconstruído) | **0,33–0,62 s** (1 unidade) |
+
+### 3. O servidor
+
+Cada resposta saía com `Cache-Control: no-store` e `Connection: close`:
+cada recarga baixava de novo os 447–586 módulos (56–104 MB) em conexões
+novas e o V8 recompilava tudo. Agora (`crates/dev/src/server.rs`):
+HTTP/1.1 com *keep-alive* (uma *thread* por conexão até 30 s ociosa), e
+`ETag` forte (hash do conteúdo, `blake3`) com `Cache-Control: no-cache`: a
+recarga revalida cada módulo e o que não mudou volta como `304` sem corpo,
+com o *code cache* do V8. `HEAD` não manda corpo. Teste:
+`server::tests::keep_alive_and_revalidation`.
+
+### 4. Contra o webdev (`scripts/compare-dev-ddc.mjs`, *tag* `pm`)
+
+A máquina estava **muito** carregada por outros agentes durante toda a
+medição (carga de 1 min entre 70 e 210, anotada em cada linha bruta):
+os tempos de parede saíram 2–4× os da manhã nas duas ferramentas; a CPU
+por edição e as razões são o que se compara. Binário do DartForge: o da
+árvore do `4e4f74bb`; o DartForge sem VM e sem `build_runner`
+(`DARTFORGE_BUILD_DART` ausente).
+
+**Início** (mediana de 2; "frio" = checkout limpo, sem `.dart_tool/build`
+nem saída anterior; "sem cache" = também sem o cache do SDK; o webdev frio
+apaga `.dart_tool/build`; "morno" = saída anterior / `.dart_tool/build` no
+disco):
+
+| projeto | caminho | pronto para servir | primeira página | CPU | pico | carga |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `limitless_ui` | DartForge frio | **19,5 s** [17,4 21,5] | **29,6 s** | 5,8 s | 0,52 GB | 144 |
+| | DartForge sem cache | 19,1 s | 29,5 s | 5,9 s | 0,52 GB | 152 |
+| | webdev frio | 209,5 s [179,0 240,0] | 212,5 s | 147,7 s | 4,94 GB | 112 |
+| | DartForge morno | 17,0 s | 18,0 s | 5,9 s | 0,52 GB | 113 |
+| | webdev morno | 14,7 s | 18,2 s | 8,2 s | 0,69 GB | 108 |
+| `new_sali` | DartForge frio | **41,3 s** [39,7 42,9] | **56,1 s** | 9,4 s | 0,98 GB | 160 |
+| | DartForge sem cache | 38,6 s | 52,8 s | 9,5 s | 0,97 GB | 138 |
+| | webdev frio | 376,8 s [322,9 430,7] | 383,3 s | 210,9 s | 6,78 GB | 137 |
+| | DartForge morno | 35,9 s | 37,7 s | 9,4 s | 1,04 GB | 75 |
+| | webdev morno | 22,9 s | 27,5 s | 9,6 s | 0,78 GB | 82 |
+
+Do checkout limpo o DartForge chega à primeira página **7× antes** que o
+webdev (`limitless_ui`: 29,6 × 212,5 s; `new_sali`: 56,1 × 383,3 s) com
+**25× menos CPU** (5,8 × 147,7 s; 9,4 × 210,9 s) e um décimo da memória,
+sem `build_runner` nem VM. Na manhã, sem carga, o caminho do DartForge
+num checkout limpo era `build_runner build` + `serve` (166,6 s contra
+114,4 s do webdev). O início morno ficou empatado em CPU (5,9 × 8,2 s;
+9,4 × 9,6 s); na parede, sob esta carga, o webdev morno chegou antes no
+`new_sali` — o nosso refaz a compilação inteira a cada início (não há
+estado salvo entre processos por padrão), o dele reaproveita o
+`.dart_tool/build`.
+
+**Edição → código novo na página**, `limitless_ui`, 3 rodadas, mediana
+[valores]:
+
+| edição | DartForge | CPU | webdev | CPU | carga |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| corpo | **2,39 s** [2,66 2,39 2,16] | 0,71 s | 8,13 s [37,52 7,48 8,13] | 3,99 s | 153–164 |
+| API pública | **8,75 s** [7,85 9,03 8,75] | 2,48 s | 51,75 s [58,61 50,44 51,75] | 47,90 s | 142–151 |
+| template | **3,31 s** [3,12 3,41 3,31] | 0,88 s | 7,63 s [7,54 8,48 7,63] | 2,82 s | 92–99 |
+
+A edição de template, a única que o webdev ganhava de manhã (2,16 × 3,06 s
+sem carga), agora é 2,3× mais rápida no nosso na parede e 3,2× em CPU
+(0,88 × 2,82 s); corpo 3,4× (CPU 5,6×) e API 5,9× (CPU 19×). Memória ao
+fim: 0,38 GB (pico 0,51) num processo contra 4,02 GB (pico 5,13) em 19.
+
+`new_sali`, uma rodada (cada edição do webdev levou de 1 a 3 minutos de
+*build* sob esta carga e a medição foi cortada):
+
+| edição | DartForge | CPU | webdev | CPU | carga |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| corpo | **9,07 s** (*build* 7,5 s) | 2,66 s | nunca (*build* 177,6 s; recarga em `/login` → 404) | 97,4 s | 54 |
+| API pública | **9,13 s** (*build* 7,3 s) | 3,26 s | nunca (*build* 77,4 s) | 44,3 s | 41–72 |
+| template | **4,05 s** (*build* 3,2 s) | 1,58 s | nunca (*build* 52,8 s) | 31,0 s | 45–47 |
+
+O webdev continua sem mostrar o código novo no `new_sali` (a recarga cai
+em `/login`, 404). No nosso, a parede ficou ~3× a CPU: a edição de corpo
+regenera o fecho de quem importa o *barrel* (216 arquivos) e, sob esta
+carga, a espera domina; de manhã, com carga 7–19, foi 2,98 s.
+
+### 5. O que continua
+
+1. A edição de corpo do `new_sali`: o fecho do estágio B é todo o
+   projeto (o *barrel*); cortar pelo hash de API **mais o texto inteiro
+   das anotações** da biblioteca editada (o `LibraryApi` de hoje só olha
+   a primeira linha de cada anotação, o que não basta para um seletor em
+   outra linha).
+2. O primeiro carregamento antes do estágio e a recarga das unidades
+   geradas (0,1–0,3 s numa edição de template): o programa da compilação
+   anterior poderia servir de `Resolver` quando nenhum `.dart` mudou.
+3. O início morno: o estado do motor e das unidades entre processos
+   (`DARTFORGE_BUILD_STATE` já existe só para o motor).

@@ -863,3 +863,113 @@ tamanho da §11.3).
 * **Tamanho**: o gzip dos programas pequenos de `bench/` passou do
   `dart2js` (1,009×): o piso do runtime e o `convert` (o `json` sozinho é
   1,12×); os projetos e o corpus continuam abaixo.
+
+## 12. Quinta rodada: `Set<int>` em células, faixa local, `==` de primitivo e o `async_await`
+
+Rodada de 2026-10-31, tarde (macOS, Node 24.21). Mesmo método da §11
+(`scripts/compare-js-production.py`: tempo de CPU da *thread* principal,
+mediana das rodadas sem a primeira, mediana das execuções alternadas). A
+máquina continuou compartilhada e os tempos bimodais (núcleos de eficiência
+e de desempenho do M4): uma linha isolada varia até ~1,5×; as conclusões
+abaixo vêm de execuções repetidas e alternadas.
+
+### 12.1 O `async_await` entra na comparação
+
+O `dart2js` agenda as microtarefas por `self` (`self.scheduleImmediate`,
+depois o `MutationObserver` do DOM, depois `self.setImmediate`, depois um
+*timer*). O Node não tem `self`: o primeiro `await` lança dentro do
+agendador (um `ReferenceError` que some no `Future` do `main`) e o programa
+não imprime nada — por isso a §11 o deixou de fora. O prelúdio do script
+agora define `self` como um objeto sobre o global, com `scheduleImmediate`
+igual a uma reação de *promise* — a mesma microtarefa que o runtime do DDC
+usa (`_scheduleImmediateWithPromise`) —, e `async_await` entrou na lista
+de programas. O nosso lê o objeto global (`window`), que não tem
+`scheduleImmediate`, e segue pelo próprio caminho: os dois esperam pelo
+mesmo primitivo. Os outros programas não usam `self`: a saída deles não
+muda (a do `fresh_list_append` já diferia do `dart2js` antes, como na
+§11).
+
+### 12.2 O que mudou
+
+Todas as formas valem só na produção, nos quatro níveis; cada uma tem a
+sua chave (`=0` desliga). Programa de teste:
+`emit_js/tests/programs/production_forms.dart` (seções novas
+`identitySets`, `untypedEquality`, `shifts` e `asyncs`), contra a VM em
+`-O1` a `-O4`, com as chaves ligadas e desligadas
+(`emit_js_production/tests/production_forms.rs`).
+
+| mudança | onde | chave |
+| --- | --- | --- |
+| o `IdentitySet` (todo `Set<int>`/`Set<String>` e os conjuntos `identity`) guarda os elementos em células `{k, n, p}` encadeadas na ordem de inserção; um inteiro `k` com `(k & 0x3fffffff) === k` é achado num objeto sem protótipo (leitura de elemento, como o `LinkedHashSet` do `dart2js`), o resto num `Map`; iterador próprio sobre as células, com a checagem de modificação antes de cada passo. A igualdade continua a do `Set` do JavaScript (`NaN` achado de novo, `-0` guardado como `0`) | remendo de `identity_hash_set.dart` (`emit_js/src/sdk_patches.rs`) | `DARTFORGE_JSPROD_IDENTITY_SET_CELLS` |
+| locais nunca negativos (`emit_js/src/nonnegative.rs`): num corpo de função sem *closures*, padrões, `switch` nem `try`, um local declarado uma vez cujas atribuições são todas literais não negativos, outros desses locais, `+`, `*`, `~/`, e, com dividendo assim, `%`, deslocamento por literal e `& k`. Para eles `x >> k` vira `x >>> k` (os dois ramos de `JSNumber.>>`) e `x % k` vira o resto do JavaScript, sem `(x % k + k) % k` | `emit_js/src/nonnegative.rs`, `expr.rs` | `DARTFORGE_JSPROD_NONNEGATIVE_SHIFTS` |
+| `dart.equals(x, y)` (o `==` de um receptor de tipo estático sem informação: `E` em `List.contains`/`indexOf`, `Map.containsValue`, `dynamic`) com `x` número, *string* ou `bool` responde `x === y` — o `==` de `Object` que `JSNumber`, `JSString` e `JSBool` mantêm — sem ler `_equals` no protótipo e chamá-lo | remendo de `operations.dart` | `DARTFORGE_JSPROD_EQUALS_PRIMITIVES` |
+| as duas *closures* de um `await` (`_awaitOnObject`) dependem só do corpo da invocação `async`: nascem no primeiro `await` e ficam no próprio corpo, em vez de duas *closures* (com rti) por `await` | remendo de `async_patch.dart` | `DARTFORGE_JSPROD_AWAIT_CALLBACKS` |
+
+Medidos e descartados:
+
+* `String` no objeto sem protótipo do `IdentitySet` (como o `IdentityMap`
+  faz): `collections/set_str` ficou 1,7× mais lento (22,9 contra 13,7 ms;
+  uma *string* montada em tempo de execução precisa ser internalizada para
+  virar chave de propriedade, e o `Map` só a resume uma vez). As *strings*
+  ficam no `Map`.
+* Forçar o achatamento da *string* do `StringBuffer` (`%FlattenString`) no
+  `jsonEncode`: nenhuma diferença.
+* Variáveis por receita (`(t$k ??= t$R("…"))`): o arquivo sem minificar
+  ganha 35% no `async_await`, mas a partir do `-O2` as receitas fechadas já
+  são avaliadas uma vez no prelúdio (`v(\`|n\`)`): nada a ganhar no que se
+  mede.
+* Tirar a checagem `immutable$list` das escritas do `List.filled` do
+  `writeMap`: nenhuma diferença medida.
+
+Duas formas a mais, sem medição completa nesta rodada (o trabalho de
+produção passou a outro agente no meio dela; ver §12.4):
+
+| mudança | onde | chave |
+| --- | --- | --- |
+| `List.filled` de até 63 elementos preenche por laço JavaScript em vez do `fill` (o `writeMap` de todo objeto JSON aloca um): à mão no arquivo `-O4`, `json_encode/ascii_json` 35,8 → 29,8 µs/op (`dart2js` 27,5) | remendo de `core_patch.dart` | `DARTFORGE_JSPROD_SHORT_FILL` |
+| toda receita fechada de dentro de função vira variável do prelúdio, não só as repetidas (o `is Map` do `writeJsonValue` fazia uma busca no `Map` de receitas por valor): à mão, `json_encode` −4 a −6% | `emit_js_production/src/shapes.rs` | `DARTFORGE_JSPROD_SINGLE_RECIPES` |
+
+### 12.3 Resultado (parcial)
+
+Node, `-O4`, ms, mediana de 3 execuções alternadas, com o `IdentitySet`
+em células, o `==` de primitivo e o deslocamento de local nunca negativo
+(ainda sem o resto, sem as *closures* do `await`, sem o `List.filled`
+curto e sem as receitas únicas); “antes” é o primeiro binário da rodada,
+só com o `IdentitySet` em células, desligado (o texto do `91aa751d`):
+
+| *kernel* | antes | depois | `dart2js -O4` | depois/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| `collection_operations/set_int` | 23,40 | **9,71** | 15,33 | 0,63 |
+| `numeric/collatz` | 208,00 | **139,23** | 136,45 | 1,02 |
+| `collection_operations/list_methods` | 46,98 | **37,09** | 38,41 | 0,97 |
+| `collection_operations/map_iterate` | 28,88 | 23,16 | 24,48 | 0,95 |
+| `collection_operations/map_object_key` | 43,44 | 36,35 | 41,38 | 0,88 |
+| `collections/set_str` | 8,94 | 10,24 | 19,44 | 0,53 |
+| `json/encode_medium` | 35,00 | 30,06 | 27,22 | 1,10 |
+| `json_encode/ascii_json` (µs/op) | 30,86 | 33,22 | 22,76 | 1,46 |
+| `async_await/async` | 392 | 389 | 259 | 1,50 |
+
+(A máquina estava menos carregada que na §11: os absolutos caíram em
+todas as colunas; só as razões contam.) Medidos em separado, no programa
+de um *kernel* só e 5 execuções alternadas: `collatz` 150,1 × 148,1 ms
+(1,01×); `bench/numeric` (`(s + i * i) % 1000003`) depende da forma do
+resto, feita depois desta tabela.
+
+### 12.4 Validação e o que continua
+
+`production_forms.dart` contra a VM em `-O1` a `-O4`, com as chaves
+ligadas e desligadas; `positive_counter_modulo.rs` passou a aceitar o
+resto cru onde o passe dos locais nunca negativos o prova (`mutated`,
+`nested`, `nonunit`, `conditionWrite`, `oversizedDivisor`) e continua
+exigindo a forma checada nos outros; o *intrinsic* estrangeiro que escreve
+o contador (`positive_counter_modulo_foreign.dart`) desliga o passe.
+Corpus JS 277/277 em desenvolvimento e `-O2`, 260/260 em `-O3`, 256/256 em
+`-O4`.
+
+Continua (com o agente de produção): `async_await` 1,5× (as *closures* e
+a rti por chamada `async`; a §12.2 tira as do `await`), o `_JsonStringifier`
+(o `dart2js` desvirtualiza `writeString` para `t1._contents += s`), e o
+gzip dos programas pequenos: o `IdentitySet` em células acrescenta ~1 KB
+bruto (~0,2 KB gzip) a `collections` e `collection_operations`; os 16
+programas (com o `async_await`) ficam em 0,956× bruto e 1,003× gzip do
+`dart2js -O4`, os 15 de antes em 1,011× gzip.
