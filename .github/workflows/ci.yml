@@ -328,7 +328,9 @@ jobs:
             build_jobs: 2
           - os: macos-latest
             name: macOS arm64
-            timeout_minutes: 150
+            # 150 was cut on 30/10 at the JIT tests: the emitter's tests with the
+            # ignored ones alone took 51 min on the hosted runner.
+            timeout_minutes: 210
             build_jobs: 1
     env:
       # Static LLVM links for multiple test/example executables competed for
