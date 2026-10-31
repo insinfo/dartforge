@@ -470,13 +470,13 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 let base = after_value.clone();
                 cx.flow = inf.join_all(cx, &base, &the_entries);
                 // A group with a label (`switchStatement_endAlternatives` with
-                // `hasLabels`, 3.6.2 `flow_analysis.dart:5421-5425`): a `continue L` may
+                // `hasLabels`, 3.6.2 `flow_analysis.dart:5432-5450`): a `continue L` may
                 // come from any point of the `switch`; the body starts from the state
                 // after the scrutinee, with the conservative join of the variables
-                // written or captured in the whole `switch` (a write after the label
-                // demotes).
+                // written or captured in the cases (a write after the label demotes;
+                // one in the scrutinee, before the label, does not).
                 if with_label {
-                    let (writes, captured) = writes_in(inf, cx, &[Part::Stmt(s)]);
+                    let (writes, captured) = writes_in(inf, cx, &[Part::SwitchCases(cases)]);
                     let mut f = after_value.clone();
                     f.conservative_join(&writes, &captured);
                     cx.flow = f;
@@ -563,18 +563,18 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             if let Some(tgt) = jump_target(cx, label.map(|n| n.sym), false) {
                 tgt.breaks.push(f);
             }
-            cx.flow.reachable = false;
+            cx.flow.set_unreachable();
         }
         StmtKind::Continue(label) => {
             let f = cx.flow.clone();
             if let Some(tgt) = jump_target(cx, label.map(|n| n.sym), true) {
                 tgt.continues.push(f);
             }
-            cx.flow.reachable = false;
+            cx.flow.set_unreachable();
         }
         StmtKind::Return(e) => {
             return_(inf, cx, *e, span);
-            cx.flow.reachable = false;
+            cx.flow.set_unreachable();
         }
         StmtKind::Yield { star, value } => {
             let (m, k) = match cx.functions.last() {
@@ -1888,6 +1888,9 @@ pub(crate) enum Part<'a> {
     Stmt(StmtId),
     /// The body of a collection `for`/`for-in`.
     Element(&'a ast::CollectionElement),
+    /// The cases of a `switch` statement, without its scrutinee (the node of
+    /// `AssignedVariablesVisitor.visitSwitchStatement`).
+    SwitchCases(&'a [ast::SwitchCase]),
 }
 
 /// A write: the name and the name's offset in the declaration it refers to,
@@ -1922,6 +1925,7 @@ pub(crate) fn writes_in(
             Part::Expr(e) => v.expr(*e, false),
             Part::Stmt(s) => v.stmt(*s, false),
             Part::Element(el) => v.element(el, false),
+            Part::SwitchCases(cases) => v.cases(cases, false),
         }
     }
     let ids = |es: &[Write]| -> Vec<LocalId> {
@@ -2316,6 +2320,20 @@ impl<'a> Sweep<'a> {
         }
     }
 
+    /// The guards and bodies of a `switch` statement's cases.
+    fn cases(&mut self, cases: &[ast::SwitchCase], inside: bool) {
+        for c in cases.iter() {
+            self.with_scope(|v| {
+                if let Some(g) = c.guard {
+                    v.expr(g, inside);
+                }
+                for x in c.body.iter() {
+                    v.stmt(*x, inside);
+                }
+            });
+        }
+    }
+
     fn stmt(&mut self, s: StmtId, inside: bool) {
         let a = self.a;
         match &a.stmt(s).kind {
@@ -2400,16 +2418,7 @@ impl<'a> Sweep<'a> {
             }
             StmtKind::Switch { value, cases } => {
                 self.expr(*value, inside);
-                for c in cases.iter() {
-                    self.with_scope(|v| {
-                        if let Some(g) = c.guard {
-                            v.expr(g, inside);
-                        }
-                        for x in c.body.iter() {
-                            v.stmt(*x, inside);
-                        }
-                    });
-                }
+                self.cases(cases, inside);
             }
             StmtKind::Return(Some(e)) => self.expr(*e, inside),
             StmtKind::Yield { value, .. } => self.expr(*value, inside),

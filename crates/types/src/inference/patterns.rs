@@ -935,12 +935,40 @@ pub(crate) fn declaration(
     the_value: ExprId,
 ) {
     let s = schema(inf, cx, p);
-    let t = infer(inf, cx, the_value, s);
+    // A top-level variable pattern (only parentheses around it) is initialized
+    // with the initializer's information (`_pushScrutinee` with
+    // `addPreviousInfo`, then `declaredVariablePattern` → `_initialize`):
+    // `var (b) = x != null;` stores the condition in `b`, as
+    // `var b = x != null;` does.
+    let mut q = p;
+    while let PatternKind::Parenthesized(i) = &inf.program.unit(cx.unit).ast.pattern(q).kind {
+        q = *i;
+    }
+    let name = match &inf.program.unit(cx.unit).ast.pattern(q).kind {
+        PatternKind::Variable { name, .. } => Some(name.sym),
+        _ => None,
+    };
+    let (t, saved_condition) = if name.is_some() && expr::is_condition_form(inf, cx, the_value) {
+        let (yes, not_) = expr::the_condition(inf, cx, the_value);
+        cx.flow = inf.join(cx, &yes, &not_);
+        let t = inf.body_types.units[cx.unit.0 as usize]
+            .get_type(the_value)
+            .unwrap_or(inf.core.bool_);
+        (t, Some((yes, not_)))
+    } else {
+        (infer(inf, cx, the_value, s), None)
+    };
     if matching::enabled(inf) {
         matching::irrefutable(inf, cx, p, t, final_, false, Some(the_value));
-        return;
+    } else {
+        type_check(inf, cx, p, t, final_, false);
     }
-    type_check(inf, cx, p, t, final_, false);
+    if let (Some(name), Some((yes, not_))) = (name, saved_condition)
+        && let Some(MemberName::Local(id)) = cx.lookup(name)
+        && let Some(version) = cx.flow.version(id)
+    {
+        cx.conditions.insert((id, version), (yes, not_));
+    }
 }
 
 /// Declares the variables of a pattern matched with `t`

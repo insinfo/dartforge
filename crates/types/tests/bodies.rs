@@ -3691,3 +3691,70 @@ void main() {{}}
         .collect();
     assert!(errors.is_empty(), "{errors:?}");
 }
+
+/// Pattern and `switch` flow: a labeled case demotes only what the cases write
+/// (`x = 0` in the scrutinee keeps `x` promoted); a list pattern may fail with
+/// the right type, so `[]` against `List<Object?>?` leaves the list in the
+/// `default`; `var (b) = x != null;` stores the condition in `b`; and the
+/// split point of a pattern's joins is the top-level pattern's start (two
+/// paths that die inside it are joined, one already dead there wins).
+#[test]
+fn pattern_flow_split_points_and_switch_labels() {
+    let Some(diags) = analyzer_diagnostics_of(&format!(
+        r#"// @dart=3.6
+{STATIC_TYPE_HELPER}
+void switchLabel(Object x) {{
+  if (x is int) {{
+    switch (x = 0) {{
+      case 1:
+        continue L;
+      L:
+      case 0:
+        x.expectStaticType<Exactly<int>>();
+        break;
+    }}
+  }}
+}}
+
+void listPattern(List<Object?>? x) {{
+  switch (x) {{
+    case []:
+      x.expectStaticType<Exactly<List<Object?>>>();
+    default:
+      x.expectStaticType<Exactly<List<Object?>?>>();
+  }}
+}}
+
+void declaration(int? x) {{
+  var (b) = x != null;
+  if (b) {{
+    x.expectStaticType<Exactly<int>>();
+  }}
+}}
+
+void guarded(int Function(Object) f, int? i) {{
+  if (f(throw '') case int() when i == null) {{
+  }} else {{
+    i.expectStaticType<Exactly<int>>();
+  }}
+}}
+
+void logicalOr((Null, Null, int?) x) {{
+  if (x
+      case ((!= null, _, _) && ((_, != null, _) || (_, _, _?))) &&
+          (_, _, var y)) {{
+    y.expectStaticType<Exactly<int?>>();
+  }}
+}}
+
+void main() {{}}
+"#
+    )) else {
+        return;
+    };
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code.is_some() && d.severity == dartforge_diagnostics::Severity::Error)
+        .collect();
+    assert!(errors.is_empty(), "{errors:?}");
+}

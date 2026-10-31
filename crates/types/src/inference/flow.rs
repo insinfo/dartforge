@@ -15,7 +15,7 @@ use dartforge_elements::model::FunctionElementId;
 use dartforge_intern::SymbolId;
 use std::collections::HashSet;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 /// `NonPromotionReason`: why a type is not (or no longer) promoted.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,10 +71,26 @@ pub(crate) struct VarModel {
     pub history: Option<Rc<History>>,
 }
 
+/// The order of the split points and of the events that make a flow
+/// unreachable.
+static NEXT_TICK: AtomicU64 = AtomicU64::new(1);
+
+/// A split point (`FlowModel.split`): the tick that the deaths after it exceed.
+pub(crate) fn split_tick() -> u64 {
+    NEXT_TICK.fetch_add(1, Ordering::Relaxed)
+}
+
 /// Flow state at a point (`FlowModel`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Flow {
     pub reachable: bool,
+    /// When the flow became unreachable (0 while it is reachable).
+    pub dead_at: u64,
+    /// The innermost split point that is tracked (0: none), for the
+    /// `Reachability` relative to it (`locallyReachable`): a flow that was
+    /// already unreachable there is still locally reachable. Only the top-level
+    /// pattern of a `case` sets one (the split point of a pattern's joins).
+    pub split: u64,
     pub vars: Vec<Option<VarModel>>,
 }
 
@@ -82,14 +98,29 @@ impl Flow {
     pub fn reachable() -> Self {
         Flow {
             reachable: true,
+            dead_at: 0,
+            split: 0,
             vars: Vec::new(),
         }
     }
 
+    /// `locallyReachable`: reachable, or unreachable since before the split.
+    pub fn locally_reachable(&self) -> bool {
+        self.reachable || self.dead_at < self.split
+    }
+
+    /// A copy made unreachable by a new event (`setUnreachable` after a split:
+    /// the "did not match" state of a pattern, a branch that cannot run).
     pub fn unreachable(&self) -> Self {
         let mut f = self.clone();
-        f.reachable = false;
+        f.set_unreachable();
         f
+    }
+
+    /// Marks the flow unreachable from this point.
+    pub fn set_unreachable(&mut self) {
+        self.reachable = false;
+        self.dead_at = NEXT_TICK.fetch_add(1, Ordering::Relaxed);
     }
 
     fn slot(&mut self, id: LocalId) -> &mut Option<VarModel> {
@@ -188,13 +219,15 @@ impl<'a> BodyInferrer<'a> {
     /// `join(M1, M2)`. A variable whose two write versions differ gets a new
     /// version, and the promotable properties read on both paths carry over to
     /// it with their joined models (`SsaNode._join`, 3.6.2
-    /// `flow_analysis.dart:3932-4016`).
+    /// `flow_analysis.dart:3932-4016`). A path that is not locally reachable
+    /// gives way to one that is; two such paths are joined like two reachable
+    /// ones, and the result is unreachable (`FlowModel.join`: neither is
+    /// favored).
     pub(crate) fn join(&mut self, cx: &mut Body, a: &Flow, b: &Flow) -> Flow {
-        if !a.reachable {
-            return b.clone();
-        }
-        if !b.reachable {
-            return a.clone();
+        match (a.locally_reachable(), b.locally_reachable()) {
+            (false, true) => return b.clone(),
+            (true, false) => return a.clone(),
+            _ => {}
         }
         if a == b {
             return a.clone();
@@ -215,7 +248,13 @@ impl<'a> BodyInferrer<'a> {
             });
         }
         let mut r = Flow {
-            reachable: true,
+            reachable: a.reachable || b.reachable,
+            dead_at: if a.reachable || b.reachable {
+                0
+            } else {
+                a.dead_at.min(b.dead_at)
+            },
+            split: a.split,
             vars,
         };
         if !rejoined.is_empty() && !cx.fields.is_empty() {
@@ -265,7 +304,10 @@ impl<'a> BodyInferrer<'a> {
             return after_finally.clone();
         }
         let mut result = after_try.clone();
-        result.reachable = after_try.reachable && after_finally.reachable;
+        if result.reachable && !after_finally.reachable {
+            result.reachable = false;
+            result.dead_at = after_finally.dead_at;
+        }
         let mut reapply = Vec::new();
         let n = after_try.vars.len().max(after_finally.vars.len());
         for i in 0..n {
@@ -483,7 +525,7 @@ impl<'a> BodyInferrer<'a> {
         if let Some(t1) = t1
             && matches!(self.table.get(t1), Type::Never)
         {
-            flow.reachable = false;
+            flow.set_unreachable();
         }
     }
 

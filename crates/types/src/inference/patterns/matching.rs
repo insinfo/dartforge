@@ -173,16 +173,16 @@ fn classify(inf: &mut BodyInferrer<'_>, t: TypeId) -> Class {
 /// The true branch of `tryPromoteForTypeCheck`. Promoting never makes the
 /// flow unreachable, not even to `Never`.
 fn promote_yes(inf: &mut BodyInferrer<'_>, f: &mut Flow, id: LocalId, declared: TypeId, k: TypeId) {
-    let reachable = f.reachable;
+    let reachable = (f.reachable, f.dead_at);
     inf.promote_tested(f, id, declared, k, k);
-    f.reachable = reachable;
+    (f.reachable, f.dead_at) = reachable;
 }
 
 /// The false branch: promotes to `factor(current, K)`, except when the factor
 /// is `Never` or the current type itself (then only the type of interest
 /// stays).
 fn promote_not(inf: &mut BodyInferrer<'_>, f: &mut Flow, id: LocalId, declared: TypeId, k: TypeId) {
-    let reachable = f.reachable;
+    let reachable = (f.reachable, f.dead_at);
     let s = f.current_type(id, declared);
     let fat = expr::factor(inf, s, k);
     let target = if fat == s || matches!(inf.table.get(fat), Type::Never) {
@@ -191,7 +191,7 @@ fn promote_not(inf: &mut BodyInferrer<'_>, f: &mut Flow, id: LocalId, declared: 
         fat
     };
     inf.promote_tested(f, id, declared, target, k);
-    f.reachable = reachable;
+    (f.reachable, f.dead_at) = reachable;
 }
 
 /// `promoteForPattern` (`:5191-5258`): returns whether `K` covers the
@@ -233,9 +233,15 @@ fn promote_for_pattern(
         promote_not(inf, &mut not_, id, d, k);
     }
     cx.flow = yes;
-    if can || (failure && !covers) {
-        let extra = if covers { cx.flow.clone() } else { not_ };
-        join_not_matched(inf, cx, &extra);
+    // A wrong type fails the match; a match that may fail anyway (a list
+    // pattern's length) also fails with the right type: both states reach
+    // "did not match" (`[]` against `List<Object?>?` leaves the list there).
+    if failure && !covers {
+        join_not_matched(inf, cx, &not_);
+    }
+    if can {
+        let matched = cx.flow.clone();
+        join_not_matched(inf, cx, &matched);
     }
     covers
 }
@@ -263,7 +269,7 @@ fn check_null(inf: &mut BodyInferrer<'_>, cx: &mut Body) -> Option<Flow> {
         }
     }
     if cls == Class::Null {
-        yes.reachable = false;
+        yes.set_unreachable();
     }
     Some(yes)
 }
@@ -291,7 +297,7 @@ fn equality(
         // Certainly equal: `==` always matches, `!=` never.
         if different {
             join_not_matched(inf, cx, &current);
-            cx.flow.reachable = false;
+            cx.flow.set_unreachable();
         }
     } else if (ct == Class::Null && co == Class::NonNull)
         || (co == Class::Null && ct == Class::NonNull)
@@ -1265,7 +1271,7 @@ pub(crate) fn type_check(
                 };
                 // A `Never` getter: the read does not return (`flow.handleExit()`).
                 if matches!(inf.table.get(ft), Type::Never) {
-                    cx.flow.reachable = false;
+                    cx.flow.set_unreachable();
                 }
                 let property = match (the_name, &resolved, top(cx)) {
                     (Some(nm), Some(res), Some(r)) => {
@@ -1363,6 +1369,12 @@ pub(crate) fn the_case(
     let base_hidden = cx.pattern_hidden.len();
     cx.pattern_hidden
         .extend(hidden.iter().map(|n| (n.sym, n.span)));
+    // The split point of the pattern's joins is the start of the top-level
+    // pattern: a path already unreachable there is still locally reachable
+    // (`if (f(throw '') case int() when i == null)` keeps the guard's
+    // promotion in the `else`).
+    let outer_split = cx.flow.split;
+    cx.flow.split = super::super::flow::split_tick();
     let mut not_ = match_(inf, cx, r, |inf, cx| {
         type_check(inf, cx, p, false, false, false)
     });
@@ -1380,6 +1392,8 @@ pub(crate) fn the_case(
         cx.flow = gv;
         not_ = inf.join(cx, &not_, &gf);
     }
+    cx.flow.split = outer_split;
+    not_.split = outer_split;
     (cx.flow.clone(), not_)
 }
 

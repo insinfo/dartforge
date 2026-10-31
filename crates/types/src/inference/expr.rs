@@ -2698,11 +2698,11 @@ pub(crate) fn infer_at(
                     &[&tt],
                 );
             }
-            cx.flow.reachable = false;
+            cx.flow.set_unreachable();
             inf.core.never
         }
         ExprKind::Rethrow => {
-            cx.flow.reachable = false;
+            cx.flow.set_unreachable();
             inf.core.never
         }
         ExprKind::Switch { value, cases } => {
@@ -2713,7 +2713,7 @@ pub(crate) fn infer_at(
     // `isBottom` (`T extends Never` and `T & Never` too): what follows does not
     // run.
     if inf.is_bottom(t) {
-        cx.flow.reachable = false;
+        cx.flow.set_unreachable();
     }
     (t, short_circuit)
 }
