@@ -5090,6 +5090,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             && std::env::var("DARTFORGE_JSPROD_LITERAL_MODULO").map_or(true, |v| v != "0")
             && crate::own_sdk::certified_number_modulo(ctx)
         {
+            // A dividend that is never negative (`crate::nonnegative`; never
+            // `-0` either): the JavaScript remainder is already Dart's.
+            let left = node.and_then(|n| match self.expr(n).kind {
+                ExprKind::Binary { left, .. } => Some(left),
+                _ => None,
+            });
+            if left.is_some_and(|x| self.nonnegative_operand(x)) {
+                return (
+                    Js::new(format!("{} % {k}", l.at(P_MUL)), P_MUL),
+                    ctx.t_int(),
+                );
+            }
             return (
                 Js::new(format!("({} % {k} + {k}) % {k}", l.at(P_MUL)), P_MUL),
                 ctx.t_int(),
@@ -5120,6 +5132,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 BinaryOp::Shl => (format!("{} << {k} >>> 0", l.at(P_SHIFT)), P_SHIFT),
                 BinaryOp::UShr => (format!("{} >>> {k}", l.at(P_SHIFT)), P_SHIFT),
+                // A receiver that is never negative (`crate::nonnegative`):
+                // both branches of `JSNumber.>>` are `x >>> k`.
+                _ if k <= 31 && node.is_some_and(|n| self.nonnegative_receiver(n)) => {
+                    (format!("{} >>> {k}", l.at(P_SHIFT)), P_SHIFT)
+                }
                 _ if k <= 31 && ctx.runtime_declares("shrCount") => {
                     // The patched `dart.shrCount`: the receiver is needed
                     // twice, and a call is shorter than the conditional.

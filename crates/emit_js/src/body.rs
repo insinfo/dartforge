@@ -190,6 +190,8 @@ pub struct FnEmitter<'m, 'a> {
     pub(crate) fresh_list_append: HashMap<ExprId, crate::fresh_list_append::FreshList>,
     /// Modulo nodes certified in the current unescaped nonnegative counter.
     pub(crate) counter_modulo: HashSet<ExprId>,
+    /// The never-negative locals of the body being emitted (production).
+    pub(crate) nonnegative: Option<crate::nonnegative::NonNegative>,
     /// The list literal that a `for-in` iterates directly (production): it
     /// never escapes the loop, so it is a bare JavaScript array.
     pub(crate) bare_list: Option<ExprId>,
@@ -296,6 +298,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             sdk_number_comparison: None,
             fresh_list_append: HashMap::new(),
             counter_modulo: HashSet::new(),
+            nonnegative: None,
             bare_list: None,
         }
     }
@@ -1501,6 +1504,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     // The body block is a scope inside the parameters' scope (a
                     // local may shadow a parameter, as in the VM); in JS it is
                     // still the same function body.
+                    let nonnegative = self.ctx.production()
+                        && self.async_kind == AsyncKind::None
+                        && crate::nonnegative::enabled()
+                        && !self
+                            .ctx
+                            .program
+                            .library(self.ctx.program.unit(self.unit).library)
+                            .uri
+                            .starts_with("dart:");
+                    let outer: HashSet<SymbolId> = if nonnegative {
+                        self.scopes.iter().flat_map(|s| s.keys().copied()).collect()
+                    } else {
+                        HashSet::new()
+                    };
+                    let saved_nonnegative = std::mem::replace(
+                        &mut self.nonnegative,
+                        nonnegative.then(|| crate::nonnegative::NonNegative::new(stmt.span, outer)),
+                    );
                     self.push_scope();
                     self.hoist_locals(stmts);
                     self.fresh_list_append = self.fresh_lists(stmts);
@@ -1511,6 +1532,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         }
                     }
                     self.pop_scope();
+                    self.nonnegative = saved_nonnegative;
                 } else {
                     self.emit_stmt(*s);
                 }

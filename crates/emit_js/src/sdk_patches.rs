@@ -910,6 +910,39 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
         "    } else if (value is Future<T>) {\n      assert(!_future._isComplete);\n      _future._chainFuture(value);\n    } else {\n      _future._completeWithValue(value);\n    }\n",
         "    } else if (value is Future && value is Future<T>) {\n      assert(!_future._isComplete);\n      _future._chainFuture(value);\n    } else {\n      _future._completeWithValue(unsafeCast<T>(value));\n    }\n",
     ),
+    // The two callbacks of an `await` depend only on the body of the
+    // `async` invocation: they are made on its first `await` and kept on the
+    // body function, instead of two closures (with their rti) per `await`
+    // (`docs/JS-PRODUCAO-VELOCIDADE.md` §12). Nothing observes their
+    // identity; each `await` registers them on its own listener.
+    (
+        Some("DARTFORGE_JSPROD_AWAIT_CALLBACKS"),
+        "_internal/js_dev_runtime/patch/async_patch.dart",
+        r#"void _awaitOnObject(Object? object, _WrappedAsyncBody bodyFunction) {
+  FutureOr<dynamic> Function(dynamic) thenCallback =
+      (result) => bodyFunction(async_status_codes.SUCCESS, result);
+
+  Function errorCallback = (dynamic error, StackTrace stackTrace) {
+    final wrappedException = dart.createErrorWithStack(error, stackTrace);
+    bodyFunction(async_status_codes.ERROR, wrappedException);
+  };
+"#,
+        r#"void _awaitOnObject(Object? object, _WrappedAsyncBody bodyFunction) {
+  FutureOr<dynamic> Function(dynamic)? thenCallback =
+      unsafeCast(JS('', '#.\$awaitThen', bodyFunction));
+  Function? errorCallback = unsafeCast(JS('', '#.\$awaitError', bodyFunction));
+  if (thenCallback == null || errorCallback == null) {
+    thenCallback =
+        (result) => bodyFunction(async_status_codes.SUCCESS, result);
+    errorCallback = (dynamic error, StackTrace stackTrace) {
+      final wrappedException = dart.createErrorWithStack(error, stackTrace);
+      bodyFunction(async_status_codes.ERROR, wrappedException);
+    };
+    JS('', '#.\$awaitThen = #', bodyFunction, thenCallback);
+    JS('', '#.\$awaitError = #', bodyFunction, errorCallback);
+  }
+"#,
+    ),
     // A lazy static becomes a data property once initialized (or first
     // written), as the comment of `defineLazyField` intends: reading
     // `Zone._current` or `_rootZone` is a property load instead of a call
@@ -957,6 +990,269 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
       Sort.sort(
           this, (a, b) => Comparable.compare(a as Comparable, b as Comparable));
 "#,
+    ),
+    // `==` of a receiver whose static type says nothing (`E` in
+    // `List.contains`/`indexOf`, `Map.containsValue`, `dynamic`): a
+    // JavaScript number, string or boolean has the `==` of identity
+    // (`Object.==`, which `JSNumber`, `JSString` and `JSBool` keep), so the
+    // answer is `x === y` without reading `_equals` on the primitive's
+    // prototype and calling it (`docs/JS-PRODUCAO-VELOCIDADE.md` §12).
+    (
+        Some("DARTFORGE_JSPROD_EQUALS_PRIMITIVES"),
+        "_internal/js_dev_runtime/private/ddc_runtime/operations.dart",
+        "  if (JS<bool>('!', '# == null', x)) return JS<bool>('!', '# == null', y);\n  var probe = JS('', '#[#]', x, extensionSymbol('_equals'));\n",
+        "  if (JS<bool>('!', '# == null', x)) return JS<bool>('!', '# == null', y);\n  if (JS<bool>('!', 'typeof # == \"number\" || typeof # == \"string\" || typeof # == \"boolean\"', x, x, x)) {\n    return JS<bool>('!', '# === #', x, y);\n  }\n  var probe = JS('', '#[#]', x, extensionSymbol('_equals'));\n",
+    ),
+    // `List.filled` of a short list (the `writeMap` of every JSON object
+    // allocates one) fills it with a JavaScript loop: the `fill` builtin
+    // costs more than the writes below a few dozen elements
+    // (`json_encode/ascii_json` 17% faster). Long lists keep `fill`.
+    (
+        Some("DARTFORGE_JSPROD_SHORT_FILL"),
+        "_internal/js_dev_runtime/patch/core_patch.dart",
+        "    var list = JSArray<E>.of(JS('', 'new Array(#)', length));\n    JS('', '#.fill(#)', list, fill);\n",
+        "    var list = JSArray<E>.of(JS('', 'new Array(#)', length));\n    if (length < 64) {\n      for (var i = 0; i < length; i++) {\n        JS('', '#[#] = #', list, i, fill);\n      }\n    } else {\n      JS('', '#.fill(#)', list, fill);\n    }\n",
+    ),
+    // `IdentitySet` (every `Set<int>`/`Set<String>` and the `identity` sets)
+    // keeps its elements in cells linked in insertion order, found through
+    // an object for the small integers and a JavaScript `Map` for the rest,
+    // instead of a JavaScript `Set`: an integer element is an element
+    // lookup, as in the `LinkedHashSet` of dart2js (`docs/JS-PRODUCAO-VELOCIDADE.md` §12). Its
+    // own iterator walks the cells and checks the modification count before
+    // each step, as the `Set`-based one did. Equality is the one of the
+    // JavaScript `Set` (`SameValueZero`): a `NaN` element is found again and
+    // `-0.0` is `0` (the set keeps `0`).
+    (
+        Some("DARTFORGE_JSPROD_IDENTITY_SET_CELLS"),
+        "_internal/js_dev_runtime/private/identity_hash_set.dart",
+        r##"base class IdentitySet<E> extends InternalSet<E> {
+  /// The backing store for this set.
+  @notNull
+  final _map = JS('', 'new Set()');
+
+  @notNull
+  int _modifications = 0;
+
+  IdentitySet();
+
+  Set<E> _newSet() => IdentitySet<E>();
+
+  Set<R> _newSimilarSet<R>() => IdentitySet<R>();
+
+  bool contains(Object? element) {
+    return JS<bool>('!', '#.has(#)', _map, element);
+  }
+
+  E? lookup(Object? element) {
+    return element is E && JS<bool>('!', '#.has(#)', _map, element)
+        ? element
+        : null;
+  }
+
+  bool add(E element) {
+    var map = _map;
+    if (JS<bool>('!', '#.has(#)', map, element)) return false;
+    JS('', '#.add(#)', map, element);
+    _modifications = (_modifications + 1) & 0x3fffffff;
+    return true;
+  }
+
+  void addAll(Iterable<E> objects) {
+    var map = _map;
+    int length = JS('', '#.size', map);
+    for (E key in objects) {
+      JS('', '#.add(#)', map, key);
+    }
+    if (length != JS<int>('!', '#.size', map)) {
+      _modifications = (_modifications + 1) & 0x3fffffff;
+    }
+  }
+
+  bool remove(Object? element) {
+    if (JS<bool>('!', '#.delete(#)', _map, element)) {
+      _modifications = (_modifications + 1) & 0x3fffffff;
+      return true;
+    }
+    return false;
+  }
+
+  void clear() {
+    var map = _map;
+    if (JS<int>('!', '#.size', map) > 0) {
+      JS('', '#.clear()', map);
+      _modifications = (_modifications + 1) & 0x3fffffff;
+    }
+  }
+}
+"##,
+        r##"base class IdentitySet<E> extends InternalSet<E> {
+  // The elements are cells `{k, n, p}` (element, next, previous) in a list
+  // in insertion order, found through two tables: the integers `k` with
+  // `(k & 0x3fffffff) === k` in `_nums`, an object without prototype (the
+  // lookup is an element read), and every other element in the JavaScript
+  // `Map` `_rest`. `String` elements stay in the `Map`: a string built at
+  // run time is hashed there once, while a property lookup internalizes it
+  // (`<String>{}..add('k$i')` 1.7x slower in an object).
+  Object? _nums;
+  Object? _rest;
+  Object? _first;
+  Object? _last;
+  @notNull
+  int _length = 0;
+
+  // Cycles after 2^30 modifications (a Smi). A field of its own:
+  // `_modifications` overrides an abstract getter.
+  @notNull
+  int _mods = 0;
+
+  IdentitySet();
+
+  int get _modifications => _mods;
+
+  /// What `InternalSet._jsIterator` reads: `values()` returns a JavaScript
+  /// iterator over the cells from the current first one.
+  get _map => JS('', '''((c) => ({values() {
+    return {next() {
+      if (c == null) return {value: void 0, done: true};
+      let x = c;
+      c = c.n;
+      return {value: x.k, done: false};
+    }};
+  }}))(#)''', _first);
+
+  Set<E> _newSet() => IdentitySet<E>();
+
+  Set<R> _newSimilarSet<R>() => IdentitySet<R>();
+
+  int get length => _length;
+  bool get isEmpty => _length == 0;
+  bool get isNotEmpty => _length != 0;
+
+  Iterator<E> get iterator => _IdentitySetIterator<E>(this, _first);
+
+  /// The cell of [element], or `null`/`undefined`.
+  Object? _cell(Object? element) {
+    if (JS<bool>('!', 'typeof # == "number" && (# & 0x3fffffff) === #',
+        element, element, element)) {
+      var t = _nums;
+      return t == null ? null : JS('', '#[#]', t, element);
+    }
+    var t = _rest;
+    return t == null ? null : JS('', '#.get(#)', t, element);
+  }
+
+  bool contains(Object? element) => _cell(element) != null;
+
+  E? lookup(Object? element) {
+    return element is E && _cell(element) != null ? element : null;
+  }
+
+  bool add(E element) {
+    if (JS<bool>('!', 'typeof # == "number" && (# & 0x3fffffff) === #',
+        element, element, element)) {
+      var t = _nums ??= JS('', 'Object.create(null)');
+      if (JS('', '#[#]', t, element) != null) return false;
+      // `-0` is kept as `0`, as the JavaScript `Set` did (`x + 0`).
+      JS('', '#[#] = #', t, element, _link(JS('', '# + 0', element)));
+      return true;
+    }
+    var t = _rest ??= JS('', 'new Map()');
+    if (JS('', '#.get(#)', t, element) != null) return false;
+    JS('', '#.set(#, #)', t, element, _link(element));
+    return true;
+  }
+
+  /// A new cell at the end of the list.
+  Object _link(Object? element) {
+    var last = _last;
+    var c = JS<Object>('!', '{k: #, n: null, p: #}', element, last);
+    if (last == null) {
+      _first = c;
+    } else {
+      JS('', '#.n = #', last, c);
+    }
+    _last = c;
+    _length++;
+    _mods = (_mods + 1) & 0x3fffffff;
+    return c;
+  }
+
+  void addAll(Iterable<E> objects) {
+    for (E element in objects) {
+      add(element);
+    }
+  }
+
+  bool remove(Object? element) {
+    Object? c;
+    if (JS<bool>('!', 'typeof # == "number" && (# & 0x3fffffff) === #',
+        element, element, element)) {
+      var t = _nums;
+      if (t == null) return false;
+      c = JS('', '#[#]', t, element);
+      if (c == null) return false;
+      JS('', 'delete #[#]', t, element);
+    } else {
+      var t = _rest;
+      if (t == null) return false;
+      c = JS('', '#.get(#)', t, element);
+      if (c == null) return false;
+      JS('', '#.delete(#)', t, element);
+    }
+    var p = JS('', '#.p', c);
+    var n = JS('', '#.n', c);
+    if (p == null) {
+      _first = n;
+    } else {
+      JS('', '#.n = #', p, n);
+    }
+    if (n == null) {
+      _last = p;
+    } else {
+      JS('', '#.p = #', n, p);
+    }
+    _length--;
+    _mods = (_mods + 1) & 0x3fffffff;
+    return true;
+  }
+
+  void clear() {
+    if (_length > 0) {
+      _nums = _rest = _first = _last = null;
+      _length = 0;
+      _mods = (_mods + 1) & 0x3fffffff;
+    }
+  }
+}
+
+/// The iterator of an [IdentitySet]: walks the cells from the first one at
+/// creation and throws when the set changed since then.
+final class _IdentitySetIterator<E> implements Iterator<E> {
+  final IdentitySet<E> _set;
+  @notNull
+  final int _mods;
+  Object? _cell;
+  E? _current;
+
+  _IdentitySetIterator(this._set, this._cell) : _mods = _set._mods;
+
+  E get current => _current as E;
+
+  bool moveNext() {
+    if (_mods != _set._mods) {
+      throw ConcurrentModificationError(_set);
+    }
+    var c = _cell;
+    if (c == null) {
+      _current = null;
+      return false;
+    }
+    _current = JS('', '#.k', c);
+    _cell = JS('', '#.n', c);
+    return true;
+  }
+}
+"##,
     ),
 ];
 

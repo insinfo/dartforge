@@ -112,6 +112,16 @@ fn canonical_counters_and_refusals_match_checked_vm_and_o2() {
                 ("callBound", 5),
                 ("userNamedIntrinsic", 11),
                 ("maximumDivisor", 1000000000),
+                // Refused by the counter pass, but every write keeps the
+                // counter non-negative (`i += 1`, `i += 2`, the nested
+                // loop, the write in the condition; a divisor above the
+                // counter pass's limit): the never-negative locals of
+                // `emit_js`'s `nonnegative` give the same raw remainder.
+                ("mutated", 3),
+                ("nested", 3),
+                ("nonunit", 3),
+                ("conditionWrite", 3),
+                ("oversizedDivisor", 1000000001),
             ] {
                 let f = function(&production.js, name);
                 assert!(
@@ -122,16 +132,11 @@ fn canonical_counters_and_refusals_match_checked_vm_and_o2() {
             }
             for name in [
                 "negative",
-                "mutated",
                 "shadowed",
                 "captured",
                 "callback",
-                "nested",
-                "nonunit",
                 "negativeDivisor",
-                "oversizedDivisor",
                 "dynamicDivisor",
-                "conditionWrite",
                 "conditionClosure",
             ] {
                 // Refused: the SDK's `%`, or the Euclidean modulo of a

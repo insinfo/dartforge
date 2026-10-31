@@ -10,7 +10,11 @@ use std::process::Command;
 fn shared_bodies_keep_classes_apart() {
     let source = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../emit_js/tests/programs/shared_rule_bodies.dart");
-    let vm = Command::new("dart").arg("run").arg(&source).output().unwrap();
+    let vm = Command::new("dart")
+        .arg("run")
+        .arg(&source)
+        .output()
+        .unwrap();
     assert!(
         vm.status.success(),
         "{}",

@@ -2,7 +2,11 @@
 //! cached per site, `for`-in through the Dart iterator, `S? as S` that
 //! checks only `null`, `is C` by the prototype chain, `is num`/`is int` and
 //! `identical(x, literal)` without the runtime, and the native sort of lists
-//! of numbers or strings. The program gives
+//! of numbers or strings; and those of §12: `IdentitySet` in cells, `==`
+//! of a primitive by identity, the shift and remainder of a never-negative
+//! local, the callbacks of `await` made once per invocation and the short
+//! `List.filled` by a loop. The
+//! program gives
 //! the VM's answers at each level, with the switches and without them.
 
 use std::path::Path;
@@ -16,6 +20,11 @@ const SWITCHES: &[&str] = &[
     "DARTFORGE_JSPROD_PRIMITIVE_SORT",
     "DARTFORGE_JSPROD_NUMBER_TESTS",
     "DARTFORGE_JSPROD_IDENTICAL_LITERALS",
+    "DARTFORGE_JSPROD_IDENTITY_SET_CELLS",
+    "DARTFORGE_JSPROD_EQUALS_PRIMITIVES",
+    "DARTFORGE_JSPROD_NONNEGATIVE_SHIFTS",
+    "DARTFORGE_JSPROD_AWAIT_CALLBACKS",
+    "DARTFORGE_JSPROD_SHORT_FILL",
 ];
 
 #[test]
@@ -72,6 +81,8 @@ fn production_forms_match_the_vm() {
                 ".moveNext();) {",
                 " != null ? ",
                 " instanceof L$production_forms.Sub",
+                "x >>> 1",
+                "i * i) % 1000003;",
             ] {
                 assert!(text.contains(form), "-O1 lacks {form:?}");
             }

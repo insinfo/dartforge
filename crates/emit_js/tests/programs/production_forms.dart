@@ -1,8 +1,9 @@
 // Production forms of `docs/JS-PRODUCAO-VELOCIDADE.md` §11: constants
 // evaluated once per site, `for`-in through the Dart iterator, the `S? as S`
 // check that only tests `null`, `is C` by the prototype chain, `is num`/`is
-// int` and `identical(x, literal)` without the runtime, and the native sort.
-// Every answer is the VM's.
+// int` and `identical(x, literal)` without the runtime, and the native sort;
+// and those of §12: `Set<int>`/`Set<String>` in cells, `==` of an `E` and
+// the shift of a never-negative local. Every answer is the VM's.
 import 'dart:collection';
 import 'dart:convert';
 
@@ -367,10 +368,160 @@ void sorting() {
   }
 }
 
+/// `Set<int>`/`Set<String>` and the identity sets in cells (§12): order,
+/// the two kinds of element, removal, iteration and its concurrent
+/// modification, `lookup`, `toSet`, `difference`.
+void identitySets() {
+  final s = <int>{};
+  for (var i = 0; i < 40; i++) {
+    s.add(i * 7 % 23);
+  }
+  print('${s.length} ${s.take(8).join(',')} ${s.contains(22)} ${s.contains(23)}');
+  print('${s.remove(0)} ${s.remove(0)} ${s.first} ${s.last} ${s.length}');
+  s.addAll([1 << 31, -5, 1 << 29, -5]);
+  print('${s.contains(1 << 31)} ${s.contains(-5)} ${s.contains(1 << 29)} ${s.length}');
+  final t = <String>{'b', 'a', '__proto__', 'constructor', '0', 'b'};
+  print('${t.join('|')} ${t.contains('__proto__')} ${t.lookup('a')} ${t.lookup('x')}');
+  t.remove('a');
+  t.add('a');
+  print(t.join('|'));
+  print(t.difference({'b', '0'}).join('|'));
+  print(s.toSet().length == s.length);
+  final id = Set<Object?>.identity()..addAll([null, true, 1, 'x', null, s]);
+  print('${id.length} ${id.contains(null)} ${id.contains(s)} ${id.contains(<int>{})}');
+  try {
+    for (final x in s) {
+      if (x == 7) s.add(1000);
+    }
+  } on ConcurrentModificationError {
+    print('modified during iteration');
+  }
+  t.clear();
+  print('${t.isEmpty} ${t.length} ${t.add('z')} ${t.single}');
+}
+
+class Equal {
+  @override
+  bool operator ==(Object other) => true;
+  @override
+  int get hashCode => 0;
+}
+
+/// `==` of an `E` (§12): a number, string or boolean is compared by
+/// identity; an object keeps its own `==`.
+void untypedEquality() {
+  final l = <Object?>[1, 2.5, 'a', true, null, Equal()];
+  print('${l.indexOf(2.5)} ${l.indexOf('a')} ${l.indexOf(true)} ${l.indexOf(false)} ${l.indexOf(null)}');
+  print('${l.contains(double.nan)} ${[double.nan].contains(double.nan)} ${[0.5].contains(0.5)}');
+  print('${[Equal()].contains(5)} ${l.lastIndexOf(Equal())} ${l.indexOf(Object())}');
+  final m = <String, Object?>{'a': 1, 'b': 'x'};
+  print('${m.containsValue(1)} ${m.containsValue('x')} ${m.containsValue(false)}');
+}
+
+int negativeLocal(int seed) {
+  var x = seed - 10;
+  var shifted = 0;
+  for (var i = 0; i < 3; i++) {
+    shifted += x >> 1;
+    x = x * 3;
+  }
+  return shifted;
+}
+
+/// The steps of each start below `limit` (`n` a parameter would be of
+/// unknown sign; the loop's own `n` is never negative).
+List<int> collatzSteps(int limit) {
+  final all = <int>[];
+  for (var n = 1; n < limit; n++) {
+    var x = n, steps = 0;
+    while (x != 1) {
+      x = x.isEven ? x >> 1 : 3 * x + 1;
+      steps++;
+    }
+    all.add(steps);
+  }
+  return all;
+}
+
+/// A sum of squares kept below a prime: the dividend is never negative.
+int squares(int n) {
+  var s = 0;
+  for (var i = 0; i < n; i++) {
+    s = (s + i * i) % 1000003;
+  }
+  return s;
+}
+
+/// `x >> k` of a local that is never negative (§12) is `x >>> k`, and
+/// `x % k` the JavaScript remainder; a local that may be negative keeps
+/// `JSNumber.>>` and the Euclidean form.
+void shifts() {
+  print('${squares(100000)} ${squares(7)}');
+  print(collatzSteps(12).join(' '));
+  print('${collatzSteps(28).last} ${negativeLocal(30)}');
+  var m = 0;
+  var k = 5;
+  k %= 3;
+  m = (k & 7) + (k >> 1) + (1 << 20 >> 3);
+  print('$m ${m >> 2}');
+}
+
+Future<int> twice(int i) async {
+  final a = await Future.value(i);
+  final b = await Future.microtask(() => i * 10);
+  return a + b;
+}
+
+Future<void> failing() async {
+  await null;
+  throw StateError('failed');
+}
+
+/// The callbacks of every `await` of an invocation are made once (§12):
+/// values, errors caught and awaits after an error in the same invocation.
+Future<void> asyncs() async {
+  var s = 0;
+  for (var i = 0; i < 5; i++) {
+    s += await twice(i);
+  }
+  try {
+    await failing();
+  } on StateError catch (e) {
+    print('caught ${e.message}');
+  }
+  for (var i = 0; i < 3; i++) {
+    try {
+      await Future<int>.error('e$i');
+    } catch (e) {
+      print('error $e');
+    }
+    s += await Future.value(i);
+  }
+  print('asyncs $s');
+}
+
+/// `List.filled`, short (a loop) and long (`fill`), fixed and growable.
+void filled() {
+  final short = List<int?>.filled(3, null);
+  final long = List<String>.filled(100, 'x', growable: true)..add('y');
+  print('$short ${List.filled(0, 1)} ${List.filled(63, 2).every((e) => e == 2)}');
+  print('${long.length} ${long[99]} ${long.last} ${List.filled(64, 5)[63]}');
+  try {
+    short.add(1);
+  } on UnsupportedError {
+    print('fixed length');
+  }
+}
+
 void main() {
+  asyncs();
+  filled();
   constants();
   iteration();
   casts();
   typeTests();
   sorting();
+  identitySets();
+  untypedEquality();
+  shifts();
 }

@@ -559,9 +559,15 @@ pub fn apply(source: &str) -> Result<String, String> {
         for (_, _, r) in &a.recipes {
             *count.entry(r.as_str()).or_default() += 1;
         }
+        // A recipe written once runs once per call of its function too: the
+        // `is Map` of `_JsonStringifier.writeJsonValue` paid its lookup on
+        // every value encoded (`json_encode` 4–6%). Every recipe is declared
+        // once; `DARTFORGE_JSPROD_SINGLE_RECIPES=0` keeps only the repeated
+        // ones and those of the runtime's closures (§12).
+        let single = std::env::var("DARTFORGE_JSPROD_SINGLE_RECIPES").map_or(true, |v| v != "0");
         let mut repeated: Vec<&str> = count
             .iter()
-            .filter(|(r, n)| **n >= 2 || a.closure_recipes.contains(**r))
+            .filter(|(r, n)| single || **n >= 2 || a.closure_recipes.contains(**r))
             .map(|(r, _)| *r)
             .collect();
         repeated.sort_unstable();

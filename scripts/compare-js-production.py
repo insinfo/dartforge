@@ -7,7 +7,7 @@
     scripts/compare-js-production.py size TAG TAG... [programs...]
 
 The programs are `bench/performance/*.dart` and a few of `bench/comparison`
-(`docs/JS-PRODUCAO-VELOCIDADE.md` §1 and §11). `collections.dart` uses 64-bit
+(`docs/JS-PRODUCAO-VELOCIDADE.md` §1, §11 and §12). `collections.dart` uses 64-bit
 integers that dart2js rejects: the work copy replaces them by 2^53 - 1 and
 2^30, as the earlier rounds did. Each program's `Stopwatch` runs with
 `performance.now` replaced by the CPU time of Node's main thread
@@ -31,11 +31,22 @@ DART = os.environ.get('DART') or shutil.which('dart') or 'dart'
 JSPROD = os.environ.get('DARTFORGE_JSPROD') or os.path.join(ROOT, 'target', 'release', 'dartforge-jsprod')
 PERFORMANCE = ['calls', 'collections', 'escaping_objects', 'fresh_list_append', 'json', 'numeric',
                'objects_in_collections', 'strings', 'temporary_objects', 'typed_data', 'typed_data_widths']
-COMPARISON = ['collection_operations', 'utf8_convert', 'json_encode', 'bench']
+COMPARISON = ['collection_operations', 'utf8_convert', 'json_encode', 'bench', 'async_await']
 PROGRAMS = PERFORMANCE + COMPARISON
 # The program's `performance.now` is the main thread's CPU time; `window`
 # makes dart2js's `Stopwatch` use `performance.now` too.
+#
+# dart2js schedules microtasks through `self` (`scheduleImmediate`, then the
+# DOM's `MutationObserver`, then `setImmediate`, then a timer). Node has no
+# `self`: without it the first `await` throws inside the scheduler and the
+# program prints nothing. `self` here is an object over the global one whose
+# `scheduleImmediate` is a promise reaction, the microtask DDC's runtime uses
+# (`_scheduleImmediateWithPromise`), so both outputs await through the same
+# primitive. Ours reads the global object (`window`), which has no
+# `scheduleImmediate`, and keeps its own path.
 PRELUDE = ("globalThis.window = globalThis;"
+           "globalThis.self = Object.create(globalThis);"
+           "self.scheduleImmediate = (f) => { Promise.resolve(null).then(f); };"
            "{const c=()=>{const u=process.threadCpuUsage();return u.user/1000;};"
            "Object.defineProperty(globalThis,'performance',{value:{now:c},configurable:true,writable:true});}\n")
 LINE = re.compile(r'^(\w+): ([\d ]+) (us|ms) \| (.*)$')
