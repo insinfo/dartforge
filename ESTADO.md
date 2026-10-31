@@ -251,6 +251,127 @@ programa só, o comportamento não muda. Não houve serialização nem teste pul
   `crates/emit_js_production/tests/shared_rule_bodies.rs`, que já estava fora do formato
   antes desta mudança.
 
+## 31/10/2026: wasm — suíte de linguagem, modos do runtime e desempenho
+
+**Suíte `tests/language` (SDK 3.6.2) no alvo wasm.** O `scripts/run-language-suite.py`
+ganhou os modos `wasm` (`compile-wasm` no perfil de produção, como `dart compile wasm`; o
+módulo roda no `dartforge-wasm-run`) e `dart2wasm`. Como no `--wasm` do diferencial, um
+programa também passa quando sai igual ao dart2wasm onde a web faz o dart2wasm divergir da
+VM; um programa que a VM e o DartForge recusam compilar (254) conta à parte. 2 863
+programas, contra o `vm.json`:
+
+| | antes | depois |
+|---|---:|---:|
+| igual à VM | 2 680 | 2 722 |
+| igual só ao dart2wasm | 7 | 7 |
+| recusado pelos dois | 54 | 54 |
+| **com paridade** | **2 741 (95,7%)** | **2 783 (97,2%)** |
+| falhas | 122 | 80 |
+
+42 programas passaram a sair certos, nenhum regrediu. Nos 183 programas que não saíam
+iguais à VM antes, o dart2wasm sai igual à VM em 103; das 80 falhas que restam, 18 o
+dart2wasm também erra (hashes, pilhas simbólicas, experimentos que a VM recusa). Não rodei
+a suíte inteira no dart2wasm. Cada programa leva ~5 s para compilar (~10 s de CPU), e a
+suíte inteira levou ~2 h 30 com 4 jobs na máquina compartilhada.
+
+Corrigido no backend nativo, que serve ao nativo e ao wasm (harness nativo 162/162 nos
+quatro modos, testes e clippy do `emit_native` e do `runtime`):
+- `await` com o tipo de checagem do CFE (`Future<flatten(S)>`), inclusive extension type e
+  variável com limite futuro; `async*` cancelado antes de começar; `void f() async`
+  devolvendo o `Future`; `await for` em literal de coleção (`33a29f41`, `70f78a7c`);
+- casts implícitos de `dynamic`: fonte do `for-in`, inicializador do `for`, `throw`,
+  spread, argumento de chamada genérica e tipo de parâmetro no escopo de quem chama
+  (`5663c5dc`); `Null`/`Never` na entrada dinâmica (`c5bbc4c7`);
+- `??=` só escreve quando o valor lido é nulo (setter, `[]=`, `late final`) (`f1afa267`);
+- covariância que a interface da classe acrescenta a um método herdado, o *forwarding
+  stub* da VM (`71434a97`);
+- tear-off: valor padrão que arranca a própria função (o compilador estourava a pilha) e
+  `super.m == m` (`e895822e`);
+- `null` testado pelo handle (`x is Never?`, `is Null`), `Never?` = `Null`, literal de tipo
+  `Null` (`e7a00080`); listas da VM como `List<E>` no `runtimeType`, também em records
+  (`659e4a80`);
+- criação de aplicação de mixin nomeada sem `new`, `super(...)`, atribuição a estático de
+  extensão, `C.new` como construtor sem nome (`0f398f5b`);
+- só no wasm, como o dart2wasm: `new bool.hasEnvironment(...)` e afins fora de constante
+  lançam `NoSuchMethodError` (`684c9d4e`).
+
+O `async_patch.dart` mudou, então o manifesto revisado do SDK selecionado foi regenerado
+(`736e2298`, só a unidade de patch do `dart:async`).
+
+Continuam abertos (80, agrupados por causa provável): *forwarding stub* no tipo
+reificado do tear-off e em mixins (10); checagem de parâmetro de tipo função na entrada
+dinâmica e na instanciação (6); igualdade e identidade de tear-offs (instanciação,
+construtor, `toString`) (6); RTI de tipos de função genéricos, substituição e argumentos de
+tipo (11); construções ainda recusadas ou lentas para compilar (construtor `external`,
+`loadLibrary` como valor, `TypeArguments`, fábrica redirecionante de extension type,
+aplicação de mixin com superclasse abstrata; um estoura os 300 s) (8); programas que a VM
+recusa ou que devem lançar e o DartForge aceita (11); pilhas simbólicas, hashes e identidade,
+onde o dart2wasm também difere (7); `late` com inicializador recursivo em closure (2);
+padrões (3); avulsos (16: `noSuchMethod`, `super` em mixin que estoura a pilha, `operator <`
+dinâmico que não devolve `bool`, valor de chamada `void` sobrescrita, entre outros).
+
+**Modos do runtime no wasm.** O `compile-wasm` recusa `--memory`, `--exceptions` e
+`--roots` ("configures a native executable"); pelo ambiente (o diferencial compila no
+processo e lê as variáveis), o `target.rs` recusa cada modo com a razão:
+
+| modo | aceito no wasm? | corpus/native `--wasm` | por quê |
+|---|---|---|---|
+| tracing + `check` + pilha-sombra (padrão) | sim | 162/162 | — |
+| ARC simples (`--memory arc`) | não | — | desligado no W3: o estado ARC do runtime wasm32 é a constante "desligado" (`heap.rs`, `ArcSlot`), para o otimizador tirar o ARC do módulo |
+| ARC real (`DARTFORGE_ARC_PREPARED=1`) | não | — | exige o ARC |
+| tokens virtuais (`DARTFORGE_ARC_TOKENS=virtual`) | não | — | exige o ARC preparado |
+| `--exceptions tables` | não | — | "not available for WebAssembly yet": viraria EH Wasm (`exnref`), que o LLVM 22 gera e o perfil admite, mas a personalidade não foi escrita |
+| `--roots maps` | não, por definição | — | o wasm não expõe a pilha do motor: não há como caminhar quadros nem ler mapas de pilha |
+| `--stack-trace symbolic` | não, por definição | — | mesma razão |
+
+Experimento (não comitado): tirei a recusa do `--memory arc`, a constante do `ArcSlot` no
+wasm32 e a opção da lista do `compile-wasm`. O ARC simples compila e passa o corpus
+(`--wasm` 162/162, com GC forçado 162/162). O ARC real e os tokens virtuais param na
+preparação do SDK: `dartforge_native_DartForge_js_attach` (o interop JS do `dart:_js_helper`,
+só do wasm) não tem contrato de posse ARC. E o custo de tirar a constante: o módulo
+tracing cresce ~167 KB (+6,8%), sem mudar a velocidade.
+
+**Desempenho no wasm** (Node 24/V8, três rodadas alternadas com carga ~3; mediana das
+iterações quentes de cada kernel, em ms; memória: RSS máximo do Node / memória linear no
+fim, em MB):
+
+| kernel | tracing | ARC simples (experimento) | dart2wasm |
+|---|---:|---:|---:|
+| trees (árvores binárias) | 26,2 | 47,4 | 15,3 |
+| JSON decode grande | 94,8 | 242,6 | 51,0 |
+| JSON encode grande | 88,9 | 164,9 | 62,5 |
+| JSON decode pequeno | 27,6 | 35,0 | 14,5 |
+| strings build | 38,5 | 91,5 | 23,6 |
+| strings hashes | 15,6 | 17,0 | 12,2 |
+| objetos temporários (`points`) | 10,3 | 7,2 | 4,2 |
+| crivo | 19,9 | 16,8 | 6,8 |
+| `list.add` | 2,2 | 2,1 | 17,6 |
+| `list[i]` | 2,5 | 2,5 | 6,8 |
+| `sort` | 70,7 | 74,5 | 113,3 |
+| mapa `int` | 22,0 | 53,9 | 24,2 |
+
+| programa | tracing RSS / linear | ARC RSS / linear | dart2wasm RSS |
+|---|---:|---:|---:|
+| trees | 97 / 29 | 105 / 35 | 228 |
+| JSON | 219 / 148 | 262 / 195 | 502 |
+| strings | 130 / 67 | 140 / 79 | 334 |
+| objetos temporários | 83 / 16 | 82 / 16 | 54 |
+| coleções | 145 / 62 | 173 / 96 | 494 |
+
+Tamanho: os módulos tracing têm 2,2–2,7 MB; os do dart2wasm, 49–113 KB (ele usa as strings
+e os números do JavaScript e o GC do motor). O dart2wasm é 1,3–2,9× mais rápido em
+alocação, árvores, JSON, strings e no crivo; o DartForge ganha em listas (`add` 8×, leitura
+2,7×, `sort` 1,6×), empata no mapa e usa 2,3–3,4× menos memória (só nos objetos temporários
+usa mais).
+
+**Recomendação.** Para o wasm, o tracing (o padrão): é o único modo suportado, é o mais
+rápido nas cargas de alocação e o ARC simples, no experimento, foi mais lento na maior parte
+(até 2,6× no JSON), mais rápido só nos objetos temporários e no crivo, e gastou mais
+memória linear. Levar o ARC para o wasm custa tamanho em
+todo módulo (+6,8% sem a constante) e, para o ARC real, contratos de posse para os externs
+do interop JS; não compensa hoje. O que mais rende no wasm é o tamanho do módulo e a
+velocidade de alocação do tracing.
+
 ## 30/10/2026: modo de mapas no macOS, defeito do LLVM, CI e funções duplicadas
 
 **O B1 (`--exceptions tables --roots maps`) passou a ligar e a passar no macOS.** Os
