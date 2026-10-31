@@ -98,7 +98,24 @@ fn from_scratch(name: &str, open: &BTreeMap<&str, String>) -> Shown {
 
 #[test]
 fn incremental_edits_publish_what_a_fresh_analysis_publishes() {
-    let mut p = Project::new("typed-incremental");
+    edit_and_compare("typed-incremental", false);
+}
+
+/// The same edits with the analyses in the resident child process, which keeps
+/// the analyzed units between them.
+#[test]
+fn resident_process_publishes_what_a_fresh_analysis_publishes() {
+    edit_and_compare("typed-incremental-resident", true);
+}
+
+fn edit_and_compare(name: &str, in_child: bool) {
+    let mut p = Project::new(name);
+    if in_child {
+        p.server
+            .analyze_in_child_processes(std::path::PathBuf::from(env!(
+                "CARGO_BIN_EXE_dartforge-lsp"
+            )));
+    }
     for (relative, text) in FILES {
         p.write(relative, text);
     }
@@ -208,7 +225,7 @@ fn incremental_edits_publish_what_a_fresh_analysis_publishes() {
         outputs.extend(p.server.await_diagnostics(LIMIT));
         record(&p, &outputs, &mut shown);
         let analyzed = p.server.typed_analyzed_files() - opened;
-        let expected = from_scratch(&format!("typed-incremental-fresh-{step}"), &open);
+        let expected = from_scratch(&format!("{name}-fresh-{step}"), &open);
         assert_eq!(
             shown, expected,
             "step {label}: the incremental publications differ from a fresh analysis"
@@ -242,10 +259,7 @@ fn incremental_edits_publish_what_a_fresh_analysis_publishes() {
         outputs.extend(p.server.await_diagnostics(LIMIT));
         record(&p, &outputs, &mut shown);
         open.remove(relative);
-        let expected = from_scratch(
-            &format!("typed-incremental-fresh-close-{}", open.len()),
-            &open,
-        );
+        let expected = from_scratch(&format!("{name}-fresh-close-{}", open.len()), &open);
         assert_eq!(
             shown, expected,
             "closing {relative}: the incremental publications differ from a fresh analysis"

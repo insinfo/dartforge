@@ -37,6 +37,96 @@ pub struct Engine {
     sdk_libraries: BTreeSet<String>,
 }
 
+/// What a resident analysis process keeps between analyses
+/// ([`Engine::analyze_resident`]): the interner and the analyzed units —
+/// source and tree — of every file the loads read, SDK included. The next
+/// load takes them back instead of reading, lexing and parsing them again;
+/// only the units whose text changed are analyzed again. Types, scopes and
+/// diagnostics never stay: they are rebuilt by each analysis.
+///
+/// The cost is the trees of the whole program kept alive between analyses
+/// ([`Resident::source_bytes`] measures the source; the trees are a few
+/// times that); the owner decides when that is too much and calls
+/// [`Resident::clear`].
+#[derive(Default)]
+pub struct Resident {
+    interner: dartforge_intern::Interner,
+    units: dartforge_elements::unit_cache::AnalyzedUnitCache,
+    /// The in-memory texts of the previous analysis (canonical keys): one that
+    /// is gone now counts from the disk again.
+    texts: HashMap<PathBuf, u64>,
+}
+
+impl Resident {
+    pub fn new() -> Resident {
+        Resident::default()
+    }
+
+    /// The source bytes of the units kept.
+    pub fn source_bytes(&self) -> usize {
+        self.units.source_bytes()
+    }
+
+    /// The units kept.
+    pub fn units(&self) -> usize {
+        self.units.len()
+    }
+
+    /// Forgets everything: the next analysis starts from the files.
+    pub fn clear(&mut self) {
+        *self = Resident::default();
+    }
+
+    /// Drops the units that cannot be served as they are to an analysis with
+    /// these in-memory `texts` of the batch `files` (canonical): those whose
+    /// text is in memory now or was in the previous analysis (the editor's text
+    /// changed, or the disk's counts again), those whose file changed on disk,
+    /// those of the batch, whose syntax diagnostics come from parsing them, and
+    /// the synthetic `entry`, whose imports are the batch's.
+    fn prepare(&mut self, files: &[PathBuf], texts: &HashMap<PathBuf, String>, entry: &Path) {
+        use std::hash::{Hash, Hasher};
+        let digest = |t: &str| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            t.hash(&mut h);
+            h.finish()
+        };
+        let now: HashMap<PathBuf, u64> =
+            texts.iter().map(|(k, t)| (k.clone(), digest(t))).collect();
+        let mut stale: Vec<PathBuf> = self.units.changed();
+        stale.extend(
+            self.texts
+                .iter()
+                .filter(|(k, d)| now.get(*k) != Some(*d))
+                .map(|(k, _)| k.clone()),
+        );
+        stale.extend(now.keys().filter(|k| !self.texts.contains_key(*k)).cloned());
+        stale.extend(files.iter().cloned());
+        stale.push(entry.to_path_buf());
+        let paths = self.units.paths();
+        for k in stale {
+            for p in paths.iter().filter(|p| key(p) == key(&k)) {
+                self.units.invalidate(p);
+            }
+        }
+        self.texts = now;
+    }
+}
+
+/// Gives the program's units back to the [`Resident`] when the analysis ends,
+/// on every path (completed or cancelled).
+struct Reclaim<'a> {
+    program: Option<Program>,
+    units: Option<&'a mut dartforge_elements::unit_cache::AnalyzedUnitCache>,
+}
+
+impl Drop for Reclaim<'_> {
+    fn drop(&mut self) {
+        if let (Some(program), Some(units)) = (self.program.take(), self.units.as_deref_mut()) {
+            units.reclaim(program);
+        }
+    }
+}
+
 /// The diagnostics of a file, with its text (to convert positions).
 #[derive(Debug, Default)]
 pub struct FileAnalysis {
@@ -540,6 +630,34 @@ impl Engine {
         texts: &HashMap<PathBuf, String>,
         cancelled: &dyn Fn() -> bool,
     ) -> Option<AnalysisResult> {
+        self.analyze_kept(root, files, packages, texts, cancelled, None)
+    }
+
+    /// Like [`Engine::analyze_with`], reusing what `resident` kept from the
+    /// previous analyses (the analyzed units of the files whose text did not
+    /// change) and keeping this one's for the next. The result is the same as
+    /// [`Engine::analyze_with`]'s.
+    pub fn analyze_resident(
+        &self,
+        resident: &mut Resident,
+        root: &Path,
+        files: &[PathBuf],
+        packages: Option<&Path>,
+        texts: &HashMap<PathBuf, String>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Option<AnalysisResult> {
+        self.analyze_kept(root, files, packages, texts, cancelled, Some(resident))
+    }
+
+    fn analyze_kept(
+        &self,
+        root: &Path,
+        files: &[PathBuf],
+        packages: Option<&Path>,
+        texts: &HashMap<PathBuf, String>,
+        cancelled: &dyn Fn() -> bool,
+        resident: Option<&mut Resident>,
+    ) -> Option<AnalysisResult> {
         let root_c = canonical(root);
         let mut given: HashMap<PathBuf, PathBuf> = HashMap::new();
         let files_c: Vec<PathBuf> = files
@@ -561,6 +679,7 @@ impl Engine {
             packages_c.as_deref(),
             &texts_c,
             cancelled,
+            resident,
         )?;
         if given.iter().any(|(c, g)| c != g) {
             r.files = std::mem::take(&mut r.files)
@@ -579,6 +698,7 @@ impl Engine {
         packages: Option<&Path>,
         texts: &HashMap<PathBuf, String>,
         cancelled: &dyn Fn() -> bool,
+        resident: Option<&mut Resident>,
     ) -> Option<AnalysisResult> {
         let mut analysis = AnalysisResult::default();
         let mut times = PhaseTimes::from_env();
@@ -676,16 +796,29 @@ impl Engine {
         let cache = dartforge_elements::SdkCache::open_or_build(&self.sdk, "dartdevc")
             .ok()
             .map(|(c, _)| c);
-        let mut interner = dartforge_intern::Interner::new();
+        let mut fresh = dartforge_intern::Interner::new();
+        let (interner, mut units) = match resident {
+            Some(r) => {
+                r.prepare(files, texts, &entry);
+                (&mut r.interner, Some(&mut r.units))
+            }
+            None => (&mut fresh, None),
+        };
         let (program, load_diags) = dartforge_elements::load::load_lenient_generated(
             &entry,
             &self.sdk,
             packages,
-            &mut interner,
+            interner,
             cache,
-            None,
+            units.as_deref_mut(),
             generation,
         );
+        let interner: &dartforge_intern::Interner = interner;
+        let kept = Reclaim {
+            program: Some(program),
+            units,
+        };
+        let program: &Program = kept.program.as_ref().expect("loaded");
         if cancelled() {
             return None;
         }
@@ -825,7 +958,7 @@ impl Engine {
                     analysis.report(k, d, phase::DIRECTIVES);
                 } else if part
                     && let Some(target_uri) =
-                        self.part_without_part_of(&text, &base, config.as_ref(), &program, texts)
+                        self.part_without_part_of(&text, &base, config.as_ref(), program, texts)
                 {
                     // `_resolvePartDirective` (`library_analyzer.dart:971-1032`):
                     // the file exists and is not a part.
@@ -856,9 +989,9 @@ impl Engine {
         let mut table = dartforge_types::TypeTable::new();
         // Messages with the `typedef` alias and the `Never?` as written (C9).
         table.preserve_decoration = true;
-        let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
+        let core = dartforge_types::CoreTypes::init(&mut table, program, interner);
         let (mut outline, outline_diags, outline_units) =
-            dartforge_types::resolve_outline_with_units(&program, &interner, &mut table, &core);
+            dartforge_types::resolve_outline_with_units(program, interner, &mut table, &core);
         times.mark("directives, outline");
         /// Clears the mixin decisions on exit (on any path).
         struct ClearDecisions;
@@ -870,11 +1003,11 @@ impl Engine {
         let _clear_decisions = ClearDecisions;
         dartforge_analysis::clauses::set_mixin_decisions(Some(
             dartforge_types::phase_mixins::decisions(
-                &program, &interner, &mut table, &core, &outline, &own_libs,
+                program, interner, &mut table, &core, &outline, &own_libs,
             ),
         ));
         // `computeSimplyBounded`, once for the program.
-        let simple_bounds = dartforge_analysis::simple_bounds::compute(&program);
+        let simple_bounds = dartforge_analysis::simple_bounds::compute(program);
         // 3. Duplicate names (`crates/analysis`), per library of the batch.
         for lib in &own_libs {
             let library = program.library(*lib);
@@ -908,7 +1041,7 @@ impl Engine {
                 dartforge_analysis::duplicates::duplicates_with_paths(
                     &units,
                     &paths,
-                    &interner,
+                    interner,
                     wildcard,
                     !new_syntax,
                 ),
@@ -923,7 +1056,7 @@ impl Engine {
 
             found.extend(with_phase(
                 phase::ERROR_VERIFIER,
-                dartforge_analysis::constructors::check(&units, &interner),
+                dartforge_analysis::constructors::check(&units, interner),
             ));
             for (i, u) in units.iter().enumerate() {
                 let skipped = dartforge_analysis::Skipped {
@@ -933,7 +1066,7 @@ impl Engine {
                 found.extend(with_phase(
                     phase::UNUSED_LOCAL_ELEMENTS,
                     dartforge_analysis::locals::unused_with_skipped(
-                        *u, &interner, wildcard, skipped,
+                        *u, interner, wildcard, skipped,
                     )
                     .into_iter()
                     .map(|d| (i, d)),
@@ -958,7 +1091,7 @@ impl Engine {
                 ));
                 found.extend(with_phase(
                     phase::ERROR_VERIFIER,
-                    dartforge_analysis::c2_syntactic::check(*u, &interner)
+                    dartforge_analysis::c2_syntactic::check(*u, interner)
                         .into_iter()
                         .map(|d| (i, d)),
                 ));
@@ -982,13 +1115,13 @@ impl Engine {
                 ));
                 found.extend(with_phase(
                     phase::ERROR_VERIFIER,
-                    dartforge_analysis::records::check(u, &interner, library.features)
+                    dartforge_analysis::records::check(u, interner, library.features)
                         .into_iter()
                         .map(|d| (i, d)),
                 ));
                 found.extend(with_phase(
                     phase::ERROR_VERIFIER,
-                    dartforge_analysis::initialization::uninitialized_constants(u, &interner)
+                    dartforge_analysis::initialization::uninitialized_constants(u, interner)
                         .into_iter()
                         .map(|d| (i, d)),
                 ));
@@ -1005,7 +1138,7 @@ impl Engine {
                     phase::RESOLUTION_VISITOR,
                     dartforge_analysis::phases::built_in_as_type(
                         *u,
-                        &interner,
+                        interner,
                         library
                             .features
                             .has(dartforge_frontend::features::Feature::Augmentations)
@@ -1024,7 +1157,7 @@ impl Engine {
                 ));
                 found.extend(with_phase(
                     phase::ERROR_VERIFIER,
-                    dartforge_analysis::operators::arity(*u, &interner)
+                    dartforge_analysis::operators::arity(*u, interner)
                         .into_iter()
                         .map(|d| (i, d)),
                 ));
@@ -1043,7 +1176,7 @@ impl Engine {
                 })
                 .collect();
             let deferred =
-                dartforge_analysis::private_decls::unused_with_skipped(&units, &interner, &skipped);
+                dartforge_analysis::private_decls::unused_with_skipped(&units, interner, &skipped);
             deferred_privates.insert(
                 *lib,
                 deferred
@@ -1058,28 +1191,28 @@ impl Engine {
             }
             for (u, d, f) in with_phase(
                 phase::DIRECTIVES,
-                dartforge_analysis::imports::deferred_extensions(&program, *lib),
+                dartforge_analysis::imports::deferred_extensions(program, *lib),
             )
             .chain(with_phase(
                 phase::DIRECTIVES,
-                dartforge_analysis::imports::internal_and_deferred_directives(&program, *lib),
+                dartforge_analysis::imports::internal_and_deferred_directives(program, *lib),
             ))
             .chain(with_phase(
                 phase::DIRECTIVES,
-                dartforge_analysis::imports::undefined_shown_names(&program, *lib, &interner),
+                dartforge_analysis::imports::undefined_shown_names(program, *lib, interner),
             ))
             .chain(with_phase(
                 phase::DIRECTIVES,
-                dartforge_analysis::imports::ambiguous_exports(&program, *lib, &interner),
+                dartforge_analysis::imports::ambiguous_exports(program, *lib, interner),
             ))
             .chain(with_phase(
                 phase::RESOLUTION_VISITOR,
-                dartforge_analysis::imports::deferred_types(&program, *lib, &interner),
+                dartforge_analysis::imports::deferred_types(program, *lib, interner),
             ))
             // NEW PHASES (INFRA step 6): the per-library warning verifiers.
             .chain(with_phase(
                 phase::IMPORTS_VERIFIER,
-                dartforge_analysis::phases::repeated_directives(&program, *lib, &interner),
+                dartforge_analysis::phases::repeated_directives(program, *lib, interner),
             ))
             // The `package:meta` annotations (batch II.7). Public API: the
             // library in `lib/`, outside `lib/src/`.
@@ -1094,7 +1227,7 @@ impl Engine {
                     .is_some_and(|rel| rel.starts_with("lib/") && !rel.starts_with("lib/src/"));
                 with_phase(
                     phase::BEST_PRACTICES,
-                    dartforge_analysis::meta::check(&program, *lib, &interner, public),
+                    dartforge_analysis::meta::check(program, *lib, interner, public),
                 )
             }) {
                 if let Some(p) = &program.unit(u).path {
@@ -1103,7 +1236,7 @@ impl Engine {
             }
             for (u, d, f) in with_phase(
                 phase::RESOLVER_VISITOR,
-                dartforge_analysis::modifiers::outside_library(&program, *lib, &interner),
+                dartforge_analysis::modifiers::outside_library(program, *lib, interner),
             ) {
                 if let Some(p) = &program.unit(u).path {
                     analysis.report(&key(p), d, f);
@@ -1111,15 +1244,15 @@ impl Engine {
             }
             for (u, d, f) in with_phase(
                 phase::RESOLUTION_VISITOR,
-                dartforge_analysis::clauses::check(&program, *lib, &interner),
+                dartforge_analysis::clauses::check(program, *lib, interner),
             )
             .chain(with_phase(
                 phase::MEMBER_DUPLICATE_DEFINITION,
-                dartforge_analysis::members::check(&program, *lib, &interner),
+                dartforge_analysis::members::check(program, *lib, interner),
             ))
             .chain(with_phase(
                 phase::ERROR_VERIFIER,
-                dartforge_analysis::simple_bounds::check(&program, *lib, &interner, &simple_bounds),
+                dartforge_analysis::simple_bounds::check(program, *lib, interner, &simple_bounds),
             )) {
                 if let Some(p) = &program.unit(u).path {
                     analysis.report(&key(p), d, f);
@@ -1133,21 +1266,21 @@ impl Engine {
 
         // 4. Types (the outline was already resolved before the clauses).
         times.mark("declaration verifiers");
-        let index = Index::new(&program, &own_units);
+        let index = Index::new(program, &own_units);
         // Initializers: `types` infers them on every pass, from any library.
         // A pass with no bodies at all (`&[]`) stabilizes the inferred types;
         // the second gives only their diagnostics.
         let _ = dartforge_types::infer_library_bodies(
-            &program,
-            &interner,
+            program,
+            interner,
             &mut table,
             &core,
             &mut outline,
             &[],
         );
         let (_, init_diags, init_units) = dartforge_types::infer_library_bodies_with_units(
-            &program,
-            &interner,
+            program,
+            interner,
             &mut table,
             &core,
             &mut outline,
@@ -1169,8 +1302,8 @@ impl Engine {
                 return None;
             }
             let (bt, ds, us) = dartforge_types::infer_library_bodies_shared(
-                &program,
-                &interner,
+                program,
+                interner,
                 &mut table,
                 &core,
                 &mut outline,
@@ -1208,7 +1341,7 @@ impl Engine {
                 let u = match registered {
                     Some(u) if units.contains(u) => Some(*u),
                     _ if units.len() == 1 => Some(units[0]),
-                    _ => index.attribute_among(&program, d.span, &units),
+                    _ => index.attribute_among(program, d.span, &units),
                 };
                 if let Some(u) = u {
                     attributed.push((u, d.clone(), phase::RESOLVER_VISITOR));
@@ -1217,7 +1350,7 @@ impl Engine {
         }
         // Initializers, in order, in the first initializer that contains them.
         times.mark("bodies");
-        let inits = initializers(&program);
+        let inits = initializers(program);
         let mut pos = 0;
         for (d, registered) in init_diags.iter().zip(&init_units) {
             if let Some(u) = registered {
@@ -1232,7 +1365,7 @@ impl Engine {
                     attributed.push((inits[i].0, d.clone(), phase::RESOLVER_VISITOR));
                 }
                 None => {
-                    if let Some((u, amb)) = index.attribute(&program, d.span) {
+                    if let Some((u, amb)) = index.attribute(program, d.span) {
                         analysis.ambiguous += usize::from(amb);
                         attributed.push((u, d.clone(), phase::RESOLVER_VISITOR));
                     }
@@ -1252,7 +1385,7 @@ impl Engine {
         let mut inferred: HashSet<LibraryId> = own_libs.iter().copied().collect();
         if let Some(c) = &mut bodies {
             loop {
-                let new = libraries_of_cited_constants(&program, c, &inferred);
+                let new = libraries_of_cited_constants(program, c, &inferred);
                 if new.is_empty() {
                     break;
                 }
@@ -1261,8 +1394,8 @@ impl Engine {
                         return None;
                     }
                     let (mut bt, _, _) = dartforge_types::infer_library_bodies_shared(
-                        &program,
-                        &interner,
+                        program,
+                        interner,
                         &mut table,
                         &core,
                         &mut outline,
@@ -1285,7 +1418,7 @@ impl Engine {
         if let Some(bodies) = &bodies {
             // The exhaustiveness on which 3.6.2 throws removes the whole library.
             let (reports, crashes) = dartforge_types::const_eval::verify_with_crashes(
-                &program, &interner, &mut table, &core, &outline, bodies, &inferred, &own_libs,
+                program, interner, &mut table, &core, &outline, bodies, &inferred, &own_libs,
             );
             attributed.extend(with_phase(phase::CONSTANT_VERIFIER, reports));
             crashed.extend(crashes);
@@ -1294,7 +1427,7 @@ impl Engine {
             attributed.extend(with_phase(
                 phase::BEST_PRACTICES,
                 dartforge_types::phase_literal::literal_constructors(
-                    &program, &interner, &mut table, &core, &outline, bodies, &inferred, &own_libs,
+                    program, interner, &mut table, &core, &outline, bodies, &inferred, &own_libs,
                 ),
             ));
         }
@@ -1358,7 +1491,7 @@ impl Engine {
             }
             let found = dartforge_analysis::initialization::uninitialized_finals_with(
                 &units,
-                &interner,
+                interner,
                 &|u, s| non_nullable.get(&(u, s)).copied(),
             );
             // An extension type without a primary constructor: 3.6.2 reports the
@@ -1376,51 +1509,50 @@ impl Engine {
         // Invalid overrides, in the classes where the `verify()` of the
         // `InheritanceOverrideVerifier` gets to check them.
         for lib in &own_libs {
-            let classes = dartforge_analysis::clauses::inheritance_verifier_proceeds(
-                &program, *lib, &interner,
-            );
+            let classes =
+                dartforge_analysis::clauses::inheritance_verifier_proceeds(program, *lib, interner);
             // `verify()`: the interface conflicts before the members.
             attributed.extend(with_phase(
                 phase::INHERITANCE_OVERRIDE,
                 dartforge_types::phase_inheritance::inconsistencies(
-                    &program, &interner, &mut table, &core, &outline, &classes,
+                    program, interner, &mut table, &core, &outline, &classes,
                 ),
             ));
             attributed.extend(with_phase(
                 phase::INHERITANCE_OVERRIDE,
                 dartforge_types::override_checks::invalid_overrides(
-                    &program, &interner, &mut table, &core, &outline, &classes,
+                    program, interner, &mut table, &core, &outline, &classes,
                 ),
             ));
             attributed.extend(with_phase(
                 phase::INHERITANCE_OVERRIDE,
                 dartforge_types::override_checks::enum_members(
-                    &program, &interner, &mut table, &core, &outline, &classes,
+                    program, interner, &mut table, &core, &outline, &classes,
                 ),
             ));
             attributed.extend(with_phase(
                 phase::INHERITANCE_OVERRIDE,
                 dartforge_types::override_checks::abstract_members(
-                    &program, &interner, &mut table, &core, &outline, &classes,
+                    program, interner, &mut table, &core, &outline, &classes,
                 ),
             ));
             attributed.extend(with_phase(
                 phase::INHERITANCE_OVERRIDE,
                 dartforge_types::override_checks::conflicting_members(
-                    &program, &interner, &mut table, &core, &outline, *lib,
+                    program, interner, &mut table, &core, &outline, *lib,
                 ),
             ));
             attributed.extend(with_phase(
                 phase::ERROR_VERIFIER,
                 dartforge_types::override_checks::enum_statics(
-                    &program, &interner, &mut table, &core, &outline, *lib,
+                    program, interner, &mut table, &core, &outline, *lib,
                 ),
             ));
             attributed.extend(with_phase(
                 phase::INHERITANCE_OVERRIDE,
                 dartforge_types::override_checks::default_values_with(
-                    &program,
-                    &interner,
+                    program,
+                    interner,
                     &mut table,
                     Some(&core),
                     &outline,
@@ -1431,27 +1563,27 @@ impl Engine {
             attributed.extend(with_phase(
                 phase::ERROR_VERIFIER,
                 dartforge_types::override_checks::uninitialized_variables(
-                    &program, &interner, &table, &outline, *lib,
+                    program, interner, &table, &outline, *lib,
                 ),
             ));
             // `BestPracticesVerifier` over declarations and written types.
             attributed.extend(with_phase(
                 phase::BEST_PRACTICES,
                 dartforge_types::best_practices::nullable_equality_parameter(
-                    &program, &interner, &table, &core, &outline, *lib,
+                    program, interner, &table, &core, &outline, *lib,
                 ),
             ));
             attributed.extend(with_phase(
                 phase::BEST_PRACTICES,
                 dartforge_types::best_practices::unnecessary_no_such_method(
-                    &program, &interner, &core, *lib,
+                    program, interner, &core, *lib,
                 ),
             ));
             attributed.extend(with_phase(
                 phase::BEST_PRACTICES,
                 dartforge_types::best_practices::unnecessary_question_marks(
-                    &program,
-                    &interner,
+                    program,
+                    interner,
                     &table,
                     &outline,
                     bodies.as_ref(),
@@ -1461,35 +1593,35 @@ impl Engine {
             attributed.extend(with_phase(
                 phase::ERROR_VERIFIER,
                 dartforge_types::override_checks::getters_and_setters(
-                    &program, &interner, &mut table, &core, &outline, *lib, &classes,
+                    program, interner, &mut table, &core, &outline, *lib, &classes,
                 ),
             ));
             attributed.extend(with_phase(
                 phase::ERROR_VERIFIER,
-                dartforge_types::variance::variance(&program, &interner, &table, &outline, *lib),
+                dartforge_types::variance::variance(program, interner, &table, &outline, *lib),
             ));
             attributed.extend(with_phase(
                 phase::ERROR_VERIFIER,
                 dartforge_types::variance::non_covariant_positions_in_representation(
-                    &program, &table, &outline, *lib,
+                    program, &table, &outline, *lib,
                 ),
             ));
             attributed.extend(with_phase(
                 phase::ERROR_VERIFIER,
                 dartforge_types::a_main::main_function(
-                    &program, &interner, &mut table, &core, &outline, *lib,
+                    program, interner, &mut table, &core, &outline, *lib,
                 ),
             ));
             // `conflicting_generic_interfaces`, with the clauses' gate.
             {
                 let open = |id: dartforge_elements::model::ClassId| {
-                    dartforge_analysis::clauses::gate(&program, *lib, &interner, id)
+                    dartforge_analysis::clauses::gate(program, *lib, interner, id)
                         == dartforge_analysis::clauses::Gate::Open
                 };
                 attributed.extend(with_phase(
                     phase::ERROR_VERIFIER,
                     dartforge_types::phase_generics::generic_conflicts(
-                        &program, &interner, &mut table, &core, &outline, *lib, &open,
+                        program, interner, &mut table, &core, &outline, *lib, &open,
                     ),
                 ));
             }
@@ -1497,40 +1629,40 @@ impl Engine {
             attributed.extend(with_phase(
                 phase::ERROR_VERIFIER,
                 dartforge_types::bound_checks::enum_instantiated_to_bounds(
-                    &program, &interner, &mut table, &core, &outline, *lib,
+                    program, interner, &mut table, &core, &outline, *lib,
                 ),
             ));
             // `extension type` declarations: cycles, bottom, conflicts and `implements`.
             attributed.extend(with_phase(
                 phase::ERROR_VERIFIER,
                 dartforge_types::extension_types::verify(
-                    &program, &interner, &mut table, &core, &outline, *lib,
+                    program, interner, &mut table, &core, &outline, *lib,
                 ),
             ));
             // NEW PHASES (INFRA step 6): `OverrideVerifier`.
             attributed.extend(with_phase(
                 phase::OVERRIDE_VERIFIER,
                 dartforge_types::phase_override::missing_override(
-                    &program, &interner, &mut table, &core, &outline, *lib,
+                    program, interner, &mut table, &core, &outline, *lib,
                 ),
             ));
             attributed.extend(with_phase(
                 phase::REDECLARE_VERIFIER,
                 dartforge_types::phase_override::missing_redeclare(
-                    &program, &interner, &mut table, &core, &outline, *lib,
+                    program, interner, &mut table, &core, &outline, *lib,
                 ),
             ));
             // `BestPracticesVerifier`: `invalid_override_of_non_virtual_member`.
             attributed.extend(with_phase(
                 phase::BEST_PRACTICES,
                 dartforge_types::phase_override::non_virtual_overrides(
-                    &program, &interner, &mut table, &core, &outline, *lib,
+                    program, interner, &mut table, &core, &outline, *lib,
                 ),
             ));
             // The `annotate_overrides` lint, kept apart: it only comes out with
             // the rule enabled.
             for (u, span, name) in dartforge_types::phase_override::missing_override_annotation(
-                &program, &interner, &mut table, &core, &outline, *lib,
+                program, interner, &mut table, &core, &outline, *lib,
             ) {
                 if let Some(p) = &program.unit(u).path
                     && let Some(a) = analysis.files.get_mut(&key(p))
@@ -1545,7 +1677,7 @@ impl Engine {
             // `MustCallSuperVerifier`.
             attributed.extend(with_phase(
                 phase::BEST_PRACTICES,
-                dartforge_types::phase_super::missing_super_call(&program, &interner, *lib),
+                dartforge_types::phase_super::missing_super_call(program, interner, *lib),
             ));
             if let Some(bodies) = &bodies {
                 // Also runs on the libraries judged by 3.13.4: there the code
@@ -1554,7 +1686,7 @@ impl Engine {
                 attributed.extend(with_phase(
                     phase::UNUSED_LOCAL_ELEMENTS,
                     dartforge_types::parameters::unused_parameters(
-                        &program, &interner, &outline, bodies, *lib,
+                        program, interner, &outline, bodies, *lib,
                     ),
                 ));
             }
@@ -1564,8 +1696,7 @@ impl Engine {
                     Some(bodies) => {
                         let inferred: HashSet<LibraryId> = own_libs.iter().copied().collect();
                         let mut unused = dartforge_types::phase_unused::unused_elements(
-                            &program, &interner, &mut table, &core, &outline, bodies, &inferred,
-                            *lib,
+                            program, interner, &mut table, &core, &outline, bodies, &inferred, *lib,
                         );
                         let units = &program.library(*lib).units;
                         unused.retain(|(u, d)| {
@@ -1605,7 +1736,7 @@ impl Engine {
         for &u in &own_units {
             let unit_body = bodies.as_ref().and_then(|c| c.units.get(u.0 as usize));
             for d in dartforge_types::bound_checks::arguments_out_of_bounds(
-                &program, &interner, &mut table, &core, &outline, unit_body, u,
+                program, interner, &mut table, &core, &outline, unit_body, u,
             ) {
                 attributed.push((u, d, phase::ERROR_VERIFIER));
             }
@@ -1621,8 +1752,8 @@ impl Engine {
             };
             let unit_body = bodies.as_ref().and_then(|c| c.units.get(u.0 as usize));
             for d in dartforge_types::phase_deprecated::deprecated_uses(
-                &program,
-                &interner,
+                program,
+                interner,
                 &table,
                 unit_body,
                 u,
@@ -1633,14 +1764,14 @@ impl Engine {
             // 3.13.4's `DeprecatedFunctionalityVerifier` (in the
             // `BestPracticesVerifier`): `DEPRECATED_OPTIONAL`.
             for d in dartforge_types::phase_deprecated::deprecated_optionals(
-                &program, &interner, unit_body, u,
+                program, interner, unit_body, u,
             ) {
                 attributed.push((u, d, phase::BEST_PRACTICES));
             }
             // `_InvalidAccessVerifier` and the `@sealed` classes.
             for d in dartforge_types::phase_access::invalid_accesses(
-                &program,
-                &interner,
+                program,
+                interner,
                 &outline,
                 unit_body,
                 u,
@@ -1650,7 +1781,7 @@ impl Engine {
             }
             if let Some(constraint) = &sdk_constraint {
                 for d in dartforge_types::phase_sdk::sdk_constraint(
-                    &program, &interner, unit_body, u, constraint,
+                    program, interner, unit_body, u, constraint,
                 ) {
                     attributed.push((u, d, phase::SDK_CONSTRAINT));
                 }
@@ -1661,11 +1792,11 @@ impl Engine {
                 // The typed lint rules, kept apart: they only come out with the
                 // rule enabled.
                 let mut from_lints = dartforge_types::typed_lints::findings(
-                    &program, &table, &core, &outline, body, u,
+                    program, &table, &core, &outline, body, u,
                 );
                 from_lints.extend(dartforge_types::typed_lints2::findings(
-                    &program,
-                    &interner,
+                    program,
+                    interner,
                     &mut table,
                     &core,
                     &outline,
@@ -1674,11 +1805,11 @@ impl Engine {
                     u,
                 ));
                 from_lints.extend(dartforge_types::typed_lints3::findings(
-                    &program, &interner, &mut table, &core, &outline, body, u,
+                    program, interner, &mut table, &core, &outline, body, u,
                 ));
                 from_lints.extend(dartforge_types::typed_lints4::findings(
-                    &program,
-                    &interner,
+                    program,
+                    interner,
                     &mut table,
                     &core,
                     &outline,
@@ -1687,8 +1818,8 @@ impl Engine {
                     u,
                 ));
                 from_lints.extend(dartforge_types::typed_lints5::findings(
-                    &program,
-                    &interner,
+                    program,
+                    interner,
                     &mut table,
                     &core,
                     &outline,
@@ -1697,14 +1828,14 @@ impl Engine {
                     u,
                 ));
                 from_lints.extend(dartforge_types::typed_lints7::findings(
-                    &program, &mut table, &core, &outline, body, u,
+                    program, &mut table, &core, &outline, body, u,
                 ));
                 from_lints.extend(dartforge_types::typed_lints8::findings(
-                    &program, &mut table, &core, &outline, body, u,
+                    program, &mut table, &core, &outline, body, u,
                 ));
                 from_lints.extend(dartforge_types::typed_lints9::findings(
-                    &program,
-                    &interner,
+                    program,
+                    interner,
                     &mut table,
                     &core,
                     &outline,
@@ -1713,8 +1844,8 @@ impl Engine {
                     u,
                 ));
                 from_lints.extend(dartforge_types::phase_deprecated::same_package_lint(
-                    &program,
-                    &interner,
+                    program,
+                    interner,
                     &table,
                     Some(body),
                     u,
@@ -1734,8 +1865,8 @@ impl Engine {
                 // engine's semantics.
                 {
                     let can_be_const = dartforge_types::typed_lints6::can_be_const(
-                        &program,
-                        &interner,
+                        program,
+                        interner,
                         &mut table,
                         &core,
                         &outline,
@@ -1745,7 +1876,7 @@ impl Engine {
                     );
                     let un = program.unit(u);
                     let sem = dartforge_analysis::lints::Semantics {
-                        program: &program,
+                        program,
                         unit: u,
                         body,
                         bodies: all,
@@ -1760,7 +1891,7 @@ impl Engine {
                         source: &un.source,
                     };
                     let reports =
-                        dartforge_analysis::lints::run_with(tree, &interner, &|_| true, Some(&sem));
+                        dartforge_analysis::lints::run_with(tree, interner, &|_| true, Some(&sem));
                     if let Some(p) = &un.path
                         && let Some(a) = analysis.files.get_mut(&key(p))
                     {
@@ -1769,20 +1900,20 @@ impl Engine {
                 }
                 // `RequiredParametersVerifier`: `package:meta`'s `@required`.
                 for d in
-                    dartforge_types::phase_required::missing_required(&program, &interner, body, u)
+                    dartforge_types::phase_required::missing_required(program, interner, body, u)
                 {
                     attributed.push((u, d, phase::ERROR_VERIFIER));
                 }
                 // `ErrorHandlerVerifier`: the return of `catchError`'s `onError`.
                 for d in dartforge_types::phase_catch_error::catch_error_returns(
-                    &program, &interner, &mut table, &core, &outline, body, u,
+                    program, interner, &mut table, &core, &outline, body, u,
                 ) {
                     attributed.push((u, d, phase::BEST_PRACTICES));
                 }
                 // `FfiVerifier`; the 3.6.2 crash removes the whole library.
                 match dartforge_types::phase_ffi::verify(
-                    &program,
-                    &interner,
+                    program,
+                    interner,
                     &mut table,
                     &core,
                     &outline,
@@ -1801,23 +1932,22 @@ impl Engine {
                 }
                 // `BestPracticesVerifier`: `assignment_of_do_not_store` and `return_of_do_not_store`.
                 for d in dartforge_types::phase_do_not_store::stored_and_returned(
-                    &program, &interner, body, u,
+                    program, interner, body, u,
                 ) {
                     attributed.push((u, d, phase::BEST_PRACTICES));
                 }
                 // `BestPracticesVerifier` with `strict-inference` (filtered out without the option).
                 for d in dartforge_types::phase_strict::inference_failures(
-                    &program, &interner, &mut table, &core, &outline, body, u,
+                    program, interner, &mut table, &core, &outline, body, u,
                 ) {
                     attributed.push((u, d, phase::BEST_PRACTICES));
                 }
                 // `UseResultVerifier`.
-                for d in dartforge_types::phase_result::unused_results(&program, &interner, body, u)
-                {
+                for d in dartforge_types::phase_result::unused_results(program, interner, body, u) {
                     attributed.push((u, d, phase::ERROR_VERIFIER));
                 }
                 for d in dartforge_types::bound_checks::inferred_arguments_out_of_bounds(
-                    &program, &interner, &mut table, &core, &outline, body, u,
+                    program, interner, &mut table, &core, &outline, body, u,
                 ) {
                     attributed.push((u, d, phase::ERROR_VERIFIER));
                 }
@@ -1828,7 +1958,7 @@ impl Engine {
         // is the `*_non_class` of `analysis::clausulas`.
         let clause_names: BTreeSet<(UnitId, usize)> = own_libs
             .iter()
-            .flat_map(|lib| dartforge_analysis::clauses::clause_name_starts(&program, *lib))
+            .flat_map(|lib| dartforge_analysis::clauses::clause_name_starts(program, *lib))
             .collect();
         let mut seen: BTreeSet<(
             UnitId,
@@ -1906,9 +2036,9 @@ impl Engine {
                 .flat_map(|a| a.diags.iter().cloned())
                 .collect();
             for (u, d) in dartforge_analysis::imports::unused(
-                &program,
+                program,
                 *lib,
-                &interner,
+                interner,
                 &existing,
                 bodies.as_ref(),
             ) {

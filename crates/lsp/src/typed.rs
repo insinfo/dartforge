@@ -11,11 +11,15 @@
 //! duplicated here: this only chooses which files to analyze and discards
 //! what became stale.
 //!
-//! * **One program per package.** All open documents of the package (plus
-//!   the owning library of each open part) go into a single
-//!   `Engine::analyze_with`, with the open texts winning over the disk. So
-//!   editing an imported file reanalyzes whoever imports it, directly or
-//!   transitively, without a dependency graph of its own.
+//! * **One program per package.** The files of the package that an analysis
+//!   covers (plus the owning library of each open part) go into a single
+//!   `Engine::analyze_with`, with the open texts winning over the disk.
+//! * **Incremental.** [`plan`] chooses them from what the previous analyses
+//!   left ([`Memo`]): an edit that keeps the file's API signature reanalyzes
+//!   only its library; one that changes it, the files that depend on it
+//!   through the directives, transitively. The other files to publish get
+//!   their previous diagnostics, the same a fresh analysis gives
+//!   (`tests/typed_incremental.rs`).
 //! * **Version.** Each result carries the version of the analyzed text; the
 //!   server only publishes it if it is still the current one. A result of
 //!   an old version is discarded, never overwrites that of a new one.
@@ -25,13 +29,16 @@
 //!   package was marked again; if so, it stops and restarts with the new
 //!   text.
 //! * **Memory.** The worker retains only the [`Engine`] (SDK layout and
-//!   library names) and the current text of each open document (shared with
-//!   the jobs, not copied). Program, trees and type table live for one
-//!   analysis — in a child process when the server was given its executable
-//!   ([`run_in_child`], what the binary does): the allocator of a long-lived
-//!   process keeps the pages of an analysis that dropped, so the server would
-//!   otherwise stay at the peak of the largest package analyzed (`docs/LSP.md`,
-//!   "Memória").
+//!   library names), the current text of each open document (shared with
+//!   the jobs, not copied) and the [`Memo`]s (diagnostics and directive
+//!   targets). Program, trees and type table never live in the server: with
+//!   its executable (what the binary does) the analyses run in child
+//!   processes — the small ones in a resident child that keeps the trees
+//!   between analyses, within a budget and an idle time ([`ResidentChild`]),
+//!   the large ones in a child of their own ([`run_in_child`]). The allocator
+//!   of a long-lived process keeps the pages of an analysis that dropped, so
+//!   the server would otherwise stay at the peak of the largest package
+//!   analyzed (`docs/LSP.md`, "Memória" and "Edição incremental").
 //!
 //! [`Engine`]: dartforge_parity::analysis::Engine
 
@@ -414,13 +421,30 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
     let mut engine: Option<Engine> = None;
     // What the completed analyses left, per package root (only in this thread).
     let mut memos: HashMap<PathBuf, Memo> = HashMap::new();
+    // The resident analysis process, while there is work for it.
+    let mut resident: Option<ResidentChild> = None;
+    let budget = resident_budget();
+    let idle = resident_idle();
     loop {
         let (root, open, texts, config, changed, process) = {
             let mut e = block();
             while !e.shutdown && ((e.dirty.is_empty() && !e.scan) || e.paused) {
+                let Some(r) = &resident else {
+                    e = sinal
+                        .wait(e)
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    continue;
+                };
+                let left = idle.saturating_sub(r.used.elapsed());
+                if left.is_zero() {
+                    // Idle for long: its memory goes back to the system.
+                    resident = None;
+                    continue;
+                }
                 e = sinal
-                    .wait(e)
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    .wait_timeout(e, left)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .0;
             }
             if e.shutdown {
                 return;
@@ -540,10 +564,18 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             Some(Vec::new())
         } else {
             block().analyzed_files += job.open.len() + job.others.len();
-            let results = match process
-                .as_deref()
-                .and_then(|exe| run_in_child(exe, &job, &cancelled))
-            {
+            let results = match process.as_deref().and_then(|exe| {
+                // A large batch (the first analysis of a package, an API edit that
+                // many files see) runs in a process of its own: its peak does not
+                // stay with the resident process.
+                let small = !job.all && job.open.len() + job.others.len() <= RESIDENT_BATCH;
+                if budget > 0 && small {
+                    run_in_resident(&mut resident, exe, &job, &cancelled)
+                } else {
+                    None
+                }
+                .or_else(|| run_in_child(exe, &job, &cancelled))
+            }) {
                 Some(results) => results,
                 None => run_in_process(engine_ref, &job, &cancelled),
             };
@@ -645,7 +677,7 @@ fn run_in_process(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> V
         cancelled()
     };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        analyze_package(engine, job, &sampling)
+        analyze_package(engine, job, &sampling, None)
     })) {
         Ok(r) => r,
         Err(_) => {
@@ -753,6 +785,9 @@ fn run_in_child(exe: &Path, job: &Arc<Job>, cancelled: &dyn Fn() -> bool) -> Opt
 /// ```
 pub fn typed_analysis_child() -> i32 {
     use std::io::{Read, Write};
+    if std::env::args().any(|a| a == RESIDENT_ARGUMENT) {
+        return resident_child();
+    }
     let mut input = Vec::new();
     if std::io::stdin().lock().read_to_end(&mut input).is_err() {
         return 2;
@@ -773,7 +808,7 @@ pub fn typed_analysis_child() -> i32 {
                     return 2;
                 }
             };
-            let results = analyze_package(&engine, &job, &|| false);
+            let results = analyze_package(&engine, &job, &|| false, None);
             crate::memory::log("after the analysis, in the child");
             let mut out = std::io::BufWriter::new(std::io::stdout().lock());
             if serde_json::to_writer(&mut out, &results).is_err() || out.flush().is_err() {
@@ -785,6 +820,298 @@ pub fn typed_analysis_child() -> i32 {
         Ok(Ok(code)) => code,
         _ => 101,
     }
+}
+
+/// With [`CHILD_ARGUMENT`], makes the child analysis process resident
+/// ([`resident_child`]).
+const RESIDENT_ARGUMENT: &str = "--resident";
+
+/// Default budget of the resident analysis process, in MiB of kept source
+/// (`DARTFORGE_LSP_RESIDENT_MIB`; `0` turns it off and every analysis runs in
+/// a new process). `new_sali`'s frontend keeps ~37 MiB.
+const DEFAULT_RESIDENT_MIB: usize = 64;
+
+/// Default idle time after which the resident process ends and gives its
+/// memory back (`DARTFORGE_LSP_RESIDENT_IDLE_SECS`).
+const DEFAULT_RESIDENT_IDLE_SECS: u64 = 300;
+
+/// The largest batch (files analyzed and published) the resident process
+/// analyzes; a larger one runs in a process of its own ([`run_in_child`]).
+const RESIDENT_BATCH: usize = 32;
+
+/// A message to the resident process: one JSON value per line.
+#[derive(serde::Deserialize)]
+enum Request {
+    /// Analyze the job; the answer carries the same id.
+    Analyze { id: u64, job: Box<Job> },
+    /// Stop the analysis with this id at its next cancellation point.
+    Cancel { id: u64 },
+}
+
+/// [`Request`] as the worker writes it (the job borrowed, not copied).
+#[derive(serde::Serialize)]
+enum Sent<'a> {
+    Analyze { id: u64, job: &'a Job },
+    Cancel { id: u64 },
+}
+
+/// The answer of the resident process to [`Request::Analyze`]: the results, or
+/// `None` when the analysis was cancelled.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Response {
+    id: u64,
+    results: Option<Vec<Result>>,
+}
+
+/// The budget of the resident process, in bytes of kept source (`0`: off).
+fn resident_budget() -> usize {
+    std::env::var("DARTFORGE_LSP_RESIDENT_MIB")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(DEFAULT_RESIDENT_MIB)
+        .saturating_mul(1024 * 1024)
+}
+
+/// How long the resident process may stay idle before it ends.
+fn resident_idle() -> Duration {
+    Duration::from_secs(
+        std::env::var("DARTFORGE_LSP_RESIDENT_IDLE_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(DEFAULT_RESIDENT_IDLE_SECS),
+    )
+}
+
+/// The resident analysis process, seen from the worker: a child of the
+/// server's own binary that keeps the analyzed units between analyses
+/// ([`dartforge_parity::analysis::Resident`]), so that an edit only reparses
+/// what changed instead of the whole program (on `new_sali`'s frontend, ~0.7 s
+/// of lexing and parsing per analysis).
+///
+/// The memory stays out of the server, as with [`run_in_child`], and is
+/// bounded: the process drops what it keeps above the budget
+/// ([`resident_budget`]), and ends after [`resident_idle`] without analyses or
+/// when the server ends. A crash only ends the child: the next analysis starts
+/// another one.
+struct ResidentChild {
+    child: std::process::Child,
+    input: std::io::BufWriter<std::process::ChildStdin>,
+    output: mpsc::Receiver<Response>,
+    next: u64,
+    /// When the last analysis ended.
+    used: Instant,
+}
+
+impl ResidentChild {
+    fn start(exe: &Path) -> Option<Self> {
+        use std::process::{Command, Stdio};
+        let mut child = Command::new(exe)
+            .arg(CHILD_ARGUMENT)
+            .arg(RESIDENT_ARGUMENT)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .ok()?;
+        let input = std::io::BufWriter::new(child.stdin.take()?);
+        let stdout = child.stdout.take()?;
+        let (sent, output) = mpsc::channel();
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            for line in std::io::BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                let Ok(response) = serde_json::from_str::<Response>(&line) else {
+                    break;
+                };
+                if sent.send(response).is_err() {
+                    break;
+                }
+            }
+        });
+        Some(Self {
+            child,
+            input,
+            output,
+            next: 0,
+            used: Instant::now(),
+        })
+    }
+
+    fn send(&mut self, request: &Sent<'_>) -> bool {
+        use std::io::Write;
+        serde_json::to_writer(&mut self.input, request).is_ok()
+            && self.input.write_all(b"\n").is_ok()
+            && self.input.flush().is_ok()
+    }
+
+    /// Runs `job`. `None` when the process is no longer usable (it died, or did
+    /// not stop a cancelled analysis in time and was ended): the caller drops
+    /// it. Otherwise the results, empty when cancelled.
+    fn run(&mut self, job: &Job, cancelled: &dyn Fn() -> bool) -> Option<Vec<Result>> {
+        self.next += 1;
+        let id = self.next;
+        if !self.send(&Sent::Analyze { id, job }) {
+            return None;
+        }
+        let mut cancel_sent: Option<Instant> = None;
+        let answer = loop {
+            match self.output.recv_timeout(Duration::from_millis(10)) {
+                Ok(r) if r.id == id => break Some(r.results.unwrap_or_default()),
+                Ok(_) => {}
+                Err(mpsc::RecvTimeoutError::Timeout) => match cancel_sent {
+                    None if cancelled() => {
+                        if !self.send(&Sent::Cancel { id }) {
+                            break None;
+                        }
+                        cancel_sent = Some(Instant::now());
+                    }
+                    // A phase that does not stop soon (the load of a cold program):
+                    // the new text matters more than what the process keeps.
+                    Some(t) if t.elapsed() > Duration::from_millis(500) => break None,
+                    _ => {}
+                },
+                Err(mpsc::RecvTimeoutError::Disconnected) => break None,
+            }
+        };
+        self.used = Instant::now();
+        answer
+    }
+}
+
+impl Drop for ResidentChild {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Runs `job` in the resident process (started on demand), or `None` when it
+/// cannot be used for this job (the caller falls back to [`run_in_child`]).
+fn run_in_resident(
+    resident: &mut Option<ResidentChild>,
+    exe: &Path,
+    job: &Arc<Job>,
+    cancelled: &dyn Fn() -> bool,
+) -> Option<Vec<Result>> {
+    // A path that is not UTF-8 does not go into JSON.
+    if job.root.to_str().is_none()
+        || job
+            .texts
+            .keys()
+            .chain(job.open.iter().map(|o| &o.2))
+            .chain(job.others.iter())
+            .any(|p| p.to_str().is_none())
+    {
+        return None;
+    }
+    if resident.is_none() {
+        *resident = ResidentChild::start(exe);
+    }
+    let child = resident.as_mut()?;
+    match child.run(job, cancelled) {
+        Some(results) => Some(results),
+        None => {
+            // Dead or ended: the next analysis starts another process.
+            *resident = None;
+            Some(Vec::new())
+        }
+    }
+}
+
+/// The resident child analysis process ([`ResidentChild`]): reads
+/// [`Request`]s from `stdin`, one per line, analyzes each job keeping the
+/// analyzed units for the next ones, and writes one [`Response`] per job to
+/// `stdout`. A job of another SDK starts over; what is kept above the budget
+/// is dropped after the analysis. Ends when `stdin` closes.
+fn resident_child() -> i32 {
+    use dartforge_parity::analysis::Resident;
+    use std::io::{BufRead, Write};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let cancelled = Arc::new(AtomicU64::new(0));
+    let (jobs, queue) = mpsc::channel::<(u64, Job)>();
+    let reader = {
+        let cancelled = Arc::clone(&cancelled);
+        std::thread::spawn(move || {
+            for line in std::io::stdin().lock().lines() {
+                let Ok(line) = line else { break };
+                match serde_json::from_str::<Request>(&line) {
+                    Ok(Request::Analyze { id, job }) => {
+                        if jobs.send((id, *job)).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(Request::Cancel { id }) => cancelled.store(id, Ordering::SeqCst),
+                    Err(_) => break,
+                }
+            }
+        })
+    };
+    let budget = resident_budget();
+    // Deep bodies recurse deeply: a dedicated stack, as in the worker thread.
+    let run = std::thread::Builder::new()
+        .name("dartforge-lsp-typed".into())
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let mut engine: Option<(PathBuf, Engine)> = None;
+            let mut kept = Resident::new();
+            let mut out = std::io::BufWriter::new(std::io::stdout());
+            while let Ok((id, job)) = queue.recv() {
+                if engine.as_ref().is_none_or(|(sdk, _)| *sdk != job.sdk_lib) {
+                    match Engine::new(&job.sdk_lib) {
+                        Ok(e) => engine = Some((job.sdk_lib.clone(), e)),
+                        Err(error) => {
+                            eprintln!("[dartforge-lsp] typed diagnostics disabled: {error}");
+                            return 2;
+                        }
+                    }
+                    kept.clear();
+                }
+                // A changed configuration may change how every unit loads.
+                if job.all {
+                    kept.clear();
+                }
+                let (_, engine_ref) = engine.as_ref().expect("engine ready");
+                let stop = || cancelled.load(Ordering::SeqCst) == id;
+                let results = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    analyze_package(engine_ref, &job, &stop, Some(&mut kept))
+                }));
+                let results = match results {
+                    Ok(r) if stop() => {
+                        drop(r);
+                        None
+                    }
+                    Ok(r) => Some(r),
+                    Err(_) => {
+                        eprintln!(
+                            "[dartforge-lsp] the typed analysis of {} panicked; the syntactic diagnostics remain",
+                            job.root.display()
+                        );
+                        kept.clear();
+                        Some(Vec::new())
+                    }
+                };
+                if kept.source_bytes() > budget {
+                    kept.clear();
+                }
+                crate::memory::log(&format!(
+                    "after the analysis, in the resident child ({} units kept)",
+                    kept.units()
+                ));
+                if serde_json::to_writer(&mut out, &Response { id, results }).is_err()
+                    || out.write_all(b"\n").is_err()
+                    || out.flush().is_err()
+                {
+                    return 1;
+                }
+            }
+            0
+        });
+    let code = match run.map(std::thread::JoinHandle::join) {
+        Ok(Ok(code)) => code,
+        _ => 101,
+    };
+    drop(reader);
+    code
 }
 
 /// The packages of the workspace folders: that of each `.dart` in them.
@@ -1132,7 +1459,12 @@ fn merge(
 /// package that [`plan`] chose) in a single program of package `root`, and
 /// returns their publications with their [`Facts`], plus the package's YAML
 /// files when they are due. Empty when cancelled.
-fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> Vec<Result> {
+fn analyze_package(
+    engine: &Engine,
+    job: &Job,
+    cancelled: &dyn Fn() -> bool,
+    resident: Option<&mut dartforge_parity::analysis::Resident>,
+) -> Vec<Result> {
     let Job {
         root,
         open,
@@ -1190,9 +1522,12 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> 
         .iter()
         .map(|(k, t)| (k.clone(), t.to_string()))
         .collect();
-    let Some(analysis) =
-        engine.analyze_with(root, &files, package_config.as_deref(), &texts, cancelled)
-    else {
+    let packages_path = package_config.as_deref();
+    let analysis = match resident {
+        Some(r) => engine.analyze_resident(r, root, &files, packages_path, &texts, cancelled),
+        None => engine.analyze_with(root, &files, packages_path, &texts, cancelled),
+    };
+    let Some(analysis) = analysis else {
         return Vec::new();
     };
     crate::memory::log(&format!(

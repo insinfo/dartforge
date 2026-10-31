@@ -601,6 +601,11 @@ fn main() {
     // At rest: the analyses are over and their children gone.
     std::thread::sleep(Duration::from_secs(2));
     let rest = footprint::of(pid).map_or(0, |f| f.0);
+    // The children still alive at rest (the resident analysis process).
+    let resident: Vec<(u64, u64)> = children(pid)
+        .into_iter()
+        .filter_map(footprint::of)
+        .collect();
     c.request("shutdown", Value::Null);
     let server_peak = footprint::of(pid).map_or(0, |f| f.1);
     c.notify("exit", Value::Null);
@@ -614,5 +619,12 @@ fn main() {
         mib(memory.child_peak.load(Ordering::Relaxed)),
         mib(memory.total_peak.load(Ordering::Relaxed)),
     );
+    for (now, max) in resident {
+        println!(
+            "resident analysis process: footprint at rest {:.1} MiB, peak {:.1} MiB",
+            mib(now),
+            mib(max)
+        );
+    }
     println!("total {:.1} s", started.elapsed().as_secs_f64());
 }
