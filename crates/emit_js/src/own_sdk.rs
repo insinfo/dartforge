@@ -981,9 +981,15 @@ fn checks_omitted(e: &FnEmitter) -> bool {
 
 /// Covariance checks of the parameters of an instance method of a generic SDK
 /// class (`compiler.dart:3848-3856`): a parameter whose type references a type
-/// parameter of the class (or that is marked `covariant`) is checked on entry —
-/// `List<num> l = <int>[]; l.add(2.5)` throws `TypeError` in `JSArray.add`.
-pub fn covariance_checks(e: &FnEmitter, params: &[ast::Parameter]) -> String {
+/// parameter of the class, that is marked `covariant` or that overrides such a
+/// parameter of a supertype is checked on entry — `List<num> l = <int>[];
+/// l.add(2.5)` throws `TypeError` in `JSArray.add`, and `Comparable.compare(1,
+/// 'a')` in `JSNumber.compareTo(num b)`, which overrides `compareTo(T other)`.
+pub fn covariance_checks(
+    e: &FnEmitter,
+    fid: dartforge_elements::model::FunctionElementId,
+    params: &[ast::Parameter],
+) -> String {
     let Some(c) = e.class else {
         return String::new();
     };
@@ -999,15 +1005,20 @@ pub fn covariance_checks(e: &FnEmitter, params: &[ast::Parameter]) -> String {
         .map(|p| p.id)
         .collect();
     let mut out = String::new();
-    for p in params {
+    for (i, p) in params.iter().enumerate() {
         let Some(n) = p.name else { continue };
         let Some(l) = e.lookup_local(n.sym) else {
             continue;
         };
+        if is_top(e.ctx, &l.ty) {
+            continue;
+        }
         // Only a **covariant** occurrence of the type parameter calls for a check
         // (`void Function(T)` is contravariant in `T`: always safe).
-        let mentions = occurs_covariantly(&l.ty, &class_param_ids, true);
-        if !(mentions || p.covariant) || matches!(l.ty, Ty::Dynamic) {
+        let covariant = p.covariant
+            || occurs_covariantly(&l.ty, &class_param_ids, true)
+            || overrides_covariant(e.ctx, c, fid, i, p);
+        if !covariant {
             continue;
         }
         // `null` passes: the local type may have lost the `?` of a function

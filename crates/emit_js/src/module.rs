@@ -1169,7 +1169,7 @@ pub(crate) fn function_text(
     extra_prologue.push_str(&prologue);
     // SDK mode: `@nullCheck` on the parameters.
     if ctx.sdk.is_some() {
-        extra_prologue.push_str(&crate::own_sdk::covariance_checks(&e, ps));
+        extra_prologue.push_str(&crate::own_sdk::covariance_checks(&e, fid, ps));
         extra_prologue.push_str(&crate::own_sdk::null_checks(&e, ps));
     }
     extra_prologue.push_str(&crate::own_sdk::user_covariance_checks(&e, fid, ps));

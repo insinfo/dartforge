@@ -23,3 +23,4 @@
 4	75_stacktrace_existencia	index range check	`[1][5]` no longer throws `RangeError`
 4	124_typed_data	index range check	`u8b[10]` on a five-element `Uint8List` no longer throws `RangeError` (dart2js -O4 keeps this check: `J.$index$ax`, its inference does not prove the receiver a native typed array)
 4	131_string_codeunits_runes	index range check	`'abc'.codeUnitAt(3)` returns `NaN` instead of throwing `RangeError`
+3	277_covariancia_de_sobrescritas_do_sdk	parameter check	`JSNumber.compareTo` and `JSString.compareTo`, overriding `Comparable<T>.compareTo(T)`, no longer check their argument: mixed lists sort and the comparisons return a number
