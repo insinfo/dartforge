@@ -114,6 +114,16 @@ fn generated_sheets(ctx: &mut GeneratorCtx<'_>, root: &Path) -> HashMap<PathBuf,
     sheets
 }
 
+/// Is `p` in one of the directories the generator reads in the package at
+/// `root` (`lib/`, `web/`, `test/`)? A package nested in another's directory
+/// (`limitless_ui/example`) has its own round: its files are not the outer
+/// package's, although their paths start with its root.
+fn in_package_dirs(root: &Path, p: &Path) -> bool {
+    ["lib", "web", "test"]
+        .iter()
+        .any(|d| p.starts_with(root.join(d)))
+}
+
 fn collect_files(dir: &std::path::Path, v: &mut Vec<PathBuf>) {
     let Ok(ls) = std::fs::read_dir(dir) else {
         return;
@@ -231,7 +241,7 @@ impl NativeGenerator for NgStageA {
                     .units
                     .first()
                     .and_then(|&u| program.unit(u).path.as_ref())
-                    .is_some_and(|p| p.starts_with(root)),
+                    .is_some_and(|p| in_package_dirs(root, p)),
             };
         let mut seen = vec![false; program.libraries.len()];
         let mut queue: Vec<usize> = (0..program.libraries.len())
@@ -321,7 +331,10 @@ impl NativeGenerator for NgStageA {
                 NgCache {
                     output: clone_output(&s),
                     resource_readers,
-                    index: None,
+                    // The index of stage B, built now in a package the
+                    // developer edits: the first edit does not pay for it
+                    // (0.5 s in `limitless_ui`); in the others, on demand.
+                    index: request.editable.then(|| package_index(&package, &resolver)),
                 },
             );
         Ok(s)
@@ -360,19 +373,22 @@ fn clone_output(s: &NativeOutput) -> NativeOutput {
 }
 
 impl NgStageA {
-    /// Edit to a `.dart` of the package (B03): regenerates only the files that
-    /// may depend on what changed — the file itself and whoever reaches it
-    /// through `import`/`export`, transitively, in the new program. Everything
-    /// the generation of a file reads from another library (a `directives:`
-    /// child, a resolved type, metadata inherited from a superclass, a
-    /// selector) can only come from a library reachable through its imports:
-    /// this closure covers, with room to spare, the queries that
-    /// `generate_file` records. The closure's files are reindexed before
-    /// generating.
+    /// Edit to a `.dart` library (B03): regenerates only the package's files
+    /// that may depend on what changed — the file itself, if it is the
+    /// package's, and whoever reaches it through `import`/`export`,
+    /// transitively, in the new program. Everything the generation of a file
+    /// reads from another library (a `directives:` child, a resolved type,
+    /// metadata inherited from a superclass, a selector) can only come from a
+    /// library reachable through its imports: this closure covers, with room
+    /// to spare, the queries that `generate_file` records. The edited library
+    /// may be another package's (the public API of a dependency): the
+    /// closure is then this package's files that reach it. The closure's
+    /// files are reindexed before generating, and the index survives.
     ///
     /// Falls back to stage A (returns `None`) for what it cannot handle this
-    /// way: a file outside the package, a part, a file without a previous
-    /// template, a file refused before or now, an output that did not exist.
+    /// way: a file the program does not load, a part, a file without a
+    /// previous template, a file refused before or now, an output that did
+    /// not exist.
     fn try_dart(
         &self,
         ctx: &mut GeneratorCtx<'_>,
@@ -390,8 +406,7 @@ impl NgStageA {
         }
         if changed.is_empty()
             || !changed.iter().all(|p| {
-                p.starts_with(&canon_root)
-                    && p.extension().is_some_and(|e| e == "dart")
+                p.extension().is_some_and(|e| e == "dart")
                     && !p.to_string_lossy().ends_with(".template.dart")
             })
         {
@@ -426,7 +441,18 @@ impl NgStageA {
                 }
             }
         }
+        // Libraries of the package (not generated), by the canonical path of
+        // their units.
+        let mut own_library = vec![false; program.libraries.len()];
+        for (p, &l) in &library_of_unit {
+            if in_package_dirs(&canon_root, p) && !p.to_string_lossy().ends_with(".template.dart") {
+                own_library[l] = true;
+            }
+        }
         let mut queue: Vec<usize> = Vec::new();
+        // The edited libraries of other packages that some library of this
+        // one reaches (the `LibrarySource` queries of stage A).
+        let mut reaching_outside: Vec<PathBuf> = Vec::new();
         for p in &changed {
             let &l = library_of_unit.get(p)?;
             // Only the defining unit: a part changes the whole library, and
@@ -437,6 +463,20 @@ impl NgStageA {
                 .and_then(|&u| program.unit(u).path.as_ref());
             if main.and_then(|x| std::fs::canonicalize(x).ok()).as_ref() != Some(p) {
                 return None;
+            }
+            if !in_package_dirs(&canon_root, p) {
+                let mut seen = vec![false; program.libraries.len()];
+                let mut stack = vec![l];
+                while let Some(x) = stack.pop() {
+                    if std::mem::replace(&mut seen[x], true) {
+                        continue;
+                    }
+                    if own_library[x] {
+                        reaching_outside.push(p.clone());
+                        break;
+                    }
+                    stack.extend(dependents[x].iter().copied());
+                }
             }
             queue.push(l);
         }
@@ -462,7 +502,7 @@ impl NgStageA {
                 continue;
             };
             let generated = c.to_string_lossy().ends_with(".template.dart");
-            if c.starts_with(&canon_root) && !generated {
+            if in_package_dirs(&canon_root, &c) && !generated {
                 closure.push(dartforge_elements::generated::key(p));
             }
         }
@@ -573,12 +613,28 @@ impl NgStageA {
                 ))
             })
             .collect();
+        // An edited library of another package is a `LibrarySource` of this
+        // round when the package reaches it (what stage A asked about it),
+        // with the new digest, so the next edit does not wake the round
+        // again; one the package does not reach is no query of the round.
         for p in ctx.changed_paths.clone().iter() {
             let k = dartforge_elements::generated::key(p);
-            ctx.register(Query::File(k.clone()));
-            ctx.register(Query::Exists(k.clone()));
-            if let Some(uri) = library_of.get(&k) {
-                ctx.register(Query::LibraryApi(uri.to_string()));
+            let own = in_package_dirs(root, p) || in_package_dirs(&canon_root, p);
+            match library_of.get(&k) {
+                Some(uri) if !own => {
+                    let reaches =
+                        std::fs::canonicalize(p).is_ok_and(|c| reaching_outside.contains(&c));
+                    if reaches {
+                        ctx.register(Query::LibrarySource(uri.to_string()));
+                    }
+                }
+                uri => {
+                    ctx.register(Query::File(k.clone()));
+                    ctx.register(Query::Exists(k.clone()));
+                    if let Some(uri) = uri {
+                        ctx.register(Query::LibraryApi(uri.to_string()));
+                    }
+                }
             }
         }
         Some(output)
@@ -590,7 +646,7 @@ impl NgStageA {
         request: &NativeRequest,
     ) -> Option<NativeOutput> {
         let resource = ctx.changed_paths.iter().find(|p| {
-            p.starts_with(&request.package_root)
+            in_package_dirs(&request.package_root, p)
                 && p.extension()
                     .is_some_and(|e| matches!(e.to_str(), Some("html" | "css" | "scss" | "sass")))
         })?;

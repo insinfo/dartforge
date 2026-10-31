@@ -2330,6 +2330,9 @@ impl Engine {
             {
                 rel.reevaluated_queries += 1;
                 if query_digest(c, ctx.db, &memory) != *d {
+                    if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
+                        eprintln!("engine: round {package} redone by {c:?}");
+                    }
                     unchanged = false;
                     break;
                 }
@@ -2368,6 +2371,7 @@ impl Engine {
         let request = NativeRequest {
             package: package.to_string(),
             package_root: node.root.clone(),
+            editable: node.is_root || node.kind == crate::config::DependencyType::Path,
             actions,
             roots: self.package_roots(),
             versions: self.imitated_versions(generator.key()),
@@ -2542,9 +2546,11 @@ impl Engine {
         let action = &self.graph.actions[a];
         let f = &self.phases[action.phase];
         let generator = self.natives[g].clone();
+        let node = &self.package_graph.nodes[f.package];
         let request = NativeRequest {
             package: action.input.package.to_string(),
-            package_root: self.package_graph.nodes[f.package].root.clone(),
+            package_root: node.root.clone(),
+            editable: node.is_root || node.kind == crate::config::DependencyType::Path,
             actions: vec![NativeAction {
                 factory: f.factory.clone(),
                 input: action.input.clone(),

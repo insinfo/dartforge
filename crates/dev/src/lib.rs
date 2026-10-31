@@ -177,6 +177,14 @@ impl Session {
         packages: Option<&Path>,
         output: &Path,
     ) -> Result<Session, String> {
+        // The engine and the session compare paths: both work with absolute
+        // ones (`dartforge serve web/main.dart` gives relative ones).
+        let input = &std::path::absolute(input).map_err(|e| format!("{}: {e}", input.display()))?;
+        let packages = packages
+            .map(std::path::absolute)
+            .transpose()
+            .map_err(|e| format!("--packages: {e}"))?;
+        let packages = packages.as_deref();
         let mut stages: Vec<Box<dyn generation::GenerationStage>> = Vec::new();
         match generation::build_stage(input, packages) {
             None => {}

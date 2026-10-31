@@ -130,3 +130,40 @@ fn resolved_build_runner_preserves_the_explicit_engine_trigger() {
     project.write_config(true);
     assert!(detect(&project.cfg()));
 }
+
+/// A relative input (`dartforge serve web/main.dart` in the project) has an
+/// absolute root: the engine and the session compare its paths with the
+/// absolute ones of `package_config.json`. Before, `web/main.dart` gave the
+/// empty path, and a clean checkout did not start.
+#[test]
+fn package_root_of_a_relative_input_is_absolute() {
+    let base = std::env::current_dir().unwrap();
+    let project = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    std::fs::create_dir_all(project.path().join("web")).unwrap();
+    std::fs::write(project.path().join("pubspec.yaml"), "name: app\n").unwrap();
+    std::fs::write(project.path().join("web/main.dart"), "void main() {}\n").unwrap();
+    // The input relative to the current directory (`../../target/tmp/…`).
+    let relative = relative_to(&project.path().join("web/main.dart"), &base);
+    assert!(relative.is_relative(), "{}", relative.display());
+    let root = dartforge_build::package_root(&relative).unwrap();
+    assert!(root.is_absolute(), "{}", root.display());
+    assert_eq!(
+        std::fs::canonicalize(&root).unwrap(),
+        std::fs::canonicalize(project.path()).unwrap()
+    );
+}
+
+/// `path` relative to `base` (both absolute).
+fn relative_to(path: &std::path::Path, base: &std::path::Path) -> PathBuf {
+    let path: Vec<_> = path.components().collect();
+    let base: Vec<_> = base.components().collect();
+    let common = path.iter().zip(&base).take_while(|(a, b)| a == b).count();
+    let mut out = PathBuf::new();
+    for _ in common..base.len() {
+        out.push("..");
+    }
+    for c in &path[common..] {
+        out.push(c);
+    }
+    out
+}

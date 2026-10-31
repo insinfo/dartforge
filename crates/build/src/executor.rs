@@ -33,6 +33,10 @@ pub struct NativeAction {
 pub struct NativeRequest {
     pub package: String,
     pub package_root: PathBuf,
+    /// The root package or a `path` dependency: one the developer edits, so
+    /// a generator may prepare its incremental state with the first round
+    /// (a `hosted` or `git` package does not change under the session).
+    pub editable: bool,
     pub actions: Vec<NativeAction>,
     /// The root of each package in `package_config.json` (Sass's `package:`
     /// resolves through them, like `AssetId.resolve` in `build`).

@@ -80,9 +80,16 @@ pub fn detect(cfg: &PackageConfig) -> bool {
 }
 
 /// Directory of the root package: the one of the nearest `pubspec.yaml` above
-/// `path` (a file or a directory).
+/// `path` (a file or a directory). A relative `path` is taken from the
+/// current directory, so the root is always absolute: `web/main.dart` has the
+/// current directory as its root, never the empty path.
 pub fn package_root(path: &Path) -> Option<PathBuf> {
-    let start = if path.is_dir() { path } else { path.parent()? };
+    let path = std::path::absolute(path).ok()?;
+    let start = if path.is_dir() {
+        path.as_path()
+    } else {
+        path.parent()?
+    };
     start
         .ancestors()
         .find(|d| d.join("pubspec.yaml").is_file())
