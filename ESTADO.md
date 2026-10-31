@@ -23,7 +23,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | Ferramenta | Resultado | Lacunas abertas |
 |---|---|---|
 | **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT** (primeira medição, 31/10, `dartforge aot --optimize`, 40 min): **2721 iguais à VM, 2775 (96,9%)** contando os 54 que os dois recusam. JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos). Nativo: 88 falhas, **87 iguais às do wasm** (mesmo backend): 63 exceções em tempo de execução (*tear-offs* e sua igualdade, RTI de tipos de função genéricos, checagens que não lançam), 9 programas que a VM recusa e nós aceitamos, 8 construções recusadas pelo backend, 6 saídas diferentes. A única exclusiva do nativo era o `dart.isVM` (corrigido em `cd23f5a5`) |
-| **`analyze`** | corpus do analisador **99,95%** (23.001/23.012: 11 ausências, 0 falsos positivos), 14/10. Erros a mais em `tests/language`: **231 → 107** (29 arquivos), 31/10 | análise de fluxo (`try/finally`, `== null`), UP com interseções, `noSuchMethod`, *wildcards* |
+| **`analyze`** | corpus do analisador **99,95%** (23.001/23.012), 14/10 e de novo em 31/10. Erros a mais em `tests/language`: **231 → 107 → 20** (de 70 para 7 arquivos), 31/10, sem novos falsos negativos (os erros dos 1.460 programas de erro ficaram idênticos) | 12 são do *parser*: declarações `augment` sem o experimento `macros`. 6 são *wildcards* fora do modo *wildcard*: com `_` duplicado, o analisador liga à primeira declaração e nós à última. 2 vêm de `X1 extends FutureOr<X1>`, em que o próprio 3.6.2 não diagnostica |
 | **`pub`** | solucionador **PubGrub** portado do Pub 3.6.2. `pub get` idêntico ao oficial em **51/51** projetos reais (lockfile byte a byte, `package_config.json`, saída e código), com e sem lockfile. `add`, `remove`, `upgrade`, `downgrade`, `deps` e `outdated` idênticos em 42 cenários (31/10) | sugestões depois de falha de resolução; avisos de segurança no `outdated`; `cache`, `global`, `publish`, `token`, `login`; `--precompile`; SDKs Flutter e Fuchsia. Matriz em `docs/PUB-E-TEST.md` |
 | **`test`** | igual ao `dart test` em **22/22** execuções diferenciais; aceita `dart_test.yaml` e as anotações; relator `expanded` no formato do `dart test` (31/10) | `-r json` com eventos próprios; só a plataforma `vm`; sem *coverage*, *watch*, `--fail-fast`, `compact` e `github` |
 | **JS produção** | corpus 277/277 (-O1/-O2), 260/260 (-O3), 256/256 (-O4) | — |
@@ -34,12 +34,13 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | Frente | Agente |
 |---|---|
 | Wasm: tamanho do módulo e velocidade em alocação, JSON e strings | agente wasm |
-| `analyze`: os 107 falsos positivos do verificador de tipos | agente verificador de tipos |
+| `analyze`: falsos positivos do verificador de tipos (107 → 20) | concluído em 31/10; os 12 do *parser* (`augment`) ficam para o *parser* |
 | JS dev: subir de um checkout limpo sem `build_runner` e ganhar do webdev; edição de template abaixo de 2,2 s | agente JS dev |
 | JS produção: `collatz`, `Set<int>`, `jsonEncode`, `list_methods`, `map_str_int` no máximo iguais ao `dart2js -O4`; gzip dos programas pequenos abaixo dele; `async_await` comparado | agente JS produção (desde 31/10, 16h) |
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
 | Backend nativo (AOT e wasm): as 87 falhas da suíte `tests/language` | agente backend nativo |
-| AOT nativo: tempo de compilação (6× o `dart compile exe`) e tamanho de programa grande (1,4×); ARC real 3× os ciclos do tracing | a abrir |
+| AOT nativo: tempo de compilação (6× o `dart compile exe`) e tamanho de programa grande (1,4×) | agente AOT (desde 31/10, 17h) |
+| ARC real: 3× os ciclos do tracing no HTTP | a abrir |
 | LSP: medir o servidor oficial nos mesmos projetos e reduzir *hover*/*completion* | agente LSP |
 
 ## 31/10/2026: `dartforge pub` com o solucionador PubGrub do Pub e os subcomandos do dia a dia; relator `expanded` do `dart test`
