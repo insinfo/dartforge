@@ -1073,6 +1073,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// A constant expression's text in its production slot
     /// ([`crate::const_slots`]): evaluated and canonicalized once per site.
     pub(crate) fn const_slot(&self, code: String) -> String {
+        if self.evaluated_once {
+            return code;
+        }
         crate::const_slots::wrap(self.ctx, self.m, code)
     }
 
@@ -1198,6 +1201,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ),
             ExprKind::FunctionExpression(fid) => {
                 let saved_const = self.in_const;
+                let saved_once = std::mem::replace(&mut self.evaluated_once, false);
                 self.in_const = false;
                 // The runtime type of a generator without a written return
                 // type (the CFE's rule, which gives the `runtimeType`) takes
@@ -1212,6 +1216,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     .filter(|_| self.declared_context_closure != Some(e));
                 let r = self.emit_function_expr(*fid, expected, common);
                 self.in_const = saved_const;
+                self.evaluated_once = saved_once;
                 r
             }
             ExprKind::TypeArguments { target, type_args } => {

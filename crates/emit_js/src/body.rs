@@ -134,6 +134,10 @@ pub struct FnEmitter<'m, 'a> {
     pub pattern_assign: bool,
     /// Inside a constant expression (implicit instantiations become `dart.const`).
     pub in_const: bool,
+    /// The initializer of a lazy static or top-level variable, outside any
+    /// closure: it runs once, so its constants need no per-site slot
+    /// ([`crate::const_slots`]).
+    pub evaluated_once: bool,
     /// Arguments of a JS interop call: functions go through
     /// `dart.assertInterop` (except a direct `allowInterop(...)`).
     pub interop_args: bool,
@@ -265,6 +269,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             compound_guards: Vec::new(),
             pattern_assign: false,
             in_const: false,
+            evaluated_once: false,
             interop_args: false,
             case_labels: Vec::new(),
             continue_scopes: Vec::new(),
@@ -2459,7 +2464,15 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             // `dart:_rti`…) keep the `for…of`: part of their code runs while
             // the runtime loads, before the extension members of the
             // JavaScript arrays they walk are installed.
+            // A `List` keeps it too: it is almost always a JavaScript array,
+            // which the `for…of` walks natively, and any other list reaches
+            // its Dart iterator the same way as before.
+            let is_list = self
+                .ctx
+                .list_
+                .is_some_and(|l| self.ctx.as_super(&ity, l).is_some());
             let iterator_loop = !indexed
+                && !is_list
                 && self.ctx.production()
                 && !self.ctx.program.library(self.lib).uri.starts_with("dart:_")
                 && std::env::var("DARTFORGE_JSPROD_ITERATOR_LOOPS").map_or(true, |v| v != "0");

@@ -19,7 +19,10 @@
 //! program observes. The name of `K` comes from the module and the text
 //! alone, so the fragments of a library can be emitted in any order (and
 //! cached) and still agree; two sites with the same text share it, which is
-//! the canonical object anyway. `DARTFORGE_JSPROD_CONST_SLOTS=0` turns it off.
+//! the canonical object anyway. A constant inside another cached one loses
+//! its own slot (it is evaluated once, with the outer one); the prelude
+//! declares only the slots still used. `DARTFORGE_JSPROD_CONST_SLOTS=0`
+//! turns it off.
 
 use crate::ctx::Ctx;
 use crate::module::ModState;
@@ -35,9 +38,102 @@ pub(crate) fn wrap(ctx: &Ctx, m: &ModState, code: String) -> String {
     if !enabled(ctx) || !closed(&code, &|name| known_name(ctx, m, name)) {
         return code;
     }
+    // The constants inside this one are evaluated once, with it: their own
+    // slots would only cost text (the locale tables of `intl` and the nested
+    // maps of the ngdart views have thousands of them).
+    let mut inner = Vec::new();
+    let code = strip_slots(&code, &mut inner);
+    for s in &inner {
+        m.drop_const_slot(s);
+    }
     let slot = slot_name(m.lib.0, &code);
     m.note_const_slot(&slot);
     format!("({slot} ??= {code})")
+}
+
+/// `code` without the slot wrappers `(K…$… ??= X)` it contains (each
+/// becomes `X`); the names of the removed slots go to `removed`.
+fn strip_slots(code: &str, removed: &mut Vec<String>) -> String {
+    let b = code.as_bytes();
+    let mut out = String::with_capacity(code.len());
+    // Positions of the closing parentheses to drop.
+    let mut drop_close: Vec<usize> = Vec::new();
+    let (mut i, mut start) = (0, 0);
+    while i < b.len() {
+        match b[i] {
+            b'"' | b'\'' | b'`' => {
+                i = skip_string(b, i);
+                continue;
+            }
+            b'(' => {
+                if let Some(len) = slot_prefix(&code[i..])
+                    && let Some(close) = matching_paren(b, i)
+                {
+                    removed.push(code[i + 1..i + len - " ??= ".len()].to_string());
+                    drop_close.push(close);
+                    out.push_str(&code[start..i]);
+                    i += len;
+                    start = i;
+                    continue;
+                }
+            }
+            b')' if drop_close.contains(&i) => {
+                out.push_str(&code[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out.push_str(&code[start..]);
+    out
+}
+
+/// The length of `(K<module>$<12 hex digits> ??= ` at the start of `s`.
+fn slot_prefix(s: &str) -> Option<usize> {
+    let rest = s.strip_prefix("(K")?;
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let rest = rest[digits..].strip_prefix('$')?;
+    let hex = rest.bytes().take_while(u8::is_ascii_hexdigit).count();
+    (digits > 0 && hex == 12 && rest[hex..].starts_with(" ??= "))
+        .then_some(2 + digits + 1 + hex + " ??= ".len())
+}
+
+/// The index after the string literal that starts at `i`.
+fn skip_string(b: &[u8], mut i: usize) -> usize {
+    let q = b[i];
+    i += 1;
+    while i < b.len() && b[i] != q {
+        if b[i] == b'\\' {
+            i += 1;
+        }
+        i += 1;
+    }
+    i + 1
+}
+
+/// The `)` that closes the `(` at `open`, skipping string literals.
+fn matching_paren(b: &[u8], open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut i = open;
+    while i < b.len() {
+        match b[i] {
+            b'"' | b'\'' | b'`' => {
+                i = skip_string(b, i);
+                continue;
+            }
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 /// The slot of `code` in module `module`: `K<module>$<hash of the text>`.
@@ -58,7 +154,7 @@ fn known_name(ctx: &Ctx, m: &ModState, name: &str) -> bool {
     matches!(name, "dart" | "dartx" | "t$R")
         || m.dartx_used.borrow().contains_key(name)
         || m.private_syms.borrow().contains_key(name)
-        || m.const_slots.borrow().contains(name)
+        || m.const_slots.borrow().contains_key(name)
         || ctx.libs.iter().any(|l| l.js_var == name)
 }
 
@@ -183,6 +279,28 @@ mod tests {
         assert!(!closed("dart.constList(t$R(\"|p\"), [true ? k : 1])", &lib));
         assert!(!closed("dart.constList(t$R(\"|p\"), [`${k}`])", &lib));
         assert!(!closed("dart.constList(t$R(\"|p\"), [\"open", &lib));
+    }
+
+    #[test]
+    fn inner_slots_are_stripped() {
+        let a = slot_name(1, "a");
+        let b = slot_name(1, "b");
+        let code = format!(
+            "dart.constMap(R, S, [\"(K1$\", ({a} ??= dart.constList(T, [1])), \"b\", ({b} ??= dart.const(new L$m.P.new(\")(\"))), 'x)'])"
+        );
+        let mut removed = Vec::new();
+        assert_eq!(
+            strip_slots(&code, &mut removed),
+            "dart.constMap(R, S, [\"(K1$\", dart.constList(T, [1]), \"b\", dart.const(new L$m.P.new(\")(\")), 'x)'])"
+        );
+        assert_eq!(removed, vec![a, b]);
+        // Not a slot (the name is not 12 hex digits): left alone.
+        let mut none = Vec::new();
+        assert_eq!(
+            strip_slots("f((K1$abc ??= x))", &mut none),
+            "f((K1$abc ??= x))"
+        );
+        assert!(none.is_empty());
     }
 
     #[test]

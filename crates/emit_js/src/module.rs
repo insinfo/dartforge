@@ -27,8 +27,9 @@ pub struct ModState {
     pub noted_classes: RefCell<BTreeSet<u32>>,
     /// Libraries whose emitted constant records call their canonical cache.
     pub const_record_libraries: RefCell<BTreeSet<u32>>,
-    /// Production slots of closed constants (`const_slots`), declared in the prelude.
-    pub const_slots: RefCell<BTreeSet<String>>,
+    /// Production slots of closed constants (`const_slots`) and their uses in
+    /// the text; those still used are declared in the prelude.
+    pub const_slots: RefCell<BTreeMap<String, u32>>,
     /// Private descriptor guards required by emitted typed-array loop versions.
     pub typed_read_guard_libraries: RefCell<BTreeSet<u32>>,
 }
@@ -44,7 +45,7 @@ impl ModState {
             private_syms: RefCell::new(BTreeMap::new()),
             noted_classes: RefCell::new(BTreeSet::new()),
             const_record_libraries: RefCell::new(BTreeSet::new()),
-            const_slots: RefCell::new(BTreeSet::new()),
+            const_slots: RefCell::new(BTreeMap::new()),
             typed_read_guard_libraries: RefCell::new(BTreeSet::new()),
         }
     }
@@ -88,7 +89,22 @@ impl ModState {
         self.const_record_libraries.borrow_mut().insert(lib.0);
     }
     pub(crate) fn note_const_slot(&self, slot: &str) {
-        self.const_slots.borrow_mut().insert(slot.to_string());
+        *self
+            .const_slots
+            .borrow_mut()
+            .entry(slot.to_string())
+            .or_insert(0) += 1;
+    }
+    /// One use of `slot` left the text (its constant is inside another
+    /// cached one).
+    pub(crate) fn drop_const_slot(&self, slot: &str) {
+        let mut slots = self.const_slots.borrow_mut();
+        if let Some(n) = slots.get_mut(slot) {
+            *n -= 1;
+            if *n == 0 {
+                slots.remove(slot);
+            }
+        }
     }
     pub fn note_class(&self, c: ClassId) {
         self.noted_classes.borrow_mut().insert(c.0);
@@ -133,9 +149,7 @@ impl ModState {
         self.const_record_libraries
             .borrow_mut()
             .extend(other.const_record_libraries.borrow().iter().copied());
-        self.const_slots
-            .borrow_mut()
-            .extend(other.const_slots.borrow().iter().cloned());
+        merge_counts(&self.const_slots, &other.const_slots.borrow());
         self.typed_read_guard_libraries
             .borrow_mut()
             .extend(other.typed_read_guard_libraries.borrow().iter().copied());
@@ -153,7 +167,7 @@ pub struct Fragment {
     pub private_syms: BTreeMap<String, (u32, String)>,
     pub noted_classes: BTreeSet<u32>,
     pub const_record_libraries: BTreeSet<u32>,
-    pub const_slots: BTreeSet<String>,
+    pub const_slots: BTreeMap<String, u32>,
     pub typed_read_guard_libraries: BTreeSet<u32>,
 }
 
@@ -192,12 +206,19 @@ impl Fragment {
         m.const_record_libraries
             .borrow_mut()
             .extend(self.const_record_libraries.iter().copied());
-        m.const_slots
-            .borrow_mut()
-            .extend(self.const_slots.iter().cloned());
+        merge_counts(&m.const_slots, &self.const_slots);
         m.typed_read_guard_libraries
             .borrow_mut()
             .extend(self.typed_read_guard_libraries.iter().copied());
+    }
+}
+
+/// Adds the uses of `from` to `into` (a sum: commutative, like the other
+/// merges).
+fn merge_counts(into: &RefCell<BTreeMap<String, u32>>, from: &BTreeMap<String, u32>) {
+    let mut into = into.borrow_mut();
+    for (k, n) in from {
+        *into.entry(k.clone()).or_insert(0) += n;
     }
 }
 
@@ -653,7 +674,7 @@ pub(crate) fn emit_const_caches(
         && std::env::var("DARTFORGE_JSPROD_CONST_CACHES").map_or(true, |v| v != "0");
     let slots = m.const_slots.borrow();
     if !slots.is_empty() {
-        let names: Vec<&str> = slots.iter().map(String::as_str).collect();
+        let names: Vec<&str> = slots.keys().map(String::as_str).collect();
         out.push_str(&format!("var {};\n", names.join(", ")));
     }
     let used = m.const_record_libraries.borrow();
@@ -754,6 +775,7 @@ pub(crate) fn emit_library_rest_parts(
             let ty = ctx.var_ty(vid);
             let mut e2 = FnEmitter::new(ctx, m, fu, None, true);
             e2.in_const = v.const_;
+            e2.evaluated_once = true;
             let init = match var.initializer {
                 Some(i) => {
                     let (js, _) = e2.emit_expr(i, Some(&ty));
@@ -1550,6 +1572,7 @@ pub(crate) fn emit_top_variables(
         let ty = ctx.var_ty(vid);
         let mut e = FnEmitter::new(ctx, m, unit, None, true);
         e.in_const = v.const_;
+        e.evaluated_once = true;
         let init = match var.initializer {
             Some(i) => {
                 let (js, _) = e.emit_expr(i, Some(&ty));
@@ -3572,6 +3595,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let ty = ctx.var_ty(vid);
         let mut e = FnEmitter::new(ctx, m, fu, Some(c), true);
         e.in_const = v.const_;
+        e.evaluated_once = true;
         let init = match var.initializer {
             Some(i) => {
                 let (js, _) = e.emit_expr(i, Some(&ty));

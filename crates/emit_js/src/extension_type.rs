@@ -801,6 +801,7 @@ pub(crate) fn emit_static_fields(
         let ty = ctx.var_ty(vid);
         let mut e = FnEmitter::new(ctx, m, fu, Some(c), true);
         e.in_const = v.const_;
+        e.evaluated_once = true;
         let init = match var.initializer {
             Some(i) => {
                 let (js, _) = e.emit_expr(i, Some(&ty));
