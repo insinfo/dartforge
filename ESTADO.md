@@ -1,5 +1,45 @@
 # Estado do DartForge — 2026-10-31
 
+## Painel: DartForge × Dart oficial (atualizado em 31/10/2026)
+
+Resumo de cada ferramenta contra a oficial correspondente (SDK 3.6.2), com a medição mais
+recente e a data dela. "Não medido" significa que não existe número. A última coluna diz quem
+está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e nos `docs/`.
+
+### Velocidade e tamanho
+
+| Ferramenta | Velocidade | Tamanho e memória | Data |
+|---|---|---|---|
+| **JS dev** × DDC/webdev | compilar 1 arquivo: **7,6× mais rápido** (19 × 150 ms). Edição até a página, `limitless_ui`: corpo **1,7 × 3,7 s**, API **5,5 × 18 s**, template **3,1 × 2,2 s (perde)**. Início do zero: **166,6 × 114,4 s (perde**: precisa do `build_runner`). Código gerado ≈ igual ao DDC (`closures` 1,65×) | memória **0,5 × 3,9 GB**; JS em gzip **4,4 × 5,4 MB** (bruto 56 × 49 MB) | 31/10 (código gerado: 13/10) |
+| **JS produção** × `dart2js -O4` | ganha em `list_sort` (0,84×) e `collections/map` (0,79×); empata em `map_iterate` e `closures`; **perde** em `collatz` 1,51×, `Set<int>` 1,35×, `jsonEncode` 1,2–1,4×, `list_methods` 1,24×, `map_str_int` 1,20×. Compila **2–2,8× mais rápido** (-O2) | projetos grandes **0,90–0,94×** bruto, **0,96×** gzip; programas pequenos 0,96× bruto, mas **1,009× no gzip (perde)** | 31/10 |
+| **LSP** × servidor de análise | por tecla em projeto grande: 175–383 ms. *Hover*/*completion* ~0,9 s no `new_sali/frontend`. O servidor oficial **não foi medido** nos mesmos projetos. Pedido a pedido (13/10): *references* 2,5 × 3,1 ms, *completion* 8,8 × 6,0 ms | **27–664 MiB × 737–1.402 MiB** (`new_sali`) | 31/10 e 13/10 |
+| **`analyze`** × `dart analyze` | `new_sali/backend`: ~5 s × 21,7 s frio (2,6 s com cache); `format`: **0,42 × 1,55 s** | — | 13–14/10 |
+| **`test`** / **`pub`** × `dart test` / `dart pub` | **não medido** | — | — |
+| **Wasm** × `dart2wasm` (Node 24) | **perde** em alocação/árvores (26 × 15 ms), JSON (95 × 51 ms), strings (39 × 24 ms) e crivo (20 × 7 ms); **ganha** em `list.add` (2 × 18 ms) e `sort` (71 × 113 ms) | módulo **2,2–2,7 MB × 49–113 KB (20–50× maior)**; memória **2,3–3,4× menor** | 31/10 |
+| **AOT nativo** × `dart compile exe` | HTTP `dart:io`: **68–69,5 × 70,2 mil pedidos/s (97–99%)**; ciclos por pedido: tracing 66 mil × 70 mil (melhor), ARC real 205 mil (pior). Trees 12,4 × 11,9 ms; JSON 77,5 × 78 ms; strings 43 × 47 ms. Swift cru: 26 mil ciclos × nosso 38 mil. Compilar programa grande com `--optimize`: **5,7–6,8× mais lento** (340–405 × 58–60 s) | servidor **4,7 × 5,6 MB**; hello 0,56×; `new_sali/backend` **37,8 × 26,5 MB (1,4× maior)**; RSS do servidor 17,5 × 17,2 MB (ARC real 23,8 MB) | 30–31/10 (compilação: ~06/10) |
+
+### Corretude
+
+| Ferramenta | Resultado | Lacunas abertas |
+|---|---|---|
+| **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT: em medição**, primeira medição da história (modo `native` do script, `9c75b50a`). JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos) |
+| **`analyze`** | corpus do analisador **99,95%** (23.001/23.012: 11 ausências, 0 falsos positivos), 14/10. Erros a mais em `tests/language`: **231 → 107** (29 arquivos), 31/10 | análise de fluxo (`try/finally`, `== null`), UP com interseções, `noSuchMethod`, *wildcards* |
+| **`pub`** | só existe **`pub get`**: lockfile idêntico ao oficial em **16/18** projetos reais | `add`, `remove`, `upgrade`, `downgrade`, `outdated`, `deps` não existem; o solucionador não tem aprendizado de conflitos (`aggr` falha); pacote com *link* é recusado |
+| **`test`** | igual ao `dart test` em **22/22** execuções diferenciais; aceita `dart_test.yaml` e as anotações | só a plataforma `vm`; sem *coverage*, *watch* e `--fail-fast`; o relator `expanded` tem formato próprio |
+| **JS produção** | corpus 277/277 (-O1/-O2), 260/260 (-O3), 256/256 (-O4) | — |
+| **Modos do runtime no wasm** | só tracing + pilha-sombra | ARC desligado no wasm32 (medido: mais lento e +6,8% de tamanho); `--exceptions tables` não implementado; mapas de raízes impossíveis (o wasm não expõe a pilha) |
+
+### Quem está trabalhando em cada lacuna (desde 31/10, 15h)
+
+| Frente | Agente |
+|---|---|
+| Wasm: tamanho do módulo e velocidade em alocação, JSON e strings | agente wasm |
+| `analyze`: os 107 falsos positivos do verificador de tipos | agente verificador de tipos |
+| JS dev (subir sem `build_runner`, edição de template) e JS produção (`collatz`, `Set<int>`, `jsonEncode`, gzip dos programas pequenos, `async_await`) | agente JS |
+| `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relatores, opções) | agente pub/test |
+| AOT nativo: falhas da suíte `tests/language`, tempo de compilação e tamanho de programa grande | sessão principal, depois do resultado da suíte |
+| LSP: medir o servidor oficial nos mesmos projetos e reduzir *hover*/*completion* | a abrir |
+
 ## 31/10/2026: verificador de tipos contra o `dart analyze`, `compareTo` do SDK e CI do macOS
 
 **Falsos positivos do verificador.** Medida: `dartforge analyze --all` contra o
