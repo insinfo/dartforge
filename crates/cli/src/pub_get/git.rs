@@ -5,10 +5,6 @@
 //! checkout in `$PUB_CACHE/git/<name>-<commit>` whose `.git/pub-packages`
 //! lists the package paths used from it. The `git` executable does the work;
 //! DartForge never reimplements the Git protocol.
-use super::{
-    hosted::Candidate,
-    manifest::{Manifest, yaml_json},
-};
 use sha1::{Digest, Sha1};
 use std::{
     collections::BTreeSet,
@@ -19,7 +15,7 @@ use std::{
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
-pub(super) struct Git {
+pub(crate) struct Git {
     cache: PathBuf,
     offline: bool,
     /// Mirrors already created or fetched by this run (Pub's `updatedRepos`).
@@ -162,54 +158,31 @@ impl Git {
         Ok(mirror)
     }
 
-    /// The single candidate of a Git dependency: the locked commit when the
-    /// description is unchanged, otherwise the first revision of `reference`.
-    pub fn candidate(
-        &mut self,
-        name: &str,
-        url: &str,
-        reference: &str,
-        path: &str,
-        locked: Option<&str>,
-        host: &str,
-    ) -> Result<Candidate, String> {
-        let (mirror, commit) = match locked {
-            Some(commit) => (self.ensure_revision(url, commit)?, commit.to_owned()),
-            None => {
-                let mirror = self.ensure_repository(url)?;
-                let commit = first_revision(&mirror, reference)?;
-                (mirror, commit)
-            }
-        };
+    /// The commit `reference` names now, fetching the repository once per
+    /// run (Pub's `_firstRevision` after `_ensureRepoCache`).
+    pub fn resolve(&mut self, url: &str, reference: &str) -> Result<String, String> {
+        let mirror = self.ensure_repository(url)?;
+        first_revision(&mirror, reference)
+    }
+
+    /// Makes sure the mirror contains `commit` (a locked revision).
+    pub fn ensure_commit(&mut self, url: &str, commit: &str) -> Result<(), String> {
+        self.ensure_revision(url, commit).map(|_| ())
+    }
+
+    /// The text of `pubspec.yaml` at `path` in `commit`.
+    pub fn pubspec(&mut self, url: &str, path: &str, commit: &str) -> Result<String, String> {
+        let mirror = self.ensure_revision(url, commit)?;
         let file = if path == "." {
             "pubspec.yaml".to_owned()
         } else {
             format!("{path}/pubspec.yaml")
         };
-        let text = run_git(
+        run_git(
             &[&Self::git_dir(&mirror), "show", &format!("{commit}:{file}")],
             Some(&mirror),
         )
-        .map_err(|_| format!("Could not find a file named \"{file}\" in {url} {commit}."))?;
-        let manifest = Manifest::parse(&yaml_json(&text)?, None, host)?;
-        if manifest.name != name {
-            return Err(format!(
-                "\"name\" field doesn't match expected name \"{name}\" in {url} {commit}"
-            ));
-        }
-        let checkout = self.checkout(url, &commit);
-        Ok(Candidate {
-            manifest,
-            manifest_error: None,
-            directory: if path == "." {
-                checkout
-            } else {
-                checkout.join(path)
-            },
-            archive: None,
-            // The resolved commit identifies the content, as an archive hash does.
-            digest: Some(commit),
-        })
+        .map_err(|_| format!("Could not find a file named \"{file}\" in {url} {commit}."))
     }
 
     /// `downloadToSystemCache`: the commit's checkout and its package list.

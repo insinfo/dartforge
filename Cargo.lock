@@ -514,6 +514,7 @@ dependencies = [
  "dartforge-parity",
  "flate2",
  "semver",
+ "serde",
  "serde_json",
  "sha1",
  "sha2",
