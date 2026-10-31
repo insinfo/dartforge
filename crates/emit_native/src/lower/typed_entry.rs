@@ -339,7 +339,9 @@ pub fn checked_at_entry(ctx: &Context, fid: usize, ty: TypeId) -> bool {
     let generic = f
         .class
         .is_some_and(|c| mentions_covariant(ctx, ty, c, true));
-    let nominal = matches!(ctx.table.get(ty), T::Interface { .. });
+    // `Null` and `Never` are checked as a class is (`(takesNull as
+    // dynamic)(3)` is a `TypeError`).
+    let nominal = matches!(ctx.table.get(ty), T::Interface { .. } | T::Null | T::Never);
     !top(ctx, ty) && (generic || nominal)
 }
 
