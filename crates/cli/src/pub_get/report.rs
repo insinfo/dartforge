@@ -65,9 +65,10 @@ fn prioritize(a: &Version, b: &Version) -> std::cmp::Ordering {
 
 /// Prints `text` like Pub's `log.message`: nothing when empty.
 pub(crate) fn message(text: &str) {
-    let text = text.strip_suffix('\n').unwrap_or(text);
+    // Dart's `LineSplitter`: a final newline ends the last line, and an
+    // empty text has no lines.
     if !text.is_empty() {
-        println!("{text}");
+        println!("{}", text.strip_suffix('\n').unwrap_or(text));
     }
 }
 
