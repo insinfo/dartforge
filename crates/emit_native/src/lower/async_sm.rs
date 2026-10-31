@@ -1104,7 +1104,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn await_check_type(&self, e: ast::ExprId) -> Option<super::rti::Recipe> {
         use dartforge_types::table::Type as T;
         let future = self.ctx.core.future_class?;
-        let s = self.ctx.get_type(self.unit_id, e)?;
+        // An extension type awaits as its erasure (`ExtensionFuture`
+        // implementing `Future<String?>` is a future type).
+        let s = self.ctx.erase(self.ctx.get_type(self.unit_id, e)?);
         let flattened = match self.ctx.table.get(s) {
             T::FutureOr { arg, .. } => *arg,
             T::Interface { class, args, .. } => {
@@ -1125,10 +1127,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             T::TypeParameter { param, .. } | T::Intersection { param, .. } => {
                 // A promoted variable (`X & B`) flattens as its promotion,
                 // an unpromoted one as its bound when that is a future type.
-                let bound = match self.ctx.table.get(s) {
+                let mut bound = match self.ctx.table.get(s) {
                     T::Intersection { bound, .. } => *bound,
                     _ => self.ctx.table.param(*param).bound,
                 };
+                // A bound that is another variable (`X extends Y`, `Y extends
+                // Future<int>`) flattens as that variable's bound.
+                for _ in 0..16 {
+                    bound = self.ctx.erase(bound);
+                    match self.ctx.table.get(bound) {
+                        T::TypeParameter { param, .. } => {
+                            bound = self.ctx.table.param(*param).bound
+                        }
+                        T::Intersection { bound: b, .. } => bound = *b,
+                        _ => break,
+                    }
+                }
                 match self.ctx.table.get(bound) {
                     T::FutureOr { arg, .. } => *arg,
                     T::Interface { class, args, .. } => {
