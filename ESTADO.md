@@ -6,7 +6,8 @@
 `dart analyze` 3.6.2, nos 2.863 programas válidos da suíte `tests/language` (as chaves de
 `results/vm.json`), em lotes de 100 arquivos. Conta-se cada erro nosso que o oficial não
 relata na mesma linha. Ficam de fora os testes de `macros/`, que travam o `dart analyze`.
-- **Antes:** 231 erros a mais, em 70 arquivos. **Agora:** 152, em 39 arquivos.
+- **Antes:** 231 erros a mais, em 70 arquivos. **Agora:** 107, em 29 arquivos (152 depois da
+  versão de linguagem e da inferência horizontal; o resto veio das correções de fluxo abaixo).
 - **Versão de linguagem.** O verificador aplicava os `inference-update-1/2/3` (2.18, 3.2 e 3.4)
   em qualquer biblioteca. Agora são `Feature`s com `enabledIn` (`crates/frontend/src/features.rs`)
   e respeitam o `// @dart=x.y`: em 3.3, `??`, `??=`, `?:` e a expressão `switch` têm o tipo UP
@@ -22,16 +23,36 @@ relata na mesma linha. Ficam de fora os testes de `macros/`, que travam o `dart 
     seguinte os escolhe de novo uma vez só.
 - **`x ??= e` com `x` local:** o contexto de `e` é o tipo promovido. A coerção de `call` segue o
   tipo de escrita.
-- **Testes:** `inference_updates_follow_the_language_version`, `horizontal_inference_stages` e
-  `if_null_assignment_context_of_a_promoted_local` (`crates/types/tests/bodies.rs`). Os três
-  falham sem a correção.
+- **Análise de fluxo:**
+  - as condições de uma variável de condição ficam por versão da gravação. Antes, `b = true` num
+    ramo que lança apagava a de `b = x != null`, que a junção mantém;
+  - ler uma variável de condição é uma condição (`bool b2 = b1;`);
+  - `c ? a : b` com um ramo de condição junta as condições dos ramos
+    (`bool b = x is int ? true : false;`);
+  - uma expressão de tipo *bottom* (`T extends Never`, `T & Never`) encerra o fluxo, como
+    `Never`;
+  - todos os casos de um `switch` promovem o escrutínio resolvido pelo primeiro: depois de
+    `case _ when f(c = c2)`, `case _ as int` não promove o `c._o` do `c` novo.
+- **Outros:**
+  - o operando de `throw` recebe o contexto `Object`;
+  - `dart:core` importado com prefixo exporta `dynamic` e `Never` (`mycore.dynamic d`).
+- **Testes** (`crates/types/tests/bodies.rs`, cada um falha sem a sua correção):
+  `inference_updates_follow_the_language_version`, `horizontal_inference_stages`,
+  `if_null_assignment_context_of_a_promoted_local`,
+  `condition_variable_survives_a_write_on_a_branch_that_throws`,
+  `condition_variable_aliases_and_bottom_type_parameters`,
+  `conditional_expression_is_a_condition` e
+  `switch_cases_promote_the_first_scrutinee_reference`. Depois de todas: corpus JS 277/277 (dev e
+  prod), nativo 163/163 (dev e `-O`) e suíte de linguagem 2756/2863, sem programa ganho nem
+  perdido.
 - **Antes, no mesmo dia:**
   - a promoção do campo privado de representação de *extension type* (`7a9cafdb`);
   - o portão de `use_of_void_result` nos quatro compiladores (`30a7e77d`,
     `codes::REJECTING_CODES`).
-- **O que sobra (152):**
-  - análise de fluxo de `nnbd/flow_analysis` e `inference_update_2` (booleanos locais,
-    `try/finally`, promoção do escrutínio do `switch`);
+- **O que sobra (107):**
+  - análise de fluxo: `try/finally` e junções (`inference_update_2`), promoção por padrão de
+    objeto de um campo não promovível, a regra de `== null` com promoção a `Null`
+    (`unreachable_via_*property*`), `patterns/flow_analysis`;
   - UP com interseções (`least_upper_bound_greatest_closure_*`, `S & int`);
   - `noSuchMethod` em `invocation_mirror_test`;
   - *wildcards* (`_` em `this._`, funções e *typedefs*);
