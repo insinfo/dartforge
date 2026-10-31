@@ -6,12 +6,14 @@
 //! follows `demote` + `toi_promote`; promotion by a test follows `promote`.
 
 use super::BodyInferrer;
+use super::body::{Base, Body};
 use crate::field_promotion::WhyNotPromoted;
 use crate::resolved::LocalId;
 use crate::table::{Type, TypeId};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::FunctionElementId;
 use dartforge_intern::SymbolId;
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -183,8 +185,11 @@ impl Flow {
 }
 
 impl<'a> BodyInferrer<'a> {
-    /// `join(M1, M2)`.
-    pub(crate) fn join(&mut self, a: &Flow, b: &Flow) -> Flow {
+    /// `join(M1, M2)`. A variable whose two write versions differ gets a new
+    /// version, and the promotable properties read on both paths carry over to
+    /// it with their joined models (`SsaNode._join`, 3.6.2
+    /// `flow_analysis.dart:3932-4016`).
+    pub(crate) fn join(&mut self, cx: &mut Body, a: &Flow, b: &Flow) -> Flow {
         if !a.reachable {
             return b.clone();
         }
@@ -196,29 +201,206 @@ impl<'a> BodyInferrer<'a> {
         }
         let n = a.vars.len().min(b.vars.len());
         let mut vars = Vec::with_capacity(n);
+        let mut rejoined = Vec::new();
         for i in 0..n {
             vars.push(match (&a.vars[i], &b.vars[i]) {
-                (Some(x), Some(y)) => Some(join_model(x, y)),
+                (Some(x), Some(y)) => {
+                    let m = join_model(x, y);
+                    if x.version != y.version {
+                        rejoined.push((LocalId(i as u32), x.version, y.version, m.version));
+                    }
+                    Some(m)
+                }
                 _ => None,
             });
         }
-        Flow {
+        let mut r = Flow {
             reachable: true,
             vars,
+        };
+        if !rejoined.is_empty() && !cx.fields.is_empty() {
+            let properties: HashSet<LocalId> = cx.fields.values().copied().collect();
+            for (id, va, vb, v) in rejoined {
+                if properties.contains(&id) {
+                    continue;
+                }
+                let base = Base::Local(id);
+                join_properties(cx, a, b, &mut r, (base, va), (base, vb), (base, v));
+            }
         }
+        r
     }
 
     /// Joins a list of models (empty → unreachable starting from `base`).
-    pub(crate) fn join_all(&mut self, base: &Flow, list: &[Flow]) -> Flow {
+    pub(crate) fn join_all(&mut self, cx: &mut Body, base: &Flow, list: &[Flow]) -> Flow {
         let mut it = list.iter();
         let Some(p) = it.next() else {
             return base.unreachable();
         };
         let mut acc = p.clone();
         for f in it {
-            acc = self.join(&acc, f);
+            acc = self.join(cx, &acc, f);
         }
         acc
+    }
+
+    /// `attachFinally` (3.6.2 `flow_analysis.dart:2090-2234`): the state after a
+    /// `try`/`finally`. `after_try` is the state after the `try` and its
+    /// `catch`es, `before_try` the one before the statement, and
+    /// `before_finally`/`after_finally` those around the `finally` block. A
+    /// variable the `finally` does not write keeps the `try`'s promotions with
+    /// the `finally`'s rebased onto them; one it writes takes the `finally`'s.
+    pub(crate) fn attach_finally(
+        &mut self,
+        cx: &mut Body,
+        before_try: &Flow,
+        after_try: &Flow,
+        before_finally: &Flow,
+        after_finally: &Flow,
+    ) -> Flow {
+        if before_finally == after_finally {
+            return after_try.clone();
+        }
+        if before_finally == before_try && before_try == after_try {
+            return after_finally.clone();
+        }
+        let mut result = after_try.clone();
+        result.reachable = after_try.reachable && after_finally.reachable;
+        let mut reapply = Vec::new();
+        let n = after_try.vars.len().max(after_finally.vars.len());
+        for i in 0..n {
+            let id = LocalId(i as u32);
+            let (v1, v3) = (after_try.model(id), after_finally.model(id));
+            if v1 == v3 {
+                continue;
+            }
+            let (v1, v3) = match (v1, v3) {
+                (Some(v1), Some(v3)) => (v1, v3),
+                (None, Some(v3)) => {
+                    *flow_slot(&mut result, id) = Some(v3.clone());
+                    continue;
+                }
+                _ => continue,
+            };
+            let v2 = before_finally.model(id);
+            let (chain, version) = if v2.is_none_or(|v2| v2.version == v3.version) {
+                if v1.version != v3.version {
+                    reapply.push((id, v1.version, v3.version));
+                }
+                (self.rebase_promotions(&v1.chain, &v3.chain), v1.version)
+            } else {
+                (v3.chain.clone(), v3.version)
+            };
+            let mut m = VarModel {
+                chain,
+                tested: v3.tested.clone(),
+                assigned: v1.assigned || v3.assigned,
+                unassigned: v3.unassigned,
+                captured: v3.captured,
+                version,
+                history: None,
+            };
+            // `_identicalOrNew`.
+            if same_model(&m, v1) {
+                m.history = v1.history.clone();
+            } else if same_model(&m, v3) {
+                m.history = v3.history.clone();
+            }
+            *flow_slot(&mut result, id) = Some(m);
+        }
+        for (id, to, from) in reapply {
+            if after_finally.model(id).is_some_and(|m| m.captured) {
+                continue;
+            }
+            let base = Base::Local(id);
+            self.apply_property_promotions(
+                cx,
+                (base, to),
+                (base, from),
+                after_finally,
+                &mut result,
+            );
+        }
+        result
+    }
+
+    /// `_applyPropertyPromotions` (3.6.2 `flow_analysis.dart:3860-3922`): the
+    /// promotions of the properties of `from` (the base's version in the
+    /// `finally`) at the end of the `finally`, rebased onto those of the same
+    /// properties of `to` (its version after the `try`).
+    fn apply_property_promotions(
+        &mut self,
+        cx: &mut Body,
+        to: (Base, u32),
+        from: (Base, u32),
+        after_finally: &Flow,
+        result: &mut Flow,
+    ) {
+        let mut names: Vec<(SymbolId, LocalId)> = cx
+            .fields
+            .iter()
+            .filter(|((b, v, _), _)| (*b, *v) == from)
+            .map(|((_, _, name), &id)| (*name, id))
+            .collect();
+        names.sort_by_key(|&(_, id)| id.0);
+        for (name, finally_property) in names {
+            let after_try_property = match cx.fields.get(&(to.0, to.1, name)) {
+                Some(&id) => id,
+                None => {
+                    let local = cx.local(finally_property).clone();
+                    let id = LocalId(cx.locals.len() as u32);
+                    cx.locals.push(local);
+                    cx.fields.insert((to.0, to.1, name), id);
+                    id
+                }
+            };
+            self.apply_property_promotions(
+                cx,
+                (Base::Local(after_try_property), 0),
+                (Base::Local(finally_property), 0),
+                after_finally,
+                result,
+            );
+            let Some(after_finally_model) = after_finally.model(finally_property) else {
+                continue;
+            };
+            let new_model = match result.model(after_try_property) {
+                Some(m) => m.clone(),
+                None => {
+                    result.declare(after_try_property);
+                    result.initialize(after_try_property);
+                    result.model(after_try_property).cloned().unwrap()
+                }
+            };
+            let rebased = self.rebase_promotions(&after_finally_model.chain, &new_model.chain);
+            if rebased != new_model.chain {
+                *flow_slot(result, after_try_property) = Some(VarModel {
+                    chain: rebased,
+                    tested: new_model.tested,
+                    assigned: true,
+                    unassigned: false,
+                    captured: new_model.captured,
+                    version: new_model.version,
+                    history: None,
+                });
+            }
+        }
+    }
+
+    /// `rebasePromotedTypes(this, base)`: `base` followed by the first suffix of
+    /// `this` that starts strictly below the last type of `base`.
+    fn rebase_promotions(&mut self, this: &[TypeId], base: &[TypeId]) -> Vec<TypeId> {
+        let Some(&other) = base.last() else {
+            return this.to_vec();
+        };
+        for (i, &t) in this.iter().enumerate() {
+            if t != other && self.sub(t, other) {
+                let mut r = base.to_vec();
+                r.extend_from_slice(&this[i..]);
+                return r;
+            }
+        }
+        base.to_vec()
     }
 
     /// `promote(x, T)`: promotion by a type test (`is`, `as`, `!= null`).
@@ -337,6 +519,23 @@ impl<'a> BodyInferrer<'a> {
         let nn = self.non_null_promotion(current);
         if nn != current {
             self.promote(flow, id, declared, nn);
+        }
+    }
+
+    /// `tryMarkNonNullable` of a reference whose type is `previous` (a
+    /// property's or `this`'s unpromoted type): appends **NonNull**(`previous`)
+    /// to the chain without comparing it with the current promotion, records no
+    /// tested type and does not change reachability (`_finishTypeTest`).
+    pub(crate) fn mark_non_nullable(&mut self, flow: &mut Flow, id: LocalId, previous: TypeId) {
+        let nn = self.non_null_promotion(previous);
+        if nn == previous {
+            return;
+        }
+        let Some(Some(m)) = flow.vars.get_mut(id.0 as usize) else {
+            return;
+        };
+        if !m.captured && m.chain.last() != Some(&nn) {
+            m.chain.push(nn);
         }
     }
 
@@ -545,22 +744,66 @@ fn flow_slot(f: &mut Flow, id: LocalId) -> &mut Option<VarModel> {
     &mut f.vars[i]
 }
 
+/// The joined properties of a base (`_joinProperties`): each promotable
+/// property read on both paths (under `first` in `a`, `second` in `b`) gets a
+/// new synthetic under `joined`, with the join of the two models when both
+/// paths have one, and the same for its own properties.
+fn join_properties(
+    cx: &mut Body,
+    a: &Flow,
+    b: &Flow,
+    r: &mut Flow,
+    first: (Base, u32),
+    second: (Base, u32),
+    joined: (Base, u32),
+) {
+    let mut names: Vec<(SymbolId, LocalId, LocalId)> = Vec::new();
+    for (&(base, version, name), &x) in cx.fields.iter() {
+        if (base, version) == first
+            && let Some(&y) = cx.fields.get(&(second.0, second.1, name))
+        {
+            names.push((name, x, y));
+        }
+    }
+    names.sort_by_key(|&(_, x, _)| x.0);
+    for (name, x, y) in names {
+        let local = cx.local(x).clone();
+        let id = LocalId(cx.locals.len() as u32);
+        cx.locals.push(local);
+        cx.fields.insert((joined.0, joined.1, name), id);
+        if let (Some(mx), Some(my)) = (a.model(x), b.model(y)) {
+            *flow_slot(r, id) = Some(join_model(mx, my));
+        }
+        join_properties(
+            cx,
+            a,
+            b,
+            r,
+            (Base::Local(x), 0),
+            (Base::Local(y), 0),
+            (Base::Local(id), 0),
+        );
+    }
+}
+
+/// The same model, apart from the history.
+fn same_model(x: &VarModel, r: &VarModel) -> bool {
+    x.chain == r.chain
+        && x.tested == r.tested
+        && x.assigned == r.assigned
+        && x.unassigned == r.unassigned
+        && x.captured == r.captured
+        && x.version == r.version
+}
+
 /// `joinPM`: chains by the longest common subsequence, tested types by the
 /// union. The history is only kept when the result is one of the two models
 /// (`PromotionModel.join` returns `first` or `second` unchanged).
 fn join_model(a: &VarModel, b: &VarModel) -> VarModel {
     let mut r = join_model_without_history(a, b);
-    let equal = |x: &VarModel, r: &VarModel| {
-        x.chain == r.chain
-            && x.tested == r.tested
-            && x.assigned == r.assigned
-            && x.unassigned == r.unassigned
-            && x.captured == r.captured
-            && x.version == r.version
-    };
-    r.history = if equal(a, &r) {
+    r.history = if same_model(a, &r) {
         a.history.clone()
-    } else if equal(b, &r) {
+    } else if same_model(b, &r) {
         b.history.clone()
     } else {
         None

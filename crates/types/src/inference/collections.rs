@@ -1118,7 +1118,7 @@ fn visit(
                 exit_branch(cx, open);
             }
             let after_else = std::mem::replace(&mut cx.flow, before);
-            cx.flow = inf.join(&after_then, &after_else);
+            cx.flow = inf.join(cx, &after_then, &after_else);
         }
         CollectionElement::For {
             init,
@@ -1207,7 +1207,7 @@ fn visit(
             reborrow_visit(inf, cx, body, shape, ctxs, &mut gi);
             let after = std::mem::replace(&mut cx.flow, before);
             let before = cx.flow.clone();
-            cx.flow = inf.join(&after, &before);
+            cx.flow = inf.join(cx, &after, &before);
             cx.pop_scope();
         }
     }

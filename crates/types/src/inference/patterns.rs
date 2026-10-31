@@ -876,7 +876,7 @@ pub(crate) fn case(
     if let Some(g) = guard {
         let (gv, gf) = expr::checked_condition(inf, cx, g);
         yes = gv;
-        not_ = inf.join(&not_, &gf);
+        not_ = inf.join(cx, &not_, &gf);
     }
     cx.flow = yes.clone();
     (yes, not_)
@@ -986,7 +986,7 @@ pub(crate) fn pattern_assignment(
     };
     let (t, saved_condition) = if local.is_some() && expr::is_condition_form(inf, cx, the_value) {
         let (yes, not_) = expr::the_condition(inf, cx, the_value);
-        cx.flow = inf.join(&yes, &not_);
+        cx.flow = inf.join(cx, &yes, &not_);
         let t = inf.body_types.units[cx.unit.0 as usize]
             .get_type(the_value)
             .unwrap_or(inf.core.bool_);
@@ -1064,7 +1064,7 @@ pub(crate) fn switch_expression(
         not_matched = not_;
     }
     cx.switch_scrutinee = outer_scrutinee;
-    cx.flow = inf.join_all(&before, &exits);
+    cx.flow = inf.join_all(cx, &before, &exits);
     if types.is_empty() {
         return inf.core.never;
     }

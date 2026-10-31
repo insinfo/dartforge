@@ -195,12 +195,17 @@ pub(crate) struct Body {
     /// Promotable properties (Dart 3.2) already referenced:
     /// `(base, write version of the base, name) -> synthetic local` that carries
     /// the property's flow model (the `_promotableProperties` of the base's SSA
-    /// node).
+    /// node). A write gives the base a new version, so the entries of the old
+    /// one stay for the paths that still have it (a join keeps the properties
+    /// read on both of its paths).
     pub fields: HashMap<(Base, u32, SymbolId), LocalId>,
     /// Non-promotable properties: the generations (one per read that became a
     /// promotion target), from oldest to newest (the `_nonPromotableProperties`
     /// with the `previousSsaNode` of each node).
     pub generations: HashMap<(Base, u32, SymbolId), Vec<LocalId>>,
+    /// The temporary of each cascade whose target is not a promotable
+    /// reference (by the target), the base of the cascade's properties.
+    pub cascade_temporaries: HashMap<ast::ExprId, LocalId>,
     /// The generation of each read of a non-promotable property.
     pub read_generation: HashMap<ast::ExprId, LocalId>,
     /// The synthetic local of `this` (the `thisPromotionKey`), which keeps the
@@ -323,6 +328,7 @@ impl Body {
             root: Root::Nothing,
             fields: HashMap::new(),
             generations: HashMap::new(),
+            cascade_temporaries: HashMap::new(),
             read_generation: HashMap::new(),
             local_this: None,
             chains: Vec::new(),
@@ -463,32 +469,6 @@ impl Body {
         self.flow.declare(id);
         self.flow.initialize(id);
         id
-    }
-
-    /// Forgets the promoted fields of a reassigned local.
-    pub fn forget_fields_of(&mut self, base: LocalId) {
-        // In a cascade on this local, the target's temporary keeps the old SSA
-        // node: the fields of the previous version are kept for the sections.
-        if self
-            .cascade_bases
-            .iter()
-            .any(|x| matches!(x, Some((Base::Local(b), _)) if *b == base))
-        {
-            let current = self.base_version(Base::Local(base));
-            let stored: Vec<u32> = self
-                .cascade_bases
-                .iter()
-                .filter_map(|x| match x {
-                    Some((Base::Local(b), v)) if *b == base => Some(*v),
-                    _ => None,
-                })
-                .collect();
-            self.fields.retain(|(b, v, _), _| {
-                *b != Base::Local(base) || (stored.contains(v) && *v != current)
-            });
-            return;
-        }
-        self.fields.retain(|(b, _, _), _| *b != Base::Local(base));
     }
 
     /// The local is the synthetic one of a property (stable or a generation).

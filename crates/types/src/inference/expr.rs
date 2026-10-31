@@ -168,7 +168,7 @@ fn close_chain(inf: &mut BodyInferrer<'_>, cx: &mut Body, mark: usize) {
         let before = cx.chains[mark].clone();
         cx.chains.truncate(mark);
         let after = cx.flow.clone();
-        cx.flow = inf.join(&before, &after);
+        cx.flow = inf.join(cx, &before, &after);
     }
 }
 
@@ -1603,10 +1603,15 @@ fn property_base(inf: &mut BodyInferrer<'_>, cx: &mut Body, t: ExprId) -> Option
         // `_getExpressionReference(target)`): `c?.._field` sees the promotion
         // of `c._field`.
         ExprKind::CascadeTarget => cx.cascade_bases.last().copied().flatten().map(|(b, _)| b),
-        // The cascade's value is the target's (the same reference).
+        // The cascade's value is the target's (the same reference), or the
+        // cascade's temporary when the target is not a reference
+        // (`cascadeExpression_end`): `(c.d.._e!)._e` sees the promotion.
         ExprKind::Cascade { target, .. } => {
             let tgt = *target;
-            property_base(inf, cx, tgt)
+            match cx.cascade_temporaries.get(&tgt) {
+                Some(&id) => Some(Base::Local(id)),
+                None => property_base(inf, cx, tgt),
+            }
         }
         ExprKind::Identifier(n) => match cx.lookup(n.sym) {
             Some(MemberName::Local(id)) if !cx.local(id).late && !cx.local(id).local_function => {
@@ -1723,6 +1728,58 @@ fn stable_property(
     let t = inf.body_types.units[cx.unit.0 as usize]
         .get_type(e)
         .unwrap_or(inf.core.dynamic_);
+    let id = cx.declare_synthetic(Local {
+        name: the_name,
+        ty: t,
+        final_: true,
+        late: false,
+        const_: false,
+        offset: 0,
+        local_function: false,
+    });
+    cx.fields.insert(the_key, id);
+    Some(id)
+}
+
+/// The stable synthetic of the promotable property `the_name` (resolved to
+/// `resolved`, with type `t`) of the value whose SSA node is `base` at
+/// `version`: the property subpattern of an object pattern
+/// (`pushPropertySubpattern`, 3.6.2 `flow_analysis.dart:5303-5323`), which
+/// shares the promotions of `x._f` with the matched value `x`. `None` when the
+/// property is not promotable.
+pub(crate) fn subpattern_property(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    resolved: &Resolved,
+    the_name: SymbolId,
+    t: TypeId,
+    (base, version): (Base, u32),
+) -> Option<LocalId> {
+    let promotable = match resolved {
+        Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }
+        | Resolved::ExtensionMember { member: f, .. } => {
+            !inf.program.function(*f).static_ && inf.promotable_property(cx.lib, *f)
+        }
+        Resolved::Member {
+            class,
+            member: MemberRef::Variable(v),
+            ..
+        } if inf.program.class(*class).representation == Some(*v) => {
+            inf.promotable_representation(cx.lib, *v)
+        }
+        _ => false,
+    };
+    if !promotable {
+        return None;
+    }
+    let the_key = (base, version, the_name);
+    if let Some(&id) = cx.fields.get(&the_key) {
+        cx.ensure_model(id);
+        return Some(id);
+    }
     let id = cx.declare_synthetic(Local {
         name: the_name,
         ty: t,
@@ -2413,12 +2470,12 @@ pub(crate) fn infer_at(
                 infer_without_implicit_call(inf, cx, else_, ctx)
             });
             let after2 = std::mem::replace(&mut cx.flow, before);
-            cx.flow = inf.join(&after1, &after2);
+            cx.flow = inf.join(cx, &after1, &after2);
             upper_bound_in_context(inf, cx, t1, t2, ctx)
         }
         ExprKind::Is { value, ty, negated } => {
             let (vf, ff) = type_test(inf, cx, *value, *ty, *negated, span);
-            cx.flow = inf.join(&vf, &ff);
+            cx.flow = inf.join(cx, &vf, &ff);
             inf.core.bool_
         }
         ExprKind::As { value, ty } => {
@@ -2547,6 +2604,7 @@ pub(crate) fn infer_at(
                         offset: 0,
                         local_function: false,
                     });
+                    cx.cascade_temporaries.insert(*target, id);
                     (Base::Local(id), cx.base_version(Base::Local(id)))
                 }),
             };
@@ -2595,7 +2653,7 @@ pub(crate) fn infer_at(
             }
             if let Some(s) = shorthand {
                 let after = cx.flow.clone();
-                cx.flow = inf.join(&s, &after);
+                cx.flow = inf.join(cx, &s, &after);
             }
             cx.cascade_bases.pop();
             cx.cascade_targets.pop();
@@ -3330,9 +3388,8 @@ pub(crate) fn the_receiver(
         // the end.
         cx.chains.push(cx.flow.clone());
         if let Some(id) = promotion_target(inf, cx, r) {
-            let decl = cx.local(id).ty;
             let mut f = std::mem::replace(&mut cx.flow, Flow::reachable());
-            inf.promote_non_null(&mut f, id, decl);
+            mark_non_null(inf, cx, &mut f, id);
             cx.flow = f;
         }
         // `promoteToNonNull` of the target (a type parameter with a nullable
@@ -4997,7 +5054,7 @@ fn binary(
         }
         BinaryOp::And | BinaryOp::Or | BinaryOp::Eq | BinaryOp::NotEq => {
             let (vf, ff) = binary_condition(inf, cx, e, op, left, right);
-            cx.flow = inf.join(&vf, &ff);
+            cx.flow = inf.join(cx, &vf, &ff);
             // `x == y` with `x: Never`: the receiver never exists, and the `==`
             // invocation has type `Never` (like any member of `Never`).
             if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
@@ -5029,12 +5086,11 @@ fn binary(
             // `y ?? (throw 0)` leaves `y` promoted.
             let mut before = cx.flow.clone();
             if let Some(id) = promotion_target(inf, cx, left) {
-                let decl = cx.local(id).ty;
-                inf.promote_non_null(&mut before, id, decl);
+                mark_non_null(inf, cx, &mut before, id);
             }
             let t2 = infer_without_implicit_call(inf, cx, right, j);
             let after = cx.flow.clone();
-            cx.flow = inf.join(&before, &after);
+            cx.flow = inf.join(cx, &before, &after);
             let nn = inf.non_null(t1);
             upper_bound_in_context(inf, cx, nn, t2, ctx)
         }
@@ -5180,7 +5236,7 @@ fn unary(
             let (vf, ff) = the_condition(inf, cx, operand);
             // Outside a condition, `!e` also requires `bool` (and not `void`).
             verify_bool(inf, cx, operand, BoolUse::Negation);
-            cx.flow = inf.join(&vf, &ff);
+            cx.flow = inf.join(cx, &vf, &ff);
             inf.core.bool_
         }
         UnaryOp::NullAssert => {
@@ -5216,9 +5272,8 @@ fn unary(
                 );
             }
             if let Some(id) = promotion_target(inf, cx, operand) {
-                let decl = cx.local(id).ty;
                 let mut f = std::mem::replace(&mut cx.flow, Flow::reachable());
-                inf.promote_non_null(&mut f, id, decl);
+                mark_non_null(inf, cx, &mut f, id);
                 cx.flow = f;
             }
             // `visitPostfixExpression` with `!`: `checkForUseOfVoidResult(node)`
@@ -6126,7 +6181,7 @@ fn assignment(
             let (tv, saved_condition) = if local.is_some() && is_condition_form(inf, cx, the_value)
             {
                 let (yes, not_) = the_condition(inf, cx, the_value);
-                cx.flow = inf.join(&yes, &not_);
+                cx.flow = inf.join(cx, &yes, &not_);
                 let t = inf.body_types.units[cx.unit.0 as usize]
                     .get_type(the_value)
                     .unwrap_or(inf.core.bool_);
@@ -6159,7 +6214,6 @@ fn assignment(
                 };
                 inf.assign_flow(&mut f, id, decl, tv, Some(reason));
                 cx.flow = f;
-                cx.forget_fields_of(id);
                 if let (Some((yes, not_)), Some(version)) = (saved_condition, cx.flow.version(id)) {
                     cx.conditions.insert((id, version), (yes, not_));
                 }
@@ -6289,10 +6343,9 @@ fn assignment(
                 // On the branch without the right side the target is not null.
                 let mut before = before;
                 if let Some(id) = local {
-                    let decl = cx.local(id).ty;
-                    inf.promote_non_null(&mut before, id, decl);
+                    mark_non_null(inf, cx, &mut before, id);
                 }
-                cx.flow = inf.join(&before, &after);
+                cx.flow = inf.join(cx, &before, &after);
                 return t;
             }
             let sym = operator_symbol(inf, bop);
@@ -6898,14 +6951,14 @@ pub(crate) fn the_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId
                 the_condition(inf, cx, else_)
             });
             let after2 = std::mem::replace(&mut cx.flow, before);
-            cx.flow = inf.join(&after1, &after2);
+            cx.flow = inf.join(cx, &after1, &after2);
             let bool_ = inf.core.bool_;
             let types = &inf.body_types.units[cx.unit.0 as usize];
             let t1 = types.get_type(then).unwrap_or(bool_);
             let t2 = types.get_type(else_).unwrap_or(bool_);
             let t = upper_bound_in_context(inf, cx, t1, t2, bool_);
             record_type(inf, cx, e, t);
-            (inf.join(&yes1, &yes2), inf.join(&not1, &not2))
+            (inf.join(cx, &yes1, &yes2), inf.join(cx, &not1, &not2))
         }
         ExprKind::Parenthesized(i) => {
             let i = *i;
@@ -7449,10 +7502,10 @@ fn binary_condition(
             verify_bool(inf, cx, right, BoolUse::Operand(symbol));
             cx.flow = before;
             if op == BinaryOp::And {
-                let false_ = inf.join(&lf, &rf);
+                let false_ = inf.join(cx, &lf, &rf);
                 (rv, false_)
             } else {
-                let true_ = inf.join(&lv, &rv);
+                let true_ = inf.join(cx, &lv, &rv);
                 (true_, rf)
             }
         }
@@ -7599,25 +7652,56 @@ fn equality_flows(
             }
         }
     };
-    let tgt = if is_null(right) {
-        promotion_target(inf, cx, left)
-    } else if is_null(left) {
-        promotion_target(inf, cx, right)
-    } else {
-        None
-    };
-    let _ = (tl, tr);
+    let (left_null, right_null) = (is_null(left), is_null(right));
+    let left_target = promotion_target(inf, cx, left);
+    let right_target = promotion_target(inf, cx, right);
     // The target (a field) may have just been created: the current flow has it.
-    let after = if tgt.is_some() {
+    let after = if left_target.is_some() || right_target.is_some() {
         cx.flow.clone()
     } else {
         after
     };
+    // `_equalityCheck` (3.6.2 `flow_analysis.dart:5658-5689`) classifies the
+    // type of each operand's expression info: a property or `this` reference
+    // has the unpromoted type, any other operand its static type.
+    let info_type = |cx: &Body, target: Option<LocalId>, t: TypeId| match target {
+        Some(id) if reference_has_unpromoted_type(cx, id) => cx.local(id).ty,
+        _ => t,
+    };
+    let (lt, rt) = (
+        info_type(cx, left_target, tl),
+        info_type(cx, right_target, tr),
+    );
+    let classify = |inf: &mut BodyInferrer<'_>, t: TypeId| {
+        if inf.sub(t, inf.core.object) {
+            Some(true)
+        } else if inf.sub(t, inf.core.null) {
+            Some(false)
+        } else {
+            None
+        }
+    };
+    let (cl, cr) = (classify(inf, lt), classify(inf, rt));
     let (mut the_equal, mut different) = (after.clone(), after.clone());
-    if let Some(id) = tgt {
-        let decl = cx.local(id).ty;
-        inf.promote_non_null(&mut different, id, decl);
-        let _ = &mut the_equal;
+    match (cl, cr) {
+        // Both `Null`: certainly equal (`_GuaranteedEqual`), the expression is a
+        // boolean literal.
+        (Some(false), Some(false)) => different = different.unreachable(),
+        // `Null` against a non-nullable type: no information (in weak mode
+        // they could be equal).
+        (Some(false), Some(true)) | (Some(true), Some(false)) => {}
+        _ => {
+            let tgt = if left_null {
+                right_target
+            } else if right_null {
+                left_target
+            } else {
+                None
+            };
+            if let Some(id) = tgt {
+                mark_non_null(inf, cx, &mut different, id);
+            }
+        }
     }
     // Sound flow (3.9, `sound-flow-analysis`): comparing an expression of a
     // non-nullable type with `null` has a known result: the "equal" branch
@@ -7637,6 +7721,28 @@ fn equality_flows(
         }
     }
     (the_equal, different)
+}
+
+/// The reference of `id` has its unpromoted type as `_type`: a property
+/// (`propertyGet` makes the reference with `unpromotedType`) or `this`; a
+/// variable's reference has its promoted type (`_variableReference`).
+pub(crate) fn reference_has_unpromoted_type(cx: &Body, id: LocalId) -> bool {
+    cx.local_this == Some(id) || cx.is_property(id)
+}
+
+/// `tryMarkNonNullable` (3.6.2 `flow_analysis.dart:2476-2498`) of the
+/// reference `id` in `flow`: the null check of `x == null`, `x!`, `x?.`, `x ??`
+/// and `x ??=`. A property or `this` appends **NonNull** of its unpromoted
+/// type to the chain, even below a promotion it does not refine
+/// (`c._f is int` then `c._f != null` reads `c._f` as `Object`); a variable
+/// promotes its current type.
+pub(crate) fn mark_non_null(inf: &mut BodyInferrer<'_>, cx: &Body, flow: &mut Flow, id: LocalId) {
+    let decl = cx.local(id).ty;
+    if reference_has_unpromoted_type(cx, id) {
+        inf.mark_non_nullable(flow, id, decl);
+    } else {
+        inf.promote_non_null(flow, id, decl);
+    }
 }
 
 /// `e is T` / `e is! T`: `(true, false)` with promotion.
@@ -7736,8 +7842,10 @@ fn type_test(
         .any(|d| d.code.is_some());
     unnecessary_type_test(inf, cx, value, v, ty, t, the_negated, invalid, span);
     // `x is Never` does not promote `x` (the "yes" branch keeps the previous
-    // type).
-    let tgt = promotion_target(inf, cx, value).filter(|_| !matches!(inf.table.get(t), Type::Never));
+    // type), nor `x is T` with another bottom type (`T extends Never`):
+    // `isExpression_end` makes it a boolean literal (`isNever` is `isBottom`).
+    let bottom = inf.is_bottom(t);
+    let tgt = promotion_target(inf, cx, value).filter(|_| !bottom);
     let after = cx.flow.clone();
     let (mut yes, mut not_) = (after.clone(), after.clone());
     if let Some(id) = tgt {
@@ -7753,7 +7861,7 @@ fn type_test(
     }
     // `e is Never` is never true: the "yes" branch is unreachable (without
     // promoting the target).
-    if matches!(inf.table.get(t), Type::Never) {
+    if bottom {
         yes = yes.unreachable();
     }
     if the_negated {

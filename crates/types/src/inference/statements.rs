@@ -93,7 +93,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 flow_branch(inf, cx, *e);
             }
             let after_else = std::mem::replace(&mut cx.flow, before);
-            cx.flow = inf.join(&after_then, &after_else);
+            cx.flow = inf.join(cx, &after_then, &after_else);
         }
         StmtKind::While { condition, body } => {
             let the_labels = pending_labels(cx);
@@ -114,7 +114,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             let mut exits = vec![ff];
             exits.extend(tgt.breaks);
             let base = cx.flow.clone();
-            cx.flow = inf.join_all(&base, &exits);
+            cx.flow = inf.join_all(cx, &base, &exits);
         }
         StmtKind::DoWhile { body, condition } => {
             let the_labels = pending_labels(cx);
@@ -133,7 +133,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             let mut the_conts = vec![cx.flow.clone()];
             the_conts.extend(tgt.continues);
             let base = cx.flow.clone();
-            cx.flow = inf.join_all(&base, &the_conts);
+            cx.flow = inf.join_all(cx, &base, &the_conts);
             // The condition is the first dead node (the body neither reaches its end
             // nor continues): the `flowEnd` with a `DoStatement` parent
             // (`dead_code_verifier.dart:281-301`) reports the `do` (up to the `{` of
@@ -187,7 +187,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             let (_vf, ff) = expr::checked_condition(inf, cx, *condition);
             let mut exits = vec![ff];
             exits.extend(tgt.breaks);
-            cx.flow = inf.join_all(&base, &exits);
+            cx.flow = inf.join_all(cx, &base, &exits);
         }
         StmtKind::For {
             init,
@@ -264,7 +264,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             let mut the_conts = vec![cx.flow.clone()];
             the_conts.extend(tgt.continues);
             let base = cx.flow.clone();
-            cx.flow = inf.join_all(&base, &the_conts);
+            cx.flow = inf.join_all(cx, &base, &the_conts);
             // Unreachable updates: their fragment is that of `_reportForUpdaters`
             // (or none); nothing inside opens another.
             let close = !cx.flow.reachable && cx.dead_code.is_none();
@@ -283,7 +283,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             }
             let mut exits = vec![ff];
             exits.extend(tgt.breaks);
-            cx.flow = inf.join_all(&base, &exits);
+            cx.flow = inf.join_all(cx, &base, &exits);
             // Without updates, the analyzer's `updaters.last` throws and the dead code
             // verifier does not go on into the body: the fragment stays open to its
             // end.
@@ -353,7 +353,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             let mut exits = vec![before_body, after];
             exits.extend(tgt.breaks);
             let base = cx.flow.clone();
-            cx.flow = inf.join_all(&base, &exits);
+            cx.flow = inf.join_all(cx, &base, &exits);
             cx.pop_scope();
         }
         StmtKind::Switch { value, cases } => {
@@ -468,7 +468,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     }
                 }
                 let base = after_value.clone();
-                cx.flow = inf.join_all(&base, &the_entries);
+                cx.flow = inf.join_all(cx, &base, &the_entries);
                 // A group with a label (`switchStatement_endAlternatives` with
                 // `hasLabels`, 3.6.2 `flow_analysis.dart:5421-5425`): a `continue L` may
                 // come from any point of the `switch`; the body starts from the state
@@ -556,7 +556,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             if !has_default_value && !exhaustive_switch(inf, cx, t, cases) {
                 exits.push(not_matched);
             }
-            cx.flow = inf.join_all(&after_value, &exits);
+            cx.flow = inf.join_all(cx, &after_value, &exits);
         }
         StmtKind::Break(label) => {
             let f = cx.flow.clone();
@@ -735,37 +735,18 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 cx.pop_scope();
                 exits.push(cx.flow.clone());
             }
-            let after_catches = inf.join_all(&before, &exits);
+            let after_catches = inf.join_all(cx, &before, &exits);
             if let Some(fin) = finally_ {
-                let mut f = inf.join(&after_catches, &before);
+                let mut f = inf.join(cx, &after_catches, &before);
                 f.conservative_join(&writes, &captured);
                 let finally_start = f.clone();
                 cx.flow = f;
                 branch(inf, cx, *fin);
-                if cx.flow.reachable {
-                    // The `finally` completes (`attachFinally`): the state after the
-                    // `try`/`catch` applies, with the `finally`'s promotions reapplied
-                    // (`o as int;` in the `finally` promotes afterwards), and the
-                    // `finally`'s state for what it wrote.
-                    let end = cx.flow.clone();
-                    let reaches = after_catches.reachable;
-                    let mut r = inf.reapply(&after_catches, &end);
-                    for (i, m) in end.vars.iter().enumerate() {
-                        let v0 = finally_start
-                            .vars
-                            .get(i)
-                            .and_then(|m| m.as_ref())
-                            .map(|m| m.version);
-                        if m.is_some() && m.as_ref().map(|m| m.version) != v0 {
-                            if r.vars.len() <= i {
-                                r.vars.resize(i + 1, None);
-                            }
-                            r.vars[i] = m.clone();
-                        }
-                    }
-                    r.reachable = reaches;
-                    cx.flow = r;
-                }
+                // The state after the `try`/`catch` with the `finally`'s promotions
+                // rebased onto it (`o as int;` in the `finally` promotes
+                // afterwards), and the `finally`'s state for what it wrote.
+                let end = cx.flow.clone();
+                cx.flow = inf.attach_finally(cx, &before, &after_catches, &finally_start, &end);
             } else {
                 cx.flow = after_catches;
             }
@@ -796,7 +777,7 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 let mut exits = vec![cx.flow.clone()];
                 exits.extend(tgt.breaks);
                 let base = cx.flow.clone();
-                cx.flow = inf.join_all(&base, &exits);
+                cx.flow = inf.join_all(cx, &base, &exits);
             }
         }
         StmtKind::Assert { condition, message } => {
@@ -1312,7 +1293,7 @@ pub(crate) fn variable_declaration(
                 late_initializer(inf, cx, init, declared.unwrap_or(u))
             } else if expr::is_condition_form(inf, cx, init) {
                 let (yes, not_) = expr::the_condition(inf, cx, init);
-                cx.flow = inf.join(&yes, &not_);
+                cx.flow = inf.join(cx, &yes, &not_);
                 saved_condition = Some((yes, not_));
                 inf.body_types.units[cx.unit.0 as usize]
                     .get_type(init)

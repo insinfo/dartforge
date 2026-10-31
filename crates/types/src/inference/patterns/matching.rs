@@ -18,7 +18,7 @@
 //! old typing of `super::type_check`.
 
 use super::super::BodyInferrer;
-use super::super::body::{Body, Local, MemberName};
+use super::super::body::{Base, Body, Local, MemberName};
 use super::super::expr::{self, declare_local, infer};
 use super::super::flow::Flow;
 use super::super::members::Search;
@@ -45,6 +45,18 @@ pub(crate) struct MatchedRef {
     pub property: bool,
     /// The write version of the scrutinized variable at the start of the match.
     pub version: Option<u32>,
+    /// The SSA node of the matched value, as the base of the properties of its
+    /// object subpatterns: the scrutinee's when the construct allows promoting
+    /// it (`_pushScrutinee` with `allowScrutineePromotion`), the property's in
+    /// a property subpattern; `None` for a fresh node (the key's own).
+    pub base: Option<(Base, u32)>,
+}
+
+impl MatchedRef {
+    /// The base of the properties of the matched value.
+    fn property_base(&self) -> (Base, u32) {
+        self.base.unwrap_or((Base::Local(self.key), 0))
+    }
 }
 
 /// The match in progress of a top-level pattern.
@@ -121,7 +133,7 @@ fn join_not_matched(inf: &mut BodyInferrer<'_>, cx: &mut Body, extra: &Flow) {
     let Some(old) = cx.matching.as_ref().map(|c| c.not_matched.clone()) else {
         return;
     };
-    let new_ = inf.join(&old, extra);
+    let new_ = inf.join(cx, &old, extra);
     if let Some(c) = cx.matching.as_mut() {
         c.not_matched = new_;
     }
@@ -242,9 +254,13 @@ fn check_null(inf: &mut BodyInferrer<'_>, cx: &mut Body) -> Option<Flow> {
     promote_yes(inf, &mut yes, r.key, r.ty, nn);
     if let Some(id) = valid_target(cx, &r) {
         let d = cx.local(id).ty;
-        let current = yes.current_type(id, d);
-        let nn_target = inf.non_null_promotion(current);
-        promote_yes(inf, &mut yes, id, d, nn_target);
+        if expr::reference_has_unpromoted_type(cx, id) {
+            inf.mark_non_nullable(&mut yes, id, d);
+        } else {
+            let current = yes.current_type(id, d);
+            let nn_target = inf.non_null_promotion(current);
+            promote_yes(inf, &mut yes, id, d, nn_target);
+        }
     }
     if cls == Class::Null {
         yes.reachable = false;
@@ -313,6 +329,7 @@ fn with_subpattern(
             target: None,
             property: false,
             version: None,
+            base: None,
         });
     }
     f(inf, cx);
@@ -321,6 +338,35 @@ fn with_subpattern(
         c.stack.pop();
     }
     shown
+}
+
+/// `pushPropertySubpattern` (3.6.2 `flow_analysis.dart:5303-5323`) of a
+/// promotable property: the subpattern matches a new reference that shares
+/// the SSA node of `property` (its matched type is the property's promoted
+/// one), and the property is its scrutinee, promoted along with it.
+fn with_property_subpattern(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    property: LocalId,
+    f: impl FnOnce(&mut BodyInferrer<'_>, &mut Body),
+) {
+    let declared = cx.local(property).ty;
+    let typ = cx.flow.current_type(property, declared);
+    let the_key = new_key(inf, cx, typ);
+    if let Some(c) = cx.matching.as_mut() {
+        c.stack.push(MatchedRef {
+            key: the_key,
+            ty: typ,
+            target: Some(property),
+            property: true,
+            version: None,
+            base: Some((Base::Local(property), 0)),
+        });
+    }
+    f(inf, cx);
+    if let Some(c) = cx.matching.as_mut() {
+        c.stack.pop();
+    }
 }
 
 /// The `as` keyword of a cast pattern, between the subpattern and the type.
@@ -890,7 +936,7 @@ pub(crate) fn type_check(
                     matched_left.vars[d] = Some(m);
                 }
             }
-            cx.flow = inf.join(&matched_left, &matched_right);
+            cx.flow = inf.join(cx, &matched_left, &matched_right);
             if forced {
                 cx.forced_refutable = false;
             }
@@ -1192,9 +1238,11 @@ pub(crate) fn type_check(
                     }
                     _ => obj,
                 };
+                let mut resolved = None;
                 let ft = match the_name {
                     Some(nm) => match inf.lookup_member(cx.lib, obj_lookup, nm, false) {
                         Search::Finding(m) => {
+                            resolved = Some(m.resolved.clone());
                             let of_extension_type = matches!(
                                 &m.resolved,
                                 crate::resolved::Resolved::Member { class, .. }
@@ -1219,9 +1267,22 @@ pub(crate) fn type_check(
                 if matches!(inf.table.get(ft), Type::Never) {
                     cx.flow.reachable = false;
                 }
-                with_subpattern(inf, cx, ft, |inf, cx| {
-                    type_check(inf, cx, x, final_, assignment, false)
-                });
+                let property = match (the_name, &resolved, top(cx)) {
+                    (Some(nm), Some(res), Some(r)) => {
+                        expr::subpattern_property(inf, cx, res, nm, ft, r.property_base())
+                    }
+                    _ => None,
+                };
+                match property {
+                    Some(id) => with_property_subpattern(inf, cx, id, |inf, cx| {
+                        type_check(inf, cx, x, final_, assignment, false)
+                    }),
+                    None => {
+                        with_subpattern(inf, cx, ft, |inf, cx| {
+                            type_check(inf, cx, x, final_, assignment, false)
+                        });
+                    }
+                }
             }
             if irrefutable_now(cx) && !inf.assignable(t, obj) {
                 wrong_type_in_irrefutable(inf, t, obj, pattern_span);
@@ -1276,12 +1337,21 @@ pub(crate) fn the_case(
             (the_key, version)
         }
     };
+    let base = match target {
+        Some(id) if cx.local_this == Some(id) => Some((Base::This, 0)),
+        Some(id) if property => Some((Base::Local(id), 0)),
+        Some(id) if cx.flow.model(id).is_some_and(|m| !m.captured) => {
+            version.map(|v| (Base::Local(id), v))
+        }
+        _ => None,
+    };
     let r = MatchedRef {
         key: the_key,
         ty: t,
         target,
         property,
         version,
+        base,
     };
     let refutable_before = std::mem::replace(&mut cx.refutable_pattern, true);
     let forced_before = std::mem::replace(&mut cx.forced_refutable, false);
@@ -1308,7 +1378,7 @@ pub(crate) fn the_case(
         let (gv, gf) = expr::checked_condition(inf, cx, g);
         cx.variables_in_guard.truncate(base);
         cx.flow = gv;
-        not_ = inf.join(&not_, &gf);
+        not_ = inf.join(cx, &not_, &gf);
     }
     (cx.flow.clone(), not_)
 }
@@ -1336,6 +1406,7 @@ pub(crate) fn irrefutable(
         target,
         property: target.is_some(),
         version: None,
+        base: None,
     };
     let _ = match_(inf, cx, r, |inf, cx| {
         type_check(inf, cx, p, final_, assignment, false)

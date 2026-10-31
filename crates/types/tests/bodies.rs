@@ -3017,6 +3017,19 @@ fn wildcard_of_representation_type_covers_extension_type() {
 /// Body and constant (`const_eval::verify`) diagnostics of a source over the
 /// SDK 3.6.2, or `None` (the test skips) when it is not available.
 fn constant_diagnostics_of(source: &str) -> Option<Vec<dartforge_diagnostics::Diagnostic>> {
+    diagnostics_in_mode(source, false)
+}
+
+/// [`constant_diagnostics_of`] in the analyzer's mode (types keep their
+/// decoration and the pattern flow applies, as in `dartforge analyze`).
+fn analyzer_diagnostics_of(source: &str) -> Option<Vec<dartforge_diagnostics::Diagnostic>> {
+    diagnostics_in_mode(source, true)
+}
+
+fn diagnostics_in_mode(
+    source: &str,
+    analyzer: bool,
+) -> Option<Vec<dartforge_diagnostics::Diagnostic>> {
     let Some((_lib_dir, sdk)) = get_real_sdk() else {
         eprintln!("SDK 3.6.2 not available, skipping test.");
         return None;
@@ -3027,6 +3040,7 @@ fn constant_diagnostics_of(source: &str) -> Option<Vec<dartforge_diagnostics::Di
     fs::write(&main_dart, source).unwrap();
     let (prog, _) = load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
+    table.preserve_decoration = analyzer;
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let entry = prog.entry.expect("the entry library");
@@ -3517,4 +3531,163 @@ void main() {{}}
         return;
     };
     assert!(diags.is_empty(), "{diags:?}");
+}
+
+/// Field promotion through the SSA nodes of the flow analysis: a join of two
+/// writes keeps the properties promoted on both paths (`SsaNode._join`), the
+/// `try`/`finally` rebases the `finally`'s promotions onto the `try`'s
+/// (`attachFinally`, also for the properties of a variable written in the
+/// `try`), an object pattern's property subpattern promotes `x._f` and sees its
+/// promotion, and a cascade on a non-reference target keeps its temporary as
+/// the reference of the whole cascade.
+#[test]
+fn field_promotion_through_joins_finally_patterns_and_cascades() {
+    let Some(diags) = analyzer_diagnostics_of(&format!(
+        r#"{STATIC_TYPE_HELPER}
+class C {{
+  final int? _i;
+  C(this._i);
+}}
+
+class D {{
+  final C _c;
+  final Object? _o;
+  D(this._c, this._o);
+}}
+
+class G {{
+  D get d => D(C(null), null);
+}}
+
+void join(bool b, D d1, D d2) {{
+  D d3;
+  if (b) {{
+    d3 = d1;
+    if (d3._c._i == null) return;
+  }} else {{
+    d3 = d2;
+    if (d3._c._i == null) return;
+  }}
+  d3._c._i.expectStaticType<Exactly<int>>();
+}}
+
+void assignedInTry(D d, D d2) {{
+  try {{
+    d = d2;
+    d._o as num;
+  }} finally {{
+    d._o as int;
+  }}
+  d._o.expectStaticType<Exactly<int>>();
+}}
+
+void finallySupertype(D d) {{
+  try {{
+    d._o as int;
+  }} finally {{
+    d._o!;
+  }}
+  d._o.expectStaticType<Exactly<int>>();
+}}
+
+void objectPattern(D d) {{
+  if (d case D(_c: C(_i: _?))) {{
+    d._c._i.expectStaticType<Exactly<int>>();
+  }}
+  if (d._o != null) {{
+    if (d case D(_o: var o)) {{
+      o.expectStaticType<Exactly<Object>>();
+    }}
+  }}
+}}
+
+void cascade(G g) {{
+  (g.d.._o!)._o.expectStaticType<Exactly<Object>>();
+}}
+
+void main() {{}}
+"#
+    )) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}
+
+/// The null checks of `tryMarkNonNullable` and `_equalityCheck` (3.6):
+/// a property or `this` reference has its unpromoted type, so `c._f != null`
+/// after `c._f is int` appends `Object`, and `c._f == null` after
+/// `c._f is Null` leaves both branches reachable; two `Null` operands are
+/// certainly equal (`g().n == null` has an unreachable `else`); and `y is T`
+/// with `T extends Never` is never true, like `y is Never`.
+#[test]
+fn null_checks_of_property_references_and_bottom_type_tests() {
+    let Some(diags) = analyzer_diagnostics_of(&format!(
+        r#"// @dart=3.6
+{STATIC_TYPE_HELPER}
+class C {{
+  final Object? _f;
+  C(this._f);
+
+  void m(int? x, int? y) {{
+    if (x == null || y == null) return;
+    if (this is Null) {{
+      if (this == null) {{
+        x = null;
+      }} else {{
+        y = null;
+      }}
+    }}
+    x.expectStaticType<Exactly<int?>>();
+    y.expectStaticType<Exactly<int?>>();
+  }}
+}}
+
+class D {{
+  Null get n => null;
+}}
+
+void f(C c, int? x, int? y, D Function() g) {{
+  if (c._f is int) {{
+    if (c._f != null) {{
+      c._f.expectStaticType<Exactly<Object>>();
+    }}
+  }}
+  if (x == null || y == null) return;
+  if (c._f is Null) {{
+    if (c._f == null) {{
+      x = null;
+    }} else {{
+      y = null;
+    }}
+  }}
+  x.expectStaticType<Exactly<int?>>();
+  y.expectStaticType<Exactly<int?>>();
+  if (g().n == null) {{
+    x = 0;
+  }} else {{
+    y = 0;
+  }}
+  y.expectStaticType<Exactly<int?>>();
+}}
+
+void bottom<T extends Never>(Object o, Object? y) {{
+  if (o is! int) {{
+    if (y is T) {{
+    }} else {{
+      return;
+    }}
+  }}
+  o.expectStaticType<Exactly<int>>();
+}}
+
+void main() {{}}
+"#
+    )) else {
+        return;
+    };
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code.is_some() && d.severity == dartforge_diagnostics::Severity::Error)
+        .collect();
+    assert!(errors.is_empty(), "{errors:?}");
 }
