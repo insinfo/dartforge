@@ -887,6 +887,30 @@ fn sdk_key_with_overlay(
 
 /// Generation policy changes affect compiled artifacts independently of the
 /// class-ID/source namespace. Link-only packing isolates just the shared SDK.
+/// The digest of the runtime library a production SDK is linked and audited
+/// with (WebAssembly's on that target), once per process.
+fn production_runtime_digest() -> Result<String, String> {
+    static DIGESTS: std::sync::Mutex<Vec<(PathBuf, String)>> = std::sync::Mutex::new(Vec::new());
+    let runtime = if crate::target::is_wasm() {
+        crate::cache::RuntimeCache::for_wasm()?.lib_path
+    } else {
+        crate::cache::RuntimeCache::for_production()?.lib_path
+    };
+    let mut digests = DIGESTS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, d)) = digests.iter().find(|(p, _)| *p == runtime) {
+        return Ok(d.clone());
+    }
+    let mut file =
+        std::fs::File::open(&runtime).map_err(|e| format!("{}: {e}", runtime.display()))?;
+    let mut hasher = blake3::Hasher::new();
+    hasher
+        .update_reader(&mut file)
+        .map_err(|e| format!("{}: {e}", runtime.display()))?;
+    let digest = hasher.finalize().to_hex().to_string();
+    digests.push((runtime, digest.clone()));
+    Ok(digest)
+}
+
 fn compiled_sdk_key_with_overlay(
     lib_dir: &Path,
     overlay: &Path,
@@ -1011,13 +1035,23 @@ pub fn compiled_sdk_for(
             Generator::choose(clang)
         };
     let generation = sdk_generation(profile);
-    let key = compiled_sdk_key_with_overlay(
+    let mut key = compiled_sdk_key_with_overlay(
         lib_dir,
         &overlay_dir(),
         &generator.identity()?,
         profile,
         flags,
     )?;
+    // The production SDK's allocation inventory binds the runtime library it was
+    // audited against (`allocation_inventory::publication`): another build of the
+    // runtime (the debug one of `cargo test`, the release one of the CLI) gets an
+    // SDK of its own, whose inventory it can verify, instead of a cached one whose
+    // inventory it must refuse.
+    if profile == SdkProfile::Production {
+        let digest = production_runtime_digest()?;
+        key = blake3::hash(format!("{key}\nproduction_runtime={digest}").as_bytes()).to_hex()[..32]
+            .to_string();
+    }
     let root = crate::cache::native_cache_dir().join("sdk");
     let dir = root.join(&key);
     let dll_name = format!("dfsdk_{}", &key[..16]);
