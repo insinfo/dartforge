@@ -1,0 +1,816 @@
+{
+ "about": "Library metadata read by test_core 0.6.4 parseMetadata (package:test 1.25.7, Dart 3.6.2); metadata keeps Metadata.serialize() fields; error is a FormatException message; crash is any other error.",
+ "cases": [
+  {
+   "source": "@TestOn('vm && !windows')\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": "vm && !windows",
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout(Duration(seconds: 2, milliseconds: 5))\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": 2005000,
+     "scaleFactor": null
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout(const Duration(minutes: 1))\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": 60000000,
+     "scaleFactor": null
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout(Duration(seconds: 2, bogus: 3))\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": 2000000,
+     "scaleFactor": null
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout(Duration(2))\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": 0,
+     "scaleFactor": null
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout.factor(2)\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 2
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout.factor(1.5)\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1.5
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout.none\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": "none",
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout.other(2)\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 2
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Skip()\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": true,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Skip('why')\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": true,
+    "skipReason": "why",
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Skip('a' 'b')\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": true,
+    "skipReason": "ab",
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Skip\nlibrary;\nvoid main() {}\n",
+   "crash": "Null check operator used on a null value"
+  },
+  {
+   "source": "@Tags(['a', 'b-c'])\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [
+     "a",
+     "b-c"
+    ],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Tags(['a b'])\nlibrary;\nvoid main() {}\n",
+   "error": "Invalid tag name. Tags must be (optionally hyphenated) Dart identifiers."
+  },
+  {
+   "source": "@Tags('a')\nlibrary;\nvoid main() {}\n",
+   "error": "Expected a List."
+  },
+  {
+   "source": "@Tags([...x])\nlibrary;\nvoid main() {}\n",
+   "error": "Expected only literal elements."
+  },
+  {
+   "source": "@Retry(3)\n@Retry(4)\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": 4,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Retry(-1)\nlibrary;\nvoid main() {}\n",
+   "error": "Expected an integer."
+  },
+  {
+   "source": "@Retry(0x10)\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": 16,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@TestOn('vm')\n@TestOn('vm')\nlibrary;\nvoid main() {}\n",
+   "error": "Only a single TestOn may be used."
+  },
+  {
+   "source": "@TestOn(1)\nlibrary;\nvoid main() {}\n",
+   "error": "Expected a String literal."
+  },
+  {
+   "source": "@TestOn('bogus-platform')\nlibrary;\nvoid main() {}\n",
+   "error": "Undefined variable."
+  },
+  {
+   "source": "@TestOn('vm &&')\nlibrary;\nvoid main() {}\n",
+   "error": "Expected expression."
+  },
+  {
+   "source": "@OnPlatform({'mac-os': Skip(), 'linux': [Timeout.factor(2), Skip('x')], 'windows': Timeout.none})\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": [
+     [
+      "mac-os",
+      {
+       "testOn": null,
+       "timeout": {
+        "duration": null,
+        "scaleFactor": 1
+       },
+       "skip": true,
+       "skipReason": null,
+       "verboseTrace": null,
+       "chainStackTraces": null,
+       "retry": null,
+       "tags": [],
+       "onPlatform": [],
+       "forTag": {},
+       "languageVersionComment": null
+      }
+     ],
+     [
+      "linux",
+      {
+       "testOn": null,
+       "timeout": {
+        "duration": null,
+        "scaleFactor": 2
+       },
+       "skip": true,
+       "skipReason": "x",
+       "verboseTrace": null,
+       "chainStackTraces": null,
+       "retry": null,
+       "tags": [],
+       "onPlatform": [],
+       "forTag": {},
+       "languageVersionComment": null
+      }
+     ],
+     [
+      "windows",
+      {
+       "testOn": null,
+       "timeout": "none",
+       "skip": null,
+       "skipReason": null,
+       "verboseTrace": null,
+       "chainStackTraces": null,
+       "retry": null,
+       "tags": [],
+       "onPlatform": [],
+       "forTag": {},
+       "languageVersionComment": null
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "source": "@OnPlatform({'vm': const Timeout.factor(2)})\nlibrary;\nvoid main() {}\n",
+   "error": "Expected a Timeout or Skip."
+  },
+  {
+   "source": "@OnPlatform({'vm': const Timeout(Duration(seconds: 3))})\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": [
+     [
+      "vm",
+      {
+       "testOn": null,
+       "timeout": {
+        "duration": 3000000,
+        "scaleFactor": null
+       },
+       "skip": null,
+       "skipReason": null,
+       "verboseTrace": null,
+       "chainStackTraces": null,
+       "retry": null,
+       "tags": [],
+       "onPlatform": [],
+       "forTag": {},
+       "languageVersionComment": null
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "source": "@OnPlatform({'vm': const Skip('c')})\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": [
+     [
+      "vm",
+      {
+       "testOn": null,
+       "timeout": {
+        "duration": null,
+        "scaleFactor": 1
+       },
+       "skip": true,
+       "skipReason": "c",
+       "verboseTrace": null,
+       "chainStackTraces": null,
+       "retry": null,
+       "tags": [],
+       "onPlatform": [],
+       "forTag": {},
+       "languageVersionComment": null
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "source": "@OnPlatform({'vm': Timeout.never})\nlibrary;\nvoid main() {}\n",
+   "error": "Undefined value."
+  },
+  {
+   "source": "@OnPlatform({'vm': Other()})\nlibrary;\nvoid main() {}\n",
+   "error": "Expected a Timeout or Skip."
+  },
+  {
+   "source": "@OnPlatform({'vm': 1})\nlibrary;\nvoid main() {}\n",
+   "error": "Expected a Timeout, Skip, or List of those."
+  },
+  {
+   "source": "@OnPlatform(['vm'])\nlibrary;\nvoid main() {}\n",
+   "error": "Expected a Map."
+  },
+  {
+   "source": "@OnPlatform({'vm': [Skip(), Skip()]})\nlibrary;\nvoid main() {}\n",
+   "error": "Only a single Skip may be used."
+  },
+  {
+   "source": "@OnPlatform({'vm': Timeout.factor(2), 'vm': Skip()})\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": [
+     [
+      "vm",
+      {
+       "testOn": null,
+       "timeout": {
+        "duration": null,
+        "scaleFactor": 1
+       },
+       "skip": true,
+       "skipReason": null,
+       "verboseTrace": null,
+       "chainStackTraces": null,
+       "retry": null,
+       "tags": [],
+       "onPlatform": [],
+       "forTag": {},
+       "languageVersionComment": null
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "source": "@OnPlatform({'vm': t.Timeout.factor(3)})\nimport 'package:test/test.dart' as t;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": [
+     [
+      "vm",
+      {
+       "testOn": null,
+       "timeout": {
+        "duration": null,
+        "scaleFactor": 3
+       },
+       "skip": null,
+       "skipReason": null,
+       "verboseTrace": null,
+       "chainStackTraces": null,
+       "retry": null,
+       "tags": [],
+       "onPlatform": [],
+       "forTag": {},
+       "languageVersionComment": null
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "source": "@OnPlatform({'vm': t.Skip('p')})\nimport 'package:test/test.dart' as t;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": [
+     [
+      "vm",
+      {
+       "testOn": null,
+       "timeout": {
+        "duration": null,
+        "scaleFactor": 1
+       },
+       "skip": true,
+       "skipReason": "p",
+       "verboseTrace": null,
+       "chainStackTraces": null,
+       "retry": null,
+       "tags": [],
+       "onPlatform": [],
+       "forTag": {},
+       "languageVersionComment": null
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "source": "@t.Timeout.factor(1.5)\n@t.Skip()\nimport 'package:test/test.dart' as t;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1.5
+    },
+    "skip": true,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@t.Timeout(t.Duration(seconds: 1))\nimport 'package:test/test.dart' as t;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": 1000000,
+     "scaleFactor": null
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@x.Other(1)\nimport 'a.dart' as x;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout(seconds(1))\nlibrary;\nvoid main() {}\n",
+   "error": "Expected a Duration."
+  },
+  {
+   "source": "@Timeout.factor('a')\nlibrary;\nvoid main() {}\n",
+   "error": "Expected a number."
+  },
+  {
+   "source": "@TestOn('vm $x')\nlibrary;\nvoid main() {}\n",
+   "error": "Expected a String literal."
+  },
+  {
+   "source": "// @Skip('comment')\nimport 'package:test/test.dart';\n@Skip('second')\nimport 'b.dart';\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "void main() {}\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout(Duration(seconds: 1))\n@Timeout.none\nlibrary;\nvoid main() {}\n",
+   "error": "Only a single Timeout may be used."
+  },
+  {
+   "source": "@TestOn()\nlibrary;\nvoid main() {}\n",
+   "crash": "Bad state: No element"
+  },
+  {
+   "source": "@Skip(r'raw\\n')\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": true,
+    "skipReason": "raw\\n",
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout(Duration(seconds: 9223372036854775807))\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": -1000000,
+     "scaleFactor": null
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@Timeout(Duration(seconds: -1))\nlibrary;\nvoid main() {}\n",
+   "error": "Expected an integer."
+  },
+  {
+   "source": "@Tags(['a', 'a'])\n@Skip(\"dq\")\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": true,
+    "skipReason": "dq",
+    "retry": null,
+    "tags": [
+     "a"
+    ],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@OnPlatform({'vm': Timeout(Duration(seconds: 1))})\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": [
+     [
+      "vm",
+      {
+       "testOn": null,
+       "timeout": {
+        "duration": 1000000,
+        "scaleFactor": null
+       },
+       "skip": null,
+       "skipReason": null,
+       "verboseTrace": null,
+       "chainStackTraces": null,
+       "retry": null,
+       "tags": [],
+       "onPlatform": [],
+       "forTag": {},
+       "languageVersionComment": null
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "source": "@OnPlatform({'vm': Timeout.factor(2, 3)})\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": [
+     [
+      "vm",
+      {
+       "testOn": null,
+       "timeout": {
+        "duration": null,
+        "scaleFactor": 2
+       },
+       "skip": null,
+       "skipReason": null,
+       "verboseTrace": null,
+       "chainStackTraces": null,
+       "retry": null,
+       "tags": [],
+       "onPlatform": [],
+       "forTag": {},
+       "languageVersionComment": null
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "source": "@OnPlatform({'vm': Skip.other()})\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": [
+     [
+      "vm",
+      {
+       "testOn": null,
+       "timeout": {
+        "duration": null,
+        "scaleFactor": 1
+       },
+       "skip": true,
+       "skipReason": null,
+       "verboseTrace": null,
+       "chainStackTraces": null,
+       "retry": null,
+       "tags": [],
+       "onPlatform": [],
+       "forTag": {},
+       "languageVersionComment": null
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "source": "@Timeout(Duration(seconds: 1),)\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": null,
+    "timeout": {
+     "duration": 1000000,
+     "scaleFactor": null
+    },
+    "skip": null,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  },
+  {
+   "source": "@TestOn('vm')\n@Deprecated('x')\n@Skip()\nlibrary;\nvoid main() {}\n",
+   "metadata": {
+    "testOn": "vm",
+    "timeout": {
+     "duration": null,
+     "scaleFactor": 1
+    },
+    "skip": true,
+    "skipReason": null,
+    "retry": null,
+    "tags": [],
+    "onPlatform": []
+   }
+  }
+ ]
+}

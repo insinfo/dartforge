@@ -1,0 +1,17 @@
+timeout: 2x
+retry: 1
+concurrency: 2
+paths: [test, other]
+filename: "*_check.dart"
+tags:
+  slow:
+    skip: "slow tests are skipped by tag configuration"
+  quick:
+    timeout: 300ms
+  fast:
+presets:
+  ci:
+    exclude_tags: fast
+on_os:
+  windows:
+    timeout: 4x
