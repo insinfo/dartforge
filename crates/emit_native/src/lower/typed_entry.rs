@@ -267,6 +267,13 @@ fn inherited_covariant(ctx: &Context, fid: usize, i: usize) -> bool {
     }
     let f = &ctx.program.functions[fid];
     let Some(c) = f.class else { return false };
+    covariant_through(ctx, c, fid, i)
+}
+
+/// A same-named member of some supertype of class `c` makes parameter `i` of
+/// `fid` covariant.
+fn covariant_through(ctx: &Context, c: ClassId, fid: usize, i: usize) -> bool {
+    let f = &ctx.program.functions[fid];
     let Some(data) = ctx.outline.hierarchy.get(c) else {
         return false;
     };
@@ -278,16 +285,47 @@ fn inherited_covariant(ctx: &Context, fid: usize, i: usize) -> bool {
         Some(f.name)
     };
     let Some(key) = key else { return false };
-    data.supertypes.keys().any(|&s| {
-        s != c
-            && ctx.program.classes[s.0 as usize]
-                .instance_members
-                .get(&key)
-                .is_some_and(|g| {
-                    let g = g.0 as usize;
-                    corresponding(ctx, fid, i, g).is_some_and(|j| covariant_in(ctx, g, j))
-                })
+    // `c` itself counts with a declaration of its own other than `fid` (an
+    // abstract redeclaration over an inherited implementation).
+    data.supertypes.keys().chain(std::iter::once(&c)).any(|&s| {
+        ctx.program.classes[s.0 as usize]
+            .instance_members
+            .get(&key)
+            .is_some_and(|g| {
+                let g = g.0 as usize;
+                g != fid
+                    && (s != c || ctx.program.functions[g].abstract_)
+                    && corresponding(ctx, fid, i, g).is_some_and(|j| covariant_in(ctx, g, j))
+            })
     })
+}
+
+/// Class `cid` inherits the implementation `fid` from another class while its
+/// own interface makes some parameter of it covariant that `fid` does not
+/// check (`class D extends C implements I<B>` with `C.f(B x)` and
+/// `I<T>.f(T x)`): where the VM puts a forwarding stub in `cid` that checks the
+/// arguments against the implementation's parameters (the CFE's
+/// `isCovariantByClass`), a call that reaches `fid` for a `cid` receiver checks
+/// them all, as its `$c` entry does.
+pub fn covariance_stub(ctx: &Context, cid: ClassId, fid: usize) -> bool {
+    let f = &ctx.program.functions[fid];
+    if f.class == Some(cid)
+        || f.static_
+        || f.variable.is_some()
+        || ctx
+            .program
+            .library(ctx.program.classes[cid.0 as usize].library)
+            .is_sdk
+        || !super::user_function(ctx, fid)
+    {
+        return false;
+    }
+    let n = ctx
+        .outline
+        .functions
+        .get(fid)
+        .map_or(0, |o| o.parameters.len());
+    (0..n).any(|i| !inherited_covariant(ctx, fid, i) && covariant_through(ctx, cid, fid, i))
 }
 
 /// The `$c` entry checks parameter `ty` of `fid`

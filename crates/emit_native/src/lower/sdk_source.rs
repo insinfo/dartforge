@@ -1975,14 +1975,20 @@ pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
             // call to it falls into `noSuchMethod`, like the one the world says
             // does not happen.
             let live = !ctx.pruned_member(fid);
+            // An inherited implementation that `cid`'s interface makes
+            // covariant (`typed_entry::covariance_stub`): the typed call checks
+            // everything too, through the `$c` entry, as the VM's forwarding stub.
+            let stub = typed && super::typed_entry::covariance_stub(ctx, cid, fid);
             let mut by = |ty: AccessKind, a: Adapter, base: &str| {
                 let s = selector_string(ctx, ty, name_str, f.library);
                 if seen_set.insert(s.clone()) && live {
                     if typed && a != Adapter::Read {
-                        exit.push((
-                            super::typed_entry::typed_selector(&s),
-                            format!("{base}$t{}", &a.suffix()[1..]),
-                        ));
+                        let entry = if stub {
+                            format!("{base}{}", a.suffix())
+                        } else {
+                            format!("{base}$t{}", &a.suffix()[1..])
+                        };
+                        exit.push((super::typed_entry::typed_selector(&s), entry));
                     }
                     exit.push((s, format!("{base}{}", a.suffix())));
                 }

@@ -1705,6 +1705,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         if let Some(id) = ctx.class_id_of(kid) {
                             exit.push((id, f));
                         }
+                        // The class's forwarding stub checks what `f` does
+                        // not: the call goes through its method table.
+                        open |= super::typed_entry::covariance_stub(ctx, kid, f);
                         found = true;
                         break;
                     }
