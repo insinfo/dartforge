@@ -652,8 +652,12 @@ impl GenericInferrer {
             };
             types[i] = t;
         }
+        // `_chooseTypes(preliminary: true)`: only a legacy covariant parameter
+        // (without `in`, `out` or `inout`) keeps the type chosen from the context.
         for (i, &ty) in types.iter().enumerate() {
-            if !has_unknown(ty, env) {
+            if !has_unknown(ty, env)
+                && env.table.param(self.params[i]).variance == crate::table::Variance::Unspecified
+            {
                 self.the_fixed[i] = Some(ty);
             }
         }

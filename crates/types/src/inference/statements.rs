@@ -1305,10 +1305,12 @@ pub(crate) fn variable_declaration(
             if let Some(d) = declared {
                 expr::verify_assignable_expr(inf, cx, init, t, d, INVALID_ASSIGNMENT.template);
             } else {
+                // The inferred type is the initializer's, demoted (`var y = x0;`
+                // with `x0: T & num` declares `T`).
                 typ = Some(if matches!(inf.table.get(t), Type::Null) {
                     inf.core.dynamic_
                 } else {
-                    t
+                    crate::ops::demote(t, inf.table)
                 });
             }
             if vl.const_ {
@@ -1337,15 +1339,24 @@ pub(crate) fn variable_declaration(
             },
             false,
         );
-        match written {
-            Some(t) if !vl.late => {
-                let toi = declared.is_some() && !vl.final_;
-                let mut f = std::mem::replace(&mut cx.flow, Flow::reachable());
-                inf.write_flow(&mut f, id, typ, t, toi, None);
-                cx.flow = f;
+        // `_initialize` (3.6.2 `flow_analysis.dart:5947-5978`), also for a
+        // `late` variable: the write promotes to a type of interest when the
+        // type is written and the variable is not final (`late num? x = 3;` is
+        // `num`), and an implicitly typed variable initialized with a type
+        // variable type is promoted to it (`var y = x0;` is `T & num`).
+        if let Some(t) = written {
+            let toi = declared.is_some() && !vl.final_;
+            let mut f = std::mem::replace(&mut cx.flow, Flow::reachable());
+            inf.write_flow(&mut f, id, typ, t, toi, None);
+            if declared.is_none()
+                && matches!(
+                    inf.table.get(t),
+                    Type::TypeParameter { .. } | Type::Intersection { .. }
+                )
+            {
+                inf.promote(&mut f, id, typ, t);
             }
-            Some(_) => cx.flow.initialize(id),
-            None => {}
+            cx.flow = f;
         }
         // `_initialize` (`flow_analysis.dart:5957-5962`): before 2.15
         // (`respectImplicitlyTypedVarInitializers`, `constructor-tearoffs`), a

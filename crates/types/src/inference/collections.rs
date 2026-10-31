@@ -262,6 +262,11 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         } else {
             Vec::new()
         };
+        // `_demoteTypes`: after the checks, `X & B` becomes `X`.
+        let finals: Vec<TypeId> = finals
+            .iter()
+            .map(|&t| crate::ops::demote(t, env.table))
+            .collect();
         drop(env);
         let sp = inf.span_expr(cx.unit, e);
         for (name, suffix) in failures {

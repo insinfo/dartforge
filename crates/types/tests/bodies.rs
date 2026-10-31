@@ -3758,3 +3758,117 @@ void main() {{}}
         .collect();
     assert!(errors.is_empty(), "{errors:?}");
 }
+
+/// Demotion and the contexts of 3.6.2 inference: inferred type arguments and
+/// the inferred type of a local are demoted (`X & B` becomes `X`, and
+/// `var z = x1;` is promoted to `X1 & int`); a `late` initializer promotes
+/// like a write; a record literal infers its fields in source order with the
+/// field schemas as they are; a generic literal takes nothing from a
+/// non-generic context; an `Object` method on `dynamic` is static only when
+/// the arguments fit it; and an `is` in a value context records no type of
+/// interest.
+#[test]
+fn demotion_records_generic_literals_and_dynamic_object_methods() {
+    let Some(diags) = analyzer_diagnostics_of(&format!(
+        r#"// @dart=3.6
+{STATIC_TYPE_HELPER}
+extension E<T> on T {{
+  T Function(T) get f => (_) => this;
+}}
+
+bool condition = true;
+
+void demotion<X1, S extends num>(X1 x1, S s) {{
+  if (x1 is int) {{
+    var z = condition ? x1 : throw 0;
+    z.expectStaticType<Exactly<X1>>();
+    num n = z;
+    if (condition) z = x1;
+    n = z;
+  }}
+  if (s is int) {{
+    S Function(S) g = s.f;
+  }}
+  late num? x = 3;
+  x.expectStaticType<Exactly<num>>();
+}}
+
+void contextList<T>((List<T>,) x) {{}}
+
+(Object, {{Object a}}) records(Object o1, Object o2) {{
+  contextList(([1, 2],)..expectStaticType<Exactly<(List<int>,)>>());
+  return (a: o1 as int, [o1..expectStaticType<Exactly<int>>(), o2 as int].first);
+}}
+
+void genericLiteral() {{
+  dynamic d = (int x, int y) => x + y;
+  (d as int Function(int, int))(1, 2);
+  d = <S>(S x, S y) => x is String ? x : y;
+}}
+
+void dynamicCalls(dynamic n, dynamic o) {{
+  n.noSuchMethod();
+  n.noSuchMethod(37, x: 42);
+  o.toString(42);
+}}
+
+void valueTests() {{
+  dynamic f = (int n) => n + 1;
+  print(f is Function);
+  print(f is Object);
+  f = 3;
+  f(1);
+}}
+
+void main() {{}}
+"#
+    )) else {
+        return;
+    };
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code.is_some() && d.severity == dartforge_diagnostics::Severity::Error)
+        .collect();
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+/// A type parameter with an explicit variance (`in`, `out`, `inout`, even
+/// without the experiment) does not keep the type chosen from the context in
+/// the preliminary phase (`_chooseTypes`: only `isLegacyCovariant` ones do):
+/// `A<Object> a = A(3)` infers `A<int>`, and `B<int> b = B(<num>[])` infers
+/// `B<num>`.
+#[test]
+fn explicit_variance_does_not_fix_the_context_type() {
+    let Some(diags) = analyzer_diagnostics_of(
+        r#"// @dart=3.6
+class A<out T> {
+  final T _x;
+  A(T x) : _x = x;
+  T get x => _x;
+  void set x(Object? value) {}
+}
+
+class B<in T> {
+  B(List<T> x);
+  void set x(T val) {}
+}
+
+void main() {
+  A<Object> a = new A(3)..x += 1;
+  B<int> b = new B(<num>[])..x = 2.2;
+  print([a, b]);
+}
+"#,
+    ) else {
+        return;
+    };
+    let errors: Vec<_> = diags
+        .iter()
+        .filter(|d| {
+            d.severity == dartforge_diagnostics::Severity::Error
+                && d.code
+                    .is_some_and(|c| c.info().name != "experiment_not_enabled_off_by_default")
+        })
+        .collect();
+    assert!(errors.is_empty(), "{errors:?}");
+}

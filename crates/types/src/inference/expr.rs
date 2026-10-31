@@ -2007,6 +2007,11 @@ fn instantiate_in_context_with(
     gi.constrain_return(without, k, &mut env);
     let args = gi.choose_final(&mut env);
     let failures = gi.failures(&args, &mut env, interner, program);
+    // `_demoteTypes`: after the checks, `X & B` becomes `X`.
+    let args: Vec<TypeId> = args
+        .iter()
+        .map(|&t| crate::ops::demote(t, env.table))
+        .collect();
     let r = crate::constraints::instantiate_function(t, &args, &mut env);
     drop(env);
     let sp = inf.span_expr(cx.unit, e);
@@ -2127,50 +2132,75 @@ pub(crate) fn infer_at(
         ExprKind::Record {
             positional, named, ..
         } => {
-            let k = inf.greatest_closure_if_known(ctx);
-            let k = inf.non_null(k);
+            // `_matchContextType` (3.6.2 `record_literal_resolver.dart:44-76`): a
+            // record context of the same shape (the same names) gives each field
+            // its schema as is: `(List<_>,)` leaves `[1, 2]` a `List<int>`.
+            let k = if inf.the_is_unknown(ctx) {
+                ctx
+            } else {
+                inf.non_null(ctx)
+            };
             let (ctx_pos, ctx_named) = match inf.table.get(k).clone() {
                 Type::Record {
                     positional: p,
                     named: n,
                     ..
-                } if p.len() == positional.len() && n.len() == named.len() => (Some(p), Some(n)),
+                } if p.len() == positional.len()
+                    && n.len() == named.len()
+                    && named
+                        .iter()
+                        .all(|(x, _)| n.iter().any(|(s, _)| *s == x.sym)) =>
+                {
+                    (Some(p), Some(n))
+                }
                 _ => (None, None),
             };
             let u = inf.core.unknown;
             let positional = positional.to_vec();
             let named: Vec<(ast::Name, ExprId)> = named.to_vec();
-            // `_resolveField` (3.6.2 `record_literal_resolver.dart:134-158`): a
-            // `void` field reports at the field (a named one, from the name to the
-            // value).
-            let mut pos = Vec::new();
-            for (i, p) in positional.iter().enumerate() {
-                let c = ctx_pos.as_ref().map(|v| v[i]).unwrap_or(u);
-                let tp = infer(inf, cx, *p, c);
-                let tp = dynamic_cast_in_field(inf, tp, c);
-                if matches!(inf.table.get(tp), Type::Void) {
-                    let sp = inf.span_expr(cx.unit, *p);
-                    inf.warning_with_code(
-                        dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT,
-                        sp,
-                        &[],
-                    );
-                }
-                pos.push(tp);
-            }
-            let mut nm = Vec::new();
-            for (n, x) in named.iter() {
-                let c = ctx_named
-                    .as_ref()
-                    .and_then(|v| v.iter().find(|(s, _)| *s == n.sym).map(|(_, t)| *t))
-                    .unwrap_or(u);
-                let tx = infer(inf, cx, *x, c);
+            // `_resolveFields`: the fields in source order (a promotion in a named
+            // field is seen by a positional one written after it). `_resolveField`
+            // (`:134-158`): a `void` field reports at the field (a named one, from
+            // the name to the value).
+            let mut order: Vec<(usize, bool, usize)> = positional
+                .iter()
+                .enumerate()
+                .map(|(i, &p)| (inf.span_expr(cx.unit, p).start, false, i))
+                .collect();
+            order.extend(
+                named
+                    .iter()
+                    .enumerate()
+                    .map(|(j, (n, _))| (n.span.start, true, j)),
+            );
+            order.sort_by_key(|&(at, _, _)| at);
+            let mut pos = vec![inf.core.dynamic_; positional.len()];
+            let mut nm: Vec<(SymbolId, TypeId)> = named
+                .iter()
+                .map(|(n, _)| (n.sym, inf.core.dynamic_))
+                .collect();
+            for (_, is_named, i) in order {
+                let (x, c, start) = if is_named {
+                    let (n, x) = named[i];
+                    let c = ctx_named
+                        .as_ref()
+                        .and_then(|v| v.iter().find(|(s, _)| *s == n.sym).map(|(_, t)| *t))
+                        .unwrap_or(u);
+                    (x, c, Some(n.span.start))
+                } else {
+                    (
+                        positional[i],
+                        ctx_pos.as_ref().map(|v| v[i]).unwrap_or(u),
+                        None,
+                    )
+                };
+                let tx = infer(inf, cx, x, c);
                 let tx = dynamic_cast_in_field(inf, tx, c);
                 if matches!(inf.table.get(tx), Type::Void) {
-                    let end = inf.span_expr(cx.unit, *x).end;
+                    let sp = inf.span_expr(cx.unit, x);
                     let sp = dartforge_diagnostics::Span {
-                        start: n.span.start,
-                        end,
+                        start: start.unwrap_or(sp.start),
+                        end: sp.end,
                     };
                     inf.warning_with_code(
                         dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT,
@@ -2178,7 +2208,11 @@ pub(crate) fn infer_at(
                         &[],
                     );
                 }
-                nm.push((n.sym, tx));
+                if is_named {
+                    nm[i].1 = tx;
+                } else {
+                    pos[i] = tx;
+                }
             }
             inf.table.intern(Type::Record {
                 positional: pos.into_boxed_slice(),
@@ -2474,8 +2508,11 @@ pub(crate) fn infer_at(
             upper_bound_in_context(inf, cx, t1, t2, ctx)
         }
         ExprKind::Is { value, ty, negated } => {
-            let (vf, ff) = type_test(inf, cx, *value, *ty, *negated, span);
-            cx.flow = inf.join(cx, &vf, &ff);
+            // `isExpression_end` only records the expression's information: in a
+            // value context the state stays the one after the operand, without
+            // the tested type (`Expect.isTrue(f is Function)` does not make
+            // `Function` a type of interest of `f`).
+            let _ = type_test(inf, cx, *value, *ty, *negated, span);
             inf.core.bool_
         }
         ExprKind::As { value, ty } => {
@@ -2716,17 +2753,6 @@ pub(crate) fn infer_at(
         cx.flow.set_unreachable();
     }
     (t, short_circuit)
-}
-
-impl<'a> BodyInferrer<'a> {
-    /// Greatest closure if the context is not `_` (otherwise `_` itself).
-    pub(crate) fn greatest_closure_if_known(&mut self, ctx: TypeId) -> TypeId {
-        if self.the_is_unknown(ctx) {
-            ctx
-        } else {
-            self.greatest_closure_of(ctx)
-        }
-    }
 }
 
 /// `K1` of `await e` in context `K` (`inference.md`, "Await expressions").
@@ -5054,7 +5080,12 @@ fn binary(
         }
         BinaryOp::And | BinaryOp::Or | BinaryOp::Eq | BinaryOp::NotEq => {
             let (vf, ff) = binary_condition(inf, cx, e, op, left, right);
-            cx.flow = inf.join(cx, &vf, &ff);
+            // `&&` and `||` join their paths; `equalityOperation_end` only
+            // records the expression's information, and in a value context the
+            // state stays the one after the operands.
+            if matches!(op, BinaryOp::And | BinaryOp::Or) {
+                cx.flow = inf.join(cx, &vf, &ff);
+            }
             // `x == y` with `x: Never`: the receiver never exists, and the `==`
             // invocation has type `Never` (like any member of `Never`).
             if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)

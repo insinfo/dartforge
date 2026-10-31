@@ -721,7 +721,13 @@ impl<'a> BodyInferrer<'a> {
                 return None;
             }
         }
-        Some(args)
+        // `tryChooseFinalTypes` demotes after the bound checks: `S & int` binds
+        // `T` to `S`.
+        Some(
+            args.iter()
+                .map(|&t| crate::ops::demote(t, self.table))
+                .collect(),
+        )
     }
 
     /// Extension member applicable to the receiver, with tie-breaking by specificity.

@@ -946,6 +946,11 @@ pub(crate) fn invoke(
         Some(_) => gi.failures(&finals, &mut env, interner, program),
         None => Vec::new(),
     };
+    // `_demoteTypes`: after the checks, `X & B` becomes `X`.
+    let finals: Vec<TypeId> = finals
+        .iter()
+        .map(|&t| crate::ops::demote(t, env.table))
+        .collect();
     let inst = instantiate_function(f, &finals, &mut env);
     drop(env);
     if let Some(sp) = entity {
@@ -2036,6 +2041,10 @@ pub(crate) fn the_call(
                 }
                 let finals = gi.choose_final(&mut env);
                 let failures = gi.failures(&finals, &mut env, interner, program);
+                let finals: Vec<TypeId> = finals
+                    .iter()
+                    .map(|&t| crate::ops::demote(t, env.table))
+                    .collect();
                 drop(env);
                 for (the_name, suffix) in failures {
                     inf.warning_with_code(
@@ -2496,10 +2505,28 @@ pub(crate) fn the_call(
                 }
                 Search::Dynamic => {
                     resolver(inf, cx, target, Resolved::Dynamic);
-                    // `Object` methods keep their type even on `dynamic`.
+                    // `Object` methods keep their type even on `dynamic`, when the
+                    // arguments match them (`_resolveReceiverDynamicBounded`, 3.6.2
+                    // `method_invocation_resolver.dart`: as many arguments as
+                    // parameters, none named); `n.noSuchMethod()` is a dynamic call.
                     let o = inf.core.object;
+                    let matches_arguments =
+                        |inf: &BodyInferrer<'_>, t: TypeId| match inf.table.get(t) {
+                            Type::Function {
+                                positional,
+                                optional,
+                                named,
+                                ..
+                            } => {
+                                args.args.iter().all(|a| a.name.is_none())
+                                    && args.args.len()
+                                        == positional.len() + optional.len() + named.len()
+                            }
+                            _ => false,
+                        };
                     if let Some(m) = inf.interface_member(o, name.sym, false)
                         && m.method
+                        && matches_arguments(inf, m.ty)
                     {
                         record_type(inf, cx, target, m.ty);
                         {

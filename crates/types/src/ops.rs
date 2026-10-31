@@ -1752,3 +1752,77 @@ pub fn without_display(ty: TypeId, table: &mut TypeTable) -> TypeId {
     };
     table.intern(the_new_)
 }
+
+/// `demoteType` (`type_demotion.dart`): every promoted type variable `X & B`
+/// becomes `X`. Inferred type arguments and the declared type of a local
+/// inferred from its initializer are demoted (`_demoteTypes` of
+/// `GenericInferrer`). A type without intersections is returned as is.
+pub fn demote(ty: TypeId, table: &mut TypeTable) -> TypeId {
+    fn all(xs: &[TypeId], table: &mut TypeTable) -> Option<Box<[TypeId]>> {
+        let ys: Vec<TypeId> = xs.iter().map(|&x| demote(x, table)).collect();
+        (ys.as_slice() != xs).then(|| ys.into_boxed_slice())
+    }
+    let the_new_ = match table.get(ty).clone() {
+        Type::Intersection { param, .. } => Type::TypeParameter {
+            param,
+            nullable: false,
+        },
+        Type::Interface {
+            class,
+            args,
+            nullable,
+        } => match all(&args, table) {
+            Some(args) => Type::Interface {
+                class,
+                args,
+                nullable,
+            },
+            None => return ty,
+        },
+        Type::ExtensionType {
+            decl,
+            args,
+            nullable,
+        } => match all(&args, table) {
+            Some(args) => Type::ExtensionType {
+                decl,
+                args,
+                nullable,
+            },
+            None => return ty,
+        },
+        Type::FutureOr { arg, nullable } => {
+            let a = demote(arg, table);
+            if a == arg {
+                return ty;
+            }
+            Type::FutureOr { arg: a, nullable }
+        }
+        Type::Record {
+            positional,
+            named,
+            nullable,
+        } => {
+            let p = all(&positional, table);
+            let types: Vec<TypeId> = named.iter().map(|&(_, t)| t).collect();
+            let n = all(&types, table);
+            if p.is_none() && n.is_none() {
+                return ty;
+            }
+            Type::Record {
+                positional: p.unwrap_or(positional),
+                named: match n {
+                    Some(n) => named
+                        .iter()
+                        .zip(n.iter())
+                        .map(|(&(s, _), &t)| (s, t))
+                        .collect(),
+                    None => named,
+                },
+                nullable,
+            }
+        }
+        _ => return ty,
+    };
+    table.intern(the_new_)
+}

@@ -2600,6 +2600,10 @@ fn function_literal(
         }
     }
     // Function context with the type parameters renamed to ours.
+    // `_matchTypeParameters` (3.6.2 `function_expression_resolver.dart:132-151`):
+    // a context with another number of type parameters gives nothing (a
+    // generic literal in an `int Function(int, int)` context has no imposed
+    // return type).
     let (cpos, copt, cnamed, cret) = match ctx_fn.map(|t| inf.table.get(t).clone()) {
         Some(Type::Function {
             type_params,
@@ -2608,21 +2612,17 @@ fn function_literal(
             optional,
             named,
             ..
-        }) => {
-            let map: HashMap<TypeParamId, TypeId> = if type_params.len() == tps.len() {
-                type_params
-                    .iter()
-                    .copied()
-                    .zip(tps.iter().map(|&p| {
-                        inf.table.intern(Type::TypeParameter {
-                            param: p,
-                            nullable: false,
-                        })
-                    }))
-                    .collect()
-            } else {
-                HashMap::new()
-            };
+        }) if type_params.len() == tps.len() => {
+            let map: HashMap<TypeParamId, TypeId> = type_params
+                .iter()
+                .copied()
+                .zip(tps.iter().map(|&p| {
+                    inf.table.intern(Type::TypeParameter {
+                        param: p,
+                        nullable: false,
+                    })
+                }))
+                .collect();
             let s = |inf: &mut BodyInferrer<'_>, t: TypeId| inf.subst(t, &map);
             let pos: Vec<TypeId> = positional.iter().map(|&t| s(inf, t)).collect();
             let opt: Vec<TypeId> = optional.iter().map(|&t| s(inf, t)).collect();
