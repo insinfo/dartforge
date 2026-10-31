@@ -6880,6 +6880,33 @@ pub(crate) fn the_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId
     let kind = &a.expr(e).kind;
     let span = a.expr(e).span;
     match kind {
+        // `conditional_end`: the condition of `c ? a : b` joins those of the
+        // branches (`bool b = x is int ? true : false;` promotes in `if (b)`).
+        ExprKind::Conditional {
+            condition,
+            then,
+            else_,
+        } if is_condition_form(inf, cx, e) => {
+            let (condition, then, else_) = (*condition, *then, *else_);
+            let (vf, ff) = checked_condition(inf, cx, condition);
+            let before = cx.flow.clone();
+            cx.flow = vf;
+            let (yes1, not1) =
+                flow_operand(inf, cx, then, None, |inf, cx| the_condition(inf, cx, then));
+            let after1 = std::mem::replace(&mut cx.flow, ff);
+            let (yes2, not2) = flow_operand(inf, cx, else_, None, |inf, cx| {
+                the_condition(inf, cx, else_)
+            });
+            let after2 = std::mem::replace(&mut cx.flow, before);
+            cx.flow = inf.join(&after1, &after2);
+            let bool_ = inf.core.bool_;
+            let types = &inf.body_types.units[cx.unit.0 as usize];
+            let t1 = types.get_type(then).unwrap_or(bool_);
+            let t2 = types.get_type(else_).unwrap_or(bool_);
+            let t = upper_bound_in_context(inf, cx, t1, t2, bool_);
+            record_type(inf, cx, e, t);
+            (inf.join(&yes1, &yes2), inf.join(&not1, &not2))
+        }
         ExprKind::Parenthesized(i) => {
             let i = *i;
             let r = the_condition(inf, cx, i);
@@ -6997,6 +7024,9 @@ pub(crate) fn the_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId
 pub(crate) fn is_condition_form(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> bool {
     match &ast(inf, cx).expr(e).kind {
         ExprKind::Parenthesized(i) => is_condition_form(inf, cx, *i),
+        ExprKind::Conditional { then, else_, .. } => {
+            is_condition_form(inf, cx, *then) || is_condition_form(inf, cx, *else_)
+        }
         ExprKind::Unary {
             op: UnaryOp::Not, ..
         }

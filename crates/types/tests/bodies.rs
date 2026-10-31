@@ -3459,3 +3459,29 @@ void main() {{}}
     };
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+/// The condition of `c ? a : b` joins the conditions of its branches: `bool b
+/// = x is int ? true : false;` promotes `x` in `if (b)`.
+#[test]
+fn conditional_expression_is_a_condition() {
+    let Some(diags) = constant_diagnostics_of(&format!(
+        r#"{STATIC_TYPE_HELPER}
+void f(Object x) {{
+  bool b = x is int ? true : false;
+  if (b) {{
+    x.expectStaticType<Exactly<int>>();
+  }} else {{
+    x.expectStaticType<Exactly<Object>>();
+  }}
+  if (x is String ? true : x is int) {{
+    x.expectStaticType<Exactly<Object>>();
+  }}
+}}
+
+void main() {{}}
+"#
+    )) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}
