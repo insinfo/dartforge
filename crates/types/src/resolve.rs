@@ -174,6 +174,26 @@ pub enum TypeContext {
     Hierarchy,
 }
 
+/// `prefix.sym` names `dart:core`'s `dynamic` or `Never`: the unit's library
+/// imports `dart:core` with that prefix and its combinators let `sym` through
+/// (`import 'dart:core' as core; core.dynamic d;`).
+pub(crate) fn core_through_prefix(
+    program: &Program,
+    the_unit: UnitId,
+    prefix: SymbolId,
+    sym: SymbolId,
+) -> bool {
+    let lib = program.unit(the_unit).library;
+    program.library(lib).imports.iter().any(|i| {
+        Some(i.library) == program.core
+            && i.prefix == Some(prefix)
+            && i.combinators.iter().all(|c| match c {
+                ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == sym),
+                ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == sym),
+            })
+    })
+}
+
 /// The analyzer's code and arguments for a type name that does not resolve
 /// to a type (`_ErrorHelper.reportNullOrNonTypeElement`,
 /// `an611:src/dart/resolver/named_type_resolver.dart:515-643`): `found` means
@@ -2363,6 +2383,23 @@ impl<'a> OutlineResolver<'a> {
                         if matches!(self.in_container(prefix), Some(InContainer::OnlySetter)) {
                             return self.table.invalid(self.core.dynamic_);
                         }
+                    }
+                    if self.interner.lookup("dynamic") == Some(member)
+                        && core_through_prefix(self.program, unit_id, prefix, member)
+                    {
+                        return self.core.dynamic_;
+                    }
+                    if self.interner.lookup("Never") == Some(member)
+                        && core_through_prefix(self.program, unit_id, prefix, member)
+                    {
+                        return if is_nullable {
+                            self.table.decorate(
+                                self.core.null,
+                                crate::table::DisplayDecoration::NeverNullable,
+                            )
+                        } else {
+                            self.core.never
+                        };
                     }
                     let binding = self
                         .program

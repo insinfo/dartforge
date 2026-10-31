@@ -648,6 +648,28 @@ impl<'a> BodyInferrer<'a> {
                         return self.table.invalid(self.core.dynamic_);
                     }
                 }
+                if name.len() == 2
+                    && crate::resolve::core_through_prefix(
+                        self.program,
+                        unit,
+                        name[0].sym,
+                        name[1].sym,
+                    )
+                {
+                    if self.interner.lookup("dynamic") == Some(name[1].sym) {
+                        return self.core.dynamic_;
+                    }
+                    if self.interner.lookup("Never") == Some(name[1].sym) {
+                        return if is_nullable {
+                            self.table.decorate(
+                                self.core.null,
+                                crate::table::DisplayDecoration::NeverNullable,
+                            )
+                        } else {
+                            self.core.never
+                        };
+                    }
+                }
                 let binding = if name.len() == 2 {
                     self.program
                         .lookup_prefixed_in_unit(unit, name[0].sym, name[1].sym)

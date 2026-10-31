@@ -2625,11 +2625,12 @@ pub(crate) fn infer_at(
             instantiate_in_context(inf, cx, e, t, ctx)
         }
         ExprKind::Throw(i) => {
-            let t = infer_free(inf, cx, *i);
+            // The operand's context is `Object` (`visitThrowExpression`).
+            let object = inf.core.object;
+            let t = infer(inf, cx, *i, object);
             void_use(inf, cx, *i, t);
             // `THROW_OF_INVALID_TYPE` (an611:src/generated/error_verifier.dart:5336-5347):
             // not assignable to `Object`; `void` reports too.
-            let object = inf.core.object;
             if !inf.assignable(t, object) {
                 let tt = inf.table.format(t, inf.interner, inf.program);
                 let sp = inf.span_expr(cx.unit, *i);
