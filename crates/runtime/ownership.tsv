@@ -61,6 +61,7 @@ dartforge_arc_frame_copy_v1	i64:scalar,i64:scalar,ref:borrow	void:scalar	1	1	nor
 dartforge_arc_frame_close_v1	i64:scalar	void:scalar	0	1	normal
 dartforge_arc_frame_move_v1	i64:scalar,i64:scalar,i64:scalar,i64:scalar	void:scalar	1	1	normal
 dartforge_arc_frame_receive_v1	i64:scalar,i64:scalar,ref:consume	void:scalar	1	1	normal
+dartforge_arc_frame_slots_v1	i64:scalar	i64:scalar	0	0	normal
 dartforge_arc_stack_trace_owned_v1	-	ref:owned	1	1	normal
 dartforge_arc_release	ref:consume	void:scalar	0	1	normal
 dartforge_arc_retain	ref:borrow	void:scalar	1	0	normal

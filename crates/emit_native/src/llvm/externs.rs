@@ -605,6 +605,14 @@ pub const EXTERNS: &[Extern] = &[
         },
     },
     Extern {
+        decl: "declare i64 @dartforge_arc_frame_slots_v1(i64) nounwind",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
         decl: "declare i64 @dartforge_arc_frame_load_v1(i64, i64) nounwind",
         effects: Effects {
             allocates: false,

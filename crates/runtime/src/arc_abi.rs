@@ -1833,6 +1833,27 @@ pub extern "C" fn dartforge_arc_frame_load_v1(frame: i64, slot: i64) -> i64 {
     HEAP.with(|h| h.borrow_mut().copy_root_to_code(frame, slot))
 }
 
+/// The slots of an owning frame of [`dartforge_arc_frame_open_v1`], for the real
+/// ARC's inline loads and copies (`llvm::LlvmEmitter`): each slot holds one
+/// counted occurrence, as through [`dartforge_arc_frame_load_v1`] and
+/// [`dartforge_arc_frame_copy_v1`]. Valid until the frame closes (its slot count
+/// is fixed), as an integer. Zero when the slots must stay behind the ABI: the audit
+/// (`DARTFORGE_ARC_CHECK=1`), whose inventory tells code tokens from slots.
+///
+/// # Panics
+/// A missing or observational frame; aborts at the C boundary.
+///
+/// ```
+/// use dartforge_runtime::abi::*;
+/// let frame = dartforge_arc_frame_open_v1(2);
+/// let _ = dartforge_arc_frame_slots_v1(frame);
+/// dartforge_arc_frame_close_v1(frame);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_arc_frame_slots_v1(frame: i64) -> i64 {
+    HEAP.with(|h| h.borrow_mut().owning_frame_slots(frame) as i64)
+}
+
 /// Transfers a code token into an owning slot.
 ///
 /// Does not retain the source. Publishes the destination before releasing its previous owner.

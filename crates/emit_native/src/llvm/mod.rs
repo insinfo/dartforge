@@ -231,6 +231,10 @@ pub struct LlvmEmitter<'a> {
     /// writes that consume the value's token, and the drops of those tokens, which
     /// emit nothing.
     moved_writes: std::collections::HashSet<u32>,
+    /// The owning frames of the function whose slots the real ARC reads and copies
+    /// inline (the values of their `dartforge_arc_frame_open_v1`; their slots'
+    /// address is `%fs{v}`, null under the audit).
+    frame_slots: std::collections::HashSet<u32>,
     elided_drops: std::collections::HashSet<u32>,
     /// The LLVM label of the stretch being emitted (that of the block, or the last one that a
     /// split instruction opened): the predecessor of an inner `phi`.
@@ -507,6 +511,7 @@ impl<'a> LlvmEmitter<'a> {
             context_in_parameter: false,
             exit_labels: std::collections::HashMap::new(),
             moved_writes: std::collections::HashSet::new(),
+            frame_slots: std::collections::HashSet::new(),
             elided_drops: std::collections::HashSet::new(),
             current_label: String::new(),
 
@@ -1604,6 +1609,19 @@ impl<'a> LlvmEmitter<'a> {
         } else {
             Default::default()
         };
+        self.frame_slots = if self.inline_frames() {
+            func.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .filter(|(_, i, _)| {
+                    matches!(i, Instruction::CallRuntime { name, args, .. }
+                    if name == "dartforge_arc_frame_open_v1" && args.len() == 1)
+                })
+                .map(|(vid, _, _)| vid.0)
+                .collect()
+        } else {
+            Default::default()
+        };
         self.exit_labels = func
             .blocks
             .iter()
@@ -1647,6 +1665,8 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("rt{v}.fim")))
                     } else if self.prepared_inline_box_int(i) {
                         Some((b.id.0, format!("bi{v}.fim")))
+                    } else if let Some(kind) = self.inline_frame_access(i) {
+                        Some((b.id.0, format!("f{kind}{v}.fim")))
                     } else if self.typed_registration_inline(i) {
                         Some((b.id.0, format!("tn{v}.fim")))
                     } else if !self.maps && Self::list_elem_exact_cached(i) {
@@ -2673,6 +2693,56 @@ impl<'a> LlvmEmitter<'a> {
                         )
                         .unwrap();
                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
+                    }
+                    Instruction::CallRuntime { name, args, .. }
+                        if name == "dartforge_arc_frame_open_v1"
+                            && self.frame_slots.contains(&v) =>
+                    {
+                        let n = self.coerce(&args[0].0, Type::I64);
+                        writeln!(
+                            self.out,
+                            "  %v{v} = call i64 @dartforge_arc_frame_open_v1(i64 {n})\n  %fsi{v} = call i64 @dartforge_arc_frame_slots_v1(i64 %v{v})\n  %fs{v} = inttoptr i64 %fsi{v} to ptr"
+                        )
+                        .unwrap();
+                    }
+                    Instruction::CallRuntime { args, .. }
+                        if self.inline_frame_access(inst).is_some() =>
+                    {
+                        let kind = self
+                            .inline_frame_access(inst)
+                            .expect("checked at the guard");
+                        let (Operand::Val(f), Operand::Constant(Constant::Int(ix))) =
+                            (&args[0].0, &args[1].0)
+                        else {
+                            unreachable!("checked at the guard")
+                        };
+                        let (f, ix) = (f.0, *ix);
+                        let l = format!("f{kind}{v}");
+                        writeln!(
+                            self.out,
+                            "  %{l}z = icmp eq ptr %fs{f}, null\n  br i1 %{l}z, label %{l}.slow, label %{l}.fast\n{l}.fast:\n  %{l}a = getelementptr inbounds i64, ptr %fs{f}, i64 {ix}"
+                        )
+                        .unwrap();
+                        if kind == 'l' {
+                            writeln!(
+                                self.out,
+                                "  %{l}v = load i64, ptr %{l}a, align 8\n  call void @{retain}(i64 %{l}v)\n  br label %{l}.fim\n{l}.slow:\n  %{l}s = call i64 @dartforge_arc_frame_load_v1(i64 %v{f}, i64 {ix})\n  br label %{l}.fim\n{l}.fim:\n  %v{v} = phi i64 [ %{l}v, %{l}.fast ], [ %{l}s, %{l}.slow ]",
+                                retain = arc_tag_guards::RETAIN
+                            )
+                            .unwrap();
+                        } else {
+                            // The runtime's order: retain the new value, publish it,
+                            // release the old one (`Heap::set_root`).
+                            let x = self.coerce(&args[2].0, Type::I64);
+                            writeln!(
+                                self.out,
+                                "  %{l}o = load i64, ptr %{l}a, align 8\n  call void @{retain}(i64 {x})\n  store i64 {x}, ptr %{l}a, align 8\n  call void @{release}(i64 %{l}o)\n  br label %{l}.fim\n{l}.slow:\n  call void @dartforge_arc_frame_copy_v1(i64 %v{f}, i64 {ix}, i64 {x})\n  br label %{l}.fim\n{l}.fim:",
+                                retain = arc_tag_guards::RETAIN,
+                                release = arc_tag_guards::RELEASE
+                            )
+                            .unwrap();
+                        }
+                        self.current_label = format!("{l}.fim");
                     }
                     Instruction::CallRuntime { args, .. } if self.prepared_inline_box_int(inst) => {
                         let x = self.coerce(&args[0].0, Type::I64);
@@ -6493,6 +6563,35 @@ impl<'a> LlvmEmitter<'a> {
             }
             _ => return None,
         })
+    }
+
+    /// The real ARC's owning frames come out with their slots' address
+    /// (`dartforge_arc_frame_slots_v1`) for inline loads and copies.
+    fn inline_frames(&self) -> bool {
+        self.module.arc_prompt_death && self.arc_tag_guards && !audited_arc_abi()
+    }
+
+    /// A load (`'l'`) or a copy (`'c'`) of a constant slot of an owning frame of
+    /// [`Self::frame_slots`]: it tests the slots' address (null under the audit, then
+    /// the ABI call) and otherwise loads and retains, or retains the new value,
+    /// stores it and releases the old one, inline. Its block ends at `f{kind}{v}.fim`.
+    fn inline_frame_access(&self, i: &Instruction) -> Option<char> {
+        let Instruction::CallRuntime { name, args, .. } = i else {
+            return None;
+        };
+        let kind = match (name.as_str(), args.len()) {
+            ("dartforge_arc_frame_load_v1", 2) => 'l',
+            ("dartforge_arc_frame_copy_v1", 3) => 'c',
+            _ => return None,
+        };
+        match (&args[0].0, &args[1].0) {
+            (Operand::Val(f), Operand::Constant(Constant::Int(ix)))
+                if *ix >= 0 && self.frame_slots.contains(&f.0) =>
+            {
+                Some(kind)
+            }
+            _ => None,
+        }
     }
 
     /// The real ARC's Owned int box that comes out inline: a value in the `Smi`

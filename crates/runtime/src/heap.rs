@@ -2744,6 +2744,23 @@ impl Heap {
         assert!(*owning, "ARC frame must be owning");
     }
 
+    /// The slots of the owning frame `frame` for the generated code's inline access
+    /// (`dartforge_arc_frame_slots_v1`), or null when they must stay behind the
+    /// ABI: outside the real ARC, or under the audit, whose inventory counts code
+    /// tokens apart from slots.
+    pub(crate) fn owning_frame_slots(&mut self, frame: i64) -> *mut i64 {
+        self.check_owning_frame(frame);
+        if !self.prompt_death || self.code_inventory() || self.virtual_code_tokens {
+            return std::ptr::null_mut();
+        }
+        let ix = self
+            .frames
+            .iter()
+            .rposition(|(id, _, _)| *id == frame)
+            .expect("nonexistent ARC frame");
+        self.frames[ix].1.as_mut_ptr()
+    }
+
     fn owning_roots(&self) -> Vec<Ref> {
         self.frames
             .iter()
@@ -3053,7 +3070,10 @@ impl Heap {
             self.arc_swap_owning_root(handle, 0);
         }
         let previous = &mut self.frames[ix].1[slot];
-        self.stats.live_roots -= usize::from(*previous != 0);
+        self.stats.live_roots = self
+            .stats
+            .live_roots
+            .saturating_sub(usize::from(*previous != 0));
         self.stats.live_roots += usize::from(handle != 0);
         *previous = handle;
         self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
@@ -3172,7 +3192,11 @@ impl Heap {
             }
         }
         self.stats.root_slots -= roots.len();
-        self.stats.live_roots -= roots.iter().filter(|handle| **handle != 0).count();
+        // Saturating: the generated code writes owning slots inline without the count.
+        self.stats.live_roots = self
+            .stats
+            .live_roots
+            .saturating_sub(roots.iter().filter(|handle| **handle != 0).count());
         if self.frame_pool.len() < FRAME_POOL {
             roots.clear();
             self.frame_pool.push(roots);

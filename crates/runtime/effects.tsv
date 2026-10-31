@@ -38,6 +38,7 @@ dartforge_arc_frame_load_v1	0	0	0
 dartforge_arc_frame_move_v1	0	0	0
 dartforge_arc_frame_open_v1	0	0	0
 dartforge_arc_frame_receive_v1	0	0	0
+dartforge_arc_frame_slots_v1	0	0	0
 dartforge_arc_global_receive_v1	0	0	0
 dartforge_arc_initial	0	0	0
 dartforge_arc_invoke_uniform_closure_v1	1	1	1
