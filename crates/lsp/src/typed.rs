@@ -60,6 +60,44 @@ pub(crate) struct Result {
     /// `pubspec.yaml`), already in the analyzer's JSON (§3.2: the non-Dart
     /// files validated when the contexts are created and at each watcher event).
     pub yaml: Vec<dartforge_parity::json::DiagJson>,
+    /// What the worker remembers of an analyzed `.dart` file to plan the next
+    /// analyses ([`Memo`]); `None` for the YAML files and the documents in
+    /// excluded folders.
+    #[serde(default)]
+    pub facts: Option<Facts>,
+}
+
+/// The API signature and the directive targets of an analyzed text.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Facts {
+    /// The file, spelled as analyzed.
+    pub path: PathBuf,
+    /// [`dartforge_elements::incremental::api_signature`] of the text.
+    pub signature: Option<u64>,
+    /// The [`key`]s of the files its directives point to, each with whether the
+    /// directive is a `part` or a `part of`.
+    pub targets: Vec<(PathBuf, bool)>,
+}
+
+/// What the last completed analyses of a package left, per file [`key`]: the
+/// published diagnostics with the [`Facts`] of the analyzed text.
+///
+/// It is what keeps an edit local (docs/LSP.md, "Edição incremental"): a
+/// changed file whose API signature is the same only reanalyzes its library
+/// (the file, its parts and its owner); the files that depend on it are
+/// republished with what they had, because the declarations they see did not
+/// change. A changed signature reanalyzes the dependents through the directives,
+/// transitively, as before. Only diagnostics and directive targets are kept,
+/// never a program or a tree.
+#[derive(Debug, Default)]
+struct Memo {
+    files: HashMap<PathBuf, Remembered>,
+}
+
+#[derive(Debug)]
+struct Remembered {
+    facts: Facts,
+    diagnostics: Vec<Diagnostic>,
 }
 
 /// Open document as the worker sees it.
@@ -102,6 +140,11 @@ struct State {
     /// Packages whose next analysis publishes every file (the first one, or
     /// after the configuration changes).
     publish_all: BTreeSet<PathBuf>,
+    /// Packages whose [`Memo`] no longer holds (the configuration or the
+    /// package configuration changed): the next analysis starts from scratch.
+    stale: BTreeSet<PathBuf>,
+    /// Files given to the analyses so far (measurement and tests).
+    analyzed_files: usize,
 }
 
 type Shared = Arc<(Mutex<State>, Condvar)>;
@@ -229,6 +272,7 @@ impl Typed {
         e.excluded = excluded;
         let roots: Vec<PathBuf> = e.documents.values().map(|d| d.root.clone()).collect();
         e.publish_all.extend(roots.iter().cloned());
+        e.stale.extend(roots.iter().cloned());
         e.dirty.extend(roots);
         e.scan = true;
         self.shared.1.notify_all();
@@ -263,6 +307,7 @@ impl Typed {
             "analysis_options.yaml" | "pubspec.yaml" | "package_config.json"
         ) {
             e.publish_all.insert(root.clone());
+            e.stale.insert(root.clone());
             e.changed.entry(root.clone()).or_default().insert(key(path));
             e.dirty.insert(root);
             self.shared.1.notify_all();
@@ -297,6 +342,11 @@ impl Typed {
                 self.shared.1.notify_all();
             }
         }
+    }
+
+    /// Files given to the analyses so far (a cancelled analysis counts too).
+    pub(crate) fn analyzed_files(&self) -> usize {
+        self.state().analyzed_files
     }
 
     /// Ready results, without blocking.
@@ -362,6 +412,8 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     };
     let mut engine: Option<Engine> = None;
+    // What the completed analyses left, per package root (only in this thread).
+    let mut memos: HashMap<PathBuf, Memo> = HashMap::new();
     loop {
         let (root, open, texts, config, changed, process) = {
             let mut e = block();
@@ -415,13 +467,24 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
                 .iter()
                 .any(|p| root.starts_with(p) || p.starts_with(&root));
             let all = in_workspace && e.publish_all.remove(&root);
+            let reset = e.stale.remove(&root);
             let changed_ = e.changed.remove(&root).unwrap_or_default();
+            // The memos of the packages that have nothing open and are outside the
+            // workspace folders are no longer needed.
+            let live: BTreeSet<&PathBuf> = e.documents.values().map(|d| &d.root).collect();
+            memos.retain(|r, _| {
+                *r == root
+                    || live.contains(r)
+                    || e.folders
+                        .iter()
+                        .any(|p| r.starts_with(p) || p.starts_with(r))
+            });
             (
                 root,
                 open,
                 texts,
                 config,
-                (in_workspace, all, changed_),
+                (in_workspace, all, reset, changed_),
                 e.process.clone(),
             )
         };
@@ -446,37 +509,72 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             let e = block();
             e.shutdown || e.dirty.contains(&root)
         };
-        let (in_workspace, all, changed) = changed;
+        let (in_workspace, all, reset, changed) = changed;
+        // Without a memo (the first analysis, or after the configuration changed)
+        // every file is analyzed.
+        if reset || all {
+            memos.remove(&root);
+        }
+        let plan = plan(
+            memos.get(&root),
+            &root,
+            open,
+            &texts,
+            &config,
+            in_workspace,
+            &changed,
+        );
         let job = Arc::new(Job {
             sdk_lib: sdk_lib.to_path_buf(),
             root: root.clone(),
-            open,
+            open: plan.open,
+            others: plan.others,
             texts,
             config,
             in_workspace,
             all,
             changed,
         });
-        let results = match process
-            .as_deref()
-            .and_then(|exe| run_in_child(exe, &job, &cancelled))
-        {
-            Some(results) => results,
-            None => run_in_process(engine_ref, &job, &cancelled),
+        let fresh = if job.open.is_empty() && job.others.is_empty() {
+            // Nothing to analyze: every file to publish keeps what it had.
+            Some(Vec::new())
+        } else {
+            block().analyzed_files += job.open.len() + job.others.len();
+            let results = match process
+                .as_deref()
+                .and_then(|exe| run_in_child(exe, &job, &cancelled))
+            {
+                Some(results) => results,
+                None => run_in_process(engine_ref, &job, &cancelled),
+            };
+            (!results.is_empty()).then_some(results)
         };
-        let changed = (job.in_workspace, job.all, &job.changed);
-        if results.is_empty() && changed.0 {
+        let Some(fresh) = fresh else {
             let mut e = block();
             if e.dirty.contains(&root) {
+                // Cancelled: the next analysis still sees these changes (and the
+                // signatures they are compared with are the memo's, untouched).
                 e.changed
                     .entry(root.clone())
                     .or_default()
-                    .extend(changed.2.iter().cloned());
-                if changed.1 {
+                    .extend(job.changed.iter().cloned());
+                if job.all {
                     e.publish_all.insert(root.clone());
                 }
+                if reset {
+                    e.stale.insert(root.clone());
+                }
+            } else {
+                // Failed (a panic, a crashed child): what the memo says may be
+                // stale; the next analysis of the package starts from scratch.
+                memos.remove(&root);
             }
-        }
+            e.running = None;
+            sinal.notify_all();
+            continue;
+        };
+        let memo = memos.entry(root.clone()).or_default();
+        let results = merge(memo, fresh, plan.order, plan.excluded);
         let happened = !results.is_empty();
         for r in results {
             let _ = tx.send(r);
@@ -510,16 +608,18 @@ struct Job {
     sdk_lib: PathBuf,
     /// The package root.
     root: PathBuf,
-    /// The open documents of the package: URI, version, path and text.
+    /// The open documents of the package to analyze: URI, version, path and
+    /// text.
     open: Vec<(String, i32, PathBuf, Arc<str>)>,
+    /// The files of the package that are not open to analyze and publish.
+    others: Vec<PathBuf>,
     /// The texts of every open document (of any package), by [`key`].
     texts: HashMap<PathBuf, Arc<str>>,
     config: AnalysisConfiguration,
-    /// The package is in a workspace folder: its files that are not open are
-    /// analyzed and published too.
+    /// The package is in a workspace folder (its YAML files are published).
     in_workspace: bool,
-    /// Every file of the package is published (the first analysis, or after the
-    /// configuration changes).
+    /// The first analysis of the package, or after the configuration changes
+    /// (its YAML files are published).
     all: bool,
     /// The files changed since the package's last analysis.
     changed: BTreeSet<PathBuf>,
@@ -698,75 +798,345 @@ fn folder_packages(folders: &[PathBuf]) -> Vec<PathBuf> {
     v.into_iter().collect()
 }
 
-/// The files `affected` by a change in `changed`: they and, through the
-/// directives (`import`, `export`, `part`, `part of`), those that depend on
-/// them, transitively (those that Dart's driver reanalyzes and republishes).
-fn affected(
-    files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analysis::FileAnalysis>,
-    changed: &BTreeSet<PathBuf>,
-    packages: Option<&dartforge_elements::PackageConfig>,
-) -> BTreeSet<PathBuf> {
-    let mut dependents: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
-    for (path, a) in files {
-        let mut names = dartforge_intern::Interner::new();
-        let analyzed = dartforge_frontend::parser::parse(&a.text, &mut names);
-        let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
-        for d in &analyzed.unit.directives {
-            use dartforge_frontend::ast::DirectiveKind as K;
-            let lit = match &d.kind {
-                K::Import { uri, .. } | K::Export { uri, .. } | K::Part { uri } => Some(uri),
-                K::PartOf { uri: Some(uri), .. } => Some(uri),
-                _ => None,
-            };
-            let Some(text) = lit.and_then(dartforge_elements::load::string_lit_value) else {
+/// The files the directives of `text` (the file at `path`) point to, by
+/// [`key`], each with whether the directive is a `part` or a `part of`; and
+/// the API signature of the text. `package:` URIs resolve through `packages`;
+/// other schemes (`dart:`) have no file.
+fn facts(path: &Path, text: &str, packages: Option<&dartforge_elements::PackageConfig>) -> Facts {
+    let mut names = dartforge_intern::Interner::new();
+    let parsed = dartforge_frontend::parser::parse(text, &mut names);
+    let signature =
+        dartforge_elements::incremental::api_signature_of(text, &parsed.ast, &parsed.unit);
+    let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let mut targets = Vec::new();
+    for d in &parsed.unit.directives {
+        use dartforge_frontend::ast::DirectiveKind as K;
+        let (lit, part) = match &d.kind {
+            K::Import { uri, .. } | K::Export { uri, .. } => (Some(uri), false),
+            K::Part { uri } => (Some(uri), true),
+            K::PartOf { uri: Some(uri), .. } => (Some(uri), true),
+            _ => (None, false),
+        };
+        let Some(uri) = lit.and_then(dartforge_elements::load::string_lit_value) else {
+            continue;
+        };
+        let target = if let Some(rest) = uri.strip_prefix("package:") {
+            let Some((package, rel)) = rest.split_once('/') else {
                 continue;
             };
-            let target = if let Some(rest) = text.strip_prefix("package:") {
-                let Some((package, rel)) = rest.split_once('/') else {
-                    continue;
-                };
-                let Some(dir) = packages.and_then(|c| {
-                    c.package_dirs
-                        .iter()
-                        .find(|(n, _)| n == package)
-                        .map(|(_, d)| d.clone())
-                }) else {
-                    continue;
-                };
-                dir.join(rel)
-            } else if text.contains(':') {
+            let Some(dir) = packages.and_then(|c| {
+                c.package_dirs
+                    .iter()
+                    .find(|(n, _)| n == package)
+                    .map(|(_, d)| d.clone())
+            }) else {
                 continue;
-            } else {
-                base.join(&*text)
             };
-            dependents
-                .entry(key(&target))
-                .or_default()
-                .push(path.clone());
-        }
+            dir.join(rel)
+        } else if uri.contains(':') {
+            continue;
+        } else {
+            base.join(&*uri)
+        };
+        targets.push((key(&target), part));
     }
-    let mut output: BTreeSet<PathBuf> = changed.iter().cloned().collect();
-    let mut stack: Vec<PathBuf> = changed.iter().cloned().collect();
-    while let Some(x) = stack.pop() {
-        for d in dependents.get(&x).into_iter().flatten() {
-            if output.insert(d.clone()) {
-                stack.push(d.clone());
+    Facts {
+        path: path.to_path_buf(),
+        signature,
+        targets,
+    }
+}
+
+/// A `.dart` file to publish after an analysis: an open document (URI and
+/// version) or a file of the workspace package read from disk.
+#[derive(Debug)]
+struct Target {
+    key: PathBuf,
+    path: PathBuf,
+    open: Option<(String, i32)>,
+}
+
+/// What an analysis of a package does, decided by [`plan`].
+#[derive(Debug)]
+struct Plan {
+    /// The open documents to analyze.
+    open: Vec<(String, i32, PathBuf, Arc<str>)>,
+    /// The files not open to analyze.
+    others: Vec<PathBuf>,
+    /// Every `.dart` file to publish, in order: the analyzed ones get the fresh
+    /// result, the others what the [`Memo`] has.
+    order: Vec<Target>,
+    /// The open documents in excluded folders: published empty.
+    excluded: Vec<(String, i32)>,
+}
+
+/// Decides what to analyze and what to publish (Dart's driver republishes the
+/// changed files and those that depend on them; §3.2, I7).
+///
+/// To publish: the open documents of the package and, with the package in a
+/// workspace folder, every `.dart` that `dart analyze` would see on the first
+/// analysis (or without a memo), afterwards the changed files and those that
+/// depend on them through the directives (`import`, `export`, `part`,
+/// `part of`), transitively.
+///
+/// To analyze, with a memo: a changed file whose API signature is not the one
+/// it had (or that the memo does not know) and everything that depends on it,
+/// transitively; a changed file with the same signature, only its library —
+/// the file with its parts and its owner (the `part`/`part of` links, both
+/// ways), whose diagnostics may depend on a body (`unused_element`); and any
+/// file to publish that the memo does not have. The rest is published with what
+/// the memo has: a file's diagnostics depend only on its library's text and on
+/// the declarations it sees, which a body edit elsewhere does not change.
+fn plan(
+    memo: Option<&Memo>,
+    root: &Path,
+    open: Vec<(String, i32, PathBuf, Arc<str>)>,
+    texts: &HashMap<PathBuf, Arc<str>>,
+    config: &AnalysisConfiguration,
+    in_workspace: bool,
+    changed: &BTreeSet<PathBuf>,
+) -> Plan {
+    // Documents in excluded folders are not analyzed: their publication is empty.
+    let excluded_ = |c: &Path| config.excluded.iter().any(|e| c.starts_with(e));
+    let (excluded, open): (Vec<_>, Vec<_>) = open.into_iter().partition(|o| excluded_(&o.2));
+    let excluded = excluded.into_iter().map(|o| (o.0, o.1)).collect();
+    // The package's `.dart` files that `dart analyze` would see (outside the
+    // exclusions of `analysis_options.yaml` and of `analysisExcludedFolders`).
+    let of_package: Vec<PathBuf> = if in_workspace {
+        let options = dartforge_parity::filters::AnalysisOptions::read(root);
+        dartforge_parity::projects::files(root, &options)
+            .into_iter()
+            .filter(|a| !excluded_(a))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let open_keys: BTreeSet<PathBuf> = open.iter().map(|o| key(&o.2)).collect();
+    let mut order: Vec<Target> = open
+        .iter()
+        .map(|(u, v, c, _)| Target {
+            key: key(c),
+            path: c.clone(),
+            open: Some((u.clone(), *v)),
+        })
+        .collect();
+    let disk: Vec<Target> = of_package
+        .iter()
+        .map(|a| Target {
+            key: key(a),
+            path: a.clone(),
+            open: None,
+        })
+        .filter(|t| !open_keys.contains(&t.key))
+        .collect();
+    let Some(memo) = memo else {
+        let others = disk.iter().map(|t| t.path.clone()).collect();
+        order.extend(disk);
+        return Plan {
+            open,
+            others,
+            order,
+            excluded,
+        };
+    };
+    // The changed files as they are now: their signatures and directives.
+    let package_config = root.join(".dart_tool").join("package_config.json");
+    let packages = package_config
+        .is_file()
+        .then(|| dartforge_elements::PackageConfig::load(&package_config).ok())
+        .flatten();
+    let path_of = |k: &PathBuf| -> PathBuf {
+        open.iter()
+            .map(|o| &o.2)
+            .chain(of_package.iter())
+            .find(|c| key(c) == *k)
+            .cloned()
+            .unwrap_or_else(|| k.clone())
+    };
+    let mut now: HashMap<PathBuf, Option<Facts>> = HashMap::new();
+    for k in changed {
+        if k.extension().is_none_or(|e| e != "dart") {
+            continue;
+        }
+        let path = path_of(k);
+        let text = texts
+            .get(k)
+            .map(|t| t.to_string())
+            .or_else(|| std::fs::read_to_string(&path).ok());
+        now.insert(k.clone(), text.map(|t| facts(&path, &t, packages.as_ref())));
+    }
+    // The directive graph, from the memo with the changed files' links updated:
+    // who points at each file, and the `part`/`part of` links both ways.
+    let mut pointing: HashMap<&Path, Vec<&Path>> = HashMap::new();
+    let mut parts: HashMap<&Path, Vec<&Path>> = HashMap::new();
+    let links = memo
+        .files
+        .iter()
+        .filter(|(k, _)| !now.contains_key(*k))
+        .map(|(k, r)| (k, &r.facts.targets))
+        .chain(
+            now.iter()
+                .filter_map(|(k, f)| f.as_ref().map(|f| (k, &f.targets))),
+        );
+    for (k, targets) in links {
+        for (t, part) in targets {
+            pointing.entry(t).or_default().push(k);
+            if *part {
+                parts.entry(t).or_default().push(k);
+                parts.entry(k).or_default().push(t);
             }
         }
     }
+    let closure = |from: Vec<&Path>, graph: &HashMap<&Path, Vec<&Path>>| {
+        let mut output: BTreeSet<PathBuf> = from.iter().map(|p| p.to_path_buf()).collect();
+        let mut stack = from;
+        while let Some(x) = stack.pop() {
+            for d in graph.get(x).into_iter().flatten() {
+                if output.insert(d.to_path_buf()) {
+                    stack.push(d);
+                }
+            }
+        }
+        output
+    };
+    // To publish: the open documents and the files affected by the changes.
+    let affected = closure(changed.iter().map(PathBuf::as_path).collect(), &pointing);
+    order.extend(disk.into_iter().filter(|t| affected.contains(&t.key)));
+    // To analyze.
+    let same_api = |k: &PathBuf| {
+        let before = memo.files.get(k).and_then(|r| r.facts.signature);
+        let after = now
+            .get(k)
+            .and_then(|f| f.as_ref().and_then(|f| f.signature));
+        before.is_some() && before == after
+    };
+    let (body, api): (Vec<&PathBuf>, Vec<&PathBuf>) = changed
+        .iter()
+        .filter(|k| k.extension().is_some_and(|e| e == "dart"))
+        .partition(|k| same_api(k));
+    let mut fresh = closure(api.into_iter().map(PathBuf::as_path).collect(), &pointing);
+    fresh.extend(closure(
+        body.into_iter().map(PathBuf::as_path).collect(),
+        &parts,
+    ));
+    fresh.extend(
+        order
+            .iter()
+            .filter(|t| !memo.files.contains_key(&t.key))
+            .map(|t| t.key.clone()),
+    );
+    let others = order
+        .iter()
+        .filter(|t| t.open.is_none() && fresh.contains(&t.key))
+        .map(|t| t.path.clone())
+        .collect();
+    let open = open
+        .into_iter()
+        .filter(|o| fresh.contains(&key(&o.2)))
+        .collect();
+    Plan {
+        open,
+        others,
+        order,
+        excluded,
+    }
+}
+
+/// The results to publish after an analysis: those of `fresh`, which also
+/// update the `memo`, and, for each file of `order` that was not analyzed, what
+/// the memo has (a file not open with diagnostics goes with its disk text, to
+/// place them). In `order`, then the YAML files, then the open documents in
+/// excluded folders.
+fn merge(
+    memo: &mut Memo,
+    fresh: Vec<Result>,
+    order: Vec<Target>,
+    excluded: Vec<(String, i32)>,
+) -> Vec<Result> {
+    let mut analyzed: HashMap<PathBuf, Result> = HashMap::new();
+    let mut tail = Vec::new();
+    for r in fresh {
+        match &r.facts {
+            Some(f) => {
+                let k = key(&f.path);
+                memo.files.insert(
+                    k.clone(),
+                    Remembered {
+                        facts: f.clone(),
+                        diagnostics: r.diagnostics.clone(),
+                    },
+                );
+                analyzed.insert(k, r);
+            }
+            None => tail.push(r),
+        }
+    }
+    let mut output = Vec::with_capacity(order.len() + tail.len());
+    for t in order {
+        if let Some(r) = analyzed.remove(&t.key) {
+            output.push(r);
+            continue;
+        }
+        let Some(m) = memo.files.get(&t.key) else {
+            continue;
+        };
+        let diagnostics = m.diagnostics.clone();
+        let r = match t.open {
+            Some((uri, version)) => Result {
+                uri,
+                version: Some(version),
+                text: None,
+                diagnostics,
+                yaml: Vec::new(),
+                facts: None,
+            },
+            None => {
+                let Ok(u) = url::Url::from_file_path(&t.path) else {
+                    continue;
+                };
+                let text = if diagnostics.is_empty() {
+                    None
+                } else {
+                    match std::fs::read_to_string(&t.path) {
+                        Ok(text) => Some(text),
+                        Err(_) => continue,
+                    }
+                };
+                Result {
+                    uri: u.to_string(),
+                    version: None,
+                    text,
+                    diagnostics,
+                    yaml: Vec::new(),
+                    facts: None,
+                }
+            }
+        };
+        output.push(r);
+    }
+    // An analyzed file outside the order (none is expected) still goes out.
+    output.extend(analyzed.into_values());
+    output.extend(tail);
+    output.extend(excluded.into_iter().map(|(uri, version)| Result {
+        uri,
+        version: Some(version),
+        text: None,
+        diagnostics: Vec::new(),
+        yaml: Vec::new(),
+        facts: None,
+    }));
     output
 }
 
-/// Analyzes package `root` in a single program: its open documents and, with
-/// the package in a workspace folder, every `.dart` that `dart analyze`
-/// would see (§3.2, I7). The open ones always come out; the ones not open,
-/// all of them on the package's first analysis (or after the configuration
-/// changes), and afterwards those affected by the changed files. Empty when
-/// cancelled.
+/// Analyzes the files of `job` (its open documents and the other files of the
+/// package that [`plan`] chose) in a single program of package `root`, and
+/// returns their publications with their [`Facts`], plus the package's YAML
+/// files when they are due. Empty when cancelled.
 fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> Vec<Result> {
     let Job {
         root,
         open,
+        others,
         texts,
         config,
         in_workspace,
@@ -786,6 +1156,7 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> 
             text: None,
             diagnostics: Vec::new(),
             yaml: Vec::new(),
+            facts: None,
         })
         .collect();
     let open: Vec<(String, i32, PathBuf, Arc<str>)> = open
@@ -795,20 +1166,10 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> 
         .collect();
     let open = &open[..];
     let options = dartforge_parity::filters::AnalysisOptions::read(root);
-    // The package's `.dart` files that `dart analyze` would see (outside the
-    // exclusions of `analysis_options.yaml` and of `analysisExcludedFolders`).
-    let of_package: Vec<PathBuf> = if in_workspace {
-        dartforge_parity::projects::files(root, &options)
-            .into_iter()
-            .filter(|a| !excluded(a))
-            .collect()
-    } else {
-        Vec::new()
-    };
-    if open.is_empty() && of_package.is_empty() {
+    if open.is_empty() && others.is_empty() {
         return excluded_output;
     }
-    let mut files: Vec<PathBuf> = of_package.clone();
+    let mut files: Vec<PathBuf> = others.clone();
     for (_, _, path, text) in open {
         // A part comes in through its owning library (the engine does not import parts).
         if is_part(text)
@@ -840,23 +1201,12 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> 
     ));
     let mut syntactic = SyntacticAnalyzer::new();
     let mut output = Vec::new();
-    // The files not open to publish.
-    let open_keys: BTreeSet<PathBuf> = open.iter().map(|(_, _, c, _)| key(c)).collect();
-    let publish: BTreeSet<PathBuf> = if all {
-        of_package.iter().map(|a| key(a)).collect()
-    } else {
-        affected(&analysis.files, changed, packages.as_ref())
-    };
     let mut targets: Vec<(String, Option<i32>, PathBuf, &str)> = open
         .iter()
         .map(|(u, v, c, t)| (u.clone(), Some(*v), c.clone(), &**t))
         .collect();
-    for a in &of_package {
-        let k = key(a);
-        if open_keys.contains(&k) || !publish.contains(&k) {
-            continue;
-        }
-        let Some(file_) = analysis.files.get(&k) else {
+    for a in others {
+        let Some(file_) = analysis.files.get(&key(a)) else {
             continue;
         };
         let Ok(u) = url::Url::from_file_path(a) else {
@@ -931,6 +1281,7 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> 
             text: (version.is_none() && !diagnostics.is_empty()).then(|| text.to_string()),
             diagnostics,
             yaml: Vec::new(),
+            facts: Some(facts(path, text, packages.as_ref())),
         });
     }
     // The package's YAML files: on the first analysis (and after the
@@ -966,6 +1317,7 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> 
                 text: Some(text),
                 diagnostics: Vec::new(),
                 yaml: diagnostics,
+                facts: None,
             });
         }
     }

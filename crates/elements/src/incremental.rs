@@ -100,6 +100,46 @@ impl Previous {
     }
 }
 
+/// The API signature of a unit's `text`, as a hash: the directives' tokens,
+/// the declarations' signature tokens and the sequence of body owners — what
+/// [`swap_unit`] compares. Two texts with the same value differ only inside
+/// bodies (class **Body**, docs/LSP-ESPECIFICACAO.md §16.6), so the libraries
+/// that depend on the unit see the same declarations. `None` when the text has
+/// a lexical error (it has no comparable signature).
+///
+/// The text is parsed with the current language features: the comparison is
+/// meaningful between two versions of the same unit, parsed the same way.
+///
+/// ```
+/// use dartforge_elements::incremental::api_signature;
+/// let a = api_signature("int f() { return 1; }\nclass C { void m() {} }\n");
+/// let b = api_signature("int f() { return 2 + 3; }\nclass C { void m() { f(); } }\n");
+/// let c = api_signature("int f(int x) { return 1; }\nclass C { void m() {} }\n");
+/// assert!(a.is_some());
+/// assert_eq!(a, b);
+/// assert_ne!(a, c);
+/// ```
+pub fn api_signature(text: &str) -> Option<u64> {
+    let mut names = Interner::new();
+    let parsed = dartforge_frontend::parser::parse(text, &mut names);
+    api_signature_of(text, &parsed.ast, &parsed.unit)
+}
+
+/// [`api_signature`] over a tree already parsed from `text`.
+pub fn api_signature_of(text: &str, ast: &Ast, unit: &CompilationUnit) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let tokens = dartforge_frontend::lexer::lex(text).ok()?;
+    let bodies = regions(ast, false);
+    let (directives, signature) = split(text, &tokens, &directive_spans(unit), &bodies);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    directives.hash(&mut hasher);
+    signature.hash(&mut hasher);
+    for r in &bodies {
+        std::mem::discriminant(&r.owner).hash(&mut hasher);
+    }
+    Some(hasher.finish())
+}
+
 /// Replaces the text of unit `u` with `text` when the API signature did not
 /// change; returns the previous state to undo it.
 ///

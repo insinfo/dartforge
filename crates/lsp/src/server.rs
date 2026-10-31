@@ -802,6 +802,13 @@ impl<A: Analyzer> Server<A> {
         self.typed_discarded
     }
 
+    /// Files the typed analyses have analyzed so far (measurement and tests: an
+    /// edit that keeps the API reanalyzes only its library, `docs/LSP.md`,
+    /// "Edição incremental").
+    pub fn typed_analyzed_files(&self) -> usize {
+        self.typed.as_ref().map_or(0, |t| t.analyzed_files())
+    }
+
     /// Starts the typed worker once, if the analyzer has an SDK.
     fn ensure_typed(&mut self) {
         if self.typed_tried {
