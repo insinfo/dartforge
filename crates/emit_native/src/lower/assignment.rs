@@ -30,6 +30,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
+    /// `cur == null`; a scalar (a non-nullable `int`, `double` or `bool`) is
+    /// never null, whatever its bits.
+    fn is_null_value(&mut self, cur: &Operand) -> Operand {
+        if self.operand_type(cur) != Type::Ref {
+            return self.emit(Instruction::Const(Constant::Bool(false)), Type::I1);
+        }
+        self.emit(
+            Instruction::ICmp(ICmpOp::Eq, cur.clone(), Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        )
+    }
+
     /// The value to write: `v`, `cur op v`, or `cur ?? v` (`??=`). The current
     /// value stays in `old_value` for the postfix `x++`.
     fn combine(
@@ -41,11 +53,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Operand {
         self.old_value = cur.clone();
         match (op, cur) {
+            (ast::AssignOp::Compound(ast::BinaryOp::IfNull), Some(cur))
+                if std::mem::take(&mut self.defer_if_null) =>
+            {
+                // `a ??= e` is `a == null ? a = e : a`: the caller writes in
+                // the branch where `a` was null, and `lower_assignment` joins.
+                let is_null = self.is_null_value(&cur);
+                let b_new = self.new_block();
+                let b_end = self.new_block();
+                let origin = self.current_block;
+                self.terminate(Terminator::CondBranch {
+                    cond: is_null,
+                    then_block: b_new,
+                    else_block: b_end,
+                });
+                self.set_block(b_new);
+                let ty = self.operand_type(&cur);
+                self.if_null_joins.push((origin, cur, b_end, ty));
+                let v = self.lower_rhs(ast, value, ty);
+                self.coerce(v, ty)
+            }
             (ast::AssignOp::Compound(ast::BinaryOp::IfNull), Some(cur)) => {
-                let is_null = self.emit(
-                    Instruction::ICmp(ICmpOp::Eq, cur.clone(), Operand::Constant(Constant::Int(0))),
-                    Type::I1,
-                );
+                let is_null = self.is_null_value(&cur);
                 let b_new = self.new_block();
                 let b_end = self.new_block();
                 let origin = self.current_block;
@@ -362,8 +391,38 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Operand {
         let compound = self.pending_compound.take();
         let saved = std::mem::replace(&mut self.active_compound, compound);
+        // `??=` on anything but a local writes only when the value read is
+        // null: a setter, an `operator []=` or a `late final` field observe the
+        // write. A local keeps the join of `combine` (writing it back is not
+        // observable).
+        let defer = op == ast::AssignOp::Compound(ast::BinaryOp::IfNull)
+            && !matches!(
+                &ast.expr(target).kind,
+                ast::ExprKind::Identifier(name) if self.lookup_local(name.sym).is_some()
+            );
+        let saved_defer = std::mem::replace(&mut self.defer_if_null, defer);
+        let depth = self.if_null_joins.len();
         let v = self.lower_assignment_inner(ast, op, target, value, span);
+        self.defer_if_null = saved_defer;
         self.active_compound = saved;
+        if self.if_null_joins.len() > depth {
+            let (origin, cur, b_end, ty) = self.if_null_joins.pop().expect("an open join");
+            if self.is_terminated() {
+                self.set_block(b_end);
+                return cur;
+            }
+            let v = self.coerce(v, ty);
+            let tail = self.current_block;
+            self.terminate(Terminator::Branch(b_end));
+            self.set_block(b_end);
+            return self.emit(
+                Instruction::Phi {
+                    incoming: vec![(origin, cur), (tail, v)],
+                    ty,
+                },
+                ty,
+            );
+        }
         v
     }
 
