@@ -163,8 +163,18 @@ impl Environment {
             sdks.push(s);
         }
         sdks.sort_by_key(|s| s.version);
+        // Absolute: the compilers run with other working directories, and a
+        // relative `CARGO_TARGET_DIR` sent their output elsewhere ("returned 0
+        // but did not write").
         let target = std::env::var("CARGO_TARGET_DIR")
             .map(PathBuf::from)
+            .map(|t| {
+                if t.is_absolute() {
+                    t
+                } else {
+                    std::env::current_dir().map_or(t.clone(), |d| d.join(&t))
+                }
+            })
             .unwrap_or_else(|_| root.join("target"));
         let dartforge_bin = std::env::var("DARTFORGE_BIN")
             .ok()
