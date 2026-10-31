@@ -1376,7 +1376,7 @@ pub(crate) fn variable_declaration(
         if respects_initializer
             && let (Some((yes, not_)), Some(version)) = (saved_condition, cx.flow.version(id))
         {
-            cx.conditions.insert(id, (yes, not_, version));
+            cx.conditions.insert((id, version), (yes, not_));
         }
     }
 }

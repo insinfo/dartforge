@@ -202,9 +202,11 @@ pub(crate) struct Body {
     pub local_this: Option<LocalId>,
     /// Flows from before each `?.` of the chains in progress.
     pub chains: Vec<super::flow::Flow>,
-    /// Condition variables (§7.10): `(true_, false_, version)` of the value
-    /// written to the variable, restored when it is read as a condition.
-    pub conditions: HashMap<LocalId, (Flow, Flow, u32)>,
+    /// Condition variables (§7.10): `(true_, false_)` of the value written to
+    /// the variable, by the write's version, restored when it is read as a
+    /// condition with that version. Every write stays: a write on a branch
+    /// that does not complete must not hide the one the join keeps.
+    pub conditions: HashMap<(LocalId, u32), (Flow, Flow)>,
     /// Explicit extension overrides (`E(x)`, R-EXT-02): the call `E(x)` → the
     /// extension and its type arguments.
     pub overlays: HashMap<ast::ExprId, (ExtensionId, Vec<TypeId>)>,

@@ -6159,7 +6159,7 @@ fn assignment(
                 cx.flow = f;
                 cx.forget_fields_of(id);
                 if let (Some((yes, not_)), Some(version)) = (saved_condition, cx.flow.version(id)) {
-                    cx.conditions.insert(id, (yes, not_, version));
+                    cx.conditions.insert((id, version), (yes, not_));
                 }
             }
             if !inf.is_dynamic(write) {
@@ -6977,8 +6977,8 @@ pub(crate) fn the_condition(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId
             // Read of a condition variable that was not rewritten (§7.10).
             if let ExprKind::Identifier(n) = &ast(inf, cx).expr(e).kind
                 && let Some(MemberName::Local(id)) = cx.lookup(n.sym)
-                && let Some((yes, not_, version)) = cx.conditions.get(&id).cloned()
-                && f.version(id) == Some(version)
+                && let Some(version) = f.version(id)
+                && let Some((yes, not_)) = cx.conditions.get(&(id, version)).cloned()
                 && !f.model(id).is_some_and(|m| m.captured)
             {
                 let v = inf.reapply(&f, &yes);

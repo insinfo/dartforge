@@ -3394,3 +3394,29 @@ void main() {{}}
     };
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+/// A condition variable keeps the condition that the join keeps: `b = true` on
+/// a branch that throws does not hide `b = x != null` after the join.
+#[test]
+fn condition_variable_survives_a_write_on_a_branch_that_throws() {
+    let Some(diags) = constant_diagnostics_of(&format!(
+        r#"{STATIC_TYPE_HELPER}
+void f(int? x, bool b2) {{
+  bool b = x != null;
+  if (b2) {{
+    b = true;
+    if (b) x.expectStaticType<Exactly<int?>>();
+    throw 'foo';
+  }}
+  if (b) x.expectStaticType<Exactly<int>>();
+  b2 ? [b = true, throw 'foo'] : null;
+  if (b) x.expectStaticType<Exactly<int>>();
+}}
+
+void main() {{}}
+"#
+    )) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}

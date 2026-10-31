@@ -991,7 +991,7 @@ pub(crate) fn pattern_assignment(
     if let (Some(id), Some((yes, not_))) = (local, saved_condition)
         && let Some(version) = cx.flow.version(id)
     {
-        cx.conditions.insert(id, (yes, not_, version));
+        cx.conditions.insert((id, version), (yes, not_));
     }
     t
 }
