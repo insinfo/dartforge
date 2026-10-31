@@ -715,6 +715,50 @@ conjunto (`{1, 'a': 3}`) derrubava a inferência (pânico ao digitar).
   existe mas falha ao carregar agora é recusada no log e a descoberta segue
   para o próximo candidato. Continua caro, como no `dart format`, formatar
   listas com milhares de argumentos (5 000 `a + b`: ~2,4 s nos dois).
+- **Sessões grandes e incrementais (31/10).** Medido primeiro com um
+  driver novo que fala com o binário real pelo protocolo
+  (`crates/lsp/examples/editing_latency.rs`, `987955f6`): abre a pasta,
+  digita um comando caractere a caractere esperando cada versão, rajada sem
+  esperar, hover/completar, edição de API e de corpo em outro arquivo, e
+  mede o *footprint* do servidor e dos filhos. Causa achada com `sample`:
+  cada tecla reanalisava **todos** os arquivos do pacote do workspace num
+  filho novo — verificadores de tipos dos 326 arquivos do
+  `new_sali/frontend` (2,8 s) e carga de todo o programa (1,2 s de ler,
+  lexar e analisar ~30 MiB de dependências). Correções:
+  - `e18b1413`: plano por assinatura de API. O trabalhador guarda por
+    arquivo os diagnósticos publicados, a assinatura de API
+    (`elements::incremental::api_signature`) e os alvos das diretivas;
+    edição que mantém a assinatura reanalisa só a biblioteca (arquivo,
+    partes e dono), edição que muda reanalisa os dependentes
+    transitivos, e o resto sai com o que tinha. Teste novo
+    (`tests/typed_incremental.rs`) compara a cada passo de uma sequência de
+    edições tudo o que o editor mostra com um servidor que analisa do zero.
+  - `acba3c82`: processo de análise residente
+    (`--typed-analysis --resident`) que guarda as unidades analisadas entre
+    as análises (`parity::analysis::Resident`); só o que mudou é
+    reanalisado. Cancelamento cooperativo por id (500 ms de tolerância,
+    depois o filho é encerrado), orçamento `DARTFORGE_LSP_RESIDENT_MIB`
+    (64), fim após `DARTFORGE_LSP_RESIDENT_IDLE_SECS` (300) parado; a
+    primeira análise e lotes acima de 32 arquivos seguem num filho próprio.
+
+  | | frontend antes | depois | limitless_ui antes | depois |
+  |---|---:|---:|---:|---:|
+  | `didChange` → tipados (mediana de 35 teclas) | 2.811 ms | 383 ms | 2.455 ms | 175 ms |
+  | rajada de 15 teclas → assentado | 2.635 ms | 440 ms | 2.209 ms | 202 ms |
+  | edição de API usada por outros arquivos | 3.809 ms | 2.183 ms | 2.187 ms | 887 ms |
+  | edição de corpo nesse arquivo | 3.642 ms | 474 ms | 2.066 ms | 79 ms |
+  | filho de análise: pico | 571 MiB | 751 MiB (residente) | 284 MiB | 333 MiB (residente) |
+
+  Carga da máquina ~8–15; sob carga ~40–70 o antes era 6,0 s por tecla no
+  frontend e o depois 0,28 s. O residente fica estável em ~353 MiB vivos
+  (*footprint* ~720 MiB com as páginas que o alocador guarda) e devolve tudo
+  ao terminar. Pendências: hover e completar no frontend ainda recarregam o
+  programa dentro do servidor a cada consulta (~0,9 s, pico de ~480 MiB no
+  servidor) porque passam do orçamento da sessão semântica (8 MiB de
+  fonte); edição de API num arquivo do *barrel* (203 importadores) ainda
+  custa ~2,2 s, num filho frio; outline e passadas de inicializadores
+  continuam sobre o programa inteiro (~0,15 s por tecla). Detalhes em
+  `docs/LSP.md`, "Edição incremental".
 
 ## Balanço das últimas 48 horas — corte em 20/10/2026 às 14:33:15
 

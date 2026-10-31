@@ -223,6 +223,106 @@ Regras do fluxo:
   análise tipada é contido: fica a imediata.
 * O laço do binário acorda pelo gancho `Servidor::ao_ter_diagnosticos`;
   testes e medições usam `Servidor::aguardar_diagnosticos(limite)`.
+* **Incremental.** Desde 2026-10-31 nem toda edição reanalisa o pacote, e as
+  análises pequenas rodam num processo residente que guarda as árvores entre
+  elas: ver "Edição incremental" logo abaixo.
+
+### Edição incremental (2026-10-31)
+
+Antes, cada tecla num pacote de uma pasta do workspace reanalisava **todos**
+os arquivos do pacote num processo filho novo: no `new_sali/frontend` (326
+arquivos do pacote, 3.316 bibliotecas no programa) eram ~6 s por edição,
+quase tudo nos verificadores de tipos dos 326 arquivos (2,8 s) e na carga
+(1,2 s: ler, lexar e analisar sintaticamente as ~30 MiB de fonte das
+dependências; medido com `sample` no modo na thread). Agora são duas
+camadas, em `crates/lsp/src/typed.rs`:
+
+* **Plano por assinatura de API** (`plan`, `Memo`). O trabalhador guarda,
+  por pacote e por arquivo analisado, os diagnósticos publicados, a
+  assinatura de API do texto analisado
+  (`dartforge_elements::incremental::api_signature`: tokens fora dos
+  corpos, as diretivas e a sequência de corpos, a mesma classe **Body** da
+  §16.6 da especificação) e os alvos das diretivas. A cada análise:
+  - um arquivo mudado com a **mesma** assinatura reanalisa só a sua
+    biblioteca (o arquivo, as partes e o dono, pelos `part`/`part of` nos
+    dois sentidos — `unused_element` de um privado depende do corpo de
+    outra unidade da biblioteca);
+  - um arquivo mudado com assinatura **diferente** (ou desconhecido)
+    reanalisa quem depende dele pelas diretivas, transitivamente;
+  - os demais arquivos a publicar (o mesmo conjunto de antes: abertos e,
+    no workspace, os afetados pelas diretivas) saem com o que o memo tem —
+    os diagnósticos de um arquivo dependem só do texto da sua biblioteca e
+    das declarações que ele vê. Um arquivo fora do memo é analisado; o
+    memo cai inteiro quando a configuração muda (`stale`), quando uma
+    análise falha e quando o pacote não tem mais nada aberto nem está no
+    workspace. Só diagnósticos e alvos de diretivas ficam, nunca programa.
+* **Processo de análise residente** (`ResidentChild`,
+  `dartforge-lsp --typed-analysis --resident`). As análises pequenas (até
+  32 arquivos, fora a primeira do pacote) vão para um filho que vive entre
+  as análises e guarda as unidades analisadas (fonte e árvore) de todo o
+  programa, SDK incluído (`dartforge_parity::analysis::Resident`, sobre o
+  `AnalyzedUnitCache` do `dartforge dev`); a carga seguinte só reanalisa o
+  que mudou: textos abertos que mudaram ou deixaram de estar abertos,
+  arquivos com data/tamanho diferentes no disco, os arquivos do lote (cujos
+  diagnósticos de sintaxe vêm da análise) e a entrada sintética. Tipos,
+  escopos e diagnósticos são refeitos em toda análise. Protocolo: uma
+  mensagem JSON por linha (`Analyze {id, job}`, `Cancel {id}`), uma
+  resposta por análise. Cancelar é cooperativo (o filho para no próximo
+  ponto de cancelamento do motor); se não parar em 500 ms, o processo é
+  encerrado e o próximo começa frio. Limites: `DARTFORGE_LSP_RESIDENT_MIB`
+  (padrão 64 MiB de fonte guardada; acima disso o filho esvazia o que
+  guarda depois da análise; `0` desliga e volta ao filho por análise) e
+  `DARTFORGE_LSP_RESIDENT_IDLE_SECS` (padrão 300 s sem análise: o filho
+  termina e devolve a memória). Lotes grandes (a primeira análise, uma
+  mudança de API que muitos arquivos veem) seguem num filho próprio, para
+  que o pico deles não fique com o residente.
+
+Testes: `tests/typed_incremental.rs` aplica uma sequência de edições (corpo,
+API usada por outros arquivos e por um *barrel* com `package:`, corpo de
+parte e de dono, erro de tipo, privado novo, fechamento) e, a cada passo,
+compara tudo o que o editor mostra com um servidor novo que analisa do zero
+os mesmos textos — na thread e com o processo residente — e confere que uma
+edição de corpo analisa só a biblioteca (1 ou 2 arquivos).
+`Server::typed_analyzed_files` conta os arquivos dados às análises.
+
+Medição: `cargo run --release -p dartforge-lsp --example editing_latency --
+--server target/release/dartforge-lsp --root <pacote> --file <arquivo>
+--api <arquivo>` dirige o binário real pelo protocolo (abre a pasta,
+digita um comando caractere a caractere esperando cada versão, rajada sem
+esperar, hover e completar, edição de API e de corpo em outro arquivo) e
+mede o *footprint* do servidor e dos filhos. macOS arm64, release, SDK
+3.6.2, mesma sessão para os dois binários (`d0cf42b5` e `acba3c82`),
+carga da máquina ~8–15; `new_sali/frontend` (326 arquivos do pacote,
+3.316 bibliotecas, nenhum diagnóstico publicado) e `limitless_ui` (356
+arquivos, 62 publicados):
+
+| | frontend antes | frontend depois | limitless_ui antes | limitless_ui depois |
+|---|---:|---:|---:|---:|
+| `didChange` → tipados, mediana (35 teclas) | 2.811 ms | 383 ms | 2.455 ms | 175 ms |
+| idem, p90 | 4.406 ms | 493 ms | 3.125 ms | 222 ms |
+| rajada de 15 teclas / 60 ms → assentado | 2.635 ms | 440 ms | 2.209 ms | 202 ms |
+| edição de API em arquivo usado por outros | 3.809 ms | 2.183 ms | 2.187 ms | 887 ms |
+| edição de corpo nesse arquivo | 3.642 ms | 474 ms | 2.066 ms | 79 ms |
+| primeira análise do workspace | 3.091 ms | 3.169 ms | 4.600 ms | 4.208 ms |
+| hover / completar depois das edições (mediana) | 897 / 932 ms | 915 / 903 ms | 8 / 35 ms | 7 / 34 ms |
+| servidor: pico / repouso | 478 / 210 MiB | 477 / 234 MiB | 93 / 93 MiB | 103 / 35 MiB |
+| filho de análise: pico | 571 MiB | 751 MiB (residente; 720 em repouso) | 284 MiB | 333 MiB (residente; 327 em repouso) |
+
+Numa rodada anterior com a máquina sob carga ~40–70, o antes era 6,0 s por
+tecla no frontend (plano por API sozinho: 0,99 s; com o residente: 0,28 s).
+O residente fica em ~353 MiB **vivos** entre as análises no frontend,
+estável ao longo das edições (`DARTFORGE_LSP_MEMORY=1`); o *footprint* de
+~720 MiB inclui as páginas que o alocador guarda das tabelas temporárias de
+cada análise. É o custo da latência: `DARTFORGE_LSP_RESIDENT_MIB=0` volta ao
+filho por análise (pico de ~570 MiB só durante cada análise), e o residente
+termina sozinho depois de 5 min sem análise (o Dart 3.6.2 ficou em
+737–1.402 MiB no `new_sali`, seção "Memória"). A edição de API no frontend
+ainda custa ~2,2 s porque o arquivo é exportado pelo *barrel* que 203
+arquivos importam: o lote passa de 32 e roda num filho próprio, frio.
+Hover e completar continuam recarregando o programa da biblioteca dentro do
+servidor a cada consulta no frontend (~0,9 s, pico de ~480 MiB no próprio
+servidor) porque o programa passa do orçamento da sessão semântica
+(`DARTFORGE_LSP_SESSION_MIB`, 8 MiB de fonte): é o que falta.
 
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
