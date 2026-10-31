@@ -140,6 +140,9 @@ pub struct Ctx<'a> {
     recipe_ids: std::cell::OnceCell<Vec<String>>,
     /// The classes some class of the program mixes in, computed on first use.
     mixed_in: std::cell::OnceCell<HashSet<ClassId>>,
+    /// Classes that are a supertype of some class outside its `extends`
+    /// chain ([`Ctx::nominal_class`]).
+    implemented: std::cell::OnceCell<HashSet<ClassId>>,
     /// The classes in the prototype chain of a native peer (the peer, its
     /// superclasses and their mixins), computed on first use.
     native_chain: std::cell::OnceCell<HashSet<ClassId>>,
@@ -269,6 +272,7 @@ impl<'a> Ctx<'a> {
             single_method_types: RefCell::new(None),
             recipe_ids: std::cell::OnceCell::new(),
             mixed_in: std::cell::OnceCell::new(),
+            implemented: std::cell::OnceCell::new(),
             native_chain: std::cell::OnceCell::new(),
             positional_type_variables: std::cell::OnceCell::new(),
             short_recipe: std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0"),
@@ -1798,6 +1802,57 @@ impl<'a> Ctx<'a> {
     }
 
     /// Whether some class of the program mixes `c` in.
+    /// Whether every subtype of the program class `c` is a subclass through
+    /// `extends` (no class implements it, mixes it in or has it as an `on`
+    /// type), so that the JavaScript `instanceof` of its class is its `is`
+    /// test: a user class (`class`, not a mixin, an enum or an extension
+    /// type) without type parameters, emitted, not a JavaScript interop
+    /// class.
+    pub fn nominal_class(&self, c: ClassId) -> bool {
+        let class = self.program.class(c);
+        if class.kind != ClassKind::Class
+            || self.libs[class.library.0 as usize].is_sdk
+            || !self.class_params[c.0 as usize].is_empty()
+            || self.js_classes.contains_key(&c)
+            || self.native_set.contains(&c)
+            || self.class_level(c) == crate::filter::Level::Dead
+        {
+            return false;
+        }
+        !self
+            .implemented
+            .get_or_init(|| {
+                let mut out = HashSet::new();
+                for i in 0..self.program.classes.len() as u32 {
+                    let d = ClassId(i);
+                    let mut chain = HashSet::new();
+                    let mut k = Some(d);
+                    while let Some(x) = k {
+                        if !chain.insert(x) {
+                            break;
+                        }
+                        k = self.superclass_of(x);
+                    }
+                    let mut seen = HashSet::new();
+                    let mut queue = vec![d];
+                    while let Some(x) = queue.pop() {
+                        for t in &self.class_supers[x.0 as usize] {
+                            if let Some(sc) = t.class() {
+                                if !chain.contains(&sc) {
+                                    out.insert(sc);
+                                }
+                                if seen.insert(sc) {
+                                    queue.push(sc);
+                                }
+                            }
+                        }
+                    }
+                }
+                out
+            })
+            .contains(&c)
+    }
+
     pub fn is_mixed_in(&self, c: ClassId) -> bool {
         self.mixed_in
             .get_or_init(|| {

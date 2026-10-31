@@ -1280,6 +1280,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         crate::js::P_EQ,
                     );
                 }
+                // Production: the rti's own tests (`_isNum` for `num` and
+                // `double`, `_isInt` for `int`), without evaluating the rti.
+                // `int` reads the value three times: only a name.
+                if self.ctx.production()
+                    && std::env::var("DARTFORGE_JSPROD_NUMBER_TESTS").map_or(true, |v| v != "0")
+                {
+                    if Some(*class) == self.ctx.num_ || Some(*class) == self.ctx.double_ {
+                        return Js::new(
+                            format!("typeof {} == 'number'", value.at(P_UNARY + 1)),
+                            crate::js::P_EQ,
+                        );
+                    }
+                    if Some(*class) == self.ctx.int_ && js::is_js_ident(&value.code) {
+                        let v = &value.code;
+                        return Js::prim(format!(
+                            "(typeof {v} == 'number' && Math.floor({v}) === {v})"
+                        ));
+                    }
+                }
             }
         }
         if let Ty::Iface {
@@ -1294,6 +1313,30 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         if matches!(t, Ty::Dynamic | Ty::Void) {
             return always_true(value);
+        }
+        // Production: a class whose subtypes are all its subclasses is
+        // tested by the prototype chain, as `dart2js` does, without
+        // evaluating its rti (`null instanceof C` is false, as `null is C`).
+        // `DARTFORGE_JSPROD_INSTANCEOF=0` keeps the rti test.
+        if let Ty::Iface {
+            class,
+            args,
+            nullable: false,
+        } = t
+            && args.is_empty()
+            && self.ctx.production()
+            && self.ctx.nominal_class(*class)
+            && std::env::var("DARTFORGE_JSPROD_INSTANCEOF").map_or(true, |v| v != "0")
+        {
+            self.m.note_class(*class);
+            return Js::new(
+                format!(
+                    "{} instanceof {}",
+                    value.at(crate::js::P_REL + 1),
+                    self.class_ref(*class)
+                ),
+                crate::js::P_REL,
+            );
         }
         Js::prim(format!("{}[_is]({})", self.rti(t), value.code))
     }
@@ -2403,22 +2446,70 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             crate::emit_line!(self.w, "yield {it}.cancel();");
             self.w.close("}");
         } else {
+            let indexed = pattern.is_none()
+                && self.indexable_receiver(&ity).is_some()
+                && std::env::var("DARTFORGE_JSPROD_INDEXED_LOOPS").map_or(true, |v| v != "0");
+            // Production: any other iterable is walked through its Dart
+            // iterator, `for (it = x.iterator; it.moveNext();) { v = it.current; … }`,
+            // which is how Dart defines `for`-in and what `dart2js` writes.
+            // The JavaScript `for…of` reached the same iterator through the
+            // runtime's `JsIterator`, one `{value, done}` object per step
+            // (`DARTFORGE_JSPROD_ITERATOR_LOOPS=0` keeps the `for…of`).
+            // The private libraries of the runtime (`dart:_runtime`,
+            // `dart:_rti`…) keep the `for…of`: part of their code runs while
+            // the runtime loads, before the extension members of the
+            // JavaScript arrays they walk are installed.
+            let iterator_loop = !indexed
+                && self.ctx.production()
+                && !self.ctx.program.library(self.lib).uri.starts_with("dart:_")
+                && std::env::var("DARTFORGE_JSPROD_ITERATOR_LOOPS").map_or(true, |v| v != "0");
+            let source = if iterator_loop {
+                let it = self.temp();
+                // The member as `Iterable` declares it, also for a `dynamic`
+                // receiver that -O3 does not cast.
+                let iterable = self
+                    .ctx
+                    .iterable_
+                    .and_then(|c| self.ctx.as_super(&ity, c))
+                    .or_else(|| {
+                        self.ctx
+                            .iterable_
+                            .map(|c| Ty::iface_args(c, vec![Ty::Dynamic]))
+                    })
+                    .unwrap_or(ity.clone());
+                let key = self.member_key_string(&iterable, "iterator");
+                let get = match key.strip_prefix('"').and_then(|k| k.strip_suffix('"')) {
+                    Some(k) if js::is_js_ident(k) => format!(".{k}"),
+                    _ => format!("[{key}]"),
+                };
+                crate::open_block!(
+                    self.w,
+                    "for ({it} = {}{get}; {it}.moveNext();) {{",
+                    ijs.at(js::P_PRIMARY)
+                );
+                Some(format!("{it}.current"))
+            } else {
+                None
+            };
             match pattern {
                 Some(p) if p.0 != u32::MAX => {
-                    crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code);
+                    match &source {
+                        Some(cur) => crate::emit_line!(self.w, "let {var_js} = {cur};"),
+                        None => crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code),
+                    }
                     self.emit_pattern_bind_stmt(p, &var_js, &elem_ty);
                 }
                 Some(_) => {
-                    crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code);
+                    match &source {
+                        Some(cur) => crate::emit_line!(self.w, "let {var_js} = {cur};"),
+                        None => crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code),
+                    }
                     if let ast::ForInTarget::Expression(e) = target {
                         let (ljs, _) = self.emit_assign_to(*e, &Js::prim(var_js.clone()), &elem_ty);
                         crate::emit_line!(self.w, "{};", ljs.code);
                     }
                 }
-                None if self.indexable_receiver(&ity).is_some()
-                    && std::env::var("DARTFORGE_JSPROD_INDEXED_LOOPS")
-                        .map_or(true, |v| v != "0") =>
-                {
+                None if indexed => {
                     // Production: an iterable the world proves a JavaScript
                     // array (or typed array) is walked by index, as the
                     // `for…of` it replaces does (the length is read at every
@@ -2434,13 +2525,19 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         self.checked_loop_value(&format!("{list}[{i}]"), &elem_ty, &decl_ty);
                     crate::emit_line!(self.w, "let {var_js} = {value};");
                 }
-                None => {
-                    crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code);
-                    let value = self.checked_loop_value(&var_js, &elem_ty, &decl_ty);
-                    if value != var_js {
-                        crate::emit_line!(self.w, "{var_js} = {value};");
+                None => match &source {
+                    Some(cur) => {
+                        let value = self.checked_loop_value(cur, &elem_ty, &decl_ty);
+                        crate::emit_line!(self.w, "let {var_js} = {value};");
                     }
-                }
+                    None => {
+                        crate::open_block!(self.w, "for (let {var_js} of {}) {{", ijs.code);
+                        let value = self.checked_loop_value(&var_js, &elem_ty, &decl_ty);
+                        if value != var_js {
+                            crate::emit_line!(self.w, "{var_js} = {value};");
+                        }
+                    }
+                },
             }
             self.emit_stmt(body);
             self.w.close("}");

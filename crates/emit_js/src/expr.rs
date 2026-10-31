@@ -1032,7 +1032,48 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         self.m.note_const_record(self.lib);
         let lv = self.lib_var(self.lib);
-        format!("{lv}.$C({}, () => {code})", js::string_literal(&code))
+        self.const_slot(format!(
+            "{lv}.$C({}, () => {code})",
+            js::string_literal(&code)
+        ))
+    }
+
+    /// Production: `v as T` where the static type of `v` is `S?` with `S` a
+    /// subtype of `T` (the `_current as E` of every SDK iterator, `E?` to
+    /// `E`). A value that is not `null` already has the type (sound null
+    /// safety), so only `null` goes to the check: `(t = v) != null ? t :
+    /// T._as(t)`, as `dart2js` writes it. The check of `null` stays, since `T`
+    /// may be nullable at run time. `DARTFORGE_JSPROD_NON_NULL_CASTS=0` keeps
+    /// the full check.
+    fn non_null_cast(&mut self, v: &Js, vty: &Ty, t: &Ty) -> Option<Js> {
+        if !self.ctx.production()
+            || vty.is_dynamic()
+            || !vty.is_nullable()
+            || matches!(vty, Ty::Null | Ty::Void)
+            || t.is_nullable()
+            || !self.ctx.is_subtype(&vty.non_null(), t)
+            || std::env::var("DARTFORGE_JSPROD_NON_NULL_CASTS").is_ok_and(|x| x == "0")
+        {
+            return None;
+        }
+        let (init, name) = if js::is_js_ident(&v.code) {
+            (String::new(), v.code.clone())
+        } else {
+            let tmp = self.temp();
+            (format!("({tmp} = {})", v.at(P_ASSIGN)), tmp)
+        };
+        let first = if init.is_empty() { name.clone() } else { init };
+        let check = self.as_cast(&Js::prim(name.clone()), t);
+        Some(Js::prim(format!(
+            "({first} != null ? {name} : {})",
+            check.at(P_ASSIGN)
+        )))
+    }
+
+    /// A constant expression's text in its production slot
+    /// ([`crate::const_slots`]): evaluated and canonicalized once per site.
+    pub(crate) fn const_slot(&self, code: String) -> String {
+        crate::const_slots::wrap(self.ctx, self.m, code)
     }
 
     pub fn wrap_guards(&mut self, js: Js, guards: Vec<Guard>) -> Js {
@@ -1087,10 +1128,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let text: Vec<&str> = names.iter().map(|n| self.name(n.sym)).collect();
                 self.m.use_sdk("_internal");
                 (
-                    Js::prim(format!(
+                    Js::prim(self.const_slot(format!(
                         "dart.const(new _internal.Symbol.new({}))",
                         js::string_literal(&text.join("."))
-                    )),
+                    ))),
                     self.ctx.symbol_.map(Ty::iface).unwrap_or(Ty::Dynamic),
                 )
             }
@@ -1389,6 +1430,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     || !self.checks.explicit_casts
                 {
                     return (v, t);
+                }
+                if let Some(cast) = self.non_null_cast(&v, &vty, &t) {
+                    return (cast, t);
                 }
                 (self.as_cast(&v, &t), t)
             }
@@ -1694,7 +1738,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             if const_ {
                 let rti = self.rti(&elem_ty);
                 return (
-                    Js::prim(format!("dart.constList({rti}, [{}])", items.join(", "))),
+                    Js::prim(
+                        self.const_slot(format!("dart.constList({rti}, [{}])", items.join(", "))),
+                    ),
                     list_ty,
                 );
             }
@@ -2279,7 +2325,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let kr = self.rti(&kt);
                     let vr = self.rti(&vt);
                     return (
-                        Js::prim(format!("dart.constMap({kr}, {vr}, [{}])", items.join(", "))),
+                        Js::prim(self.const_slot(format!(
+                            "dart.constMap({kr}, {vr}, [{}])",
+                            items.join(", ")
+                        ))),
                         map_ty,
                     );
                 }
@@ -2359,7 +2408,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             if const_ {
                 let er = self.rti(&et);
                 return (
-                    Js::prim(format!("dart.constSet({er}, [{}])", items.join(", "))),
+                    Js::prim(
+                        self.const_slot(format!("dart.constSet({er}, [{}])", items.join(", "))),
+                    ),
                     set_ty,
                 );
             }
@@ -2730,7 +2781,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         {
             self.m.note_const_record(self.lib);
             let lv = self.lib_var(self.lib);
-            code = format!("{lv}.$C({}, () => {code})", js::string_literal(&code));
+            code = self.const_slot(format!(
+                "{lv}.$C({}, () => {code})",
+                js::string_literal(&code)
+            ));
         }
         let ty = Ty::Record {
             pos: pos_ty,
@@ -7386,7 +7440,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     format!("new {tref}.{tjs}({})", arg_js.join(", "))
                 };
                 let call = if is_const {
-                    format!("dart.const({call})")
+                    self.const_slot(format!("dart.const({call})"))
                 } else {
                     call
                 };
@@ -7410,7 +7464,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             format!("new {cls_ref}.{jsname}({})", arg_js.join(", "))
         };
         let call = if is_const {
-            format!("dart.const({call})")
+            self.const_slot(format!("dart.const({call})"))
         } else {
             call
         };

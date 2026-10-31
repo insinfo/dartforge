@@ -27,6 +27,8 @@ pub struct ModState {
     pub noted_classes: RefCell<BTreeSet<u32>>,
     /// Libraries whose emitted constant records call their canonical cache.
     pub const_record_libraries: RefCell<BTreeSet<u32>>,
+    /// Production slots of closed constants (`const_slots`), declared in the prelude.
+    pub const_slots: RefCell<BTreeSet<String>>,
     /// Private descriptor guards required by emitted typed-array loop versions.
     pub typed_read_guard_libraries: RefCell<BTreeSet<u32>>,
 }
@@ -42,6 +44,7 @@ impl ModState {
             private_syms: RefCell::new(BTreeMap::new()),
             noted_classes: RefCell::new(BTreeSet::new()),
             const_record_libraries: RefCell::new(BTreeSet::new()),
+            const_slots: RefCell::new(BTreeSet::new()),
             typed_read_guard_libraries: RefCell::new(BTreeSet::new()),
         }
     }
@@ -83,6 +86,9 @@ impl ModState {
     }
     pub(crate) fn note_const_record(&self, lib: LibraryId) {
         self.const_record_libraries.borrow_mut().insert(lib.0);
+    }
+    pub(crate) fn note_const_slot(&self, slot: &str) {
+        self.const_slots.borrow_mut().insert(slot.to_string());
     }
     pub fn note_class(&self, c: ClassId) {
         self.noted_classes.borrow_mut().insert(c.0);
@@ -127,6 +133,9 @@ impl ModState {
         self.const_record_libraries
             .borrow_mut()
             .extend(other.const_record_libraries.borrow().iter().copied());
+        self.const_slots
+            .borrow_mut()
+            .extend(other.const_slots.borrow().iter().cloned());
         self.typed_read_guard_libraries
             .borrow_mut()
             .extend(other.typed_read_guard_libraries.borrow().iter().copied());
@@ -144,6 +153,7 @@ pub struct Fragment {
     pub private_syms: BTreeMap<String, (u32, String)>,
     pub noted_classes: BTreeSet<u32>,
     pub const_record_libraries: BTreeSet<u32>,
+    pub const_slots: BTreeSet<String>,
     pub typed_read_guard_libraries: BTreeSet<u32>,
 }
 
@@ -157,6 +167,7 @@ impl Fragment {
             private_syms: m.private_syms.borrow().clone(),
             noted_classes: m.noted_classes.borrow().clone(),
             const_record_libraries: m.const_record_libraries.borrow().clone(),
+            const_slots: m.const_slots.borrow().clone(),
             typed_read_guard_libraries: m.typed_read_guard_libraries.borrow().clone(),
         }
     }
@@ -181,6 +192,9 @@ impl Fragment {
         m.const_record_libraries
             .borrow_mut()
             .extend(self.const_record_libraries.iter().copied());
+        m.const_slots
+            .borrow_mut()
+            .extend(self.const_slots.iter().cloned());
         m.typed_read_guard_libraries
             .borrow_mut()
             .extend(self.typed_read_guard_libraries.iter().copied());
@@ -628,6 +642,7 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
 /// Keep the development prelude stable; production caches only serve emitted
 /// constant records. In particular, an unused cache must not allocate a Map in
 /// every imported library. Uses accumulated by cached fragments are included.
+/// The production constant slots ([`crate::const_slots`]) are declared here too.
 pub(crate) fn emit_const_caches(
     ctx: &Ctx,
     m: &ModState,
@@ -636,6 +651,11 @@ pub(crate) fn emit_const_caches(
 ) {
     let prune = ctx.production()
         && std::env::var("DARTFORGE_JSPROD_CONST_CACHES").map_or(true, |v| v != "0");
+    let slots = m.const_slots.borrow();
+    if !slots.is_empty() {
+        let names: Vec<&str> = slots.iter().map(String::as_str).collect();
+        out.push_str(&format!("var {};\n", names.join(", ")));
+    }
     let used = m.const_record_libraries.borrow();
     for &lib in libraries {
         if prune && !used.contains(&lib.0) {

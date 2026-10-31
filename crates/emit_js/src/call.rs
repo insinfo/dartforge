@@ -1655,6 +1655,65 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
+    /// Production: `identical(x, literal)` (either side a `bool`, number,
+    /// plain string or `null` literal) is the comparison the runtime's
+    /// `identical` makes, `a == null ? b == null : a === b`, which with a
+    /// literal is `x === literal` (`x == null` for `null`), without the
+    /// call (`_JsonStringifier.writeJsonValue` tests `identical(o, true)`).
+    /// The arguments keep their order. `DARTFORGE_JSPROD_IDENTICAL_LITERALS=0`
+    /// keeps the call.
+    fn identical_to_literal(
+        &mut self,
+        fid: dartforge_elements::model::FunctionElementId,
+        arguments: &ast::Arguments,
+    ) -> Option<(Js, Ty)> {
+        if !self.ctx.production()
+            || arguments.args.len() != 2
+            || !arguments.type_args.is_empty()
+            || arguments.args.iter().any(|a| a.name.is_some())
+            || std::env::var("DARTFORGE_JSPROD_IDENTICAL_LITERALS").is_ok_and(|v| v == "0")
+        {
+            return None;
+        }
+        let f = self.ctx.program.function(fid);
+        if f.class.is_some()
+            || self.name(f.name) != "identical"
+            || self.ctx.program.library(f.library).uri != "dart:core"
+        {
+            return None;
+        }
+        let literal = |s: &Self, e: ExprId| -> Option<bool> {
+            match &s.expr(e).kind {
+                ExprKind::Null => Some(true),
+                ExprKind::Bool(_) | ExprKind::Int(_) | ExprKind::Double(_) => Some(false),
+                ExprKind::String(lit)
+                    if lit
+                        .parts
+                        .iter()
+                        .all(|p| matches!(p, dartforge_frontend::ast::StringPart::Text(_))) =>
+                {
+                    Some(false)
+                }
+                _ => None,
+            }
+        };
+        let (a, b) = (arguments.args[0].value, arguments.args[1].value);
+        let null_literal = literal(self, b).or_else(|| literal(self, a))?;
+        let (ajs, _) = self.emit_expr(a, None);
+        let (bjs, _) = self.emit_expr(b, None);
+        let code = if null_literal {
+            let other = if literal(self, b) == Some(true) {
+                ajs
+            } else {
+                bjs
+            };
+            format!("{} == null", other.at(js::P_EQ + 1))
+        } else {
+            format!("{} === {}", ajs.at(js::P_EQ + 1), bjs.at(js::P_EQ + 1))
+        };
+        Some((Js::new(code, js::P_EQ), self.ctx.t_bool()))
+    }
+
     pub fn emit_element_call(
         &mut self,
         el: Element,
@@ -1703,6 +1762,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let (v, vty) = self.emit_expr(arguments.args[0].value, param.as_ref());
                     let line = self.interpolation_part(v, &vty, true);
                     return (Js::prim(format!("{js}({line})")), Ty::Void);
+                }
+                if let Some(r) = self.identical_to_literal(fid, arguments) {
+                    return r;
                 }
                 let (js, fty) = self.element_ref(el).expect("function");
                 if self.ctx.is_js_member(fid) {
