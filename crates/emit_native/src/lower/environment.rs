@@ -41,8 +41,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// VM's AOT does not have it); and the VM's profile
     /// keys — `dart.vm.product` (`Context::product`: true in
     /// `DartFlags::PRODUCTION`, as in `dart compile exe`; false in development,
-    /// as in `dart run`) and `dart.vm.profile` (false). `hasEnvironment` is
-    /// true for the three in both profiles, as in the VM. An integer query
+    /// as in `dart run`), `dart.vm.profile` (false) and, outside WebAssembly,
+    /// `dart.isVM` (true). `hasEnvironment` is true for them in both
+    /// profiles, as in the VM. An integer query
     /// cannot parse `true`/`false` and therefore uses its default; other keys
     /// remain undefined.
     pub(super) fn environment_value(
@@ -65,6 +66,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             "dart.vm.product" => self.ctx.product,
             "dart.vm.profile" => false,
+            // The VM defines it in JIT and AOT; dart2wasm does not.
+            "dart.isVM" if !crate::target::is_wasm() => true,
             _ => {
                 return if has {
                     Some(Constant::Bool(false))
