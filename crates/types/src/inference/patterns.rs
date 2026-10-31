@@ -842,7 +842,18 @@ pub(crate) fn case(
     // declares its variables: in `switch (e) { Neg(:final e) => … }` the
     // pattern's `e` shadows the scrutinee, and it is the scrutinee (not the
     // new variable, of the field's type) that the case promotes.
-    let target = scrutinee.and_then(|e| expr::promotion_target(inf, cx, e));
+    // In a `switch`, every case promotes the reference the first one resolved
+    // (as `matching::the_case`).
+    let target = match (cx.switch_scrutinee, scrutinee) {
+        (Some(Some((e0, _, _, target))), Some(e)) if e0 == e => target,
+        _ => {
+            let target = scrutinee.and_then(|e| expr::promotion_target(inf, cx, e));
+            if let (Some(None), Some(e), Some(id)) = (cx.switch_scrutinee, scrutinee, target) {
+                cx.switch_scrutinee = Some(Some((e, id, None, target)));
+            }
+            target
+        }
+    };
     let refutable_before = std::mem::replace(&mut cx.refutable_pattern, true);
     type_check(inf, cx, p, t, false, false);
     cx.refutable_pattern = refutable_before;

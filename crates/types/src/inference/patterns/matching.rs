@@ -1241,20 +1241,25 @@ pub(crate) fn the_case(
 ) -> (Flow, Flow) {
     // The scrutinee is resolved in the outer scope, before the pattern
     // declares its variables.
-    let target = scrutinee.and_then(|e| expr::promotion_target(inf, cx, e));
-    let property = target.is_some_and(|id| cx.is_property(id));
     // In a `switch`, all cases match the SAME reference: the promotions of a
-    // case's "did not match" reach the next one.
+    // case's "did not match" reach the next one, and a later case promotes
+    // the scrutinee as resolved for the first one (`c._o` of the `c` from
+    // before `case _ when f(c = c2)`, not the property of the new `c`).
     let reuse = match (cx.switch_scrutinee, scrutinee) {
-        (Some(Some((e0, the_key, version))), Some(e))
+        (Some(Some((e0, the_key, version, target))), Some(e))
             if e0 == e && cx.flow.model(the_key).is_some() =>
         {
-            Some((the_key, version))
+            Some((the_key, version, target))
         }
         _ => None,
     };
+    let target = match reuse {
+        Some((_, _, target)) => target,
+        None => scrutinee.and_then(|e| expr::promotion_target(inf, cx, e)),
+    };
+    let property = target.is_some_and(|id| cx.is_property(id));
     let (the_key, version) = match reuse {
-        Some(x) => x,
+        Some((the_key, version, _)) => (the_key, version),
         None => {
             let the_key = new_key(inf, cx, t);
             let version = target.and_then(|id| cx.flow.version(id));
@@ -1262,11 +1267,11 @@ pub(crate) fn the_case(
             // matches another reference and must not take the scrutinee's place.
             let own_case = match cx.switch_scrutinee {
                 Some(None) => true,
-                Some(Some((e0, _, _))) => scrutinee == Some(e0),
+                Some(Some((e0, _, _, _))) => scrutinee == Some(e0),
                 None => false,
             };
             if own_case && let Some(e) = scrutinee {
-                cx.switch_scrutinee = Some(Some((e, the_key, version)));
+                cx.switch_scrutinee = Some(Some((e, the_key, version, target)));
             }
             (the_key, version)
         }

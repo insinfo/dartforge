@@ -3485,3 +3485,36 @@ void main() {{}}
     };
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+/// The cases of a `switch` promote the scrutinee as the first case resolved
+/// it: after `case _ when second(c = c2, b)`, a later `case _ as int` does not
+/// promote `c._o` of the new `c`.
+#[test]
+fn switch_cases_promote_the_first_scrutinee_reference() {
+    let Some(diags) = constant_diagnostics_of(&format!(
+        r#"{STATIC_TYPE_HELPER}
+class C {{
+  final Object? _o;
+  C(this._o);
+}}
+
+T second<T>(dynamic x, T y) => y;
+
+void f(C c, C c2, bool b) {{
+  switch (c._o) {{
+    case _ as num when b:
+      c._o.expectStaticType<Exactly<num>>();
+    case _ when second(c = c2, b):
+      break;
+    case _ as int:
+      c._o.expectStaticType<Exactly<Object?>>();
+  }}
+}}
+
+void main() {{}}
+"#
+    )) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}

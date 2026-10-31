@@ -92,6 +92,11 @@ pub(crate) enum ExecutableKind {
     Constructor,
 }
 
+/// The scrutinee of the `switch` in progress: the expression, the value's
+/// promotion key, the write version of the scrutinized variable and the
+/// promotion target the first case resolved.
+pub(crate) type SwitchScrutinee = (ast::ExprId, LocalId, Option<u32>, Option<LocalId>);
+
 /// Inference state of a body.
 pub(crate) struct Body {
     pub unit: UnitId,
@@ -152,10 +157,11 @@ pub(crate) struct Body {
     /// "did not match" state); `None` outside a pattern.
     pub matching: Option<super::patterns::Matching>,
     /// Inside a `switch` (statement or expression): the scrutinee already
-    /// matched by a case (the expression, the value's promotion key and the
-    /// write version of the scrutinized variable), which the following cases
-    /// reuse. `None` outside a `switch`; `Some(None)` before the first case.
-    pub switch_scrutinee: Option<Option<(ast::ExprId, LocalId, Option<u32>)>>,
+    /// matched by a case (the expression, the value's promotion key, the
+    /// write version of the scrutinized variable and the promotion target the
+    /// first case resolved), which the following cases reuse. `None` outside a
+    /// `switch`; `Some(None)` before the first case.
+    pub switch_scrutinee: Option<Option<SwitchScrutinee>>,
     /// Body of a static method or static field initializer: the class's type
     /// parameters do not apply there (`TYPE_PARAMETER_REFERENCED_BY_STATIC`).
     pub static_member: bool,
