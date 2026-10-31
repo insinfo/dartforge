@@ -704,6 +704,47 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 let source = self.lower_expr(ast, *value);
                 let source = self.coerce(source, Type::Ref);
+                // `...d` with `d` dynamic: the CFE's desugaring, the cast of
+                // the source to `Iterable<dynamic>` (`Map<dynamic, dynamic>`)
+                // and the implicit cast of each element to the literal's type.
+                if self.dynamic_expression(*value) {
+                    let element = |s: &mut Self, v: Operand, t: Option<TypeId>| {
+                        if let Some(t) = t.filter(|&t| !super::typed_entry::is_top(s.ctx, t))
+                            && !s.is_terminated()
+                        {
+                            let rti = s.type_rti(t);
+                            s.cast_rti_in(v.clone(), rti, super::rti::CastContext::Implicit);
+                        }
+                        v
+                    };
+                    let spread_dynamic = |s: &mut Self, f: Operand| {
+                        s.cast_dynamic_spread_source(&f, typ == Collection::Map);
+                        if s.is_terminated() {
+                            return;
+                        }
+                        if typ == Collection::Map {
+                            let entries = s.call_by_selector(f, "g:entries".to_string(), &[]);
+                            s.iterate_source(entries, &mut |s: &mut Self, e: Operand| {
+                                let k = s.call_by_selector(e.clone(), "g:key".to_string(), &[]);
+                                let k = element(s, k, expected.first().copied());
+                                let v = s.call_by_selector(e, "g:value".to_string(), &[]);
+                                let v = element(s, v, expected.get(1).copied());
+                                s.append_entry(target.clone(), k, v);
+                            });
+                        } else {
+                            s.iterate_source(f, &mut |s: &mut Self, x: Operand| {
+                                let x = element(s, x, expected.first().copied());
+                                s.append(target.clone(), typ, x);
+                            });
+                        }
+                    };
+                    if *null_aware {
+                        self.if_non_null(source, spread_dynamic);
+                    } else {
+                        spread_dynamic(self, source);
+                    }
+                    return;
+                }
                 // `...e` is the `addAll` of the collection (§17.9.1).
                 let spread = |s: &mut Self, f: Operand| {
                     s.call_by_name(
@@ -786,7 +827,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         for var in list.variables.iter() {
                             let ty = self.local_repr_of(var.name.span.start);
                             let v = match var.initializer {
-                                Some(i) => self.lower_expr(ast, i),
+                                Some(i) => {
+                                    let v = self.lower_expr(ast, i);
+                                    // A `dynamic` initializer of a declared type: the
+                                    // implicit cast, as in a `for` statement.
+                                    if let Some(tid) =
+                                        list.ty.filter(|_| self.dynamic_expression(i))
+                                    {
+                                        self.check_type_or_throw(
+                                            ast.ty(tid),
+                                            v.clone(),
+                                            super::rti::CastContext::Implicit,
+                                        );
+                                    }
+                                    v
+                                }
                                 None => Self::zero_value(ty),
                             };
                             self.declare_variable(var.name.sym, var.name.span.start, ty, v);
@@ -857,6 +912,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ..
             } => {
                 let source = self.lower_expr(ast, *iterable);
+                self.cast_dynamic_for_in_source(*iterable, &source, false);
                 let source = self.coerce(source, Type::Ref);
                 let fn_body: &CollectionElement = body;
                 self.iterate_source(source, &mut |s: &mut Self, x: Operand| {

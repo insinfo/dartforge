@@ -59,6 +59,10 @@ pub struct InvocationTypes {
 struct ParameterType {
     ty: TypeId,
     subst: Option<HashMap<TypeParamId, TypeId>>,
+    /// The type is written in the caller's scope (it comes from the static
+    /// type of the called expression, seen through the receiver): its free
+    /// type variables are the caller's, so the cast reads them at run time.
+    in_scope: bool,
 }
 
 impl InvocationTypes {
@@ -334,10 +338,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         &mut self,
         target: ast::ExprId,
         expr_id: ast::ExprId,
-        args: &[ast::Argument],
+        arguments: &ast::Arguments,
     ) -> Option<(usize, InvocationTypes)> {
-        let types = self.target_types(target, expr_id);
-        let key = args.as_ptr() as usize;
+        let types = self.target_types(target, expr_id, arguments.span.start);
+        let key = arguments.args.as_ptr() as usize;
         std::mem::replace(&mut self.arg_types, types.map(|t| (key, t)))
     }
 
@@ -350,12 +354,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         typ: Option<TypeId>,
         args: &[ast::Argument],
     ) -> Option<(usize, InvocationTypes)> {
-        let types = self.function_types(fid, typ);
+        let types = self.function_types(fid, typ, None);
         let key = args.as_ptr() as usize;
         std::mem::replace(&mut self.arg_types, types.map(|t| (key, t)))
     }
 
-    fn target_types(&self, target: ast::ExprId, expr_id: ast::ExprId) -> Option<InvocationTypes> {
+    /// The type arguments inference gave the generic call whose argument list
+    /// starts at `offset` (written or inferred), as the substitution of
+    /// `params`; `None` when the call has none for exactly those parameters.
+    fn instantiation_subst(
+        &self,
+        params: &[TypeParamId],
+        offset: usize,
+    ) -> Option<HashMap<TypeParamId, TypeId>> {
+        let args = self.ctx.bodies.units[self.unit_id.0 as usize].instantiation(offset)?;
+        (args.len() == params.len())
+            .then(|| params.iter().copied().zip(args.iter().copied()).collect())
+    }
+
+    fn target_types(
+        &self,
+        target: ast::ExprId,
+        expr_id: ast::ExprId,
+        offset: usize,
+    ) -> Option<InvocationTypes> {
         if let Some(t) = self.ctx.get_type(self.unit_id, target)
             && let T::Function {
                 type_params,
@@ -365,12 +387,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ..
             } = self.ctx.table.get(t)
         {
-            if !type_params.is_empty() {
-                return None;
-            }
+            // A generic function's parameters are seen through the call's
+            // instantiation: `T context<T>(T x)` called as
+            // `context<void Function()>(d)` casts `d` to `void Function()`.
+            let subst = if type_params.is_empty() {
+                None
+            } else {
+                Some(self.instantiation_subst(type_params, offset)?)
+            };
             let without = |ty: &TypeId| ParameterType {
                 ty: *ty,
-                subst: None,
+                subst: subst.clone(),
+                in_scope: true,
             };
             return Some(InvocationTypes {
                 positionals: positional
@@ -398,18 +426,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             _ => return None,
         };
         let typ = self.ctx.get_type(self.unit_id, expr_id);
-        self.function_types(fid, typ)
+        self.function_types(fid, typ, Some(offset))
     }
 
     /// The types of the parameters of `fid`; in a constructor (or factory) of a
     /// generic class, with the type arguments of `created`.
-    fn function_types(&self, fid: usize, created: Option<TypeId>) -> Option<InvocationTypes> {
+    /// With the `offset` of the call's argument list, a generic function's own
+    /// type parameters take the call's instantiation.
+    fn function_types(
+        &self,
+        fid: usize,
+        created: Option<TypeId>,
+        offset: Option<usize>,
+    ) -> Option<InvocationTypes> {
         let o = self.ctx.outline.functions.get(fid)?;
+        let mut subst = None;
         if !o.type_params.is_empty() {
-            return None;
+            subst = Some(self.instantiation_subst(&o.type_params, offset?)?);
         }
         let f = &self.ctx.program.functions[fid];
-        let mut subst = None;
         if let Some(c) = f.class
             && matches!(f.node, FunctionRef::Constructor { .. })
             && let Some(data) = self.ctx.outline.classes.get(c.0 as usize)
@@ -419,19 +454,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             && *class == c
             && args.len() == data.type_params.len()
         {
-            subst = Some(
-                data.type_params
-                    .iter()
-                    .copied()
-                    .zip(args.iter().copied())
-                    .collect::<HashMap<_, _>>(),
-            );
+            subst
+                .get_or_insert_with(HashMap::new)
+                .extend(data.type_params.iter().copied().zip(args.iter().copied()));
         }
         let mut t = InvocationTypes::default();
         for p in o.parameters.iter() {
             let x = ParameterType {
                 ty: p.ty,
                 subst: subst.clone(),
+                in_scope: false,
             };
             if p.kind == ParameterKind::Named {
                 if let Some(n) = p.external_name {
@@ -473,6 +505,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let t = self.recipe_rti(&r);
             self.cast_rti_in(value.clone(), t, super::rti::CastContext::Implicit);
             self.mark_checked(value);
+        } else if p.in_scope {
+            // `void test(Foo<T> f)` called as `test(d)` inside `C<T>`: the
+            // CFE's cast to `Foo<T>` with this activation's `T`.
+            // A variable out of reach is written `dynamic`: the check
+            // only gets weaker, never wrong.
+            let r = self.substituted_type_recipe(p.ty, p.subst.as_ref());
+            let t = self.recipe_rti(&r);
+            self.cast_rti_in(value.clone(), t, super::rti::CastContext::Implicit);
         }
     }
 

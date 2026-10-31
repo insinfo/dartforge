@@ -30,7 +30,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.ctx.get_type(self.unit_id, *target),
         );
         let saved_call = self.current_call.replace(expr_id);
-        let armed = self.arm_arg_types(*target, expr_id, &arguments.args);
+        let armed = self.arm_arg_types(*target, expr_id, arguments);
         let r = self.lower_call_internal(ast, expr_id, expr, target, arguments);
         self.arg_types = armed;
         self.armed_tuple = saved;

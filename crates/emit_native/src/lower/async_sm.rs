@@ -945,6 +945,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         }
         let s = self.lower_expr(ast, iterable);
+        self.cast_dynamic_for_in_source(iterable, &s, true);
         let s = self.coerce(s, Type::Ref);
         let it = self.call_support("_awaitForIterator", vec![s], span);
         let it = self.coerce(it, Type::Ref);

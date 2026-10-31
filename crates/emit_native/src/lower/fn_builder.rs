@@ -1382,6 +1382,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     pub fn emit_throw(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
         let ex_op = self.lower_expr(ast, expr_id);
+        // `throw d` with `d` dynamic: the CFE's cast to `Object`, so that
+        // throwing `null` is the `TypeError` of the cast.
+        self.implicit_downcast(expr_id, &ex_op, self.ctx.core.object);
+        if self.is_terminated() {
+            return self.default_return_operand();
+        }
         self.emit_throw_op(ex_op)
     }
 

@@ -373,7 +373,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 let init_op = if late_local {
                                     Self::zero_value(ty)
                                 } else if let Some(init_id) = var.initializer {
-                                    self.lower_expr(ast, init_id)
+                                    let op = self.lower_expr(ast, init_id);
+                                    // A `dynamic` initializer of a declared type: the
+                                    // implicit cast, as in a declaration statement.
+                                    if let Some(tid) =
+                                        var_list.ty.filter(|_| self.dynamic_expression(init_id))
+                                    {
+                                        self.check_type_or_throw(
+                                            ast.ty(tid),
+                                            op.clone(),
+                                            super::rti::CastContext::Implicit,
+                                        );
+                                    }
+                                    op
                                 } else {
                                     Self::zero_value(ty)
                                 };

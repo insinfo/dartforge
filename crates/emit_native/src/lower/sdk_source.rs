@@ -3319,6 +3319,53 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `for (x in source) f(x)` through the `Iterator` protocol (§17.7.3):
     /// `iterator`, `moveNext()` and `current`, through the selectors.
+    /// The implicit downcast the CFE puts on the source of a `for-in` whose
+    /// static type is `dynamic`: `Iterable<dynamic>` (`Stream<dynamic>` for an
+    /// `await for`), so that a value that is not one throws the `TypeError` of
+    /// the cast rather than a `NoSuchMethodError` from `iterator`.
+    pub fn cast_dynamic_for_in_source(
+        &mut self,
+        iterable: dartforge_frontend::ast::ExprId,
+        source: &Operand,
+        stream: bool,
+    ) {
+        let class = if stream {
+            self.ctx.core.stream_class
+        } else {
+            self.ctx.core.iterable_class
+        };
+        let Some(class) = class else { return };
+        if self.is_terminated() || !self.dynamic_expression(iterable) {
+            return;
+        }
+        let rti = self.recipe_rti(&super::rti::Recipe {
+            text: format!("C{}<D>", self.ctx.id_rti(class)),
+            variables: false,
+        });
+        let v = self.coerce(source.clone(), Type::Ref);
+        self.cast_rti_in(v, rti, super::rti::CastContext::Implicit);
+    }
+
+    /// The cast of the source of a `dynamic` spread (`...d`, `...?d`):
+    /// `Iterable<dynamic>`, or `Map<dynamic, dynamic>` in a map literal.
+    pub fn cast_dynamic_spread_source(&mut self, source: &Operand, map: bool) {
+        let class = if map {
+            self.ctx.core.map_class
+        } else {
+            self.ctx.core.iterable_class
+        };
+        let Some(class) = class else { return };
+        if self.is_terminated() {
+            return;
+        }
+        let args = if map { "D,D" } else { "D" };
+        let rti = self.recipe_rti(&super::rti::Recipe {
+            text: format!("C{}<{args}>", self.ctx.id_rti(class)),
+            variables: false,
+        });
+        self.cast_rti_in(source.clone(), rti, super::rti::CastContext::Implicit);
+    }
+
     pub fn iterate_source(&mut self, source: Operand, f: &mut dyn FnMut(&mut Self, Operand)) {
         let it = self.call_by_selector(source, "g:iterator".to_string(), &[]);
         let head = self.new_block();
@@ -3438,6 +3485,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
     ) {
         let source = self.lower_expr(ast, iterable);
+        self.cast_dynamic_for_in_source(iterable, &source, false);
         // The labels of this loop (both paths below use them; a loop
         // nested in the body cannot see them as its own).
         let labels = std::mem::take(&mut self.pending_labels);
