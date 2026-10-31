@@ -13,6 +13,48 @@ pelo `gh` a cada lote:
 4. **Fusão de funções duplicadas no HIR** (seção de 30/10 abaixo), para o nativo, o JS e o
    wasm.
 
+## 31/10/2026: `dartforge test` com `dart_test.yaml` e anotações; `pub get` com workspaces e git
+
+**`dartforge test` (`f1a1b376`)** deixou de recusar `dart_test.yaml` e anotações de
+biblioteca. Um planejador compilado nativamente com o próprio `test_core` do pacote
+(cache em `.dart_tool/dartforge/test-planner/`) lê a linha de comando e os
+`dart_test.yaml` global e do pacote com a `Configuration` do package:test, descobre
+as suítes como o `Runner`/`Loader` (`paths`, `filename`, `presets`, `include`,
+`on_os`, `on_platform`, `tags` por tag, `timeout`, `retry`, `skip`, `test_on`,
+`concurrency`) e resolve a configuração de cada suíte. As anotações `@TestOn`,
+`@Timeout`, `@Skip`, `@OnPlatform`, `@Tags` e `@Retry` são lidas da AST do DartForge
+com as regras do `parseMetadata` (inclusive prefixos de import e a leitura não
+resolvida de `new a.b()`); seletores, tags e o `Metadata` ficam com as classes do
+package:test. As suítes rodam em paralelo até a `concurrency`. Só a plataforma `vm`
+(reportada com o compilador `exe`); browser/node, coverage, debug, `--fail-fast`,
+file reporters, seleção por linha/coluna e watch continuam recusados explicitamente.
+Verificação: 22 execuções diferenciais contra `dart test` 3.6.2 (package:test 1.25.7
+e 1.26.3) com resultados por teste e códigos de saída iguais; 55 casos do
+`parseMetadata` oficial como oráculo de teste unitário; teste de integração
+`test_runner_cli` (ignorado, 7 execuções diferenciais) passando. O formato do
+relator `expanded` continua sendo o do DartForge, não o do `dart test`. A primeira
+execução por configuração de pacotes compila o planejador (minutos).
+
+**`dartforge pub get` (`972f3b26`)**: workspaces do Pub 3.6 (raiz achada como no
+Pub, resolução conjunta com dev deps e overrides de todos os membros,
+`workspace_ref.json`, remoção dos arquivos soltos dos membros), dependências git
+(espelho `git/cache/<nome>-<sha1(url)>`, checkout por commit com
+`.git/pub-packages`, commit travado preservado), `example/` resolvido por padrão,
+`--dry-run`, `--enforce-lockfile`, `-C` e `--no-precompile`. A saída agora coincide
+com o texto do Pub: caminhos relativos no lockfile e na configuração, aspas e ordem
+de chaves do Pub, precedência `direct main` > `direct dev` > `direct overridden`
+(o teste antigo esperava o contrário; conferido com o Pub real), lockfile
+equivalente não é reescrito. Verificação: em 18 projetos reais do proprietário
+(cópias só dos pubspecs, caches separados), 16 deram lockfile (fora o cabeçalho) e
+`package_config.json` idênticos aos do `dart pub get`, incluindo os workspaces
+`angular`, `playwright` e `playwright-connect` e o git de `pdfbox_dart`. Falham e
+ficam abertos: `aggr` (a busca com retrocesso estoura o limite de 100000 decisões;
+o Pub usa solucionador com aprendizado de conflitos) e `new_sali/backend` (arquivo
+hospedado com link, recusado pelo extrator). Continuam recusados: repositório git
+local com caminho relativo, globs em `workspace`, `resolution` diferente de
+`workspace`, `--precompile`, SDK Flutter. Evidências:
+`bench/results/2026-10-31-test-config-pub-workspace-git/README.md`.
+
 ## 30/10/2026: modo de mapas no macOS, defeito do LLVM, CI e funções duplicadas
 
 **O B1 (`--exceptions tables --roots maps`) passou a ligar e a passar no macOS.** Os
