@@ -689,8 +689,21 @@ fn sdk_context_data_missing_from_library_is_rejected() {
     let dll = dir.0.join("libstub.dylib");
     std::fs::write(&source, "void dartforge_set_main_arguments(const char *data, long long count) { (void)data; (void)count; }\n").unwrap();
     let clang = std::env::var_os("DARTFORGE_CLANG").unwrap_or_else(|| "clang".into());
+    // The official LLVM package's Clang does not find the macOS SDK by itself.
+    let sdk = std::env::var_os("SDKROOT").unwrap_or_else(|| {
+        let out = Command::new("xcrun")
+            .arg("--show-sdk-path")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .to_string()
+            .into()
+    });
     let result = Command::new(clang)
         .arg("-dynamiclib")
+        .arg("-isysroot")
+        .arg(&sdk)
         .arg(&source)
         .arg("-o")
         .arg(&dll)
