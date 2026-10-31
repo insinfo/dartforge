@@ -1,0 +1,20 @@
+00:00 [32m+0[0m: [1m[90mloading test/b_test.dart[0m[0m
+00:00 [32m+0[0m: test/b_test.dart: b passes[0m
+00:00 [32m+1[0m: [1m[90mloading test/a_test.dart[0m[0m
+00:00 [32m+1[0m: test/a_test.dart: passes[0m
+00:00 [32m+2[0m: test/a_test.dart: g fails[0m
+00:00 [32m+2[0m[31m -1[0m: test/a_test.dart: g fails [1m[31m[E][0m[0m
+  Expected: <2>
+    Actual: <1>
+  
+  package:matcher        expect
+  test/a_test.dart 6:25  main.<fn>.<fn>
+  
+00:00 [32m+2[0m[31m -1[0m: test/a_test.dart: g skipped[0m
+  [33mSkip: not now[0m
+00:00 [32m+2[0m[33m ~1[0m[31m -1[0m: test/a_test.dart: prints[0m
+hello
+00:00 [32m+3[0m[33m ~1[0m[31m -1[0m: [31mSome tests failed.[0m
+
+Consider enabling the flag chain-stack-traces to receive more detailed exceptions.
+For example, 'dart test --chain-stack-traces'.

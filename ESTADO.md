@@ -24,8 +24,8 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 |---|---|---|
 | **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT** (primeira medição, 31/10, `dartforge aot --optimize`, 40 min): **2721 iguais à VM, 2775 (96,9%)** contando os 54 que os dois recusam. JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos). Nativo: 88 falhas, **87 iguais às do wasm** (mesmo backend): 63 exceções em tempo de execução (*tear-offs* e sua igualdade, RTI de tipos de função genéricos, checagens que não lançam), 9 programas que a VM recusa e nós aceitamos, 8 construções recusadas pelo backend, 6 saídas diferentes. A única exclusiva do nativo era o `dart.isVM` (corrigido em `cd23f5a5`) |
 | **`analyze`** | corpus do analisador **99,95%** (23.001/23.012: 11 ausências, 0 falsos positivos), 14/10. Erros a mais em `tests/language`: **231 → 107** (29 arquivos), 31/10 | análise de fluxo (`try/finally`, `== null`), UP com interseções, `noSuchMethod`, *wildcards* |
-| **`pub`** | só existe **`pub get`**: lockfile idêntico ao oficial em **16/18** projetos reais | `add`, `remove`, `upgrade`, `downgrade`, `outdated`, `deps` não existem; o solucionador não tem aprendizado de conflitos (`aggr` falha); pacote com *link* é recusado |
-| **`test`** | igual ao `dart test` em **22/22** execuções diferenciais; aceita `dart_test.yaml` e as anotações | só a plataforma `vm`; sem *coverage*, *watch* e `--fail-fast`; o relator `expanded` tem formato próprio |
+| **`pub`** | solucionador **PubGrub** portado do Pub 3.6.2. `pub get` idêntico ao oficial em **51/51** projetos reais (lockfile byte a byte, `package_config.json`, saída e código), com e sem lockfile. `add`, `remove`, `upgrade`, `downgrade`, `deps` e `outdated` idênticos em 42 cenários (31/10) | sugestões depois de falha de resolução; avisos de segurança no `outdated`; `cache`, `global`, `publish`, `token`, `login`; `--precompile`; SDKs Flutter e Fuchsia. Matriz em `docs/PUB-E-TEST.md` |
+| **`test`** | igual ao `dart test` em **22/22** execuções diferenciais; aceita `dart_test.yaml` e as anotações; relator `expanded` no formato do `dart test` (31/10) | `-r json` com eventos próprios; só a plataforma `vm`; sem *coverage*, *watch*, `--fail-fast`, `compact` e `github` |
 | **JS produção** | corpus 277/277 (-O1/-O2), 260/260 (-O3), 256/256 (-O4) | — |
 | **Modos do runtime no wasm** | só tracing + pilha-sombra | ARC desligado no wasm32 (medido: mais lento e +6,8% de tamanho); `--exceptions tables` não implementado; mapas de raízes impossíveis (o wasm não expõe a pilha) |
 
@@ -36,10 +36,72 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | Wasm: tamanho do módulo e velocidade em alocação, JSON e strings | agente wasm |
 | `analyze`: os 107 falsos positivos do verificador de tipos | agente verificador de tipos |
 | JS dev (subir sem `build_runner`, edição de template) e JS produção (`collatz`, `Set<int>`, `jsonEncode`, gzip dos programas pequenos, `async_await`) | agente JS |
-| `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relatores, opções) | agente pub/test |
+| `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
 | Backend nativo (AOT e wasm): as 87 falhas da suíte `tests/language` | agente backend nativo |
 | AOT nativo: tempo de compilação (6× o `dart compile exe`) e tamanho de programa grande (1,4×); ARC real 3× os ciclos do tracing | a abrir |
 | LSP: medir o servidor oficial nos mesmos projetos e reduzir *hover*/*completion* | a abrir |
+
+## 31/10/2026: `dartforge pub` com o solucionador PubGrub do Pub e os subcomandos do dia a dia; relator `expanded` do `dart test`
+
+**Solucionador.** A busca com retrocesso (limite de 100000 decisões, que estourava no
+`aggr`) foi trocada por um porte do `VersionSolver` do Pub 3.6.2 (PubGrub com aprendizado
+de conflitos), incluindo as heurísticas que decidem *qual* solução sai: pacote com menos
+versões primeiro, versão travada preferida, estável mais nova primeiro (mais antiga no
+`downgrade`), fatos na ordem das dependências do pubspec e da listagem JSON do servidor
+(árvore com ordem de inserção para YAML e JSON), faixas de dependência agrupadas como no
+`PackageLister`. Versões e restrições seguem o `pub_semver` (build na ordem, `^` só
+quando escrito, operações de conjunto exatas). Fonte de referência: Pub
+`e6704cc5` (o `pub_rev` da tag 3.6.2) e `pub_semver` `8cce9d00`, baixados como tarball
+para o scratchpad (fora do repositório).
+
+**Saídas e mensagens.** `pubspec.lock` e `package_config.json` no formato exato do Pub,
+agora com cabeçalho e `generator: pub`; mensagens do Pub (`Resolving dependencies...`,
+`+ > < ~ * !`, `(x available)`, resumo, desatualizados/descontinuados, `example/` resumido
+com `./example`) e a explicação de falha (`Because ... version solving failed.`,
+numerada). Erros e códigos de saída do Pub (65 em dados, 69 para pacote inexistente,
+66 sem pubspec).
+
+**Subcomandos novos:** `upgrade` (pacotes, `--unlock-transitive`, `--major-versions`,
+`--tighten`), `downgrade`, `add` (`dev:`/`override:`, descritores YAML, restrições,
+`--path`, `--git-*`, `--hosted-url`, `--sdk`), `remove`, `deps` (tree/compact/list,
+`--json`, `--executables`) e `outdated` (tabela e `--json`, sem avisos de segurança).
+O pubspec é editado como o `yaml_edit` faz (ordem, aspas, seção vazia removida).
+Matriz completa de `pub` e `test` em `docs/PUB-E-TEST.md`.
+
+**Casos antes recusados:** arquivo hospedado com links (`new_sali/backend`: o `eloquent
+3.4.3` usa nomes longos GNU com magic `ustar`, que o crate `tar` não aplica; links
+internos mantidos e externos ignorados como no `extractTarGz`), repositório git local
+com caminho relativo, `resolution: local/external` (não são raiz, como no Pub) e
+membros de `workspace` com glob (na 3.6.2 o glob é só um caminho literal). Uma versão
+travada cujo pubspec mudou de versão (path ou pacote do SDK) volta a ser trocada, como no
+`SystemCache.describe` do Pub.
+
+**`dartforge test -r expanded`** passou a imprimir o formato do `ExpandedReporter`
+(linhas `MM:SS +n ~n -n: ...`, `loading`, `[E]` com erro e pilha indentados, `Skip:`,
+resumo, aviso de `--chain-stack-traces`, cores e `printPath` da configuração). Num
+pacote de teste com aprovação, falha, `skip` e `print` em duas suítes a saída coincide
+com a do `dart test -r expanded -j 1`, exceto o tempo decorrido (inclui a compilação) e
+os quadros da pilha nativa.
+
+**Evidência diferencial** (`bench/results/2026-10-31-pub-test/README.md`), contra
+`dart pub`/`dart test` 3.6.2 com caches separados e vazios:
+* `pub get` nos 51 projetos de `/Volumes/ssd_dock/MyProjectsDart` (os 18 de antes e 33
+  cópias novas): **51/51 idênticos** sem lockfile (resolução do zero: `pubspec.lock` byte a
+  byte, `package_config.json` fora o carimbo `generated`, `workspace_ref.json`, stdout e
+  código de saída), incluindo `aggr` e `new_sali/backend`; com os lockfiles existentes,
+  49/51 na primeira rodada; os 2 restantes (`aggr`, `pg8000`) eram versões travadas
+  cujo pubspec mudou de versão e ficaram idênticos depois da correção (re-execução).
+* 32 cenários de `add`/`remove`/`upgrade --major-versions`/`--tighten`/`downgrade`/`deps`
+  e falhas: todos com mesmo pubspec, lockfile, stdout e código de saída; a única
+  diferença é a lista de sugestões que o Pub imprime depois de uma falha de resolução
+  (não implementada).
+* 10 cenários de `outdated` (tabela, `--json`, `--no-dev-dependencies`, `--show-all
+  --no-transitive`, `--prereleases`): idênticos.
+
+**Continua aberto:** sugestões após falha, avisos de segurança, `cache`, `global`,
+`publish`/`token`/`login`, `--precompile`; no `test`, o protocolo JSON do package:test,
+os relatores `compact`/`github`, plataformas de navegador/node, coverage, watch e
+seleção por linha.
 
 ## 31/10/2026: verificador de tipos contra o `dart analyze`, `compareTo` do SDK e CI do macOS
 
