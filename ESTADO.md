@@ -221,11 +221,29 @@ assentamento (~18%), retains no runtime (~15%), escritas de campo e escopos nati
 retains que ainda vão ao runtime são de objetos novos do runtime com escrita crua
 pendente; registrar em linha os outros foi medido e não pagou (descartado).
 
+**Segunda rodada do ARC real (30/10, madrugada de 31/10, `872ef877`…`16632201`).** A
+contagem das chamadas da ABI por pedido (instrumentação temporária) guiou cada passo:
+*boxes* de `int` (242 por pedido, todos Smi), argumentos Owned (292), capturas de ambiente
+(108), *closures* (58), slots de quadros proprietários (190), contexto de *closure* (62) e
+escritas escalares de lista saem em linha; a rodada de ciclos percorre as arestas uma vez.
+Resultado, ciclos por pedido (medidas de 31/10, duas rodadas iguais):
+
+| servidor | Swift `-O` | DartForge tracing | `dart compile exe` | ARC real antes | ARC real agora |
+|---|---:|---:|---:|---:|---:|
+| cru | 26 mil | 38 mil | — | 106 mil | **82 mil** (−23%) |
+| `dart:io` | — | 66 mil | 70 mil | 280 mil | **205 mil** (−27%) |
+
+Também: a chave do SDK de produção passou a incluir o digest da biblioteca do runtime
+(`da4998f9`; o inventário publicado se amarra a ele, e o teste do Windows recusava o SDK
+do CLI em cache) e o job macOS do CI ganhou 210 minutos (`d0cf42b5`; 150 foram cortados
+nos testes do JIT).
+
 **Próximos passos:**
-1. A vazão do servidor no ARC real: 15,5 mil req/s, contra 48 mil no ARC simples
-   (249 contra 88 mil ciclos por pedido). Próximos alvos: o custo fixo de cada ponto de
-   assentamento (escopo nativo, escritas de lista, quadros), a rodada de ciclos e a morte
-   em linha no código gerado (o `release` que zera desaloca sem chamar o runtime).
+1. ARC real: o que ainda vai ao runtime por pedido no `dart:io` é a morte (~102, já no
+   caminho rápido), retains de objetos com escrita crua pendente (~43), escritas `Ref` de
+   lista (~22), argumentos de índice variável (~14) e quadros (~8 aberturas). O resto do
+   custo está na drenagem e na rodada de ciclos (~58 objetos de lixo cíclico por pedido) e
+   na morte em linha no código gerado, ainda por fazer.
 2. Reaplicar `/Volumes/ssd_dock/tmp/arc-redesign/final_field_elision.patch` e medir de
    novo.
 
