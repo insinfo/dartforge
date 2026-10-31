@@ -424,11 +424,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if ty != BodyType::SyncStar {
             b.exception_targets.push(top);
         }
-        // `async*`: the body only starts when someone listens, and starts
-        // cancelled if the subscription was already cancelled (`asyncStarBody(true)`).
-        if ty == BodyType::AsyncStar {
-            b.exit_if_cancelled();
-        }
+        // `async*`: the body only starts when someone listens. As in the VM it
+        // runs up to its first `yield` even when the subscription was cancelled
+        // before (`asyncStarBody(true)`): that `yield` ends it, through its
+        // `finally` blocks.
         match fn_body {
             FunctionBody::Block(s) => b.lower_stmt(ast, *s),
             FunctionBody::Expression(e) => {
@@ -921,6 +920,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         body: ast::StmtId,
         span: Span,
     ) {
+        self.lower_await_for_with(ast, target, iterable, span, &mut |b: &mut Self| {
+            b.lower_body(ast, body)
+        });
+    }
+
+    /// [`FnBuilder::lower_await_for`] with the body lowered by `body`: a
+    /// statement, or the element of an `await for` in a collection literal
+    /// (`[await for (var x in s) x]`).
+    pub fn lower_await_for_with(
+        &mut self,
+        ast: &ast::Ast,
+        target: &ast::ForInTarget,
+        iterable: ast::ExprId,
+        span: Span,
+        body: &mut dyn FnMut(&mut Self),
+    ) {
         if !self
             .async_state
             .as_ref()
@@ -963,7 +978,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             b.open_scope();
             let x = b.call_by_selector(it_c.clone(), "g:current".to_string(), &[]);
             b.bind_for_in_target(ast, target, x, iterable, span);
-            b.lower_body(ast, body);
+            body(b);
             b.close_scope();
             b.terminate(Terminator::Branch(head));
             b.break_targets.pop();
@@ -1074,12 +1089,80 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.unsupported("await outside an async function", span);
         }
         let v = self.lower_expr(ast, e);
-        self.await_value(v, span)
+        let check = self.await_check_type(e);
+        self.await_value_checked(v, check, span)
+    }
+
+    /// The CFE's runtime check type of `await e` (`AwaitExpression.runtimeCheckType`,
+    /// the VM's `_awaitWithTypeCheck`): when the static type `S` of `e` is not a
+    /// future type, the value is awaited only if it is a `Future<flatten(S)>`, and
+    /// otherwise it is the result itself — `await o` with `Object o =
+    /// Future<Object?>.value()` keeps the future, which is no `Future<Object>`.
+    /// `None` when no check is needed: `S` is a future type, `dynamic`, or a
+    /// class that cannot implement `Future`.
+    fn await_check_type(&self, e: ast::ExprId) -> Option<super::rti::Recipe> {
+        use dartforge_types::table::Type as T;
+        let future = self.ctx.core.future_class?;
+        let s = self.ctx.get_type(self.unit_id, e)?;
+        let flattened = match self.ctx.table.get(s) {
+            T::FutureOr { arg, .. } => *arg,
+            T::Interface { class, args, .. } => {
+                let core = &self.ctx.core;
+                let sealed = [
+                    core.int_class,
+                    core.double_class,
+                    core.num_class,
+                    core.bool_class,
+                    core.string_class,
+                    core.null_class,
+                ];
+                if self.future_argument(*class, args).is_some() || sealed.contains(&Some(*class)) {
+                    return None;
+                }
+                s
+            }
+            T::TypeParameter { param, .. } | T::Intersection { param, .. } => {
+                // A promoted variable (`X & B`) flattens as its promotion,
+                // an unpromoted one as its bound when that is a future type.
+                let bound = match self.ctx.table.get(s) {
+                    T::Intersection { bound, .. } => *bound,
+                    _ => self.ctx.table.param(*param).bound,
+                };
+                match self.ctx.table.get(bound) {
+                    T::FutureOr { arg, .. } => *arg,
+                    T::Interface { class, args, .. } => {
+                        if self.future_argument(*class, args).is_some() {
+                            return None;
+                        }
+                        s
+                    }
+                    _ => s,
+                }
+            }
+            _ => return None,
+        };
+        let inner = self.type_recipe(flattened);
+        Some(super::rti::Recipe {
+            text: format!("C{}<{}>", self.ctx.id_rti(future), inner.text),
+            variables: inner.variables,
+        })
     }
 
     /// `await` of an already evaluated value (that of `lower_await`, and those of
     /// `await for`).
     pub fn await_value(&mut self, v: Operand, span: Span) -> Operand {
+        self.await_value_checked(v, None, span)
+    }
+
+    /// [`FnBuilder::await_value`] with the runtime check type of the `await`
+    /// ([`FnBuilder::await_check_type`]): a value that is not of that type
+    /// resumes the body as it is, as a value that is not a `Future`.
+    fn await_value_checked(
+        &mut self,
+        v: Operand,
+        check: Option<super::rti::Recipe>,
+        span: Span,
+    ) -> Operand {
         if !self
             .async_state
             .as_ref()
@@ -1101,6 +1184,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // (`_asyncAwaitIn`); `async*` keeps `_asyncAwait`.
         let completer = (st.ty == BodyType::Async).then(|| st.completer.clone());
         let k = st.resumptions.len() as i64 + 1;
+        let awaitable = check.map(|r| {
+            let ty = self.recipe_rti(&r);
+            self.test_rti(v.clone(), ty)
+        });
         // The position of the `await` (its `fileOffset`): that of the frame of whoever
         // waits here, in the stack trace.
         let position = self.position.unwrap_or((0, 0));
@@ -1108,12 +1195,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             e.waits.push((k, position));
         }
         self.store_position(frame, Q_STATE, Operand::Constant(Constant::Int(k)));
-        match completer {
-            Some(completer) => {
+        match (completer, awaitable) {
+            (Some(completer), None) => {
                 self.call_support("_asyncAwaitIn", vec![v, fn_body, completer], span);
             }
-            None => {
+            (None, None) => {
                 self.call_support("_asyncAwait", vec![v, fn_body], span);
+            }
+            (Some(completer), Some(awaitable)) => {
+                self.call_support(
+                    "_asyncAwaitCheckedIn",
+                    vec![v, fn_body, completer, awaitable],
+                    span,
+                );
+            }
+            (None, Some(awaitable)) => {
+                self.call_support("_asyncAwaitChecked", vec![v, fn_body, awaitable], span);
             }
         }
         let suspends = self.current_block;

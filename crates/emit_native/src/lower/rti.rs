@@ -1507,7 +1507,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// If `C<args>` is a `Future`, the argument of the supertype `Future<X>`
     /// (`Some(None)` when `X` cannot be written with the `args` alone); `None`
     /// when it is not a `Future`.
-    fn future_argument(
+    pub(super) fn future_argument(
         &self,
         class: dartforge_elements::model::ClassId,
         args: &[TypeId],

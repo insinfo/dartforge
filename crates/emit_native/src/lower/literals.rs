@@ -840,6 +840,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.close_scope();
             }
             CollectionElement::ForIn {
+                await_: true,
+                target: for_target,
+                iterable,
+                body,
+            } => {
+                let fn_body: &CollectionElement = body;
+                self.lower_await_for_with(ast, for_target, *iterable, span, &mut |s: &mut Self| {
+                    s.collection_element(ast, target.clone(), typ, fn_body, span, expected);
+                });
+            }
+            CollectionElement::ForIn {
                 target: for_target,
                 iterable,
                 body,

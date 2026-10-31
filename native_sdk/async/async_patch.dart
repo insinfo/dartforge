@@ -114,6 +114,18 @@ class _AsyncAwaitCompleter<T> implements Completer<T> {
     }
   }
 
+  /// Resumes the body with `object` itself, a `Future` or not (the failed
+  /// check of `_awaitWithTypeCheck`).
+  @pragma("dartforge:hidden-frame")
+  void _awaitValue(Object? object, @pragma('vm:awaiter-link') _WrappedAsyncBody bodyFunction) {
+    final thenCallback =
+        _thenCallback ??= (result) => bodyFunction(_SUCCESS, result);
+    _errorCallback ??= (Object error, StackTrace stackTrace) {
+      bodyFunction(_ERROR, _DfAsyncError(error, stackTrace));
+    };
+    _awaitNotFuture(object, thenCallback);
+  }
+
   /// The VM's `_SuspendState._awaitCompletedFuture`: the continuation runs in
   /// the current zone from a microtask scheduled in the future's zone, the
   /// microtask `_addListener` schedules for a late listener; an error does not
@@ -227,6 +239,37 @@ dynamic _asyncAwait(dynamic object, _WrappedAsyncBody bodyFunction) {
 dynamic _asyncAwaitIn(
     dynamic object, _WrappedAsyncBody bodyFunction, _AsyncAwaitCompleter completer) {
   completer._await(object, bodyFunction);
+}
+
+/// The `await` of an `async` function whose operand needs the runtime check
+/// (the VM's `_SuspendState._awaitWithTypeCheck`): the compiler tested `object
+/// is Future<flatten(S)>` into `awaitable`; an object that failed it resumes the
+/// body as a value that is not a `Future`.
+@pragma("vm:entry-point", "call")
+@pragma("dartforge:hidden-frame")
+dynamic _asyncAwaitCheckedIn(dynamic object, _WrappedAsyncBody bodyFunction,
+    _AsyncAwaitCompleter completer, bool awaitable) {
+  if (awaitable) {
+    completer._await(object, bodyFunction);
+  } else {
+    completer._awaitValue(object, bodyFunction);
+  }
+}
+
+/// [_asyncAwaitCheckedIn] for an `async*` body.
+@pragma("vm:entry-point", "call")
+@pragma("dartforge:hidden-frame")
+dynamic _asyncAwaitChecked(
+    dynamic object, _WrappedAsyncBody bodyFunction, bool awaitable) {
+  if (awaitable) {
+    _awaitOnObject(object, bodyFunction);
+  } else {
+    _Future future = _Future().._setValue(object);
+    future._thenAwait((result) => bodyFunction(_SUCCESS, result),
+        (Object error, StackTrace stackTrace) {
+      bodyFunction(_ERROR, _DfAsyncError(error, stackTrace));
+    });
+  }
 }
 
 /// The `return` of an `async` function.
@@ -459,7 +502,8 @@ class _SyncStarIterator<T> implements Iterator<T> {
 // the transformed body is called: `asyncStarBody(canceled)` becomes
 // `body(_SUCCESS, canceled)`. The lowering emits, like the VM's compiler:
 //
-// * at the start of the body and after each `yield`: if `canceled`, `return`;
+// * after each `yield`: if `canceled`, `return` (the body starts even when the
+//   subscription was cancelled before, and its first `yield` ends it);
 // * `yield e`: `if (_asyncStarAdd(c, e)) return;` and suspends;
 // * `yield* s`: `if (_asyncStarAddStream(c, s)) return;` and suspends;
 // * `return`: `_asyncStarReturn(c)`; uncaught exception:

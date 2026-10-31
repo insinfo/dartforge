@@ -928,8 +928,8 @@ impl<'a> Context<'a> {
         }
     }
 
-    /// A synchronous `void f() => e;`, an ordinary function or method (not a getter, setter,
-    /// operator or constructor). See [`Self::hir_return`].
+    /// A synchronous `void f() => e;` or a `void f() async`, an ordinary function or
+    /// method (not a getter, setter, operator or constructor). See [`Self::hir_return`].
     fn arrow_void(&self, fid: usize) -> bool {
         let f = &self.program.functions[fid];
         // `main` is called by the entry as `void` (`lower/mod.rs`).
@@ -942,10 +942,14 @@ impl<'a> Context<'a> {
             return false;
         };
         let func_decl = self.program.unit(unit).ast.function(function);
-        matches!(
-            func_decl.body,
-            dartforge_frontend::ast::FunctionBody::Expression(_)
-        ) && func_decl.modifier == dartforge_frontend::ast::AsyncModifier::None
+        // A `void f() async` returns its `Future` too, as in the VM: a caller
+        // that sees it as `Function` (`asyncTest(f)`) awaits it.
+        let modifier = func_decl.modifier;
+        modifier == dartforge_frontend::ast::AsyncModifier::Async
+            || (matches!(
+                func_decl.body,
+                dartforge_frontend::ast::FunctionBody::Expression(_)
+            ) && modifier == dartforge_frontend::ast::AsyncModifier::None)
     }
 
     pub fn to_hir_type(&self, ty: TypeId) -> crate::hir::Type {
