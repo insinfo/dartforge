@@ -1489,6 +1489,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
             return Operand::Constant(Constant::Bool(r));
         }
+        // `null` is the zero handle, whatever class id the heap gives it
+        // (the SDK from source has a `Null` class of its own).
+        let is_null = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, op.clone(), Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
         let cls = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_value_class".to_string(),
@@ -1505,15 +1511,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let base = match name_str.as_str() {
             "dynamic" => Operand::Constant(Constant::Bool(true)),
-            "Object" => self.emit(
-                Instruction::ICmp(
-                    ICmpOp::Ne,
-                    cls.clone(),
-                    Operand::Constant(Constant::Int(-12)),
-                ),
-                Type::I1,
-            ),
-            "Null" => equal(self, -12),
+            "Object" => self.emit(Instruction::LNot(is_null.clone()), Type::I1),
+            "Null" => is_null.clone(),
             // No value is a `Never` (`Never?` accepts `null`, below).
             "Never" if name.len() == 1 => Operand::Constant(Constant::Bool(false)),
             "num" => {
@@ -1559,8 +1558,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !ast_ty.nullable {
             return base;
         }
-        let null = equal(self, -12);
-        self.emit(Instruction::Or(base, null), Type::I1)
+        self.emit(Instruction::Or(base, is_null), Type::I1)
     }
 
     /// Implicit or explicit `as T`: `TypeError` if the value is not a `T`,

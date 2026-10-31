@@ -974,8 +974,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     .get(cid.0 as usize)
                     .map(|d| d.type_params.to_vec())
                     .unwrap_or_default();
+                // `Null` is the `Null` type, the one `null.runtimeType` is.
+                let null = Some(cid) == self.ctx.core.null_class;
                 let mut r = super::rti::Recipe {
-                    text: format!("C{}", self.ctx.id_rti(cid)),
+                    text: if null {
+                        "U".to_string()
+                    } else {
+                        format!("C{}", self.ctx.id_rti(cid))
+                    },
                     variables: false,
                 };
                 if !params.is_empty() {

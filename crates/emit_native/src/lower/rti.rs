@@ -208,6 +208,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             T::Void => r.text.push('V'),
             T::Never => r.text.push('N'),
             T::Null => r.text.push('U'),
+            // The class `Null` named as a type (`Null` as a type literal) is
+            // the `Null` type itself: the same `Type` as `null.runtimeType`.
+            T::Interface { class, .. } if Some(*class) == self.ctx.core.null_class => {
+                r.text.push('U')
+            }
             T::Interface { class, args, .. } => {
                 r.text.push_str(&format!("C{}", self.ctx.id_rti(*class)));
                 if !args.is_empty() {
@@ -300,7 +305,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             T::ExtensionType { .. } => r.text.push('D'),
         }
-        if nullable && !matches!(self.ctx.table.get(t), T::Dynamic | T::Void | T::Null) {
+        let null_class = matches!(self.ctx.table.get(t),
+            T::Interface { class, .. } if Some(*class) == self.ctx.core.null_class);
+        if nullable
+            && !null_class
+            && !matches!(self.ctx.table.get(t), T::Dynamic | T::Void | T::Null)
+        {
             r.text.push('?');
         }
     }
@@ -646,6 +656,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 r.text.push('>');
             }
+        }
+        // `Never?` is `Null` (NORM of the subtyping specification).
+        if a.nullable && r.text.ends_with('N') {
+            r.text.pop();
+            r.text.push('U');
         }
         let is_nullable_by_itself = matches!(r.text.as_bytes().last(), Some(b'D' | b'V' | b'U'));
         if a.nullable && !is_nullable_by_itself {
