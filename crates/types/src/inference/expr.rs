@@ -2652,7 +2652,9 @@ pub(crate) fn infer_at(
         }
     };
     record_type(inf, cx, e, t);
-    if matches!(inf.table.get(t), Type::Never) {
+    // `isBottom` (`T extends Never` and `T & Never` too): what follows does not
+    // run.
+    if inf.is_bottom(t) {
         cx.flow.reachable = false;
     }
     (t, short_circuit)
@@ -7007,6 +7009,15 @@ pub(crate) fn is_condition_form(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) ->
         // information, stored in the condition variable: `bool c = true; c ? a
         // : b` has a dead `b`).
         ExprKind::Bool(_) => true,
+        // A read of a condition variable carries its condition on: `bool b2 =
+        // b1;` makes `b2` one too (`local_boolean_does_not_detect_aliases`).
+        ExprKind::Identifier(n) => match cx.lookup(n.sym) {
+            Some(MemberName::Local(id)) => cx.flow.version(id).is_some_and(|v| {
+                cx.conditions.contains_key(&(id, v))
+                    && !cx.flow.model(id).is_some_and(|m| m.captured)
+            }),
+            _ => false,
+        },
         _ => false,
     }
 }

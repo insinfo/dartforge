@@ -3420,3 +3420,42 @@ void main() {{}}
     };
     assert!(diags.is_empty(), "{diags:?}");
 }
+
+/// A read of a condition variable is a condition too (`bool b2 = b1;`), and an
+/// expression whose type is bottom (`T extends Never`) ends the flow as `Never`
+/// does.
+#[test]
+fn condition_variable_aliases_and_bottom_type_parameters() {
+    let Some(diags) = constant_diagnostics_of(&format!(
+        r#"{STATIC_TYPE_HELPER}
+void aliases(int? x) {{
+  bool b1 = x != null;
+  bool b2 = b1;
+  if (b2) x.expectStaticType<Exactly<int>>();
+  final bool b3;
+  b3 = b1;
+  if (b3) x.expectStaticType<Exactly<int>>();
+}}
+
+class C<T extends Never> {{
+  T get t => throw 'x';
+
+  void test(Object x, bool b) {{
+    if (x is! int) {{
+      if (b) {{
+        t;
+      }} else {{
+        return;
+      }}
+    }}
+    x.isEven;
+  }}
+}}
+
+void main() {{}}
+"#
+    )) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}
