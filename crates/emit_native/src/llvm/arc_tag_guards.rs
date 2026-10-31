@@ -184,8 +184,29 @@ no:
         mask = arc_word::LIVE | arc_word::SNAPSHOT,
         live = arc_word::LIVE,
     );
-    retain + &release + &store_ok
+    // A value whose inline retain is a plain count: not a handle, a static, or a
+    // registered live object of the space (an unregistered one is registered by the
+    // runtime, which may also make it a cycle candidate for an edge).
+    let counted = format!(
+        r#"define internal i1 @{COUNTED}(i64 %value) alwaysinline nounwind "gc-leaf-function" {{
+entry:
+{word}  %lv = and i64 %w, {live}
+  %ok = icmp ne i64 %lv, 0
+  ret i1 %ok
+yes:
+  ret i1 true
+no:
+  ret i1 false
+}}
+"#,
+        word = word("yes", "no"),
+        live = arc_word::LIVE,
+    );
+    retain + &release + &store_ok + &counted
 }
+
+/// [`prompt_helpers`]'s test that a value's inline retain is a plain count.
+pub(super) const COUNTED: &str = "df.arc_counted";
 
 /// The largest instance with a drop function: its reference map is the header's.
 pub(super) const DROP_FIELDS: usize = 32;

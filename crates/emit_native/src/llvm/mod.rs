@@ -1665,6 +1665,8 @@ impl<'a> LlvmEmitter<'a> {
                         Some((b.id.0, format!("rt{v}.fim")))
                     } else if self.prepared_inline_box_int(i) {
                         Some((b.id.0, format!("bi{v}.fim")))
+                    } else if self.prepared_inline_closure(i) {
+                        Some((b.id.0, format!("cl{v}.fim")))
                     } else if let Some(kind) = self.inline_frame_access(i) {
                         Some((b.id.0, format!("f{kind}{v}.fim")))
                     } else if self.typed_registration_inline(i) {
@@ -2743,6 +2745,37 @@ impl<'a> LlvmEmitter<'a> {
                             .unwrap();
                         }
                         self.current_label = format!("{l}.fim");
+                    }
+                    Instruction::CallRuntime { args, .. }
+                    | Instruction::DeclaredFieldCall { args, .. }
+                        if self.prepared_inline_closure(inst) =>
+                    {
+                        let a: Vec<String> = args
+                            .iter()
+                            .map(|(x, _)| self.coerce(x, Type::I64))
+                            .collect();
+                        let ctx = &a[1];
+                        writeln!(
+                            self.out,
+                            "  %cl{v}.k = call i1 @{}(i64 {ctx})\n  br i1 %cl{v}.k, label %cl{v}.fast, label %cl{v}.slow\ncl{v}.fast:",
+                            arc_tag_guards::COUNTED
+                        )
+                        .unwrap();
+                        // The allocation's own values and labels, apart from `v`'s.
+                        let t = v | 1 << 31;
+                        self.emit_inline_allocation_owned(t, i64::from(layout::cid::CLOSURE), 4);
+                        writeln!(
+                            self.out,
+                            "  %cl{v}.b = add i64 %v{t}, {body}\n  %cl{v}.p0 = inttoptr i64 %cl{v}.b to ptr\n  store i64 {code}, ptr %cl{v}.p0, align 8\n  %cl{v}.p1 = getelementptr inbounds i64, ptr %cl{v}.p0, i64 1\n  store i64 {ctx}, ptr %cl{v}.p1, align 8\n  %cl{v}.p2 = getelementptr inbounds i64, ptr %cl{v}.p0, i64 2\n  store i64 {typed}, ptr %cl{v}.p2, align 8\n  %cl{v}.p3 = getelementptr inbounds i64, ptr %cl{v}.p0, i64 3\n  store i64 {abi}, ptr %cl{v}.p3, align 8\n  %cl{v}.m = add i64 %v{t}, {map}\n  %cl{v}.mp = inttoptr i64 %cl{v}.m to ptr\n  store i32 2, ptr %cl{v}.mp, align 4\n  call void @{retain}(i64 {ctx})\n  br label %cl{v}.fim\ncl{v}.slow:\n  %cl{v}.s = call i64 @dartforge_arc_closure_owned_v1(i64 {code}, i64 {ctx}, i64 {typed}, i64 {abi})\n  br label %cl{v}.fim\ncl{v}.fim:\n  %v{v} = phi i64 [ %v{t}, %ao{t}.fim ], [ %cl{v}.s, %cl{v}.slow ]",
+                            body = layout::offsets::BODY as i64 - layout::HANDLE_OFFSET,
+                            map = layout::offsets::MAP as i64 - layout::HANDLE_OFFSET,
+                            code = a[0],
+                            typed = a[2],
+                            abi = a[3],
+                            retain = arc_tag_guards::RETAIN,
+                        )
+                        .unwrap();
+                        self.current_label = format!("cl{v}.fim");
                     }
                     Instruction::CallRuntime { args, .. } if self.prepared_inline_box_int(inst) => {
                         let x = self.coerce(&args[0].0, Type::I64);
@@ -6592,6 +6625,23 @@ impl<'a> LlvmEmitter<'a> {
             }
             _ => None,
         }
+    }
+
+    /// The real ARC's Owned closure that comes out inline: when its context is null,
+    /// a static or registered (`df.arc_counted`), the Owned allocation of a
+    /// `_Closure` of four fields, the code, the context (the reference of the map),
+    /// the typed body and its ABI, and the context's retain for its edge; any other
+    /// context calls the runtime, which registers it as an edge's target. Its block
+    /// ends at `cl{v}.fim`.
+    fn prepared_inline_closure(&self, i: &Instruction) -> bool {
+        matches!(i, Instruction::CallRuntime { name, args, .. }
+            | Instruction::DeclaredFieldCall { name, args, .. }
+            if name == "dartforge_arc_closure_owned_v1"
+                && args.len() == 4
+                && self.module.arc_prompt_death
+                && self.arc_tag_guards
+                && !self.out_of_line_allocation
+                && !audited_arc_abi())
     }
 
     /// The real ARC's Owned int box that comes out inline: a value in the `Smi`
