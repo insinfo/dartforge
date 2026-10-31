@@ -1,7 +1,8 @@
 //! The production forms of `docs/JS-PRODUCAO-VELOCIDADE.md` §11: constants
 //! cached per site, `for`-in through the Dart iterator, `S? as S` that
 //! checks only `null`, `is C` by the prototype chain, `is num`/`is int` and
-//! `identical(x, literal)` without the runtime. The program gives
+//! `identical(x, literal)` without the runtime, and the native sort of lists
+//! of numbers or strings. The program gives
 //! the VM's answers at each level, with the switches and without them.
 
 use std::path::Path;
@@ -12,6 +13,7 @@ const SWITCHES: &[&str] = &[
     "DARTFORGE_JSPROD_ITERATOR_LOOPS",
     "DARTFORGE_JSPROD_NON_NULL_CASTS",
     "DARTFORGE_JSPROD_INSTANCEOF",
+    "DARTFORGE_JSPROD_PRIMITIVE_SORT",
     "DARTFORGE_JSPROD_NUMBER_TESTS",
     "DARTFORGE_JSPROD_IDENTICAL_LITERALS",
 ];

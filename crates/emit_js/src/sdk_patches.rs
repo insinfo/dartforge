@@ -929,6 +929,35 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
         "      init = null;\n      value = x;\n      setter(x);\n",
         "      init = null;\n      value = x;\n      setter(x);\n      if (typeof $to != 'function') $defineProperty($to, $name, {value, writable: true});\n",
     ),
+    // `List.sort()` without a comparator ran the Dart `Sort.sort` with
+    // `Comparable.compare(a as Comparable, b as Comparable)` at each
+    // comparison. When every element is a JavaScript number (or every one a
+    // string), the native `Array.prototype.sort` with the comparator of
+    // `num.compareTo` (`-0.0` before `0.0`, `NaN` last) or of
+    // `String.compareTo` (code units) sorts the same: two elements compare
+    // as 0 only when they are the same value, so the sorted list is the only
+    // one, stable sort or not, and the comparator has no effect to order.
+    // Anything else (a `null`, a `bool`, objects, a list of one element)
+    // goes to `Sort.sort` as before, with its errors.
+    (
+        Some("DARTFORGE_JSPROD_PRIMITIVE_SORT"),
+        "_internal/js_dev_runtime/private/js_array.dart",
+        "    if (compare == null) {\n      Sort.sort(\n          this, (a, b) => Comparable.compare(a as Comparable, b as Comparable));\n",
+        r#"    if (compare == null) {
+      if (JS<bool>('!', r'''((a) => {
+        const n = a.length, kind = n > 1 ? typeof a[0] : "";
+        if (kind !== "number" && kind !== "string") return false;
+        for (let i = 1; i < n; i++) if (typeof a[i] !== kind) return false;
+        a.sort(kind === "string" ? (x, y) => x < y ? -1 : x > y ? 1 : 0 :
+          (x, y) => x < y ? -1 : x > y ? 1 : x === y ? (x !== 0 || (1 / x < 0) === (1 / y < 0) ? 0 : 1 / x < 0 ? -1 : 1) : x !== x ? (y !== y ? 0 : 1) : -1);
+        return true;
+      })(#)''', this)) {
+        return;
+      }
+      Sort.sort(
+          this, (a, b) => Comparable.compare(a as Comparable, b as Comparable));
+"#,
+    ),
 ];
 
 /// Applies `PATCHES` to `sdk` as overlay replacements. The patched files

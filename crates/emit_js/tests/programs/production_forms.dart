@@ -1,7 +1,7 @@
 // Production forms of `docs/JS-PRODUCAO-VELOCIDADE.md` §11: constants
 // evaluated once per site, `for`-in through the Dart iterator, the `S? as S`
 // check that only tests `null`, `is C` by the prototype chain, `is num`/`is
-// int` and `identical(x, literal)` without the runtime.
+// int` and `identical(x, literal)` without the runtime, and the native sort.
 // Every answer is the VM's.
 import 'dart:collection';
 import 'dart:convert';
@@ -318,9 +318,59 @@ void typeTests() {
   print(identical(null, null));
 }
 
+class Ranked implements Comparable<Ranked> {
+  final int rank;
+  final String name;
+  Ranked(this.rank, this.name);
+  @override
+  int compareTo(Ranked other) => rank - other.rank;
+  @override
+  String toString() => '$name$rank';
+}
+
+/// A number as every platform prints it (the web prints `0.0` as `0`).
+String show(num d) => d == 0 ? (d.isNegative ? '-0' : '+0') : d.toStringAsExponential(2);
+
+void sorting() {
+  final ints = [5, -3, 9007199254740991, 0, 42, -9007199254740991, 7, 7, 1];
+  print(ints..sort());
+  final doubles = <double>[3.5, -0.0, double.nan, 0.0, double.infinity, -1e-300, double.negativeInfinity, -0.0, 0.0];
+  doubles.sort();
+  print(doubles.map(show).join(' '));
+  final nums = <num>[3, 2.5, -1, 0.0, -0.0, 1e21, 2];
+  print((nums..sort()).map(show).join(' '));
+  final strings = ['b', 'B', 'a', '', 'é', 'é', '😀', '￿', 'aa', 'a'];
+  print((strings..sort()).map((s) => s.codeUnits.join('.')).join(' '));
+  print((<int>[]..sort()).length);
+  print(([9]..sort()));
+  print((List<int>.filled(3, 2, growable: false)..sort()));
+  final ranked = [Ranked(2, 'b'), Ranked(1, 'a'), Ranked(2, 'c'), Ranked(0, 'z')];
+  ranked.sort();
+  print(ranked.map((r) => r.rank).join(' '));
+  // (`[1, 'a']` is left out: `num.compareTo` of a `String` does not throw
+  // in DartForge's JavaScript, with or without the native sort.)
+  for (final bad in <List<Object?>>[
+    [null, 1],
+    [true, false],
+  ]) {
+    try {
+      bad.sort();
+      print('sorted $bad');
+    } catch (e) {
+      print('cannot sort ${bad.length}: ${e is TypeError || e is NoSuchMethodError}');
+    }
+  }
+  try {
+    (const [3, 1, 2]).sort();
+  } on UnsupportedError {
+    print('const list is unmodifiable');
+  }
+}
+
 void main() {
   constants();
   iteration();
   casts();
   typeTests();
+  sorting();
 }
