@@ -110,8 +110,9 @@ seleção por linha.
 `dart analyze` 3.6.2, nos 2.863 programas válidos da suíte `tests/language` (as chaves de
 `results/vm.json`), em lotes de 100 arquivos. Conta-se cada erro nosso que o oficial não
 relata na mesma linha. Ficam de fora os testes de `macros/`, que travam o `dart analyze`.
-- **Antes:** 231 erros a mais, em 70 arquivos. **Agora:** 107, em 29 arquivos (152 depois da
-  versão de linguagem e da inferência horizontal; o resto veio das correções de fluxo abaixo).
+- **Antes:** 231 erros a mais, em 70 arquivos. **Depois da primeira rodada:** 107, em 29 arquivos
+  (152 depois da versão de linguagem e da inferência horizontal; o resto veio das correções de
+  fluxo abaixo). **Agora:** 20, em 7 arquivos (segunda rodada, no fim da seção).
 - **Versão de linguagem.** O verificador aplicava os `inference-update-1/2/3` (2.18, 3.2 e 3.4)
   em qualquer biblioteca. Agora são `Feature`s com `enabledIn` (`crates/frontend/src/features.rs`)
   e respeitam o `// @dart=x.y`: em 3.3, `??`, `??=`, `?:` e a expressão `switch` têm o tipo UP
@@ -153,14 +154,70 @@ relata na mesma linha. Ficam de fora os testes de `macros/`, que travam o `dart 
   - a promoção do campo privado de representação de *extension type* (`7a9cafdb`);
   - o portão de `use_of_void_result` nos quatro compiladores (`30a7e77d`,
     `codes::REJECTING_CODES`).
-- **O que sobra (107):**
-  - análise de fluxo: `try/finally` e junções (`inference_update_2`), promoção por padrão de
-    objeto de um campo não promovível, a regra de `== null` com promoção a `Null`
-    (`unreachable_via_*property*`), `patterns/flow_analysis`;
-  - UP com interseções (`least_upper_bound_greatest_closure_*`, `S & int`);
-  - `noSuchMethod` em `invocation_mirror_test`;
-  - *wildcards* (`_` em `this._`, funções e *typedefs*);
-  - `variance`, `records/type_inference*` e o `throw` de `Object?`.
+- **O que sobrava (107):** análise de fluxo (`try/finally`, junções, padrões, `== null`), UP
+  com interseções, `noSuchMethod`, *wildcards*, `variance` e `records/type_inference*`.
+
+**Segunda rodada: 107 → 20 erros a mais** (29 → 7 arquivos), pelo `_fe_analyzer_shared` 76.0.0
+(o do 3.6.2, no pub-cache). Commits `f0671f47` (107 → 82), `e3ce8928` (82 → 77) e `f15d9242`
+(77 → 20). Validação no fim: testes de `types`, `analysis` e `frontend`, clippy limpo, corpus JS
+277/277 (dev e prod) e nativo 163/163 com o CLI `--features native,jit`.
+- **Promoção de campos pelos nós SSA:**
+  - a junção de duas versões de gravação de uma variável leva as propriedades lidas nos dois
+    caminhos para a versão nova, com os modelos juntados (`SsaNode._join`). A gravação não
+    apaga mais as propriedades da versão antiga (`forget_fields_of` saiu);
+  - `try/finally` segue o `attachFinally`: as promoções do `finally` se apoiam nas do `try`,
+    também nas propriedades de uma variável gravada no `try` (`_applyPropertyPromotions`);
+  - o subpadrão de propriedade de um padrão de objeto divide o nó SSA de `x._f`: promove a
+    propriedade e vê a promoção dela (`pushPropertySubpattern`);
+  - a cascata sobre um alvo que não é referência guarda o temporário como referência da
+    cascata inteira (`(c.d.._e!)._e`).
+- **Testes de nulo** (`tryMarkNonNullable`, `_equalityCheck`): a referência de uma propriedade
+  ou de `this` tem o tipo **não promovido**. `c._f != null` depois de `c._f is int` lê `Object`,
+  e `c._f == null` depois de `c._f is Null` deixa os dois ramos alcançáveis. Dois operandos
+  `Null` são certamente iguais. `x is T` com qualquer tipo *bottom* nunca é verdadeiro.
+  Em contexto de valor, `is` e `==` não mexem no estado: `f is Function` como argumento não
+  vira tipo de interesse.
+- **Padrões e `switch`:**
+  - o `case` com rótulo parte da junção conservadora do que os **casos** gravam, sem o
+    escrutínio (`switch (x = 0)`);
+  - `promoteForPattern` junta ao "não casou" tanto o tipo errado quanto o "pode falhar mesmo
+    assim" (`case []` contra `List<Object?>?`);
+  - `var (b) = x != null;` guarda a condição em `b`;
+  - o fluxo guarda quando morreu e o ponto de divisão do padrão de topo de um `case`
+    (`Flow::dead_at`/`split`). A junção favorece o caminho localmente alcançável e junta dois
+    caminhos localmente mortos (`FlowModel.join`).
+- **Inferência:**
+  - os tipos inferidos são demovidos depois das verificações (`_demoteTypes`, `ops::demote`):
+    `X & B` vira `X` nos argumentos de tipo de chamadas, literais, *tear-offs* e extensões
+    (`S & int` liga `T` a `S`);
+  - `var y = x0;` com `x0: T & num` declara `T` e promove a `T & num`; um inicializador `late`
+    promove como uma gravação (`late num? x = 3;` é `num`);
+  - o literal de *record* infere os campos na ordem do fonte e usa os esquemas do contexto
+    como estão (`(List<_>,)` deixa `[1, 2]` como `List<int>`);
+  - um literal genérico não recebe nada de um contexto com outro número de parâmetros de tipo;
+  - um parâmetro com variância explícita (`in`/`out`, mesmo sem o experimento) não fixa o
+    tipo preliminar do contexto;
+  - um método de `Object` sobre `dynamic` só é estático quando os argumentos servem
+    (`n.noSuchMethod()` é chamada dinâmica).
+- **Testes novos** (`crates/types/tests/bodies.rs`, no modo do analisador,
+  `analyzer_diagnostics_of`; cada um falha sem a correção):
+  `field_promotion_through_joins_finally_patterns_and_cascades`,
+  `null_checks_of_property_references_and_bottom_type_tests`,
+  `pattern_flow_split_points_and_switch_labels`,
+  `demotion_records_generic_literals_and_dynamic_object_methods` e
+  `explicit_variance_does_not_fix_the_context_type`.
+- **Sem falso negativo novo:** os erros dos 1.460 programas de erro da suíte (os que não estão
+  em `results/vm.json`) são os mesmos antes e depois de cada etapa. Placar do analisador
+  23.001/23.012 (FP 1, o mesmo de antes: `pattern_assignment_error_test.dart:36`, o contexto de
+  `(x) = e` com `x` promovido).
+- **O que sobra (20):**
+  - `augmentation_libraries` e `test_runner` (12): sem o experimento `macros`, o parser do
+    3.6.2 reconhece as declarações `augment` (mas não o `library augment`) e não reclama do
+    `import augment`; o nosso lê `augment String get foo` como uma variável `String`;
+  - `least_upper_bound_greatest_closure_2_test` (2): com `X1 extends FutureOr<X1>`, o
+    `dart analyze` 3.6.2 não dá diagnóstico nenhum na função (a subtipagem recursiva estoura);
+  - *wildcards* fora do modo *wildcard* (6): com `_` declarado duas vezes no mesmo bloco, o
+    analisador liga o nome à primeira declaração; nós, à última.
 
 **`compareTo` do SDK na produção JS.** `JSNumber.compareTo(num b)` e `JSString.compareTo`
 sobrescrevem `Comparable<T>.compareTo(T)`. A compilação própria do SDK só verificava parâmetros
