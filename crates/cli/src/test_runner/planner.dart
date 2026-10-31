@@ -158,6 +158,10 @@ Future<void> main(List<String> args) async {
     'reporter': configuration.reporter,
     'defaultReporter': defaultReporter,
     'noTestsMessage': _noTestsMessage(configuration),
+    // The reporters' `printPath` rule.
+    'printPath': configuration.testSelections.length > 1 ||
+        Directory(configuration.testSelections.keys.single).existsSync(),
+    'color': configuration.color,
   });
 
   final reply = jsonDecode(stdin.readLineSync(encoding: utf8)!) as Map;

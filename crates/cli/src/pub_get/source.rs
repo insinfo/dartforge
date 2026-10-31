@@ -397,6 +397,13 @@ impl Cache {
                 return Err(SourceError::Fatal(format!("cannot describe {}", id.name)));
             }
         };
+        // Like `SystemCache.describe`: a locked id must still exist as is.
+        if manifest.version != id.version {
+            return Err(SourceError::NotFound(format!(
+                "the pubspec for {} {} has version {}",
+                id.name, id.version, manifest.version
+            )));
+        }
         Ok(self.remember(id, manifest))
     }
 

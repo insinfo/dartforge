@@ -78,7 +78,8 @@ Future<void> main(List<String> args) async {
           emit({
             'type': 'message',
             'name': live.test.name,
-            'message': message.text
+            'message': message.text,
+            'messageType': message.type.name,
           });
         });
         live.onComplete.then((_) {

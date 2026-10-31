@@ -426,64 +426,220 @@ fn plan(
     }
 }
 
-/// Prints worker events, prefixing test names with the suite when several run.
-struct Relay {
-    json: bool,
-    suite: String,
-    prefix: bool,
-    /// Text output of a suite running in parallel is kept together.
-    buffer: Option<Vec<(bool, String)>>,
+/// package:test's `ExpandedReporter`, fed with the events of every suite
+/// in the order the suites report them, so a sequential run prints what
+/// `dart test -r expanded` prints (apart from the elapsed time and the
+/// frames of native stack traces).
+struct Expanded {
+    color: bool,
+    print_path: bool,
+    started: Option<Instant>,
+    passed: u64,
+    skipped: u64,
+    failed: u64,
+    ran: bool,
+    last: Option<(u64, u64, u64, String, Option<String>)>,
+    chain_notice: bool,
+    /// The running test's description and whether it already failed.
+    current: Option<(String, bool)>,
 }
 
-impl Relay {
-    fn out(&mut self, error: bool, text: String) {
-        match &mut self.buffer {
-            Some(lines) => lines.push((error, text)),
-            None if error => eprintln!("{text}"),
-            None => println!("{text}"),
+impl Expanded {
+    fn new(color: bool, print_path: bool) -> Self {
+        Self {
+            color,
+            print_path,
+            started: None,
+            passed: 0,
+            skipped: 0,
+            failed: 0,
+            ran: false,
+            last: None,
+            chain_notice: false,
+            current: None,
         }
     }
 
-    fn name(&self, event: &Value) -> String {
-        let name = event["name"].as_str().unwrap_or("");
-        if self.prefix {
-            format!("{}: {name}", self.suite)
+    fn code(&self, code: &'static str) -> &'static str {
+        if self.color { code } else { "" }
+    }
+
+    fn progress(&mut self, message: &str, color: &str, suffix: Option<String>) {
+        let key = (self.passed, self.skipped, self.failed, message.to_owned());
+        if let Some(last) = &self.last
+            && (last.0, last.1, last.2, last.3.clone()) == key
+            && (suffix.is_none() || suffix == last.4)
+        {
+            return;
+        }
+        self.last = Some((key.0, key.1, key.2, key.3, suffix.clone()));
+        let elapsed = self.started.map(|s| s.elapsed().as_secs()).unwrap_or(0);
+        let (green, yellow, red, none) = (
+            self.code("\u{1b}[32m"),
+            self.code("\u{1b}[33m"),
+            self.code("\u{1b}[31m"),
+            self.code("\u{1b}[0m"),
+        );
+        let mut line = format!(
+            "{:02}:{:02} {green}+{}{none}",
+            elapsed / 60,
+            elapsed % 60,
+            self.passed
+        );
+        if self.skipped > 0 {
+            line.push_str(&format!("{yellow} ~{}{none}", self.skipped));
+        }
+        if self.failed > 0 {
+            line.push_str(&format!("{red} -{}{none}", self.failed));
+        }
+        line.push_str(&format!(
+            ": {color}{message}{}{none}",
+            suffix.unwrap_or_default()
+        ));
+        println!("{line}");
+    }
+
+    fn describe(&self, suite: &str, name: &str) -> String {
+        if self.print_path {
+            format!("{suite}: {name}")
         } else {
             name.to_owned()
         }
     }
 
+    fn error_suffix(&self) -> String {
+        format!(
+            " {}{}[E]{}",
+            self.code("\u{1b}[1m"),
+            self.code("\u{1b}[31m"),
+            self.code("\u{1b}[0m")
+        )
+    }
+
+    /// The `loading <path>` line printed when a suite starts loading.
+    fn loading(&mut self, suite: &str) {
+        let text = format!(
+            "{}{}loading {suite}{}",
+            self.code("\u{1b}[1m"),
+            self.code("\u{1b}[90m"),
+            self.code("\u{1b}[0m")
+        );
+        self.progress(&text, "", None);
+    }
+
+    fn event(&mut self, suite: &str, event: &Value) {
+        let name = event["name"].as_str().unwrap_or("");
+        match event["type"].as_str() {
+            Some("testStart") => {
+                self.started.get_or_insert_with(Instant::now);
+                self.ran = true;
+                let description = self.describe(suite, name);
+                self.current = Some((description.clone(), false));
+                self.progress(&description, "", None);
+            }
+            Some("message") | Some("print") => {
+                if let Some((description, _)) = self.current.clone() {
+                    self.progress(&description, "", None);
+                }
+                let text = event["message"].as_str().unwrap_or("");
+                if event["messageType"] == "skip" {
+                    println!(
+                        "  {}{text}{}",
+                        self.code("\u{1b}[33m"),
+                        self.code("\u{1b}[0m")
+                    );
+                } else {
+                    println!("{text}");
+                }
+            }
+            Some("error") => {
+                self.chain_notice = true;
+                let description = match &mut self.current {
+                    Some((description, failed)) => {
+                        if !*failed {
+                            *failed = true;
+                            self.failed += 1;
+                        }
+                        description.clone()
+                    }
+                    None => self.describe(suite, name),
+                };
+                let suffix = self.error_suffix();
+                self.progress(&description, "", Some(suffix));
+                let indent = |text: &str| format!("  {}", text.replace('\n', "\n  "));
+                println!("{}", indent(event["error"].as_str().unwrap_or("")));
+                println!("{}", indent(event["stackTrace"].as_str().unwrap_or("")));
+            }
+            Some("loadError") => {
+                self.ran = true;
+                self.failed += 1;
+                let text = format!(
+                    "{}{}loading {suite}{}",
+                    self.code("\u{1b}[1m"),
+                    self.code("\u{1b}[90m"),
+                    self.code("\u{1b}[0m")
+                );
+                let suffix = self.error_suffix();
+                self.progress(&text, "", Some(suffix));
+                let message = event["error"].as_str().unwrap_or("");
+                println!("  {}", message.replace('\n', "\n  "));
+            }
+            Some("testDone") => {
+                let failed = self.current.take().is_some_and(|(_, failed)| failed);
+                match event["result"].as_str() {
+                    Some("success") => self.passed += 1,
+                    _ if event["skipped"] == true => self.skipped += 1,
+                    _ if !failed => self.failed += 1,
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn done(&mut self) {
+        if !self.ran {
+            println!("No tests ran.");
+        } else if self.failed > 0 {
+            let red = self.code("\u{1b}[31m");
+            self.progress("Some tests failed.", red, None);
+        } else if self.passed == 0 {
+            self.progress("All tests skipped.", "", None);
+        } else {
+            self.progress("All tests passed!", "", None);
+        }
+        if self.chain_notice {
+            println!();
+            println!(
+                "Consider enabling the flag chain-stack-traces to receive more detailed exceptions.\nFor example, 'dart test --chain-stack-traces'."
+            );
+        }
+    }
+}
+
+/// Prints worker events: as JSON lines, or through the shared expanded
+/// reporter. Events of a suite running in parallel are kept together.
+struct Relay {
+    json: bool,
+    suite: String,
+    expanded: Arc<Mutex<Expanded>>,
+    buffer: Option<Vec<Value>>,
+}
+
+impl Relay {
     fn event(&mut self, mut event: Value) {
         if self.json {
             event["suite"] = json!(self.suite);
             println!("{event}");
             return;
         }
-        match event["type"].as_str() {
-            Some("testStart") => {
-                let text = format!("RUN {}", self.name(&event));
-                self.out(false, text);
-            }
-            Some("testDone") => {
-                let text = format!(
-                    "{} {}",
-                    event["result"].as_str().unwrap_or(""),
-                    self.name(&event)
-                );
-                self.out(false, text);
-            }
-            Some("error" | "loadError") => {
-                let mut text = event["error"].as_str().unwrap_or("").to_owned();
-                if let Some(stack) = event["stackTrace"].as_str() {
-                    text = format!("{text}\n{stack}");
-                }
-                self.out(true, text);
-            }
-            Some("message" | "print") => {
-                let text = event["message"].as_str().unwrap_or("").to_owned();
-                self.out(false, text);
-            }
-            _ => {}
+        match &mut self.buffer {
+            Some(events) => events.push(event),
+            None => self
+                .expanded
+                .lock()
+                .expect("reporter")
+                .event(&self.suite, &event),
         }
     }
 
@@ -493,12 +649,19 @@ impl Relay {
         self.event(event);
     }
 
+    /// Prints the `loading` line of the suite (unbuffered runs).
+    fn start(&mut self) {
+        if !self.json && self.buffer.is_none() {
+            self.expanded.lock().expect("reporter").loading(&self.suite);
+        }
+    }
+
     fn flush(&mut self) {
-        for (error, text) in self.buffer.take().unwrap_or_default() {
-            if error {
-                eprintln!("{text}");
-            } else {
-                println!("{text}");
+        if let Some(events) = self.buffer.take() {
+            let mut expanded = self.expanded.lock().expect("reporter");
+            expanded.loading(&self.suite);
+            for event in events {
+                expanded.event(&self.suite, &event);
             }
         }
     }
@@ -532,6 +695,7 @@ fn run_worker(job: SuiteRun, cwd: &Path, timeout: Duration) -> std::io::Result<T
     } = job;
     let suite = relay.suite.clone();
     let relay = Arc::new(Mutex::new(relay));
+    relay.lock().expect("relay").start();
     let mut child = Command::new(&binary)
         .current_dir(cwd)
         .arg(&report)
@@ -688,6 +852,9 @@ pub(crate) fn run(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Err
     fs::write(workspace.path.join("selection.dart"), SELECTION_SOURCE)?;
 
     let runnable = suites.iter().filter(|s| s["action"] == "run").count();
+    let color = plan["color"].as_bool().unwrap_or(false);
+    let print_path = plan["printPath"].as_bool().unwrap_or(true);
+    let expanded = Arc::new(Mutex::new(Expanded::new(color, print_path)));
     let mut tally = Tally::default();
     let mut binaries: BTreeMap<String, Option<PathBuf>> = BTreeMap::new();
     let parallel = concurrency > 1 && runnable > 1;
@@ -712,18 +879,21 @@ pub(crate) fn run(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Err
         let relay = |buffer: bool| Relay {
             json: json_reporter,
             suite: path.to_owned(),
-            prefix: suites.len() > 1,
+            expanded: Arc::clone(&expanded),
             buffer: buffer.then(Vec::new),
         };
         match suite["action"].as_str() {
             Some("none") => {}
             Some("error") => {
                 let message = suite["message"].as_str().unwrap_or("");
-                relay(false).event(json!({"type": "loadError", "error": message}));
+                let mut relay = relay(false);
+                relay.start();
+                relay.event(json!({"type": "loadError", "error": message}));
                 tally.failed += 1;
             }
             Some("skip") => {
                 let mut relay = relay(false);
+                relay.start();
                 if let Some(warning) = suite["warning"].as_str() {
                     relay.event(json!({"type": "print", "message": warning}));
                 }
@@ -809,17 +979,7 @@ pub(crate) fn run(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Err
             json!({"type":"done", "success":code == 0, "passed": tally.passed, "failed": tally.failed, "skipped": tally.skipped})
         );
     } else {
-        println!(
-            "{} passed, {} failed, {} skipped; {}",
-            tally.passed,
-            tally.failed,
-            tally.skipped,
-            match code {
-                0 => "all passed or skipped",
-                79 => "no tests ran",
-                _ => "test run failed",
-            }
-        );
+        expanded.lock().expect("reporter").done();
     }
     Ok(ExitCode::from(code))
 }
