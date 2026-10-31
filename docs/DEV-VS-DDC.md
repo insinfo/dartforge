@@ -246,3 +246,98 @@ pontos fracos nossos: **closures (1,65×)** e **listas encadeadas/árvores
   pesado; a comparação de CPU de execução é a do Node.
 * O DDC compilou com `generate-full-dill=true` (padrão do `webdev serve`);
   `build_runner build` puro, sem esse dill, seria um pouco mais leve.
+
+## Rodada de 2026-10-31: checkout limpo e worker residente
+
+Mac mini M4 (16 GB), macOS 27.2, Dart SDK 3.6.2, webdev 3.7.1, Chrome
+headless; máquina compartilhada (carga 6–45, anotada em cada linha bruta).
+Binário do DartForge: `dartforge` release da árvore de `6fb7115d` (o perfil
+de desenvolvimento não muda desde `e510672a`). Script: o mesmo
+`scripts/compare-dev-ddc.mjs` (`cold` com uma repetição por variante;
+`edits` com 3 rodadas no `limitless_ui` e 2 no `new_sali`); resultados
+brutos no *scratchpad* da sessão.
+
+**Checkout limpo de verdade.** Cada ferramenta recebeu uma cópia própria
+dos projetos **sem** `.dart_tool/`, `build/` nem saídas geradas (`rsync`
+que exclui só isso), mais `dart pub get --offline`; o `new_sali` ganhou
+`webdev: 3.7.1` nas `dev_dependencies` nas duas cópias (mesmo
+`pubspec.lock`).
+
+### 1. O DartForge ainda não sobe num checkout limpo
+
+`dartforge dev`/`serve` falha nos dois projetos antes de compilar:
+`could not read …/app_component.template.dart` (`limitless_ui`, 1 erro;
+`new_sali`, 83). Com o executor de builders Dart na VM
+(`DARTFORGE_BUILD_DART=dart`) também. O `dartforge build` sozinho mostra o
+motivo: sem a VM, 545 ações sem produtor (7 saídas do `ngx_dart`, 533 de
+builders Dart, 5 do Sass "ainda não verificado byte a byte"); com
+`--dart`, o motor roda as 2.119 ações em **16,6 s** no `limitless_ui`
+(contra 2 min 9 s do `build_runner build`), mas a sessão do `dev` não usa
+essas saídas e falha do mesmo jeito. Hoje, portanto, o caminho do
+DartForge num checkout limpo é `dart run build_runner build` + `dartforge
+serve`.
+
+### 2. Início
+
+| projeto | caminho | pronto para servir | CPU | pico de memória | processos |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `limitless_ui` | webdev, checkout limpo | 114,4 s | 140,6 s | 4,89 GB | 19 |
+| | DartForge: `build_runner build` (limpo) + `serve` | 156,4 s + 10,2 s = **166,6 s** | 129,7 + 5,2 s | 1,24 GB / 0,58 GB | 1 |
+| | webdev, morno (`.dart_tool/build` pronto) | 10,7 s | 8,2 s | 0,68 GB | 3 |
+| | DartForge, com os gerados, sem saída anterior | **10,2 s** | 5,2 s | 0,58 GB | 1 |
+| | DartForge, morno (saída anterior no disco) | **8,0 s** | 5,2 s | 0,58 GB | 1 |
+| `new_sali` | webdev, checkout limpo | 120,7 s | 192,1 s | 6,71 GB | 19 |
+| | DartForge: `build_runner build` (limpo) + `serve` | 129,2 s + 14,1 s = **143,3 s** | 192,6 + 8,2 s | 1,83 GB / 0,99 GB | 1 |
+| | webdev, morno | 10,6 s | 9,9 s | 0,77 GB | 3 |
+| | DartForge, com os gerados | **14,1 s** | 8,2 s | 0,99 GB | 1 |
+| | DartForge, morno | **7,7 s** | 7,9 s | 1,05 GB | 1 |
+
+Leitura: **do checkout limpo o DartForge é mais lento que o webdev**
+(1,46× no `limitless_ui`, 1,19× no `new_sali`), porque paga um
+`build_runner build` inteiro antes; o "20×" de 13/10 media o DartForge
+com os gerados já no disco contra o webdev do zero. Com os gerados
+prontos, o início fica empatado com o webdev morno (10,2 × 10,7 s;
+14,1 × 10,6 s) e o morno do DartForge é o mais rápido (8,0 e 7,7 s).
+
+### 3. Edição → código novo na página (worker residente)
+
+Os dois servidores no ar, edições alternadas; mediana [valores] das
+rodadas, CPU somada dos processos da ferramenta.
+
+| projeto | edição | DartForge | CPU | webdev | CPU |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `limitless_ui` | corpo | **1,74 s** [2,59 1,74 1,47] | 1,1 s | 3,70 s [17,6 3,33 3,70] | 3,4 s |
+| | API pública | **5,52 s** [5,92 4,02 5,52] | 3,0 s | 18,0 s [23,9 18,0 16,9] | 41,2 s |
+| | template | 3,06 s [2,75 3,06 3,06] | 1,1 s | **2,16 s** [2,16 2,17 2,15] | 2,3 s |
+| `new_sali` | corpo | **2,98 s** [3,79 2,16] | 2,0 s | nunca (ver abaixo) | 24–83 s |
+| | API pública | **5,12 s** [7,28 2,96] | 2,9 s | nunca | 30–40 s |
+| | template | **2,80 s** [2,81 2,79] | 1,4 s | nunca | 22–29 s |
+
+O webdev continua sem mostrar o código novo no `new_sali`: a recarga cai
+em `/login`, que o servidor dele responde com 404 (o mesmo de 13/10); a
+CPU por edição é a do `build_runner` reconstruindo o módulo do *barrel*.
+No `limitless_ui`, a edição de template é o único caso em que o webdev
+chega antes (2,2 × 3,1 s de parede, com o dobro da CPU): o nosso gasta ~1 s
+de CPU e espera o resto (motor de build, escrita e recarga).
+
+### 4. Memória, JavaScript servido e página
+
+| projeto | medida | DartForge | webdev |
+| --- | --- | ---: | ---: |
+| `limitless_ui` | pegada ao fim das edições (pico) | **0,51 GB (0,62)**, 1 processo | 3,90 GB (5,33), 19 processos |
+| | JS servido: *scripts*, bruto, gzip | 447, 56,4 MB, **4,42 MB** | 324, 48,8 MB, 5,39 MB |
+| | página pronta, sem / com cache HTTP | **364–810 / 369–554 ms** | 969–1.269 / 566–676 ms |
+| `new_sali` | pegada durante as edições (pico ao fim) | **0,85–1,19 GB (1,19)**, 1 processo | 5,0–6,0 GB (7,90), 19 processos |
+| | JS servido: *scripts*, bruto, gzip | 586, 104,4 MB, **8,52 MB** | 382, 87,1 MB, 10,42 MB |
+| | página pronta, sem / com cache HTTP | **678 / 784 ms** | 1.350 / 923 ms |
+
+### 5. O que fazer, por impacto
+
+1. **Subir do checkout limpo sem `build_runner`.** A sessão do `dev` com
+   `DARTFORGE_BUILD_DART` não materializa os `.template.dart` que o
+   `dartforge build --dart` gera em 16,6 s; ligar as duas coisas tiraria
+   ~2 min do primeiro início dos dois projetos (o resto é o Sass ainda
+   não verificado e as 7 saídas do `ngx_dart` sem produtor nativo).
+2. **Edição de template no `limitless_ui`** (3,1 s de parede para ~1 s de
+   CPU): medir onde a sessão espera.
+3. Os itens 2, 3, 5 e 6 da lista de 13/10 continuam.

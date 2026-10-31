@@ -735,3 +735,131 @@ de produção e no dobramento de constantes do modo SDK
 * **Tamanho**: a margem no gzip do `-O4` caiu de 0,973× para 0,981×.
 * Os demais itens da §7 (`list_sort`, `collatz`, JSON, `closures`) não
   foram tocados.
+
+## 11. Quarta rodada: constantes, `for`-in, testes de tipo e `sort`
+
+Rodada de 2026-10-31, madrugada (macOS). Mesmo método da §1 (Node 24.21,
+tempo de CPU da *thread* principal, mediana das rodadas sem a primeira,
+mediana de 5 execuções alternadas), agora versionado:
+`scripts/compare-js-production.py` (`compile`, `dart2js`, `run`, `size`;
+a cópia de trabalho troca os inteiros de 64 bits do `collections.dart`).
+Dois programas novos em `bench/comparison`: `utf8_convert.dart` (codificar
+e decodificar ASCII, Latin-1, CJK e fora do BMP, curto e longo,
+`allowMalformed` e o decodificador em pedaços) e `collection_operations.dart`
+(`Set<int>`, `Map<String, int>`, `entries`/`forEach`/`values`, métodos de
+`List`, `remove` de mapa e mapa com chave de objeto). A máquina estava
+carregada (carga 15–45) e os tempos são **bimodais**: o mesmo arquivo roda
+ora a ~0,8 ms, ora a ~1,3 ms no `utf8_convert/decode_latin1` (núcleos de
+eficiência e de desempenho do M4), em todas as variantes, inclusive a de
+antes; diferenças de até ~1,5× numa linha isolada são esse ruído.
+
+### 11.1 Onde era mais lento
+
+Perfis (`node --cpu-prof`, `--no-minify` e minificado) dos *kernels*
+acima de 1,5× o `dart2js -O4`:
+
+| *kernel* | antes/`dart2js` | causa |
+| --- | ---: | --- |
+| `utf8_convert/short_round_trip` | 2,4× | 32% do tempo em `dart.const`: `utf8.encode` lê `const Utf8Encoder()`, e o contrato do DDC canoniza a constante **a cada avaliação** (`getOwnNamesAndSymbols` e um `Map` por propriedade); o mesmo em `jsonEncode`/`jsonDecode` e em todo `const` dentro de função |
+| `collection_operations/map_iterate` | 2,2× | `for (e in m.entries)` era `for…of`, que passa pelo `JsIterator` do runtime (um `{value, done}` por passo); o `current` dos iteradores do SDK (`_current as E`, de `E?`) avaliava a rti do ambiente a cada passo |
+| `collection_operations/list_methods` | 2,2× | as mesmas duas causas (`where`/`map`/`toList`, `addAll`) |
+| `collections/list_sort` | 1,9× | `Sort.sort` em Dart com `Comparable.compare(a as Comparable, b as Comparable)` por comparação; o `dart2js` usa `Array.prototype.sort` |
+| `collection_operations/map_object_key` | 1,5× | `other is Key` no `operator ==` avaliava a rti (`t$R("…")[_is]`), o `dart2js` escreve `instanceof` |
+| `numeric/collatz` | 1,5× | §7 (análise de faixa), não tocado |
+
+### 11.2 O que mudou
+
+Todas as formas valem só na produção, nos quatro níveis; cada uma tem a
+sua chave (`=0` desliga). Programa de teste:
+`emit_js/tests/programs/production_forms.dart`, contra a VM em `-O1` a
+`-O4`, com as chaves ligadas e desligadas
+(`emit_js_production/tests/production_forms.rs`).
+
+| mudança | onde | chave |
+| --- | --- | --- |
+| uma constante (`dart.const`, `constList`, `constMap`, `constSet`, símbolo, registro constante) cujo texto é fechado — só nomes de biblioteca, *aliases* do prelúdio e outras constantes — vira `(K ??= <constante>)`, com `K` uma variável do prelúdio do módulo: a primeira avaliação é a do contrato (o mesmo objeto canônico) e as outras devolvem esse objeto. Uma constante dentro de outra perde o próprio `K` (é avaliada uma vez, com a de fora), e o inicializador de um estático preguiçoso, fora das suas *closures*, não ganha nenhum (roda uma vez) | `emit_js/src/const_slots.rs` | `DARTFORGE_JSPROD_CONST_SLOTS` |
+| `for (x in it)` com `it` que não é *array* provado nem `List` → `for (t = it[$iterator]; t.moveNext();) { x = t.current; … }`, o protocolo do Dart e o que o `dart2js` escreve. `List` fica com o `for…of` (quase sempre um *array*, percorrido nativamente) e as bibliotecas privadas do runtime (`dart:_…`), que rodam enquanto o runtime carrega, também | `emit_js/src/body.rs` | `DARTFORGE_JSPROD_ITERATOR_LOOPS` |
+| `v as T` com `v: S?` e `S <: T` (o `_current as E` dos iteradores) → `(t = v) != null ? t : T._as(t)`: um valor não nulo já tem o tipo; `null` continua checado | `emit_js/src/expr.rs` | `DARTFORGE_JSPROD_NON_NULL_CASTS` |
+| `x is C`, `C` classe do programa sem parâmetros de tipo cujos subtipos são todos subclasses por `extends` (ninguém a implementa, mistura ou usa em `on`) → `x instanceof C` | `emit_js/src/ctx.rs` (`nominal_class`), `body.rs` | `DARTFORGE_JSPROD_INSTANCEOF` |
+| `is num`/`is double` → `typeof x == "number"`; `is int` (de um nome) → `typeof x == "number" && Math.floor(x) === x`, os testes do próprio rti | `emit_js/src/body.rs` | `DARTFORGE_JSPROD_NUMBER_TESTS` |
+| `identical(x, literal)` (`bool`, número, *string* simples, `null`) → `x === literal` (`x == null`), o que o `identical` do runtime calcula | `emit_js/src/call.rs` | `DARTFORGE_JSPROD_IDENTICAL_LITERALS` |
+| `List.sort()` sem comparador com todos os elementos números (ou todos *strings*) → `Array.prototype.sort` com o comparador de `num.compareTo` (`-0.0` antes de `0.0`, `NaN` por último) ou de `String.compareTo`. Dois elementos só comparam 0 quando são o mesmo valor: a lista ordenada é uma só, estável ou não. O resto (`null`, `bool`, objetos) vai ao `Sort.sort` como antes | remendo de `js_array.dart` (`emit_js/src/sdk_patches.rs`) | `DARTFORGE_JSPROD_PRIMITIVE_SORT` |
+
+Defeito encontrado e **não** corrigido (anotado no programa de teste):
+`num.compareTo` de uma `String` não lança no JS do DartForge
+(`[1, 'a'].sort()` ordena; a VM lança `TypeError`), com ou sem o `sort`
+nativo.
+
+### 11.3 Resultado
+
+Node, `-O4` (ms; tempo de CPU da *thread*; mediana de 5 execuções
+alternadas; “antes” é o `e510672a`):
+
+| *kernel* | antes | depois | `dart2js -O4` | depois/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| `collections/list_sort` | 393,0 | 176,4 | 208,9 | 0,84 |
+| `collections/map` | 46,9 | 36,1 | 45,9 | 0,79 |
+| `collection_operations/map_iterate` | 61,4 | 28,2 | 27,5 | 1,03 |
+| `collection_operations/list_methods` | 83,5 | 47,6 | 38,5 | 1,24 |
+| `collection_operations/map_object_key` | 68,3 | 45,7 | 44,2 | 1,03 |
+| `collection_operations/set_int` | 21,2 | 18,9 | 14,0 | 1,35 |
+| `collection_operations/map_str_int` | 15,6 | 14,3 | 11,9 | 1,20 |
+| `utf8_convert/short_round_trip` | 29,0 | 12,5 | 12,0 | 1,04 |
+| `utf8_convert/encode_*`, `decode_*` (longos) | ≈ | ≈ | ≈ | 0,7–1,1 (ruído bimodal) |
+| `json/encode_small` | 26,9 | 25,0 | 20,3 | 1,23 |
+| `json/encode_medium` | 45,5 | 39,9 | 33,3 | 1,20 |
+| `json/decode_*` | ≈ | ≈ | ≈ | 0,92–1,11 |
+| `json_encode/*_json` (µs/op) | 32,5–58,6 | 32,8–61,2 | 23,2–45,1 | 1,36–1,41 |
+| `temporary_objects/points` | 16,1 | 11,6 | 10,0 | 1,16 |
+| `escaping_objects/linked_list` | 12,4 | 9,3 | 8,5 | 1,09 |
+| `calls/closures` | 7,6 | 6,1 | 6,3 | 0,98 |
+| `numeric/collatz` | 215,4 | 217,0 | 144,0 | 1,51 |
+
+Os demais ficaram no ruído. O `async_await` não entrou: o arquivo do
+`dart2js` não imprime nada com o `window` do prelúdio (o agendador dele
+procura o DOM); o nosso foi de 604 para 596 ms.
+
+Tamanho, `-O4` (`gzip -9`):
+
+| alvo | antes | depois | diferença | `dart2js -O4` | depois/`dart2js` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 15 programas de `bench/` | 650.829 (gz 223.332) | 653.643 (gz 224.000) | +0,43% (gz +0,30%) | 679.062 (gz 222.025) | 0,963× (gz 1,009×) |
+| `corpus/js`, 235 programas de arquivo único | 9.121.653 (gz 3.103.095) | 9.163.103 (gz 3.112.968) | +0,45% (gz +0,32%) | | |
+| `limitless_ui/example` | 3.331.196 (gz 941.770) | 3.343.296 (gz 945.971) | +0,36% (gz +0,45%) | 3.704.125 (gz 982.814) | 0,903× (gz 0,963×) |
+| `new_sali/frontend` | 7.086.879 (gz 1.923.743) | 7.131.099 (gz 1.935.525) | +0,62% (gz +0,61%) | 7.614.136 (gz 2.018.523) | 0,937× (gz 0,959×) |
+
+(`dart2js -O4` dos projetos: os números da §21.7 da especificação de
+tamanho, mesmo SDK.) Em `-O2`: `limitless_ui` 3.349.816 → 3.361.913 (gz
+945.133 → 949.711), `new_sali` 7.176.651 → 7.221.234 (gz 1.937.756 →
+1.950.328). Quase todo o aumento é das variáveis das constantes e dos
+laços pelo iterador. A primeira versão, que cacheava toda constante e
+todo `for`-in, punha 20.217 variáveis no `new_sali` (+2,5%): as tabelas
+de *locale* do `intl` e os mapas aninhados das *views* do ngdart; as três
+regras da §11.2 (aninhadas, estáticos preguiçosos, `List`) baixaram para
+4.486.
+
+### 11.4 Validação
+
+`dartforge-differential --corpus corpus/js --production`: desenvolvimento
+275/275, `-O2` 275/275 e `-O4` 255/255 (os 20 de `production_levels.tsv`)
+em cada commit; testes de `emit_js` e `emit_js_production` com os ignorados
+(Node, Dart 3.6.2), `clippy -D warnings`, `rustfmt`; suíte `tests/language`
+(`scripts/run-language-suite.py forge`, no estado do `e99e4dd1`) 2756/2863,
+sem regressões contra a rodada anterior. O texto do desenvolvimento não
+muda: toda forma nova está atrás de `ctx.production()` (o `6fb7115d` também
+só mexe em caminhos da produção). Commits: `506398e7` (constantes, laços,
+*casts* e testes de tipo), `e99e4dd1` (`sort`), `6fb7115d` (as regras de
+tamanho da §11.3).
+
+### 11.5 O que continua
+
+* **JSON a codificar (1,2–1,4×)**: o `_JsonStringifier` gasta o tempo em
+  `writeStringContent` (as duas implementações) e no `List.filled` de cada
+  mapa, que avalia `JSArray<E>` do ambiente por chamada.
+* **`Set<int>` (1,35×) e `Map<String, int>` (1,2×)**: o `IdentitySet`
+  guarda num `Set` do JavaScript; o `dart2js` usa células e um objeto por
+  tipo de chave, como o nosso `IdentityMap` desde a §10.1.
+* **`collatz` (1,5×)**: a análise de faixa da §7.
+* **Tamanho**: o gzip dos programas pequenos de `bench/` passou do
+  `dart2js` (1,009×): o piso do runtime e o `convert` (o `json` sozinho é
+  1,12×); os projetos e o corpus continuam abaixo.

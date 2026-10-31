@@ -1,5 +1,60 @@
 # Estado do DartForge — 2026-10-30
 
+## 31/10/2026: JS de produção contra o `dart2js -O4` e o worker de desenvolvimento
+
+Detalhes em `docs/JS-PRODUCAO-VELOCIDADE.md` §11 e `docs/DEV-VS-DDC.md`
+(rodada de 31/10). Commits `506398e7`, `e99e4dd1` e `6fb7115d`, validados
+localmente: corpus JS 275/275 em desenvolvimento e em `-O2`, 255/255 em
+`-O4`; testes de `emit_js` e `emit_js_production` com os ignorados; clippy;
+`tests/language` 2756/2863, sem regressões.
+
+**Velocidade do JS de produção** (Node, `-O4`, ms; script novo
+`scripts/compare-js-production.py`). As maiores diferenças eram constantes
+canonizadas pelo runtime a cada avaliação (`utf8.encode`, `jsonEncode`, todo
+`const` em função), `for`-in pelo `JsIterator` do runtime, `_current as E`
+avaliando a rti, `is C` pela rti e o `sort` em Dart:
+
+| *kernel* | antes | agora | `dart2js -O4` |
+| --- | ---: | ---: | ---: |
+| `list_sort` | 393,0 | **176,4** | 208,9 |
+| `map_iterate` | 61,4 | **28,2** | 27,5 |
+| `list_methods` | 83,5 | **47,6** | 38,5 |
+| `map_object_key` | 68,3 | **45,7** | 44,2 |
+| `utf8 short_round_trip` | 29,0 | **12,5** | 12,0 |
+| `collections/map` | 46,9 | **36,1** | 45,9 |
+| `json/encode_medium` | 45,5 | **39,9** | 33,3 |
+| `Set<int>` / `Map<String,int>` | 21,2 / 15,6 | 18,9 / 14,3 | 14,0 / 11,9 |
+| `json_encode/*_json` (µs/op) | 32,5–58,6 | ≈ | 23,2–45,1 |
+
+**Tamanho** (`-O4`, bruto / gzip): `limitless_ui` 3,331 / 0,942 → 3,343 /
+0,946 MB (0,903× / 0,963× do `dart2js -O4`); `new_sali` 7,087 / 1,924 →
+7,131 / 1,936 MB (0,937× / 0,959×); corpus +0,45% (gz +0,32%). Os 15
+programas de `bench/` ficam em 0,963× bruto, mas 1,009× no gzip (o piso do
+runtime e o `convert`).
+
+**Worker de desenvolvimento** (checkout limpo, sem `.dart_tool` nem
+gerados):
+- o `dartforge serve` **não sobe** num checkout limpo de nenhum dos dois
+  projetos (`could not read …/app_component.template.dart`), nem com
+  `DARTFORGE_BUILD_DART`; precisa de um `build_runner build` antes;
+- início do zero: `limitless_ui` 166,6 s (`build_runner` 156,4 s +
+  10,2 s) contra 114,4 s do webdev; `new_sali` 143,3 s contra 120,7 s. Com
+  os gerados prontos: 10,2 / 14,1 s contra 10,7 / 10,6 s do webdev morno;
+- edição → código novo na página, `limitless_ui`: corpo 1,74 × 3,70 s, API
+  5,5 × 18,0 s (3,0 × 41 s de CPU), template 3,06 × **2,16 s**; `new_sali`:
+  corpo 3,0 s, API 5,1 s, template 2,8 s; o webdev nunca mostra o código
+  novo (recarga em `/login` dá 404);
+- memória: 0,5–1,2 GB num processo contra 3,9–7,9 GB em 19 processos.
+
+**Próximos passos:**
+1. Dev: a sessão usar as saídas do `dartforge build --dart` (16,6 s no
+   `limitless_ui` contra 2 min 9 s do `build_runner`) para subir do
+   checkout limpo; a edição de template do `limitless_ui`.
+2. Produção: `IdentitySet` em células (`Set<int>` 1,35×), o
+   `_JsonStringifier` (1,2–1,4×), `collatz` (faixa), e o gzip dos
+   programas pequenos.
+3. Defeito achado: `num.compareTo` de uma `String` não lança no nosso JS.
+
 ## Ordem de trabalho a partir de 30/10/2026
 
 O proprietário pediu para seguir sem parar, nesta ordem, com commit, push e o CI conferido
