@@ -1670,6 +1670,28 @@ fn read_member(
     Some((f, the_name))
 }
 
+/// The read in `e` of an extension type's representation variable, and its name.
+fn representation_read(
+    inf: &BodyInferrer<'_>,
+    cx: &Body,
+    e: ExprId,
+) -> Option<(dartforge_elements::model::VariableId, SymbolId)> {
+    let the_name = match &ast(inf, cx).expr(e).kind {
+        ExprKind::Identifier(n) => n.sym,
+        ExprKind::Property { name, .. } => name.sym,
+        _ => return None,
+    };
+    let Some(Resolved::Member {
+        class,
+        member: MemberRef::Variable(v),
+        ..
+    }) = inf.body_types.units[cx.unit.0 as usize].get_resolved(e)
+    else {
+        return None;
+    };
+    (inf.program.class(*class).representation == Some(*v)).then_some((*v, the_name))
+}
+
 /// The stable synthetic of a promotable property read in `e` (`None` if it
 /// is not promotable).
 fn stable_property(
@@ -1678,8 +1700,17 @@ fn stable_property(
     e: ExprId,
     base: Base,
 ) -> Option<LocalId> {
-    let (f, the_name) = read_member(inf, cx, e)?;
-    if !inf.promotable_property(cx.lib, f) {
+    let (promotable, the_name) = match read_member(inf, cx, e) {
+        Some((f, the_name)) => (inf.promotable_property(cx.lib, f), the_name),
+        // An extension type's representation (`extension type E(Object _f)`):
+        // the element model creates no getter for it, so it resolves to its
+        // variable; a private one is promotable like a final private field.
+        None => {
+            let (v, the_name) = representation_read(inf, cx, e)?;
+            (inf.promotable_representation(cx.lib, v), the_name)
+        }
+    };
+    if !promotable {
         return None;
     }
     let the_key = (base, cx.base_version(base), the_name);
@@ -1798,8 +1829,12 @@ pub(crate) fn field_read(
     base: Base,
     t: TypeId,
 ) -> TypeId {
-    let Some((f, the_name)) = read_member(inf, cx, e) else {
-        return t;
+    let (member, the_name) = match read_member(inf, cx, e) {
+        Some((f, the_name)) => (Some(f), the_name),
+        None => match representation_read(inf, cx, e) {
+            Some((_, the_name)) => (None, the_name),
+            None => return t,
+        },
     };
     // A cascade section reads from the target's temporary, with the SSA
     // node from the start of the cascade: a write to the local during the
@@ -1817,7 +1852,13 @@ pub(crate) fn field_read(
         _ => cx.base_version(base),
     };
     let the_key = (base, version, the_name);
-    if inf.promotable_property(cx.lib, f) {
+    let promotable = match member {
+        Some(f) => inf.promotable_property(cx.lib, f),
+        // An extension type's representation (`stable_property`).
+        None => representation_read(inf, cx, e)
+            .is_some_and(|(v, _)| inf.promotable_representation(cx.lib, v)),
+    };
+    if promotable {
         return match cx.fields.get(&the_key) {
             Some(&id) => {
                 let p = cx.flow.current_type(id, t);
@@ -1826,7 +1867,9 @@ pub(crate) fn field_read(
             None => t,
         };
     }
-    inf.record_property_non_promotion(cx, e, the_key, f);
+    if let Some(f) = member {
+        inf.record_property_non_promotion(cx, e, the_key, f);
+    }
     t
 }
 

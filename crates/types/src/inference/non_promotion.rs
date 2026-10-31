@@ -96,6 +96,21 @@ impl BodyInferrer<'_> {
         }
     }
 
+    /// An extension type's representation variable `v` as a promotion target:
+    /// `fieldPromotionEnabled` in the body (`lib`) and a private representation
+    /// (`field_promotion::compute` records it as promotable).
+    pub(crate) fn promotable_representation(
+        &mut self,
+        lib: LibraryId,
+        v: dartforge_elements::model::VariableId,
+    ) -> bool {
+        if !field_promotion::enabled(self.program, lib) {
+            return false;
+        }
+        let owner = self.program.variable(v).library;
+        self.library_promotion(owner).fields.contains(&v)
+    }
+
     /// `whyPropertyIsNotPromotable` (with the public name handled first, as the
     /// flow does): `None` is the non-inherent reason (a conflict, or the feature
     /// being off).

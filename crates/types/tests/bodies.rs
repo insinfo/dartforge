@@ -3264,3 +3264,29 @@ void f(SE se, Function? fn, CallableClass<int> cc, bool b, C c, A a) {
     assert_eq!(type_of(&t, "se.x", 0), "dynamic");
     assert_eq!(type_of(&t, "se.m", 0), "dynamic Function(dynamic)");
 }
+
+/// A private extension type representation promotes like a final private field
+/// (`tests/language/extension_type/field_promotion_representation_*`): its read,
+/// a call of the promoted function and a cascade section on `this` see the
+/// promoted type. The element model resolves the representation to its variable.
+#[test]
+fn extension_type_representation_promotes() {
+    let Some(diags) = constant_diagnostics_of(
+        r#"
+extension type E(Object _f) {
+  void a() {
+    if (_f is int) print(_f.isEven);
+    if (this._f is String) print(this._f.length);
+    if (this._f is int Function()) this._f();
+    if (_f is int Function()) _f();
+    if (this._f is int Function()) this.._f();
+  }
+}
+
+void main() => E(1).a();
+"#,
+    ) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+}
