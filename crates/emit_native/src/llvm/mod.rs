@@ -2807,7 +2807,29 @@ impl<'a> LlvmEmitter<'a> {
                             .prepared_inline_list(name, args)
                             .expect("checked at the guard");
                         let list = self.coerce(&args[0].0, Type::I64);
-                        if args.len() == 2 {
+                        if helper == "df.list_write_len" {
+                            let n = self.coerce(&args[1].0, Type::I64);
+                            writeln!(
+                                self.out,
+                                "  call void @df.list_write_len(i64 {list}, i64 {n})"
+                            )
+                            .unwrap();
+                        } else if helper == "write_bits" {
+                            let ix = self.coerce(&args[1].0, Type::I64);
+                            let bits = self.coerce(&args[2].0, Type::I64);
+                            writeln!(
+                                self.out,
+                                "  %lw{v} = call ptr @df.list_element(i64 {list}, i64 {ix})\n  store i64 {bits}, ptr %lw{v}, align 8"
+                            )
+                            .unwrap();
+                        } else if helper == "closure_context" {
+                            writeln!(
+                                self.out,
+                                "  %lc{v} = add i64 {list}, {}\n  %lcp{v} = inttoptr i64 %lc{v} to ptr\n  %v{v} = load i64, ptr %lcp{v}, align 8",
+                                layout::offsets::BODY as i64 + 8 - layout::HANDLE_OFFSET
+                            )
+                            .unwrap();
+                        } else if args.len() == 2 {
                             let ix = self.coerce(&args[1].0, Type::I64);
                             writeln!(self.out, "  %ls{v} = call i64 @df.list_storage(i64 {list})")
                                 .unwrap();
@@ -6594,6 +6616,12 @@ impl<'a> LlvmEmitter<'a> {
             {
                 "df.list_read+retain"
             }
+            // Scalar writes: the length of a growable list (a scalar field, no
+            // count) and an element's bits, after the Dart guards; and the closure's
+            // context, borrowed (its field 1).
+            ("dartforge_arc_list_write_len_v1", 2) => "df.list_write_len",
+            ("dartforge_arc_list_write_bits_v1", 4) => "write_bits",
+            ("dartforge_arc_closure_context_v1", 1) => "closure_context",
             _ => return None,
         })
     }
