@@ -53,7 +53,8 @@ que mencionam os parâmetros de tipo da classe, então `[1, 'a'].sort()` ordenav
   (SIGSEGV), sempre com testes em paralelo;
 - o PC da falha é código do JIT já desmapeado, dentro do primeiro `run_reloadable_main` de
   `callback_lifetime_tests`, enquanto outras sessões eram criadas e destruídas. É uma corrida de
-  tempo de vida entre sessões. Há um agente investigando.
+  tempo de vida entre sessões. Corrigido no mesmo dia: eram as tabelas de FFI do runtime,
+  globais do processo (seção "SIGBUS/SIGSEGV intermitente nos testes do JIT" abaixo).
 
 **Validação local** (`v8`, HEAD `17f8a7e6`):
 - nativo 163/163 em dev, `-O`, *gc-stress* e wasm;
@@ -61,8 +62,14 @@ que mencionam os parâmetros de tipo da classe, então `[1, 'a'].sort()` ordenav
 - `cargo test --release --workspace`, *doctests* do `types` e clippy limpos.
 
 Com as mudanças de tipos: suíte de linguagem 2756/2863 (só mudaram dois *hashes*), testes de
-`types`, `frontend` e `analysis` limpos. O *differential* falha em massa ("returned 0 but did not
-write") na primeira execução depois de recompilar, e passa na seguinte.
+`types`, `frontend` e `analysis` limpos, corpus nativo 163/163 e JS 277/277.
+
+**Defeito do *differential*.** As falhas em massa ("returned 0 but did not write") vinham de um
+`CARGO_TARGET_DIR` relativo: ele vira o diretório de trabalho, e os compiladores, chamados com
+outro diretório atual, gravavam em outro lugar. Agora o caminho fica absoluto. Ainda aberto: num
+diretório de trabalho novo (cache frio), o oráculo DDC dos programas com divergência declarada
+sai vazio, embora o mesmo `main.mjs` rode certo à mão. Com o `target/differential` de sempre,
+277/277.
 
 ## 31/10/2026: JS de produção contra o `dart2js -O4` e o worker de desenvolvimento
 
@@ -173,6 +180,55 @@ hospedado com link, recusado pelo extrator). Continuam recusados: repositório g
 local com caminho relativo, globs em `workspace`, `resolution` diferente de
 `workspace`, `--precompile`, SDK Flutter. Evidências:
 `bench/results/2026-10-31-test-config-pub-workspace-git/README.md`.
+
+## 31/10/2026: SIGBUS/SIGSEGV intermitente nos testes do JIT no macOS
+
+**Defeito.** `cargo test --release -p dartforge-jit -- --include-ignored` caía às vezes no
+macOS arm64: SIGBUS no CI, SIGSEGV local (1 em ~29), com o PC num endereço já desmapeado
+chamado de código do JIT. O relatório local é do binário com o `libLLVM-22.dylib`. A
+chamada que caiu é a **segunda** `run_reloadable_main` de
+`captured_closure_survives_replacement_before_callback_publication` (desmontagem do
+binário do relatório), não a primeira. Os registradores batem com a chamada uniforme de
+uma closure `asFunction` (`x0` = closure, `x1` = argumentos na pilha).
+
+**Causa.** As tabelas FFI do runtime (`crates/runtime/src/ffi.rs`: chave da assinatura →
+entrada `df.ffi.<chave>$ent`, classe → letra C, structs/unions) eram globais do processo,
+e a primeira gravação vencia (`or_insert`). Isso só vale com um programa por processo
+(AOT). No JIT, a dylib do SDK da fonte é carregada uma vez e serve todas as sessões. Todo
+programa com o SDK registra 18 chaves (`v_p`, `l_`, …), e os testes de
+`migration::tests_mod::emitted_*` também. Quando um deles preparava o isolate antes do
+teste de callback, a tabela guardava o endereço da sessão de migração. Essa sessão era
+descartada (código desmapeado), e o `store(...)` (`v_p`) do teste de callback chamava
+código morto. O defeito não é do LLVM em dylib nem das owners de callback: a ordem dos
+testes decide. Com 3 núcleos no CI, a migração termina antes da segunda execução do
+teste de callback com frequência. Na máquina local, o teste de callback quase sempre
+registrava primeiro.
+
+**Correção.** As três tabelas passaram a ser do isolate (`thread_local!`), e a
+registração mais recente substitui a anterior. `df.prepare_isolate` as preenche na
+entrada e em cada isolate criado, e elas só são lidas em threads Dart. Assim, cada
+programa (sessão ou geração) usa as próprias entradas e os próprios ids. No AOT, com um
+programa só, o comportamento não muda. Não houve serialização nem teste pulado.
+
+**Evidência.**
+- Reprodução determinística antes da correção: migração antes do teste de callback
+  (`--test-threads=1 --exact <os dois> -Z unstable-options --shuffle-seed 1`, com
+  `RUSTC_BOOTSTRAP=1`): SIGBUS em 5/5 com LLVM em dylib e 3/3 com LLVM estático.
+- Teste novo `ffi::call_trampoline_lifetime_tests::later_session_does_not_call_a_dropped_sessions_ffi_entry`:
+  três sessões com `Int64 Function(Int64)` (`llabs`), cada uma descartada antes da
+  próxima. Antes: SIGSEGV em 3/3. Depois: passa.
+- Depois da correção, com o binário de testes da lib (estático e dylib, cada um):
+  - a ordem determinística: 5/5 com o teste do closure capturado e 3/3 com o outro teste
+    de callback;
+  - o teste novo isolado: 5/5;
+  - a suíte completa com `--include-ignored`: 50/50;
+  - a suíte embaralhada com 16 threads (`--shuffle-seed` 1..30): 30/30.
+- `cargo test --release -p dartforge-jit -- --include-ignored` (lib e testes de
+  integração, LLVM estático): 3/3, os 9 alvos verdes (lib com 46 testes).
+- `cargo clippy --locked -p dartforge-jit -p dartforge-runtime --all-targets -- -D warnings`
+  passa limpo. `cargo fmt --check` só acusa
+  `crates/emit_js_production/tests/shared_rule_bodies.rs`, que já estava fora do formato
+  antes desta mudança.
 
 ## 30/10/2026: modo de mapas no macOS, defeito do LLVM, CI e funções duplicadas
 

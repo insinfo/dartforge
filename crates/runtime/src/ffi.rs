@@ -4,9 +4,16 @@
 //
 // * `DynamicLibrary`: `dlopen`/`dlsym` (Unix) and `LoadLibraryW`/`GetProcAddress`
 //   (Windows); the process library searches everything that is loaded.
-// * The native types and the signature trampolines come from the compiler
-//   (`lower/ffi.rs`), registered during each isolate's preparation; the class ids
-//   and the addresses belong to the program, so the tables are global.
+// * The native types, the structs/unions and the signature trampolines come from
+//   the compiler (`lower/ffi.rs`), registered during each isolate's preparation
+//   (`df.prepare_isolate`, run by the entry and by every spawned isolate) and
+//   read only on Dart threads. The class ids and the addresses belong to the
+//   program, so each isolate keeps its own tables: one process can hold several
+//   programs (JIT sessions and generations, running in parallel and unloaded
+//   independently), and a process-wide table handed a program the class ids or
+//   the code of another — including the trampoline of a session whose code was
+//   already unmapped. A registration replaces the previous one, so a thread that
+//   runs a newer program uses that program's entries.
 // * `asFunction` creates a closure with the native signature's trampoline (the key
 //   comes from the signature's RTI) and the address in the environment.
 // * Loads and stores (`_loadInt32`…) serve a `Pointer` base (native memory: no
@@ -18,34 +25,36 @@
 /// handle uses it.
 const PROCESS_HANDLE: i64 = i64::MIN + 1;
 
-/// RTI class → C type letter (the compiler's `TipoC::letter`).
-fn native_types() -> &'static std::sync::RwLock<crate::hash::HashMap<i64, char>> {
-    static T: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<i64, char>>> = std::sync::OnceLock::new();
-    T.get_or_init(Default::default)
+thread_local! {
+    /// RTI class → C type letter (the compiler's `TipoC::letter`), of this
+    /// isolate's program.
+    static NATIVE_TYPES: std::cell::RefCell<crate::hash::HashMap<i64, char>> =
+        std::cell::RefCell::new(crate::hash::HashMap::default());
+    /// Signature key → trampoline entry, in the code of this isolate's program.
+    static TRAMPOLINES: std::cell::RefCell<crate::hash::HashMap<String, usize>> =
+        std::cell::RefCell::new(crate::hash::HashMap::default());
 }
 
-/// Signature key → trampoline entry.
-fn trampolines() -> &'static std::sync::RwLock<crate::hash::HashMap<String, usize>> {
-    static T: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<String, usize>>> = std::sync::OnceLock::new();
-    T.get_or_init(Default::default)
+/// The C type letter of the native type class `class` of this isolate's program.
+fn native_type_letter(class: i64) -> Option<char> {
+    NATIVE_TYPES.with(|t| t.borrow().get(&class).copied())
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_ffi_register_type(class: i64, letter: i64) {
     let Some(c) = u32::try_from(letter).ok().and_then(char::from_u32) else { return };
-    let mut t = native_types().write().unwrap_or_else(|e| e.into_inner());
-    t.entry(class).or_insert(c);
+    NATIVE_TYPES.with(|t| t.borrow_mut().insert(class, c));
 }
 
 /// # Safety
-/// `key` points to `n` ASCII bytes; `input` is the trampoline's uniform entry.
+/// `key` points to `n` ASCII bytes; `input` is the trampoline's uniform entry,
+/// code of the program preparing this isolate.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_ffi_register_trampoline(key: *const u8, n: i64, input: usize) {
     // SAFETY: guaranteed by the caller (a module constant).
     let b = unsafe { std::slice::from_raw_parts(key, n as usize) };
     let key = String::from_utf8_lossy(b).into_owned();
-    let mut t = trampolines().write().unwrap_or_else(|e| e.into_inner());
-    t.entry(key).or_insert(input);
+    TRAMPOLINES.with(|t| t.borrow_mut().insert(key, input));
 }
 
 /// The size of a C type by its letter.
@@ -73,7 +82,7 @@ fn type_letter(t: i64) -> Result<char, String> {
         Type::Interface(c, _) => Some(*c),
         _ => None,
     });
-    let letter = class.and_then(|c| native_types().read().unwrap_or_else(|e| e.into_inner()).get(&c).copied());
+    let letter = class.and_then(native_type_letter);
     letter.ok_or_else(|| {
         let text = RTI.with(|u| u.borrow().text(t));
         format!("`{text}` is not a native type supported by the DartForge native backend")
@@ -105,7 +114,7 @@ fn signature_key(ns: i64) -> Result<String, String> {
         let variadic = RTI.with(|u| {
             let u = u.borrow();
             let Type::Interface(c, args) = u.ty(p) else { return None };
-            if native_types().read().unwrap_or_else(|e| e.into_inner()).get(c) != Some(&'*') {
+            if native_type_letter(*c) != Some('*') {
                 return None;
             }
             let a = *args.first()?;
@@ -171,7 +180,7 @@ pub extern "C" fn dartforge_native_DartForge_ffi_function(address: i64, ns: i64,
             return 0;
         }
     };
-    let Some(input) = trampolines().read().unwrap_or_else(|e| e.into_inner()).get(&key).copied() else {
+    let Some(input) = TRAMPOLINES.with(|t| t.borrow().get(&key).copied()) else {
         let text = RTI.with(|u| u.borrow().text(ns));
         throw_unsupported(&format!("the native signature `{text}` was not compiled into this program (it must be written as a constant type argument)"));
         return 0;
@@ -703,11 +712,11 @@ struct FfiCompound {
     size: i64,
 }
 
-/// RTI class → compound (the class ids belong to the program, the same in every
-/// isolate).
-fn ffi_compounds() -> &'static std::sync::RwLock<crate::hash::HashMap<i64, FfiCompound>> {
-    static C: std::sync::OnceLock<std::sync::RwLock<crate::hash::HashMap<i64, FfiCompound>>> = std::sync::OnceLock::new();
-    C.get_or_init(Default::default)
+thread_local! {
+    /// RTI class → compound, of this isolate's program (the class ids belong
+    /// to the program; see the header of this file).
+    static FFI_COMPOUNDS: std::cell::RefCell<crate::hash::HashMap<i64, FfiCompound>> =
+        std::cell::RefCell::new(crate::hash::HashMap::default());
 }
 
 /// Registers a program struct/union (the isolate's preparation).
@@ -721,14 +730,11 @@ pub extern "C" fn dartforge_ffi_register_compound(
     size: i64,
     _alignment: i64,
 ) {
-    ffi_compounds()
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(rti, FfiCompound { class, fields, base_index, offset_index, size });
+    FFI_COMPOUNDS.with(|c| c.borrow_mut().insert(rti, FfiCompound { class, fields, base_index, offset_index, size }));
 }
 
 fn compound_from_rti(rti: i64) -> Option<FfiCompound> {
-    ffi_compounds().read().unwrap_or_else(|e| e.into_inner()).get(&rti).copied()
+    FFI_COMPOUNDS.with(|c| c.borrow().get(&rti).copied())
 }
 
 /// The RTI class of an `Interface` RTI type.
@@ -886,7 +892,7 @@ pub extern "C" fn dartforge_typed_external_t(class_id: i64, ty: i64, pointer: i6
 pub extern "C" fn dartforge_ffi_compound_address(obj: i64) -> i64 {
     let data = HEAP.with(|h| match h.borrow().object(obj) {
         Some(fields) => {
-            let c = ffi_compounds().read().unwrap_or_else(|e| e.into_inner()).values().find(|c| c.class == fields.class_id).copied()?;
+            let c = FFI_COMPOUNDS.with(|c| c.borrow().values().find(|c| c.class == fields.class_id).copied())?;
             let field = |i: i64| usize::try_from(i).ok().and_then(|i| fields.get(i));
             Some((c, field(c.base_index)?, field(c.offset_index)?))
         }

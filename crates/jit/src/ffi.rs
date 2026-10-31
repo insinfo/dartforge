@@ -3584,3 +3584,48 @@ void main() {{
         }).unwrap().join().unwrap();
     }
 }
+
+#[cfg(all(test, unix))]
+mod call_trampoline_lifetime_tests {
+    /// `asFunction` closures call the program's uniform FFI call entry. Each
+    /// session registers its own entries when it prepares an isolate, and a
+    /// later session must never receive an entry of a session that was
+    /// already dropped (its code is unmapped). The `Int64 Function(Int64)`
+    /// signature is used only here, so no other test can register it first.
+    #[test]
+    #[ignore = "requires LLVM and the source-built Dart SDK"]
+    fn later_session_does_not_call_a_dropped_sessions_ffi_entry() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            let directory = std::env::temp_dir().join(format!("dartforge-jit-ffi-entry-lifetime-{}-{stamp}", std::process::id()));
+            std::fs::create_dir(&directory).unwrap();
+            let sdk = std::env::var_os("DARTFORGE_TEST_SDK_LIB").map(std::path::PathBuf::from);
+            let options = dartforge_emit_native::CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: sdk.as_deref(), packages: None, timings: false, optimize: false,
+                language_version: None, experiments: Vec::new(), debug: false,
+                generator: None, cpu: None,
+            };
+            let sdk_dll = dartforge_emit_native::sdk_module::source_sdk_dll().unwrap();
+            // Different programs, so code reusing the first session's freed
+            // addresses cannot pass for its FFI entry by accident.
+            let programs = [
+                "import 'dart:ffi';\nvoid main() {\n  final llabs = DynamicLibrary.process().lookupFunction<Int64 Function(Int64), int Function(int)>('llabs');\n  if (llabs(-5) != 5) throw StateError('first native call');\n}\n",
+                "import 'dart:ffi';\nint twice(int value) => value * 2;\nvoid main() {\n  final llabs = DynamicLibrary.process().lookupFunction<Int64 Function(Int64), int Function(int)>('llabs');\n  final values = <int>[for (var i = 1; i <= 8; i++) twice(-i)];\n  var sum = 0;\n  for (final value in values) { sum += llabs(value); }\n  if (sum != 72) throw StateError('later native call: $sum');\n}\n",
+                "import 'dart:ffi';\nString label(int value) => 'value $value';\nvoid main() {\n  final llabs = DynamicLibrary.process().lookupFunction<Int64 Function(Int64), int Function(int)>('llabs');\n  if (label(llabs(-41)) != 'value 41') throw StateError('third native call');\n}\n",
+            ];
+            for (index, program) in programs.iter().enumerate() {
+                let source = directory.join(format!("main{index}.dart"));
+                std::fs::write(&source, program).unwrap();
+                let ir = dartforge_emit_native::emit_reloadable_ir(&source, &options, None).unwrap();
+                let mut session = crate::JitSession::new_for_ir_with(&ir.text, Some(&sdk_dll)).unwrap();
+                session.add_ir_module("ffi-entry", &ir.text).unwrap();
+                assert_eq!(session.run_main().unwrap().exit_code, 0, "program {index}");
+                // Usually unloaded here. A callback published concurrently by
+                // another test leases every live owner, keeping this one.
+                drop(session);
+            }
+            std::fs::remove_dir_all(directory).unwrap();
+        }).unwrap().join().unwrap();
+    }
+}
