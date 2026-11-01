@@ -65,6 +65,25 @@ a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
+**Andamento (01/11, 21h), item 3, sessão longa medida** (`editing_latency --long`):
+- Cenário: `new_sali` inteiro, 150 rodadas, 510 cargas (ondas de 40 `.g.dart`, edições de
+  corpo e de API), carga 26–69.
+- *Footprint* de todos os processos, em MiB:
+
+  | | DartForge | Dart |
+  |---|---:|---:|
+  | pico | 507 | 845 |
+  | crescimento por 100 cargas | **4,7** | **60** |
+  | em repouso no fim | 506 | 845 |
+  | recém-aberto nos mesmos arquivos | 339 | 429 |
+  | razão fim ÷ recém-aberto | 1,49× | 1,97× |
+
+- O Dart cresce sem parar (o "vazamento" do VS Code). O nosso sobe nas primeiras ~100 cargas
+  e quase para, mas fica 49% acima do recém-aberto: **o critério ainda não está cumprido**.
+- Ainda não medido: o que é dado vivo e o que é retenção do alocador.
+- Ainda não feito: descartar do programa mantido as bibliotecas que o lote não alcança.
+- Curvas em `bench/results/lsp-long-session/`; detalhes em `docs/LSP.md`, "Oitava rodada".
+
 **Andamento (01/11, 20h), item 3 (memória em sessões longas):**
 - O residente coleta a tabela de tipos a cada carga sobre um corte, e a recarga total a cada
   16 cargas saiu.

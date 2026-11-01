@@ -1307,6 +1307,59 @@ em MiB, sessões em sequência revezando os servidores, carga 5–36:
 - O resto do passo 4 (só os dependentes dentro de um grupo grande) e o passo 5 (índice de
   referências).
 
+#### Oitava rodada (2026-11-01): sessão longa com ondas de arquivos gerados
+
+**O cenário (`df955ec6`).** `editing_latency --long N --generated G --csv arquivo`:
+- **cada rodada:**
+  - uma onda de G arquivos `.g.dart` reescritos no disco (um `didChangeWatchedFiles` por
+    arquivo, a cada 5 ms), como `build_runner` ou `webdev`;
+  - uma edição de corpo no arquivo principal, e o desfazer;
+  - a cada cinco rodadas, uma mudança de API em `--api`, e o desfazer;
+- **amostras:** RSS e *footprint* de todos os processos a cada 2 s, no CSV;
+- **fim:** um minuto quieto, depois pico, inclinação (MiB/h e MiB por 100 cargas) e o valor
+  em repouso;
+- **`--long 0`:** só abre, descansa e mede, para medir o servidor recém-aberto sobre os
+  mesmos arquivos finais.
+
+Os arquivos gerados importam o arquivo principal e ficam em `lib/df_long_session` do pacote
+dele. Script: `long_a954.sh`; curvas em `bench/results/lsp-long-session/*.csv`.
+
+**Medição.** Workspace `new_sali` inteiro (frontend, core e backend), arquivo principal
+`processo_filtros_component.dart`, API em `documento_service.dart`. 150 rodadas de 40 arquivos
+gerados: 510 cargas, sendo 150 ondas, 300 edições de corpo e 60 de API. A máquina estava
+carregada (carga 26–69; uma validação completa rodava ao mesmo tempo).
+
+*Footprint* de todos os processos, em MiB. O RSS no macOS cai com a compressão de memória
+sob carga (o nosso em repouso deu 11,7 MiB de RSS e 506 MiB de *footprint*), então o
+*footprint* é a medida que vale.
+
+| | DartForge | Dart |
+|---|---:|---:|
+| duração da parte ativa | 672 s | 169 s |
+| pico | 507 | 845 |
+| inclinação por 100 cargas | **4,7** | 60,2 |
+| inclinação por hora (no ritmo de cada um) | 116 | 5.710 |
+| em repouso depois da sessão (1 min quieto) | **506** | 845 |
+| servidor recém-aberto, mesmos arquivos | 339 | 429 |
+| sessão longa ÷ recém-aberto | **1,49×** | 1,97× |
+
+- **O Dart cresce sem parar:** ~60 MiB a cada 100 cargas, do primeiro ao último minuto, e
+  dobra em relação ao recém-aberto. É o comportamento que o proprietário vê no VS Code.
+- **O nosso sobe nas primeiras ~100 cargas** (339 → 490) e depois quase para (490 → 506 em
+  410 cargas). Mas fica 49% acima do recém-aberto.
+- **O critério do item 3 não está cumprido:** repouso a poucos % do recém-aberto e
+  inclinação perto de zero.
+- **Por cada hora de relógio, os números não são comparáveis:** o nosso servidor leva 4×
+  mais tempo por carga nesta sessão, então a inclinação por 100 cargas é a comparação justa.
+
+**O que não foi feito nesta rodada:**
+- **Dado vivo × retenção do alocador** (`vmmap --summary` / `heap` no residente) não foi
+  medido. Então não se sabe ainda se os +49% são o programa mantido (o pacote inteiro mais os
+  arquivos gerados) ou páginas que o alocador guarda.
+- **Descartar do programa mantido as bibliotecas que o lote não alcança** não foi feito. Nem
+  a nova medição de planicidade que depende dela.
+- **O resto do passo 4 e o passo 5** não foram começados.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
