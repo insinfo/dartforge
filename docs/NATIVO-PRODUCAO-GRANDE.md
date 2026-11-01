@@ -422,3 +422,166 @@ diferença. No IR vivo:
 
 São as causas P4 e P5 da §2: a pilha-sombra de raízes e a exceção por bandeira. Cada passo de
 forma que não mexe nelas dá 3–5%.
+
+## 7. Terceira rodada: macOS arm64 (31/10/2026)
+
+Máquina: Apple M4 (4 núcleos de desempenho + 6 de eficiência, sem SMT), 16 GB, macOS,
+LLVM 22.1.8, Dart 3.6.2. A máquina estava dividida com outros cinco agentes (carga média
+30–130 em 10 núcleos), então o número principal é o **tempo de CPU** (usuário + sistema do
+processo e dos filhos: Clang e `ld64.lld`); o tempo de relógio vai junto, com a carga do
+início de cada medida. As medidas do DartForge e do `dart compile exe` foram alternadas. O
+`--timings` passou a dar a CPU de cada fase (`dartforge_instrument::cpu_time`), e o
+`DARTFORGE_LTO_PROFILE` também vale no macOS (`--time-trace` do `ld64.lld`).
+
+Cópias de trabalho em `$SCRATCH/work` (o original fica só leitura): `new_sali/backend`
+(`bin/prod.dart`) e `dart_ui/examples/file_explorer` (`bin/file_explorer.dart`), com `dart
+pub get --offline`. "Objetos frios" é `DARTFORGE_CACHE_OBJ=0` (sem cache de objetos nem do
+ThinLTO); "SDK em cache" é o SDK de produção já compilado pelo mesmo binário (uma
+compilação de "olá" antes).
+
+### 7.1 Onde o tempo ia (partida, `aot --optimize`, objetos frios)
+
+| fase | CPU | observação |
+|---|---:|---|
+| front-end | 12,6 s | `const_eval::Engine::equal_states`: mapa constante montado por busca linear de chave |
+| HIR (baixar + poda + otimizar) | 86 s | `FnBuilder::emit` procurava o bloco atual varrendo todos os blocos |
+| LLVM IR | 19,9 s | 588 MB de texto |
+| objetos (Clang `-O2 -flto=thin`, 32 partes) | 358 s | duas partes de 22 MB levavam minutos cada |
+| ligação (ThinLTO `-O1`, 3 tarefas) | 935 s | |
+| **total** | **~1 410 s** | `dart compile exe`: **41 s** de CPU |
+
+O perfil da ligação (`--time-trace`) mostrou que **59% do tempo das tarefas do ThinLTO**
+ia para três módulos:
+
+* os dois `unormdata` (o mapa literal não constante do `unorm_dart`, e a cópia dele dentro do
+  `dargres`): uma função de 470 mil linhas de IR cada, 22 MB de texto; `Machine code
+  sinking` sozinho levou 690 + 628 s de tarefa (é quadrático em função enorme);
+* a última parte, com o `df.register.program` (28 mil registros de classe numa linha
+  reta de chamadas): gerado à parte (`clang -c -O1` do bitcode da parte), o *machine
+  outliner* gastou 141,6 s de CPU contra 2,4 s sem ele, para um objeto 153 KB menor; com só o
+  `df.register.program` marcado `"nooutline"`, 17,3 s e um objeto do mesmo tamanho (4 720 032
+  bytes): o *outliner* procurava ali sem tirar nada.
+
+E o executável (43,5 MB) tinha **33 cópias** do descritor da área (`@df.area`, 76 KB cada,
+2,36 MB): o ajudante `df.get_area` é `private` e vai copiado para cada parte, e com ele a
+constante que ele cita.
+
+### 7.2 O que mudou
+
+1. **Literais aninhados como dados** (`lower/literals.rs`, `fill_from_table`). Um literal
+   grande (8 ou mais elementos) cujos elementos são escalares constantes ou outros literais
+   sem `const` feitos só disso (`{0: {60: [null, null, {824: 8814}], …}}`) vira a tabela de
+   dados que já servia aos escalares. Cada literal aninhado entra como `g` + índice de uma
+   função que cria a coleção vazia do tipo estático dele (com a RTI), e uma segunda tabela
+   (a forma) diz quantos dos valores seguintes vão para ela; `_dartforgeFillNested`
+   (`native_sdk/collection/compact_hash.dart`) monta a árvore na ordem. É o mesmo
+   resultado: coleções novas e mutáveis, com os mesmos tipos e conteúdo, na mesma ordem (os
+   elementos não rodam código Dart; uma chave de mapa nunca é literal aninhado; tipo com
+   parâmetro de tipo, ARC ou contexto constante ficam no caminho de antes). Os inteiros da
+   tabela agora usam 1, 2 ou 4 bytes quando cabem (`b`, `h`, `w`;
+   `runtime/src/natives_lists.rs`). Teste: `corpus/native/175_nested_literals_by_table.dart`
+   (igual à VM em desenvolvimento, produção, `gc-stress` e wasm). O `compact_hash.dart` mudou,
+   então o hash dele no manifesto revisado do SDK
+   (`lower/double_identity/selected_sdk_manifest.json`) também: o manifesto prende o conteúdo
+   de cada fonte do SDK, e sem ele as provas de `double`, `clamp` e multiplicação se recusam (e
+   desligam essas otimizações).
+2. **Constante local grande definida uma vez** (`partition.rs`, `SHARED_CONSTANT_BYTES` =
+   4 KB): em vez de copiada para cada parte, vai para a parte 0 como `@<nome>.program`
+   `hidden` e as outras a declaram. O ThinLTO só a importa como `available_externally` (o
+   endereço escapa para o runtime), então fica uma cópia no executável. Teste:
+   `partition::tests::large_local_constant_is_defined_once`.
+3. **`"nooutline"` no `df.register.program`** (`llvm/selectors.rs`).
+4. **ICF `safe_thunks`** na ligação de produção do programa em partes no macOS
+   (`linker_macos.rs`, `icf_mode`), com `-mllvm -addrsig` no LTO: o código de máquina idêntico
+   é dobrado, e uma função cujo endereço é tomado (um *tear-off*) vira um *thunk* em vez de
+   dividir o endereço. O `corpus/native` inteiro passou com ele ligado em todo programa
+   (`corpus/native/80_tearoffs_de_corpo_identico` igual à VM), mas no programa pequeno o ganho
+   é 0,5% (16 KB de 3,3 MB) e o executável já é menor que o do Dart: fica só no programa em
+   partes, como o *outliner*. `DARTFORGE_ICF` escolhe (`none`, `safe`, `safe_thunks`, `all`).
+5. **Buscas lineares que eram quadráticas**:
+   * mapa e conjunto constantes (avaliação e verificação de chave/elemento repetido,
+     `const_eval/evaluation.rs` e `verifier.rs`): índice por valor primitivo (`KeyIndex`);
+   * o bloco atual do `FnBuilder` (`lower/fn_builder.rs`): o id é o índice.
+6. **Tarefas de geração** (`driver::default_generation_tasks`): uma por núcleo físico
+   (metade das *threads* com SMT), uma por GiB de memória além de 4 GiB de reserva, até 8; sem
+   o tamanho da memória, 3 como antes. Nesta máquina: 3 → 8. A CPU total não muda; o relógio
+   da ligação e das partes cai com a máquina livre.
+
+### 7.3 Resultado
+
+`new_sali/backend`, `aot --optimize`, SDK em cache, objetos frios (CPU = usuário + sistema;
+entre parênteses, a carga média da máquina no início):
+
+| | front-end | HIR | LLVM IR | objetos | ligação | **CPU total** | relógio | executável |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| partida | 12,6 s | 86 s | 19,9 s | 358 s | 935 s | **~1 410 s** | 2 620 s (92) | 43,52 MB |
+| itens 1 (sem ints curtos), 2, 5, 6 | 4,8 s | 48,5 s | 13,5 s | 99 s | 506 s | **682 s** | 557 s (31) | 38,93 MB |
+| + ICF `safe_thunks` (religação das mesmas entradas) | | | | | 471 s | | | 37,92 MB |
+| todos os itens, manifesto do SDK ainda com o hash antigo | 5,0 s | 67,5 s¹ | 17,8 s | 99,8 s | 364 s | **566 s** | 551 s (56) | 36,90 MB |
+| **final** (manifesto revisto: as provas de `double`/`clamp`/multiplicação voltam) | 4,8 s | 80,3 s¹ | 17,8 s | 100,9 s | 361 s | **575 s** | 589 s (73) | **36,98 MB** |
+| `dart compile exe` (mediana de 7) | | | | | | **41,3 s** | 78 s | 26,46 MB |
+
+¹ A HIR mediu 48,5 s de CPU na segunda linha com quase o mesmo código; a diferença é a máquina
+(carga 56–157 durante as últimas medidas, contra 31: com a máquina cheia as *threads* vão para os
+núcleos de eficiência).
+
+* CPU: **2,45× menos** (1 410 → 575 s); ainda **13,9×** o `dart compile exe`.
+* Relógio: 2 620 → 589 s com carga parecida; ainda ~7,5× o do Dart (78 s).
+* Executável: **43,52 → 36,98 MB (−15,0%)**; ainda **1,40×** o do Dart.
+* Religação sem mudança (objetos e ThinLTO em cache): 91 s de CPU (233 s de relógio, carga 129).
+* O módulo mais lento do ThinLTO caiu de 905 s (um `unormdata`) para 91 s de tarefa.
+
+Do mapa da ligação (`DARTFORGE_LINK_MAP=1`):
+
+| seção | partida | final |
+|---|---:|---:|
+| `__TEXT,__text` | 34,42 MB | 29,86 MB |
+| `__TEXT,__const` | 4,69 MB | 2,68 MB |
+| `__DATA_CONST,__const` | 1,75 MB | 1,75 MB |
+| `__DATA_CONST,__dfimg` (textos estáticos) | 1,89 MB | 1,89 MB |
+
+No `__text` final: corpos 14,7 MB, `$async` 4,4 MB, adaptadores `$c` 2,8 MB, runtime e SDK
+nativo 2,6 MB, funções extraídas pelo *outliner* 1,4 MB (eram 2,5), constantes `dfc.*` 1,2 MB.
+
+`dart_ui/examples/file_explorer` (38 mil funções HIR depois da poda: abaixo do limiar de
+programa grande, então campos e ajudantes em linha e sem `optsize`):
+
+| | CPU | relógio | executável |
+|---|---:|---:|---:|
+| partida | 334 s | 531 s (60) | 20,69 MB |
+| final | 303 s | 311 s (76) | 19,88 MB |
+| final como programa grande (`DARTFORGE_LARGE_PROGRAM_FUNCTIONS=0`, medida) | 214 s | 242 s (62) | 15,66 MB |
+| `dart compile exe` | 16,7 s | 46 s | 12,26 MB |
+
+No File Explorer o ganho de tamanho é o do ICF (−3,9%); os literais aninhados e as cópias da
+área pesavam pouco ali. Tratado como programa grande (campos e ajudantes por chamada, `optsize`),
+ele cairia mais 21% (15,66 MB) e 29% de CPU, com o preço de desempenho da §5.1 nas chamadas
+virtuais; o limiar (50 mil funções HIR) continua o mesmo até o dono decidir.
+
+Desenvolvimento (`aot` sem `--optimize`, SDK em cache, objetos frios) do backend:
+
+| | front-end | HIR | LLVM IR | objetos (`-O0`) | **CPU total** | relógio (carga) |
+|---|---:|---:|---:|---:|---:|---:|
+| partida | 12,0 s | 74,4 s | 17,8 s | 127,7 s | **235 s** | 344 s (40) |
+| final | 4,8 s | 54,5 s | 13,5 s | 101,2 s | **177 s** | 303 s (67) |
+
+### 7.4 O que resta
+
+O tempo ainda é do LLVM: 462 dos 575 s de CPU são o Clang das partes e o ThinLTO, para 533 MB
+de IR. No ThinLTO, a seleção de instruções e a alocação de registradores são metade do tempo das
+funções; o resto se espalha pelo código, proporcional ao volume de IR. As alavancas que faltam
+são do mesmo tamanho para tempo e para executável:
+
+1. **Forma do código** (§1.4 e §6.6): a moldura da pilha-sombra, a checagem da exceção pendente
+   depois de cada chamada, os adaptadores `$c`/`$g`/`$tc` (4 MB) e o `$async` (4,4 MB).
+2. **A otimização dobrada**: a pré-ligação `-O2` das partes e o ThinLTO `-O1` otimizam as mesmas
+   funções duas vezes (medido no Windows, §6.2: sem ganho trocar só um dos níveis).
+3. **Análises de proveniência repetidas** na HIR (`receiver_provenance::analyze` roda sobre o
+   módulo inteiro na poda, na desvirtualização física e na emissão; ~12% da CPU da HIR).
+4. **`df.prepare_isolate` e os outros inicializadores longos** podem ter o mesmo problema do
+   *outliner* que o `df.register.program` tinha; não medido.
+
+Achado no caminho: a inferência do front-end dá `Map<int, List<Object?>>` a um literal de mapa
+aninhado num mapa cujo outro valor é `{}`, e a VM dá `Map<dynamic, dynamic>` (o LUB do contexto
+desce para os elementos). É anterior a esta rodada e não depende do caminho por tabela; o
+`corpus/native/175` declara o tipo para não depender disso.

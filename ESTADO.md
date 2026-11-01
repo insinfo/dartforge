@@ -16,7 +16,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | **`analyze`** × `dart analyze` | `new_sali/backend`: ~5 s × 21,7 s frio (2,6 s com cache); `format`: **0,42 × 1,55 s** | — | 13–14/10 |
 | **`test`** / **`pub`** × `dart test` / `dart pub` | **não medido** | — | — |
 | **Wasm** × `dart2wasm` (Node 24) | **perde** 1,2–3× em alocação/árvores, JSON, strings e crivo (ganho de só 10–20% em 31/10 noite; o coletor pesa ~25% no JSON); **ganha** 2–8× em `list.add`, `list[i]` e `sort` | módulo **1,26–1,94 MB × 47–114 KB (17–27× maior**; era 2,2–2,7 MB, −28 a −42%); memória **2,3–3,4× menor**. Exceções nativas do Wasm (`exnref`) são o padrão: −2,6 a −4,5% de tamanho | 31/10 noite |
-| **AOT nativo** × `dart compile exe` | HTTP `dart:io`: **68–69,5 × 70,2 mil pedidos/s (97–99%)**; ciclos por pedido: tracing 66 mil × 70 mil (melhor), ARC real 205 mil (pior). Trees 12,4 × 11,9 ms; JSON 77,5 × 78 ms; strings 43 × 47 ms. Swift cru: 26 mil ciclos × nosso 38 mil. Compilar programa grande com `--optimize`: **5,7–6,8× mais lento** (340–405 × 58–60 s) | servidor **4,7 × 5,6 MB**; hello 0,56×; `new_sali/backend` **37,8 × 26,5 MB (1,4× maior)**; RSS do servidor 17,5 × 17,2 MB (ARC real 23,8 MB) | 30–31/10 (compilação: ~06/10) |
+| **AOT nativo** × `dart compile exe` | HTTP `dart:io`: **68–69,5 × 70,2 mil pedidos/s (97–99%)**; ciclos por pedido: tracing 66 mil × 70 mil (melhor), ARC real 205 mil (pior). Trees 12,4 × 11,9 ms; JSON 77,5 × 78 ms; strings 43 × 47 ms. Swift cru: 26 mil ciclos × nosso 38 mil. Compilar `new_sali/backend` com `--optimize` (macOS, objetos frios): **575 × 41 s de CPU (13,9×)**, relógio 589 × 78 s (~7,5×, máquina carregada); era ~1 410 s de CPU. Desenvolvimento frio: 177 s de CPU | servidor **4,7 × 5,6 MB**; hello 0,56×; `new_sali/backend` **37,0 × 26,5 MB (1,40× maior**; era 43,5 MB); File Explorer 19,9 × 12,3 MB (1,62×); RSS do servidor 17,5 × 17,2 MB (ARC real 23,8 MB) | 30–31/10 (compilação e tamanho do grande: 31/10) |
 
 ### Corretude
 
@@ -39,9 +39,78 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | JS produção: `jsonEncode` no máximo igual ao `dart2js -O4` (`async_await` e o gzip dos programas pequenos resolvidos em 01/11) | pausado em 01/11: perfil do `jsonEncode` sem ponto concentrado (1,0–1,2×); falta provar no mundo fechado que `withIndent` não é alcançado |
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
 | Backend nativo (AOT e wasm): as 57 falhas restantes da suíte `tests/language` (de 88) | agente backend nativo |
-| AOT nativo: tempo de compilação (6× o `dart compile exe`) e tamanho de programa grande (1,4×) | agente AOT (desde 31/10, 17h) |
+| AOT nativo: tempo de compilação de programa grande (13,9× a CPU do `dart compile exe`) e tamanho (1,40×) | agente AOT nativo (tempo e tamanho; seção de 31/10 abaixo) |
 | ARC real: 3× os ciclos do tracing no HTTP (205 × 66 mil por pedido no `dart:io`; Swift cru 26 mil) | agente ARC real (desde 31/10, noite) |
 | LSP: motor residente incremental (tecla e API), índice para `references`, `completion` fora de corpo, memória das buscas | agente LSP (medição e consultas concluídas em 31/10; próxima rodada) |
+
+## 31/10/2026: AOT nativo de programa grande — 2,45× menos CPU para compilar, executável 15% menor
+
+Medido no macOS arm64 (Apple M4, 16 GB) com outros cinco agentes na máquina (carga 30–157 em
+10 núcleos): o número principal é a **CPU** (usuário + sistema, com os filhos Clang e
+`ld64.lld`), as medidas do DartForge e do `dart compile exe` foram alternadas, e o relógio vai
+junto com a carga. Detalhes, perfis e o que resta em `docs/NATIVO-PRODUCAO-GRANDE.md` §7.
+
+**`new_sali/backend`, `aot --optimize`, SDK em cache, objetos frios:**
+
+| | CPU | relógio (carga) | executável |
+|---|---:|---:|---:|
+| antes | ~1 410 s | 2 620 s (92) | 43,52 MB |
+| **agora** | **575 s** | 589 s (73) | **36,98 MB** |
+| `dart compile exe` (mediana de 7) | 41,3 s | 78 s | 26,46 MB |
+
+Ainda 13,9× a CPU e ~7,5× o relógio do Dart, e 1,40× o tamanho. Religação sem mudança: 91 s de
+CPU. Desenvolvimento frio do backend: 235 → 177 s de CPU.
+
+**`dart_ui/examples/file_explorer`** (38 mil funções HIR, abaixo do limiar de programa grande):
+334 → 303 s de CPU e 20,69 → 19,88 MB (`dart compile exe`: 16,7 s e 12,26 MB). Como programa
+grande (`DARTFORGE_LARGE_PROGRAM_FUNCTIONS=0`) daria 15,66 MB e 214 s, com o custo da §5.1 do
+doc nas chamadas virtuais: o limiar fica para o dono decidir.
+
+**O que pesava** (perfil `--time-trace` da ligação e amostras do `sample` na emissão):
+* os dois `unormdata` (o mapa literal não constante do `unorm_dart` e a cópia dele no
+  `dargres`): 22 MB de IR cada, numa função; `Machine code sinking` levou 690 + 628 s de tarefa
+  do ThinLTO neles e eram o caminho crítico;
+* o *machine outliner* no `df.register.program` (28 mil registros): 141,6 s de CPU contra 2,4 s
+  sem ele, para o mesmo código;
+* 33 cópias do descritor da área (`@df.area`, 76 KB) no executável, uma por parte;
+* buscas lineares que eram quadráticas: chave de mapa/conjunto constante (front-end, avaliação e
+  verificação) e o bloco atual do `FnBuilder` (a cada instrução emitida).
+
+**O que entrou:**
+* literal grande com literais aninhados de escalares constantes como dados
+  (`lower/literals.rs`, `_dartforgeFillNested`), com inteiros curtos na tabela; teste
+  `corpus/native/175_nested_literals_by_table.dart`; o hash revisado do `compact_hash.dart` no
+  manifesto do SDK selecionado (`double_identity/selected_sdk_manifest.json`) foi atualizado —
+  sem isso as provas de `double`/`clamp`/multiplicação recusavam o SDK e desligavam;
+* constante local de 4 KB ou mais definida uma vez para todas as partes (`partition.rs`);
+* `"nooutline"` no `df.register.program`;
+* ICF `--icf=safe_thunks` com `-mllvm -addrsig` na ligação de produção do programa em partes
+  no macOS (`DARTFORGE_ICF` escolhe): −1,0 MB no backend; o `corpus/native` passou com ele
+  ligado em todo programa, mas no pequeno só tira 0,5% e fica desligado;
+* índice por valor primitivo nas chaves de mapa/conjunto constante (`const_eval`) e bloco atual
+  por índice;
+* tarefas de geração por núcleo físico e memória (3 → 8 nesta máquina; `DARTFORGE_PARALLEL_PARTS`
+  continua mandando);
+* `--timings` com a CPU de cada fase; `DARTFORGE_LTO_PROFILE`, `DARTFORGE_PRINT_LINK` e
+  `DARTFORGE_LARGE_PROGRAM_FUNCTIONS` como chaves de medida no macOS.
+
+**Validação**: `corpus/native` **164/164** (os 163 e o 175) em desenvolvimento, `--optimize` com
+`DARTFORGE_CHECK_SHADOW=1`, `--optimize --gc-stress` e `--wasm` (`--exec-limit 60`: com a
+máquina cheia, cinco programas passavam dos 5 s padrão no `gc-stress`), duas vezes: com o ICF
+ligado em todo programa e com o código final (ICF só no programa em partes, manifesto revisto); `cargo test --release -p
+dartforge-emit-native --features embedded-llvm -- --include-ignored`: 1080 da biblioteca, 29 de
+integração e 128 *doctests*, todos passam (a primeira rodada achou as 8 provas do SDK
+selecionado recusando o `compact_hash.dart` novo: é o manifesto acima); `dartforge-types`,
+`dartforge-runtime` e `dartforge-instrument` também; clippy `-D
+warnings` e `rustfmt` nos crates tocados. O backend sobe como o do Dart (mesmas mensagens de
+partida; sem banco nem Redis, os dois param na mesma conexão recusada). Desempenho: os programas
+de `bench/performance` e o servidor HTTP não passam pelos caminhos novos (nenhum tem literal
+aninhado por tabela — conferido no IR — e o ICF só liga no programa em partes); com o ICF
+ligado neles a medida ficou no ruído da máquina carregada (0,64–1,38 por núcleo, sem direção).
+
+**Achado para o agente do backend nativo/front-end:** num mapa literal sem tipo cujo valor é
+`{60: [...], ...}` ao lado de um `{}`, o DartForge dá `Map<int, List<Object?>>` ao valor e a VM
+dá `Map<dynamic, dynamic>` (o LUB desce para os literais). Anterior a esta rodada.
 
 ## 01/11/2026, madrugada: JS de produção — `async_await` igual ao `dart2js`, gzip dos programas pequenos abaixo dele
 
