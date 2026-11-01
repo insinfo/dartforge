@@ -475,6 +475,9 @@ pub(super) fn certify(
                 && !name.starts_with("dartforge_arc_")
                 && !name.starts_with(super::NATIVE_SCOPE_PREFIX)
                 && !name.starts_with(super::GENERIC_OWNED_PREFIX)
+                // The natives that only run Dart in a throw helper with its own
+                // scope (`dartforge_runtime::arc::NATIVES_SCOPING_THEIR_DART`).
+                && !dartforge_runtime::arc::NATIVES_SCOPING_THEIR_DART.contains(&name.as_str())
             {
                 return Err(format!(
                     "ARC ports: {} has an unscoped runtime boundary {name}",
