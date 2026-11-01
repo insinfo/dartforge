@@ -4571,6 +4571,10 @@ impl<'a> LlvmEmitter<'a> {
     /// new area and the publication of a reload zeroes them (they keep code
     /// addresses, and the method tables have just changed). In production,
     /// `[key, -n, m, slot…]` ([`LlvmEmitter::with_lean_area`]).
+    ///
+    /// The address of the descriptor is significant (no `unnamed_addr`): the
+    /// runtime finds a lean area by it (`dartforge_globals_area`), so two copies
+    /// would be two areas — `partition.rs` defines it once among the parts.
     fn emit_area_descriptor(&mut self) {
         let key = self
             .module
@@ -4590,7 +4594,7 @@ impl<'a> LlvmEmitter<'a> {
             items.extend(self.rooted_slots.iter().map(|s| format!("i64 {s}")));
             writeln!(
                 self.out,
-                "@df.area = private unnamed_addr constant [{} x i64] [{}]",
+                "@df.area = private constant [{} x i64] [{}]",
                 items.len(),
                 items.join(", ")
             )
@@ -4605,7 +4609,7 @@ impl<'a> LlvmEmitter<'a> {
         let items: Vec<String> = values.iter().map(|v| format!("i64 {v}")).collect();
         writeln!(
             self.out,
-            "@df.area = private unnamed_addr constant [{} x i64] [{}]",
+            "@df.area = private constant [{} x i64] [{}]",
             items.len(),
             items.join(", ")
         )

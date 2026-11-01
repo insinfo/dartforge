@@ -21,7 +21,9 @@
 //! * a large `private`/`internal` constant (at least
 //!   [`SHARED_CONSTANT_BYTES`]: the `@df.area` descriptor that every copy of the
 //!   area helper cites, 76 KB in new_sali/backend, was in each of its 33
-//!   objects): defined once, in part 0, as a `hidden` global with the
+//!   objects), or one whose address is significant (no `unnamed_addr`: the
+//!   `@df.area` of any size, by whose address the runtime finds the area):
+//!   defined once, in part 0, as a `hidden` global with the
 //!   `.program` suffix (no SDK module defines that name), and declared in the
 //!   others, whose references take the new name;
 //! * a mutable `internal global` (the `@df.area_id`, the index of the module's
@@ -248,10 +250,13 @@ fn read(ir: &str) -> Module<'_> {
             let local = after.starts_with("private ") || after.starts_with("internal ");
             let mutable = local && global_head(after).0 == "global";
             let comdat = line_comdat(line, name);
+            // A constant without `unnamed_addr` has a significant address (the
+            // `@df.area` descriptor: the runtime finds the area by it), so a copy
+            // per part would be another object: it is defined once, whatever its size.
             let shared = local
                 && !mutable
                 && comdat.is_none()
-                && line.len() >= SHARED_CONSTANT_BYTES
+                && (line.len() >= SHARED_CONSTANT_BYTES || !address_insignificant(after))
                 && r.as_bytes().first().is_some_and(|c| is_ident(*c))
                 && !after.contains("thread_local");
             m.index.insert(name, m.items.len());
@@ -278,6 +283,16 @@ fn read(ir: &str) -> Module<'_> {
         pos = line_end;
     }
     m
+}
+
+/// Whether the definition after `@name =` has `unnamed_addr` (or
+/// `local_unnamed_addr`) among the words before `global`/`constant`: only then
+/// may two parts each have their own copy.
+fn address_insignificant(after: &str) -> bool {
+    after
+        .split_whitespace()
+        .take_while(|w| *w != "global" && *w != "constant")
+        .any(|w| w == "unnamed_addr" || w == "local_unnamed_addr")
 }
 
 /// `global`/`constant`, and the rest after the word, from `<linkage…>
@@ -909,6 +924,51 @@ define ptr @df.b.f() {{\n\
                     "{p}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn small_constant_with_significant_address_is_defined_once() {
+        // The production `@df.area` of a small program (40 bytes): the runtime
+        // finds the lean area by the descriptor's address, so a copy per part
+        // gave each part its own globals (corpus/native/175 with
+        // DARTFORGE_PART_KB=64 printed `counter` as 0). An `unnamed_addr`
+        // constant of the same size is still copied.
+        let ir = "@df.area = private constant [5 x i64] [i64 1, i64 -2, i64 2, i64 0, i64 1]\n\
+@.str.0 = private unnamed_addr constant [2 x i8] c\"oi\"\n\
+@df.area_id = internal global i64 0, align 8\n\
+define internal ptr @df.get_area() alwaysinline {\n\
+  %q = call ptr @g(ptr @df.area, ptr @df.area_id, ptr @.str.0)\n\
+  ret ptr %q\n\
+}\n\
+declare ptr @g(ptr, ptr, ptr)\n\
+define ptr @df.a.f() {\n\
+  %p = call ptr @df.get_area()\n\
+  ret ptr %p\n\
+}\n\
+define ptr @df.b.f() {\n\
+  %p = call ptr @df.get_area()\n\
+  ret ptr %p\n\
+}\n";
+        let parts = split(ir, 1);
+        assert!(parts.len() > 1);
+        let defined = parts
+            .iter()
+            .filter(|p| p.contains("@df.area.program = hidden constant [5 x i64]"))
+            .count();
+        assert_eq!(defined, 1, "{parts:#?}");
+        let citing = parts
+            .iter()
+            .filter(|p| p.contains("define internal ptr @df.get_area()"))
+            .collect::<Vec<_>>();
+        assert!(citing.len() > 1);
+        for p in citing {
+            assert!(!p.contains("@df.area = "), "{p}");
+            assert!(
+                p.contains("call ptr @g(ptr @df.area.program, ptr @df.area_id, ptr @.str.0)"),
+                "{p}"
+            );
+            assert!(p.contains("@.str.0 = private unnamed_addr constant"), "{p}");
         }
     }
 }
