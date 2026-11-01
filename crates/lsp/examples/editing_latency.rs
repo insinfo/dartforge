@@ -82,6 +82,13 @@ struct Options {
     reps: usize,
     positions: usize,
     json: Option<PathBuf>,
+    /// `--long N`: the long session instead of the measurements (N rounds;
+    /// `0` only starts, rests and reports: the freshly started server).
+    long: Option<usize>,
+    /// `--generated N`: the files of each wave of the long session.
+    generated: usize,
+    /// `--csv`: where the long session's samples go.
+    csv: Option<PathBuf>,
 }
 
 fn options() -> Options {
@@ -98,6 +105,9 @@ fn options() -> Options {
     let mut reps = 5;
     let mut positions = 8;
     let mut json = None;
+    let mut long = None;
+    let mut generated = 40;
+    let mut csv = None;
     while let Some(a) = args.next() {
         let mut value = || args.next().expect("option value");
         match a.as_str() {
@@ -125,6 +135,9 @@ fn options() -> Options {
             "--reps" => reps = value().parse().expect("--reps"),
             "--positions" => positions = value().parse().expect("--positions"),
             "--json" => json = Some(PathBuf::from(value())),
+            "--long" => long = Some(value().parse().expect("--long")),
+            "--generated" => generated = value().parse().expect("--generated"),
+            "--csv" => csv = Some(PathBuf::from(value())),
             other => panic!("unknown option {other}"),
         }
     }
@@ -147,6 +160,9 @@ fn options() -> Options {
         interval: Duration::from_millis(interval),
         reps,
         positions,
+        long,
+        generated,
+        csv,
         json,
     }
 }
@@ -729,6 +745,188 @@ impl Document {
     }
 }
 
+/// The package of the main file (the nearest directory with a
+/// `pubspec.yaml`): `--root` may be a workspace of several packages.
+fn main_package(o: &Options) -> PathBuf {
+    o.file
+        .ancestors()
+        .skip(1)
+        .find(|d| d.join("pubspec.yaml").is_file())
+        .unwrap_or(&o.root)
+        .to_path_buf()
+}
+
+/// The directory of the long session's generated files, in the main file's
+/// package.
+fn generated_dir(o: &Options) -> PathBuf {
+    main_package(o).join("lib/df_long_session")
+}
+
+/// Rewrites the long session's generated files for wave `wave` (what
+/// `build_runner` or `webdev` does: a `.g.dart` per source, with members
+/// that change every wave), each importing the main file.
+fn write_wave(o: &Options, wave: usize) -> Vec<PathBuf> {
+    let dir = generated_dir(o);
+    std::fs::create_dir_all(&dir).expect("the generated directory");
+    let main = o
+        .file
+        .strip_prefix(main_package(o).join("lib"))
+        .map(|r| format!("../{}", r.display()))
+        .unwrap_or_else(|_| o.file.display().to_string());
+    (0..o.generated)
+        .map(|i| {
+            let path = dir.join(format!("gen_{i}.g.dart"));
+            let text = format!(
+                "// GENERATED CODE - DO NOT MODIFY BY HAND (wave {wave})\n\
+                 // ignore_for_file: unused_import\n\
+                 import '{main}';\n\n\
+                 class Gen{i}W{w} {{\n  final int value;\n  const Gen{i}W{w}(this.value);\n\
+                 \x20 Map<String, Object?> toJson() => {{'value': value, 'wave': {wave}}};\n}}\n\n\
+                 Gen{i}W{w} gen{i}FromJson(Map<String, Object?> json) => Gen{i}W{w}(json['value'] as int);\n",
+                w = wave % 3
+            );
+            std::fs::write(&path, text).expect("write a generated file");
+            path
+        })
+        .collect()
+}
+
+/// A sample of the long session: seconds, RSS and footprint of all
+/// processes (bytes), loads so far.
+type Point = (f64, u64, u64, u64);
+
+/// RSS and footprint of the server and all its descendants, in bytes.
+fn rss_of_all(pid: u32) -> (u64, u64) {
+    let mut rss = 0;
+    let mut foot = 0;
+    for p in std::iter::once(pid).chain(descendants(pid)) {
+        if let Some(f) = footprint::of(p) {
+            rss += f.rss;
+            foot += f.footprint;
+        }
+    }
+    (rss, foot)
+}
+
+/// The long session (`--long N`): N rounds of a wave of generated files
+/// rewritten on the disk (one `didChangeWatchedFiles` per file), a body edit
+/// and its undo in the main file, and every fifth round an API change and its
+/// undo in `--api`; RSS of all processes sampled every 2 s into `--csv`;
+/// then a quiet minute. `--long 0`: start, rest and report (the freshly
+/// started server, for the same files).
+fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) {
+    let pid = c.pid;
+    let started = Instant::now();
+    let loads = Arc::new(AtomicU64::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let samples: Arc<Mutex<Vec<Point>>> = Arc::default();
+    let sampler = {
+        let (loads, stop, samples) = (Arc::clone(&loads), Arc::clone(&stop), Arc::clone(&samples));
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                let (rss, foot) = rss_of_all(pid);
+                samples.lock().expect("samples").push((
+                    started.elapsed().as_secs_f64(),
+                    rss,
+                    foot,
+                    loads.load(Ordering::Relaxed),
+                ));
+                std::thread::sleep(Duration::from_secs(2));
+            }
+        })
+    };
+    let mut api = o.api.as_ref().map(|a| Document::open(c, a));
+    c.settle_after(Instant::now());
+    for round in 1..=rounds {
+        // A wave: every generated file rewritten, one notification each,
+        // spread as a file watcher reports them.
+        let paths = write_wave(o, round);
+        for path in &paths {
+            c.notify(
+                "workspace/didChangeWatchedFiles",
+                json!({"changes": [{"uri": uri_of(path), "type": 2}]}),
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        c.settle_after(Instant::now());
+        loads.fetch_add(1, Ordering::Relaxed);
+        // A body edit and its undo.
+        let at = body_insertion(&doc.text);
+        let statement = "\n    var dfLongSession = 1;";
+        doc.insert(c, at, statement);
+        c.settle_after(Instant::now());
+        doc.remove(c, at, at + statement.len());
+        c.settle_after(Instant::now());
+        loads.fetch_add(2, Ordering::Relaxed);
+        // An API change and its undo.
+        if round % 5 == 0
+            && let Some(a) = api.as_mut()
+        {
+            let at = a.text.rfind('}').map_or(a.text.len(), |i| i + 1);
+            let declaration = format!("\nint dfLongSessionApi{round}() => {round};\n");
+            a.insert(c, at, &declaration);
+            c.settle_after(Instant::now());
+            a.remove(c, at, at + declaration.len());
+            c.settle_after(Instant::now());
+            loads.fetch_add(2, Ordering::Relaxed);
+        }
+        if round % 10 == 0 {
+            let (rss, _) = rss_of_all(pid);
+            println!(
+                "round {round}: {:.0} s, RSS {:.0} MiB",
+                started.elapsed().as_secs_f64(),
+                mib(rss)
+            );
+        }
+    }
+    let busy_end = started.elapsed().as_secs_f64();
+    std::thread::sleep(Duration::from_secs(60));
+    let (rest_rss, rest_foot) = rss_of_all(pid);
+    stop.store(true, Ordering::Relaxed);
+    let _ = sampler.join();
+    let samples = samples.lock().expect("samples").clone();
+    if let Some(path) = &o.csv {
+        let mut out = String::from("seconds,rss_mib,footprint_mib,loads\n");
+        for (t, rss, foot, l) in &samples {
+            out.push_str(&format!("{t:.1},{:.1},{:.1},{l}\n", mib(*rss), mib(*foot)));
+        }
+        std::fs::write(path, out).expect("write the CSV");
+    }
+    // Least squares over the busy part, after the first tenth (the startup).
+    let busy: Vec<&(f64, u64, u64, u64)> = samples
+        .iter()
+        .filter(|s| s.0 >= busy_end * 0.1 && s.0 <= busy_end)
+        .collect();
+    let slope = |x: &dyn Fn(&Point) -> f64| {
+        let n = busy.len() as f64;
+        if n < 2.0 {
+            return 0.0;
+        }
+        let (sx, sy) = busy
+            .iter()
+            .fold((0.0, 0.0), |(a, b), s| (a + x(s), b + mib(s.1)));
+        let (mx, my) = (sx / n, sy / n);
+        let (num, den) = busy.iter().fold((0.0, 0.0), |(a, b), s| {
+            (a + (x(s) - mx) * (mib(s.1) - my), b + (x(s) - mx).powi(2))
+        });
+        if den == 0.0 { 0.0 } else { num / den }
+    };
+    let per_hour = slope(&|s| s.0 / 3600.0);
+    let per_100_loads = slope(&|s| s.3 as f64 / 100.0);
+    let peak = samples.iter().map(|s| s.1).max().unwrap_or(0);
+    println!(
+        "long session {}: {rounds} rounds, {} loads, {:.0} s busy; RSS peak {:.1} MiB, slope {:.1} MiB/h ({:.1} MiB per 100 loads), at rest after 60 s {:.1} MiB (footprint {:.1} MiB)",
+        o.label,
+        loads.load(Ordering::Relaxed),
+        busy_end,
+        mib(peak),
+        per_hour,
+        per_100_loads,
+        mib(rest_rss),
+        mib(rest_foot),
+    );
+}
+
 /// Inserts `declaration` at `at` of `doc` `reps` times, measuring the time to
 /// the diagnostic on its first line and to settled, and removes it each time.
 fn diagnostic_edits(
@@ -782,6 +980,9 @@ fn diagnostic_edits(
 
 fn main() {
     let o = options();
+    if o.long.is_some_and(|n| n > 0) {
+        write_wave(&o, 0);
+    }
     let mut child = Command::new(&o.command[0])
         .args(&o.command[1..])
         .stdin(Stdio::piped())
@@ -900,6 +1101,15 @@ fn main() {
     let startup_cpu = cpu_of_all(pid);
     println!("first analysis: CPU {:.0} ms", startup_cpu as f64 / 1e6);
     results.insert("startup: cpu".to_string(), json!(startup_cpu as f64 / 1e6));
+    if let Some(rounds) = o.long {
+        long_session(&o, &mut c, &mut main_doc, rounds);
+        c.request("shutdown", Value::Null);
+        c.notify("exit", Value::Null);
+        let _ = child.wait();
+        stop.store(true, Ordering::Relaxed);
+        let _ = sampler.join();
+        return;
+    }
     // 2. Typing a statement, waiting for each version to settle.
     let at = body_insertion(&main_doc.text);
     let statement = "    final dfProbe = [1, 2].length;\n";
