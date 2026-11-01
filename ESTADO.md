@@ -22,7 +22,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 
 | Ferramenta | Resultado | Lacunas abertas |
 |---|---|---|
-| **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT** (`dartforge aot --optimize`): primeira medição 31/10, 2721 iguais à VM, 2775 (96,9%) contando os 54 que os dois recusam; depois das correções do backend (31/10, noite, medidas nas 88 falhas e em 148 programas das áreas tocadas): **2752 iguais, 2806 (98,0%)** na projeção, wasm **2812 (98,2%)**. JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos). Nativo: 88 → **57 falhas** (wasm: 80 → 51): *mixin* aplicado duas vezes, aplicação de mixin sobre classe abstrata sem construtor, construções recusadas (`external`, `loadLibrary` como valor), pilhas simbólicas e *hashes*, 10 programas que a VM recusa e nós aceitamos, `late` em *closure*, avulsos |
+| **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT** (`dartforge aot --optimize`): primeira medição 31/10, 2721 iguais à VM, 2775 (96,9%) contando os 54 que os dois recusam; depois de duas rodadas de correções do backend (31/10 e 01/11, medidas nas falhas e nos programas das áreas tocadas): **2761 iguais, 2815 (98,3%)** na projeção, wasm **2821 (98,5%)**. JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos). Nativo: 88 → 57 → **48 falhas** (wasm: 80 → 51 → 42): *mixin* aplicado duas vezes (precisa de uma cópia por aplicação), construções recusadas (`external`, `loadLibrary` como valor), um programa de 300 s de compilação (análise de raízes), pilhas simbólicas e *hashes*, 10 programas que a VM recusa e nós aceitamos, avulsos |
 | **`analyze`** | corpus do analisador **99,95%** (23.001/23.012), 14/10 e de novo em 31/10. Erros a mais em `tests/language`: **231 → 107 → 20** (de 70 para 7 arquivos), 31/10, sem novos falsos negativos (os erros dos 1.460 programas de erro ficaram idênticos) | 12 são do *parser*: declarações `augment` sem o experimento `macros`. 6 são *wildcards* fora do modo *wildcard*: com `_` duplicado, o analisador liga à primeira declaração e nós à última. 2 vêm de `X1 extends FutureOr<X1>`, em que o próprio 3.6.2 não diagnostica |
 | **`pub`** | solucionador **PubGrub** portado do Pub 3.6.2. `pub get` idêntico ao oficial em **51/51** projetos reais (lockfile byte a byte, `package_config.json`, saída e código), com e sem lockfile. `add`, `remove`, `upgrade`, `downgrade`, `deps` e `outdated` idênticos em 42 cenários (31/10) | sugestões depois de falha de resolução; avisos de segurança no `outdated`; `cache`, `global`, `publish`, `token`, `login`; `--precompile`; SDKs Flutter e Fuchsia. Matriz em `docs/PUB-E-TEST.md` |
 | **`test`** | igual ao `dart test` em **22/22** execuções diferenciais; aceita `dart_test.yaml` e as anotações; relator `expanded` no formato do `dart test` (31/10) | `-r json` com eventos próprios; só a plataforma `vm`; sem *coverage*, *watch*, `--fail-fast`, `compact` e `github` |
@@ -38,10 +38,75 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | JS dev: subir de um checkout limpo sem `build_runner`; edição de template | concluído em 31/10 (29,6 × 212,5 s; template 3,3 × 7,6 s) |
 | JS produção: `jsonEncode` no máximo igual ao `dart2js -O4` (`async_await` e o gzip dos programas pequenos resolvidos em 01/11) | pausado em 01/11: perfil do `jsonEncode` sem ponto concentrado (1,0–1,2×); falta provar no mundo fechado que `withIndent` não é alcançado |
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
-| Backend nativo (AOT e wasm): as 57 falhas restantes da suíte `tests/language` (de 88) | agente backend nativo |
+| Backend nativo (AOT e wasm): as 48 falhas restantes da suíte `tests/language` (de 88) | agente backend nativo |
 | AOT nativo: tempo de compilação de programa grande (13,9× a CPU do `dart compile exe`) e tamanho (1,40×) | agente AOT nativo (tempo e tamanho; seção de 31/10 abaixo) |
 | ARC real: 3× os ciclos do tracing no HTTP (205 × 66 mil por pedido no `dart:io`; Swift cru 26 mil) | agente ARC real (desde 31/10, noite) |
 | LSP: *outline* incremental (mudança de API), índice de nomes referenciados para `references`, `completion` dentro de corpo sem recarregar, memória das recargas da biblioteca | agente LSP (residente incremental por tecla concluído em 01/11) |
+
+## 01/11/2026: backend nativo — segunda rodada nas falhas da suíte `tests/language`
+
+**Medida.** Mesmo procedimento da rodada anterior (`scripts/run-language-suite.py native`,
+`--jobs 2`, a máquina em carga 50–130): as 57 falhas que restavam e os programas que passavam
+em `closure/`, `mixin/`, `nnbd/syntax/`, `extension_type/`, `generic_methods/`, `function/` e
+`generic/` (424 programas em duas rodadas).
+
+| | antes | depois |
+|---|---:|---:|
+| nativo: as 57 falhas | 57 | **48** (9 passam) |
+| nativo: programas que passavam nas áreas tocadas | — | nenhuma regressão |
+| wasm: as mesmas 57 (6 já saíam como no dart2wasm) | 6 | **15** (os mesmos 9), nenhuma regressão |
+| wasm, projeção | 2 812 (98,2%) | **2 821 (98,5%)** |
+| nativo, projeção para a suíte inteira | 2 752 iguais, 2 806 (98,0%) | **2 761 iguais, 2 815 (98,3%)** |
+
+Antes de mexer, o harness nativo no binário do `main` integrado (`13a6ccc8`, com as duas
+correções que só a suíte tinha medido): dev, `--optimize`, `--optimize --gc-stress` e `--wasm`
+163/163. Depois das correções, os quatro modos de novo: 163/163 em cada (`--jobs 2`, `--exec-limit` 60–120 por causa da carga). JS de produção nos programas
+de extension type e interop do corpus (13): iguais (a mudança no `crates/world` também vale
+para ele).
+
+Corrigido (`crates/emit_native`, e o `crates/world` para o membro combinado):
+- **aplicação de mixin nomeada sobre classe abstrata sem construtor** (`class A = B with C`, `B`
+  abstrata): `A()` cria o objeto e roda os construtores padrão implícitos — campos dos mixins
+  aplicados e de cada superclasse (`mixin/super_with_initializer` ×2,
+  `mixin_declaration_syntax`);
+- **`late` com inicializador capturado por *closure***: o estado fica na célula e o
+  inicializador roda na primeira leitura, onde ela estiver; a *closure* captura também o que o
+  inicializador lê (análise de capturas e variáveis livres da *closure*). Como na VM, toda
+  leitura antes de haver valor roda o inicializador, também a reentrante, e um `late final` que
+  encontra valor quando o inicializador volta lança "has been assigned during initialization"
+  (`late_modifier_edge_cases`, `late_modifier_runtime_error`);
+- **membro combinado de extension type** (`implements A, B`): o mundo fechado nativo mantinha
+  vivo só o cone do extension type e podava o *getter* da classe da representação; agora o cone
+  é a classe da representação (`extension_type/combined_member_signature`);
+- **instanciação aos limites da chamada dinâmica sem argumentos de tipo**: um limite que usa os
+  parâmetros da classe é lido no tipo do receptor (`A<int>().foo()` dá `Q1 extends P` = `int`) e
+  os limites seguintes recebem os anteriores; o *tear-off* de método checa os argumentos de tipo
+  passados contra os limites e os parâmetros que os citam (`function/apply_generic2`); método sem
+  parâmetros de tipo chamado com argumentos de tipo responde com o `noSuchMethod` do receptor
+  (`generic/tearoff`);
+- o construtor de funções acha o bloco corrente pelo id, sem varrer os blocos a cada instrução
+  (uma cascata de 20 000 elementos era quadrática). `regress/regress41983` ainda estoura os
+  300 s: o gargalo agora é a análise de raízes do coletor (`llvm/roots.rs`, conjuntos densos de
+  bits por instrução e `dead_slots`) numa função gigante;
+- `regress/regress31436` também passou a sair igual nesta rodada.
+
+Ficou para depois, com o motivo:
+- ***mixin* aplicado duas vezes na mesma cadeia** (3: `mixin/super_2` ×2,
+  `identity_equality_tearoff`): o código do mixin é um só e o `super` resolve pela classe
+  dinâmica; resolver exige uma cópia dos métodos por aplicação (índice contado a partir da base
+  da cadeia, que é estável entre subclasses), com entradas uniformes, tabelas de métodos e
+  desvirtualização por cópia. É uma mudança grande no despacho para três testes;
+- `closure/type_arguments` avançou até a última parte (genérico local chamado dinamicamente
+  com limite que cita o parâmetro de tipo da *closure* de fora);
+- `deferred` com `main() => p.loadLibrary().then(...)` cujo *callback* lê um membro da
+  biblioteca: o *callback* não roda (achado, não investigado a fundo);
+- `toString` do *tear-off* dinâmico de um membro do SDK (`(null as dynamic).toString`,
+  `(3 as dynamic).toString`): sai sem o nome e não é igual ao estático.
+
+Continuam abertos (48): os de cima; construções recusadas (`external` ×2, `loadLibrary` como
+valor, fábrica redirecionante de extension type, *tear-off* de construtor por typedef genérico,
+construtor nomeado de `enum`) e o de 300 s (7); pilhas simbólicas e *hashes* (11); os 10 que a VM
+recusa e nós aceitamos (frente do frontend); avulsos.
 
 ## 01/11/2026: LSP — o residente reaproveita o programa a cada tecla
 
