@@ -322,6 +322,18 @@ pub(crate) fn completion(
                     query.undo(swap);
                     return response;
                 }
+                // Outside a body (a signature, a declaration's name) the sentinel
+                // cannot be swapped in, and there only the scope matters: the
+                // retained analysis of the real text answers, instead of loading
+                // the library again with the sentinel.
+                if dartforge_types::body_at_offset(&query.program, unit, start).is_none() {
+                    let request = Request {
+                        speculative: false,
+                        delta: 0,
+                        ..request
+                    };
+                    return respond(query, unit, request, empty);
+                }
             }
         }
     }

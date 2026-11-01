@@ -765,6 +765,7 @@ impl<A: Analyzer> Server<A> {
         if let Some(t) = &self.typed {
             t.set_process(Some(exe.clone()));
         }
+        self.analyzer.search_in_child_processes(exe.clone());
         self.typed_process = Some(exe);
     }
 

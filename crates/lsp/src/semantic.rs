@@ -34,6 +34,9 @@ pub struct SemanticAnalyzer {
     /// reference search loads only what cites its name. Cleared when the
     /// package configuration changes.
     wide_fits: std::collections::HashMap<std::path::PathBuf, bool>,
+    /// The binary that runs the reference searches that do not fit
+    /// ([`Analyzer::search_in_child_processes`]); `None`: in this process.
+    search_exe: Option<std::path::PathBuf>,
     /// The summaries of the known libraries (export namespace) of `ImportLibrary`.
     known: crate::known_libraries::LibraryIndex,
     /// The current `maxCompletionItems`.
@@ -61,6 +64,7 @@ impl SemanticAnalyzer {
             session: crate::session::Session::new(),
             wide_session: crate::session::Session::wide(),
             wide_fits: Default::default(),
+            search_exe: None,
             known: Default::default(),
             completion_max: crate::completion::MAX_PATTERN,
             not_imported_in_completion: true,
@@ -170,6 +174,54 @@ impl SemanticAnalyzer {
         })?;
         usage.widen_to(name);
         Some(usage)
+    }
+
+    /// The reference search for `name` at `offset` of `uri` in a child process,
+    /// when the project's whole wide load does not fit in the wide session (the
+    /// search would load and drop it in this process, which then stays at its
+    /// peak: the system allocator does not give the pages back, docs/LSP.md
+    /// "Memória"). `None` when it does fit, without a child binary, or when the
+    /// child fails (the caller searches here).
+    fn search_in_child(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+        name: &str,
+    ) -> Option<Option<References>> {
+        let exe = self.search_exe.clone()?;
+        let sdk = self.sdk.as_ref()?;
+        let root = crate::project::project_root(&crate::project::uri_file(uri)?);
+        let budget = self.wide_session.budget();
+        let fits = *self
+            .wide_fits
+            .entry(root.clone())
+            .or_insert_with(|| crate::project::wide_source_estimate(&root) <= budget);
+        if fits {
+            return None;
+        }
+        let request = SearchRequest {
+            sdk_lib: sdk.root.clone(),
+            uri: uri.to_string(),
+            offset,
+            name: name.to_string(),
+            documents: documents
+                .uris()
+                .filter_map(|u| {
+                    Some((
+                        u.to_string(),
+                        documents.version(u).unwrap_or(0),
+                        documents.get(u)?.to_string(),
+                    ))
+                })
+                .collect(),
+        };
+        run_search_child(&exe, &request).map(|r| {
+            r.map(|f| References {
+                declaration: f.declaration,
+                uses: f.uses,
+            })
+        })
     }
 
     /// Discovers the SDK through the same paths the compiler uses.
@@ -294,11 +346,94 @@ impl SemanticAnalyzer {
             let library = self.library(documents, uri)?;
             return references_in(&library, uri, offset);
         };
+        if let Some(found) = self.search_in_child(documents, uri, offset, &name) {
+            return found;
+        }
         if let Some(wide) = self.wide(documents, uri, &name, true) {
             return references_in(&wide, uri, offset);
         }
         let project = self.project(documents, uri)?;
         references_in(&project, uri, offset)
+    }
+}
+
+/// The hidden argument that makes the `dartforge-lsp` binary a reference
+/// search process ([`reference_search_child`]).
+pub const REFERENCE_SEARCH_ARGUMENT: &str = "--reference-search";
+
+/// A reference search as the server sends it to the child: the SDK, the
+/// position, the searched name and every open document.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SearchRequest {
+    sdk_lib: std::path::PathBuf,
+    uri: String,
+    offset: usize,
+    name: String,
+    documents: Vec<(String, i32, String)>,
+}
+
+/// What the child answers: the [`References`], or nothing found.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SearchFound {
+    declaration: Option<(String, Span)>,
+    uses: Vec<(String, Span)>,
+}
+
+/// Runs `request` in a child process of `exe`. `None` when the child could not
+/// be used; otherwise its answer.
+fn run_search_child(exe: &std::path::Path, request: &SearchRequest) -> Option<Option<SearchFound>> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(exe)
+        .arg(REFERENCE_SEARCH_ARGUMENT)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .ok()?;
+    let input = serde_json::to_vec(request).ok()?;
+    let mut stdin = child.stdin.take()?;
+    let writer = std::thread::spawn(move || stdin.write_all(&input));
+    let output = child.wait_with_output().ok()?;
+    let _ = writer.join();
+    if !output.status.success() {
+        return None;
+    }
+    serde_json::from_slice(&output.stdout).ok()
+}
+
+/// The reference search child process ([`REFERENCE_SEARCH_ARGUMENT`]): reads a
+/// search from `stdin`, loads what it needs (`load_wide_project` with the
+/// name), searches and writes the answer to `stdout`.
+pub fn reference_search_child() -> i32 {
+    use std::io::Read;
+    let mut input = Vec::new();
+    if std::io::stdin().read_to_end(&mut input).is_err() {
+        return 2;
+    }
+    let Ok(request) = serde_json::from_slice::<SearchRequest>(&input) else {
+        return 2;
+    };
+    let Ok(sdk) = load_sdk(&request.sdk_lib) else {
+        return 2;
+    };
+    let mut documents = DocumentStore::new();
+    for (uri, version, text) in request.documents {
+        documents.open(uri, version, text);
+    }
+    let found =
+        crate::project::load_wide_project(&sdk, &documents, &request.uri, Some(&request.name))
+            .and_then(|mut project| {
+                project.widen_to(&request.name);
+                references_in(&project, &request.uri, request.offset)
+            })
+            .map(|r| SearchFound {
+                declaration: r.declaration,
+                uses: r.uses,
+            });
+    match serde_json::to_writer(std::io::stdout().lock(), &found) {
+        Ok(()) => 0,
+        Err(_) => 1,
     }
 }
 
@@ -562,6 +697,10 @@ impl Analyzer for SemanticAnalyzer {
     fn changed_document(&mut self, _uri: &str) {
         self.session.invalidate();
         self.wide_session.invalidate();
+    }
+
+    fn search_in_child_processes(&mut self, exe: std::path::PathBuf) {
+        self.search_exe = Some(exe);
     }
 
     fn project_configuration_changed(&mut self) {

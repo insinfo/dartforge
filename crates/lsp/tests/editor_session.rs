@@ -766,6 +766,59 @@ fn multi_package_editing_session() {
 /// `package_config.json` appears with `languageVersion: 3.6` and the client
 /// announces it, the open document is diagnosed again in 3.6 without being
 /// reopened.
+/// A reference search whose whole wide load does not fit in the wide session
+/// runs in a child process (`--reference-search`) and finds what the search in
+/// the server finds.
+#[test]
+fn reference_search_in_a_child_process_finds_the_same() {
+    let dir = Scratch::new("search-child");
+    let sdk = write_sdk(&dir.0);
+    dir.write(
+        "app/pubspec.yaml",
+        "name: app\nenvironment:\n  sdk: ^3.6.0\n",
+    );
+    dir.write(
+        "app/.dart_tool/package_config.json",
+        r#"{"configVersion":2,"packages":[{"name":"app","rootUri":"../","packageUri":"lib/","languageVersion":"3.6"}]}"#,
+    );
+    dir.write("app/lib/src/model.dart", MODEL);
+    dir.write(
+        "app/lib/src/use.dart",
+        "import 'model.dart';\nReport first(List<Report> all) => all.first;\n",
+    );
+    let model_path = dir.0.join("app/lib/src/model.dart");
+    let model = uri_of(&model_path);
+    let app = dir.0.join("app");
+    let sdk_lib = sdk.join("lib");
+    let search = |wide: Option<&str>| {
+        let mut s = Session::start(&[
+            ("DARTFORGE_SDK_LIB", Some(sdk_lib.to_str().unwrap())),
+            ("DARTFORGE_LSP_WIDE_MIB", wide),
+            ("DARTFORGE_LSP_DEBUG", None),
+            ("RUST_LOG", None),
+        ]);
+        handshake(&mut s, Some(&app), json!({}));
+        s.notify(
+            "textDocument/didOpen",
+            json!({"textDocument": {"uri": model, "languageId": "dart", "version": 1, "text": MODEL}}),
+        );
+        let r = s.at(
+            "textDocument/references",
+            &model,
+            position(MODEL, "Report", 0, 1),
+            json!({"context": {"includeDeclaration": true}}),
+        );
+        let (code, stderr, notifications, errors) = s.finish();
+        assert_healthy(code, &stderr, &notifications, &errors);
+        r["result"].clone()
+    };
+    let here = search(None);
+    // A wide budget of 0 MiB: nothing fits, the search goes to the child.
+    let child = search(Some("0"));
+    assert!(here.as_array().is_some_and(|l| l.len() >= 3), "{here}");
+    assert_eq!(here, child);
+}
+
 #[test]
 fn package_config_change_reaches_open_documents() {
     let dir = Scratch::new("config");

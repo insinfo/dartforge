@@ -45,6 +45,9 @@ fn run(arguments: Vec<String>) -> i32 {
     if arguments.first().map(String::as_str) == Some(dartforge_lsp::TYPED_ANALYSIS_ARGUMENT) {
         return dartforge_lsp::typed_analysis_child();
     }
+    if arguments.first().map(String::as_str) == Some(dartforge_lsp::REFERENCE_SEARCH_ARGUMENT) {
+        return dartforge_lsp::reference_search_child();
+    }
     if arguments.iter().any(|a| a == "--version" || a == "-V") {
         println!("dartforge-lsp {}", env!("CARGO_PKG_VERSION"));
         return 0;

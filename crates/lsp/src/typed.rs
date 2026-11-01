@@ -425,6 +425,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
     let mut resident: Option<ResidentChild> = None;
     let budget = resident_budget();
     let idle = resident_idle();
+    let batch_limit = resident_batch();
     loop {
         let (root, open, texts, config, changed, process) = {
             let mut e = block();
@@ -564,7 +565,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
                 // A large batch (the first analysis of a package, an API edit that
                 // many files see) runs in a process of its own: its peak does not
                 // stay with the resident process.
-                let small = !job.all && job.open.len() + job.others.len() <= RESIDENT_BATCH;
+                let small = !job.all && job.open.len() + job.others.len() <= batch_limit;
                 if budget > 0 && small {
                     run_in_resident(&mut resident, exe, job, &cancelled)
                 } else {
@@ -875,9 +876,23 @@ const DEFAULT_RESIDENT_MIB: usize = 64;
 /// memory back (`DARTFORGE_LSP_RESIDENT_IDLE_SECS`).
 const DEFAULT_RESIDENT_IDLE_SECS: u64 = 300;
 
-/// The largest batch (files analyzed and published) the resident process
-/// analyzes; a larger one runs in a process of its own ([`run_in_child`]).
-const RESIDENT_BATCH: usize = 32;
+/// The default of the largest batch (files analyzed and published) the
+/// resident process analyzes; a larger one runs in a process of its own
+/// ([`run_in_child`]). `DARTFORGE_LSP_RESIDENT_BATCH` changes it. It was 32,
+/// to keep the peak of a large batch out of the resident process; measured on
+/// `new_sali/frontend` (an export of the barrel, 200 dependents), the resident
+/// peak barely moves (446 → 465 MiB) and the total peak drops (791 → 472
+/// MiB, no second process), while the dependents settle in half the time (the
+/// cold process read and parsed the whole program again).
+const RESIDENT_BATCH: usize = 1024;
+
+/// The largest batch the resident process analyzes ([`RESIDENT_BATCH`]).
+fn resident_batch() -> usize {
+    std::env::var("DARTFORGE_LSP_RESIDENT_BATCH")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(RESIDENT_BATCH)
+}
 
 /// A message to the resident process: one JSON value per line.
 #[derive(serde::Deserialize)]

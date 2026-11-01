@@ -99,6 +99,7 @@ pub use completion::{AutoImport, Call, Completion, CompletionItem};
 pub use rename::{Edit, Rename, RenameFile};
 pub use sdk_report::SdkReport;
 pub use semantic::SemanticAnalyzer;
+pub use semantic::{REFERENCE_SEARCH_ARGUMENT, reference_search_child};
 pub use server::{Server, Trace};
 pub use typed::{CHILD_ARGUMENT as TYPED_ANALYSIS_ARGUMENT, typed_analysis_child};
 
@@ -586,6 +587,14 @@ pub trait Analyzer {
     /// what the analyzer derived from it (each document's language version, the
     /// retained programs) drops, even for documents that stay open.
     fn project_configuration_changed(&mut self) {}
+
+    /// Runs the searches that load more than the retained programs (a
+    /// reference search whose whole load does not fit in the wide session) in
+    /// a child process: `exe` (the `dartforge-lsp` binary) started with
+    /// [`REFERENCE_SEARCH_ARGUMENT`]. Their program then lives and dies with
+    /// the child instead of leaving the server at its peak. The default does
+    /// nothing.
+    fn search_in_child_processes(&mut self, _exe: std::path::PathBuf) {}
 
     /// Switches to the SDK whose `lib/` is `lib` (the client's
     /// `initializationOptions.sdkPath`), before any document is analyzed.
