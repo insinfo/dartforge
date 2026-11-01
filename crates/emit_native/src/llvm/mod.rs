@@ -351,6 +351,8 @@ pub struct LlvmEmitter<'a> {
     /// `optsize` on each function of the module (the large program in production;
     /// the production SDK already has it, `sdk_module::with_optsize`).
     optimize_size: bool,
+    /// The shape of the large program's roots frame ([`LlvmEmitter::with_lean_roots`]).
+    lean_roots: LeanRoots,
     /// The objects freshly allocated in this HIR block, with no collection point
     /// since the allocation (`emit_field_addresses`): the body is in the
     /// block (never outside, never null or a `Smi`) and the object is young (the
@@ -567,6 +569,7 @@ impl<'a> LlvmEmitter<'a> {
             out_of_line_allocation: false,
             outlined_helpers: Vec::new(),
             optimize_size: false,
+            lean_roots: LeanRoots::default(),
             fresh_set: std::collections::HashSet::new(),
             owned_classes: std::collections::BTreeSet::new(),
             first_fresh_write: false,
@@ -693,6 +696,25 @@ impl<'a> LlvmEmitter<'a> {
     pub fn with_body_without_outside(mut self, yes: bool) -> Self {
         self.body_without_outside = yes;
         self
+    }
+
+    /// The roots frame of the large program in production ([`LeanRoots`]).
+    pub fn with_lean_roots(mut self, lean: LeanRoots) -> Self {
+        self.lean_roots = lean;
+        self
+    }
+
+    /// The instruction's value never needs a root ([`LeanRoots::static_texts`]):
+    /// a text of the static image, which the collector neither frees nor moves.
+    fn immortal(&self, inst: &Instruction) -> bool {
+        self.lean_roots.static_texts
+            && self.static_objects
+            && !self.maps
+            && !self.module.arc_memory
+            && matches!(
+                inst,
+                Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))
+            )
     }
 
     /// Applies `optsize` to each function emitted in the module.
@@ -1439,6 +1461,7 @@ impl<'a> LlvmEmitter<'a> {
                             inst,
                             Instruction::Const(Constant::Null) | Instruction::Alloca(_)
                         )
+                        && !self.immortal(inst)
                     {
                         refs.push(v.0);
                     }
@@ -1537,12 +1560,19 @@ impl<'a> LlvmEmitter<'a> {
         // (`roots.rs`).
         let converting_blocks: std::collections::HashSet<u32> =
             self.conv_phi.iter().map(|(b, ..)| *b).collect();
-        let mut analysis = roots::analyze_with(
+        let immortal = |inst: &Instruction| self.immortal(inst);
+        let mut analysis = roots::analyze_with_options(
             func,
             &self.types,
             &|inst| self.may_collect(inst),
             &|b| converting_blocks.contains(&b.0),
             &|inst| self.callee_roots_the_arguments(inst),
+            &roots::Options {
+                immortal: Some(&immortal),
+                clear_in_loops_only: self.lean_roots.clear_in_loops_only
+                    && !self.maps
+                    && !self.module.arc_memory,
+            },
         );
         // The budget of `rewrite-statepoints-for-gc` (§3.4): the pass grows
         // superlinearly with `live × collection points`. Above the ceiling
@@ -8772,6 +8802,30 @@ lento:\n\
   %y = call i8 @dartforge_is_subclass(i64 %cid, i64 %alvo)\n\
   ret i8 %y\n\
 }\n";
+
+/// The roots frame of the large program in production (tracing memory, shadow
+/// stack), each form behind its own switch (docs/NATIVO-PRODUCAO-GRANDE.md §9):
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LeanRoots {
+    /// No slot for a text of the static image (`DARTFORGE_ROOT_STATIC_TEXTS=1`
+    /// roots them again): 17% of the root writes of new_sali/backend.
+    pub static_texts: bool,
+    /// The slots of dead values zeroed only inside loops
+    /// (`DARTFORGE_CLEAR_DEAD_SLOTS=all` zeroes everywhere, as before):
+    /// 45% of the writes into the frame were those zeroings.
+    pub clear_in_loops_only: bool,
+}
+
+impl LeanRoots {
+    /// The forms for the large program, from the switches.
+    pub fn for_large_program() -> LeanRoots {
+        LeanRoots {
+            static_texts: std::env::var("DARTFORGE_ROOT_STATIC_TEXTS").map_or(true, |v| v != "1"),
+            clear_in_loops_only: std::env::var("DARTFORGE_CLEAR_DEAD_SLOTS")
+                .map_or(true, |v| v != "all"),
+        }
+    }
+}
 
 /// `@df.*` helpers that go out of line (with the `selector` and the `class`, the
 /// dynamic dispatch, in [`out_of_line_helpers`]): each one is a

@@ -128,6 +128,40 @@ pub fn analyze_with(
     phi_converting_blocks: &dyn Fn(BlockId) -> bool,
     callee_roots: &dyn Fn(&Instruction) -> bool,
 ) -> Roots {
+    analyze_with_options(
+        func,
+        types,
+        may_collect,
+        phi_converting_blocks,
+        callee_roots,
+        &Options::default(),
+    )
+}
+
+/// What [`analyze_with_options`] may leave out of the frame.
+#[derive(Default)]
+pub struct Options<'a> {
+    /// The instructions whose value the collector never frees nor moves (a
+    /// text of the static image): no root, no slot.
+    pub immortal: Option<&'a dyn Fn(&Instruction) -> bool>,
+    /// Zero the slots of dead values ([`Roots::clear_at`]) only at the
+    /// collection points of blocks inside a cycle of the control flow, where a
+    /// dead value can accumulate (a loop variable keeping the whole tree of the
+    /// previous iteration). Elsewhere it stays in its slot until the slot is
+    /// written again or the frame closes: more memory held, never a dangling
+    /// root (the slot stays a root, which the collector reads and updates).
+    pub clear_in_loops_only: bool,
+}
+
+/// [`analyze_with`] with [`Options`].
+pub fn analyze_with_options(
+    func: &Function,
+    types: &HashMap<ValueId, Type>,
+    may_collect: &dyn Fn(&Instruction) -> bool,
+    phi_converting_blocks: &dyn Fn(BlockId) -> bool,
+    callee_roots: &dyn Fn(&Instruction) -> bool,
+    options: &Options<'_>,
+) -> Roots {
     let mut slots = HashMap::new();
     for block in &func.blocks {
         for (vid, inst, _) in &block.instructions {
@@ -154,6 +188,7 @@ pub fn analyze_with(
                     inst,
                     Instruction::Const(Constant::Null) | Instruction::Alloca(_)
                 )
+                && !options.immortal.is_some_and(|f| f(inst))
             {
                 candidates.push(*vid);
             }
@@ -381,8 +416,83 @@ pub fn analyze_with(
             r.live_at_entry_set.insert(func.blocks[b].id, v);
         }
     }
-    dead_slots(func, &position, &mut r);
+    dead_slots(func, &position, options.clear_in_loops_only, &mut r);
     r
+}
+
+/// The blocks inside a cycle of the control flow (a strongly connected component
+/// with more than one block, or a block that branches to itself), by index.
+fn blocks_in_cycles(func: &Function, position: &HashMap<BlockId, usize>) -> Vec<bool> {
+    let nb = func.blocks.len();
+    let succ: Vec<Vec<usize>> = func
+        .blocks
+        .iter()
+        .map(|b| {
+            successors(&b.terminator)
+                .iter()
+                .filter_map(|s| position.get(s).copied())
+                .collect()
+        })
+        .collect();
+    // Tarjan's algorithm, iterative.
+    let mut index = vec![usize::MAX; nb];
+    let mut low = vec![0usize; nb];
+    let mut on_stack = vec![false; nb];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut in_cycle = vec![false; nb];
+    let mut next = 0usize;
+    for root in 0..nb {
+        if index[root] != usize::MAX {
+            continue;
+        }
+        let mut work: Vec<(usize, usize)> = vec![(root, 0)];
+        index[root] = next;
+        low[root] = next;
+        next += 1;
+        stack.push(root);
+        on_stack[root] = true;
+        while let Some(top) = work.last_mut() {
+            let v = top.0;
+            if top.1 < succ[v].len() {
+                let w = succ[v][top.1];
+                top.1 += 1;
+                if w == v {
+                    in_cycle[v] = true;
+                }
+                if index[w] == usize::MAX {
+                    index[w] = next;
+                    low[w] = next;
+                    next += 1;
+                    stack.push(w);
+                    on_stack[w] = true;
+                    work.push((w, 0));
+                } else if on_stack[w] {
+                    low[v] = low[v].min(index[w]);
+                }
+            } else {
+                work.pop();
+                if let Some(&(parent, _)) = work.last() {
+                    low[parent] = low[parent].min(low[v]);
+                }
+                if low[v] == index[v] {
+                    let mut component = Vec::new();
+                    while let Some(w) = stack.pop() {
+                        on_stack[w] = false;
+                        component.push(w);
+                        if w == v {
+                            break;
+                        }
+                    }
+                    if component.len() > 1 {
+                        for w in component {
+                            in_cycle[w] = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    in_cycle
 }
 
 /// The zeroing of dead slots ([`Roots::clear_at`]): a forward pass, per block
@@ -390,7 +500,12 @@ pub fn analyze_with(
 /// definition of a rooted value, the `phi`s and the parameters included). At a
 /// collection point, each one of those slots that no live value occupies is zeroed
 /// (and holds nothing until written again). The frame is born zeroed.
-fn dead_slots(func: &Function, position: &HashMap<BlockId, usize>, r: &mut Roots) {
+fn dead_slots(
+    func: &Function,
+    position: &HashMap<BlockId, usize>,
+    in_loops_only: bool,
+    r: &mut Roots,
+) {
     let Some(&first) = r.rooted_set.iter().filter_map(|v| r.slots.get(v)).min() else {
         return;
     };
@@ -402,6 +517,11 @@ fn dead_slots(func: &Function, position: &HashMap<BlockId, usize>, r: &mut Roots
         .map_or(0, |m| m + 1);
     let slot_of = |v: &ValueId| r.slots.get(v).copied().filter(|&s| s >= first);
     let nb = func.blocks.len();
+    let clears: Vec<bool> = if in_loops_only {
+        blocks_in_cycles(func, position)
+    } else {
+        vec![true; nb]
+    };
     let mut preds: Vec<Vec<usize>> = vec![Vec::new(); nb];
     for (b, block) in func.blocks.iter().enumerate() {
         for succ in successors(&block.terminator) {
@@ -437,11 +557,15 @@ fn dead_slots(func: &Function, position: &HashMap<BlockId, usize>, r: &mut Roots
     let walk =
         |b: usize, mut state: Set, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| -> Set {
             let block = &func.blocks[b];
+            let clears_here = clears[b];
             let clear =
                 |state: &mut Set,
                  live: &Set,
                  who: Option<ValueId>,
                  record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+                    if !clears_here {
+                        return;
+                    }
                     let dead: Vec<usize> = state.elements().filter(|&s| !live.has(s)).collect();
                     for &s in &dead {
                         state.take_out(s);

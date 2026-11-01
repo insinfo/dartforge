@@ -799,6 +799,19 @@ fn emit_ir_internal(
         Err(_) => large,
     };
     duplicates::report("program", &hir_module);
+    // One exit per constant return in each function of the large program
+    // (`optimize::shared_exits`); `DARTFORGE_SHARED_EXITS=0` keeps one per call.
+    if large
+        && !table_exceptions
+        && !roots_by_maps
+        && !arc_memory
+        && !std::env::var("DARTFORGE_SHARED_EXITS").is_ok_and(|v| v == "0")
+    {
+        let removed = optimize::shared_exits::share_exits_in(&mut hir_module);
+        if options.timings {
+            eprintln!("  Shared exits: {removed} return blocks joined");
+        }
+    }
     let emitter = llvm::LlvmEmitter::new(&hir_module)
         .with_previous_area(previous_area)
         .with_lean_area(lean)
@@ -817,6 +830,12 @@ fn emit_ir_internal(
         .with_optimize_size(
             large && !std::env::var("DARTFORGE_OPTSIZE_PROGRAM").is_ok_and(|v| v == "0"),
         )
+        // The leaner roots frame of the large program (`llvm::LeanRoots`).
+        .with_lean_roots(if large {
+            llvm::LeanRoots::for_large_program()
+        } else {
+            llvm::LeanRoots::default()
+        })
         .with_production(options.optimize)
         // Production: the SDK tables assembled at link time are registered when
         // the isolate is prepared; the inline allocation has no registration test.

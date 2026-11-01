@@ -38,6 +38,7 @@ mod physical_devirtualize;
 mod pre_prune_tests;
 pub(crate) mod primitive_clamp;
 mod scalar_coalesce;
+pub(crate) mod shared_exits;
 mod string_lengths;
 #[cfg(test)]
 mod tests;
