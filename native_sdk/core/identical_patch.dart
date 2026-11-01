@@ -90,7 +90,8 @@ Object? _dartforgeNoSuchMethod(
         new Symbol("$name="),
         _InvocationMirror._SETTER,
         null,
-        [positional.isEmpty ? null : positional[0]],
+        new List<Object?>.unmodifiable(
+            [positional.isEmpty ? null : positional[0]]),
         null);
   } else {
     final named = <Symbol, Object?>{};
@@ -101,8 +102,14 @@ Object? _dartforgeNoSuchMethod(
         new Symbol(name),
         _InvocationMirror._METHOD,
         types.isEmpty ? const <Type>[] : new List<Type>.unmodifiable(types),
-        positional,
-        named);
+        // Unmodifiable, as the VM's mirror (`invocation.namedArguments.clear()`
+        // throws `UnsupportedError`).
+        positional.isEmpty
+            ? const <Object?>[]
+            : new List<Object?>.unmodifiable(positional),
+        named.isEmpty
+            ? const <Symbol, Object?>{}
+            : new Map<Symbol, Object?>.unmodifiable(named));
   }
   return receiver.noSuchMethod(invocation);
 }

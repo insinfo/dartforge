@@ -50,6 +50,38 @@ fn core_class(ctx: &Context, name_str: &str) -> Option<ClassId> {
 }
 
 /// Stable hash (FNV-1a 64) of a recipe: the name of its global.
+/// `text` (a recipe written at level 0) with each bound variable `B<n>`
+/// moved to `B<n + by>`, for a recipe placed under `by` enclosing generic
+/// function binders. A name of a named parameter or record field (followed
+/// by `:`) is left as it is.
+fn shift_bound_levels(text: &str, by: usize) -> String {
+    if by == 0 || !text.contains('B') {
+        return text.to_string();
+    }
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len() + 4);
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        let starts_token = i == 0 || matches!(bytes[i - 1], b'<' | b',' | b';' | b':');
+        if c == b'B' && starts_token {
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                j += 1;
+            }
+            if j > i + 1 && bytes.get(j) != Some(&b':') {
+                let n: usize = text[i + 1..j].parse().unwrap_or(0);
+                out.push_str(&format!("B{}", n + by));
+                i = j;
+                continue;
+            }
+        }
+        out.push(c as char);
+        i += 1;
+    }
+    out
+}
+
 fn recipe_hash(r: &str) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in r.bytes() {
@@ -405,11 +437,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Recipe of a type variable in scope, by name: of the function (and of the
-    /// extension), then of the class. `None` when `sym` is none of them.
+    /// extension), then of the class. `None` when `sym` is none of them. A
+    /// member's own parameter shadows the extension's of the same name (the
+    /// last of the tuple wins).
     pub fn type_variable_recipe(&self, sym: SymbolId) -> Option<Recipe> {
         let text = if let Some(i) = self.local_type_index(sym) {
             format!("M{i}")
-        } else if let Some(i) = self.function_type_params.iter().position(|s| *s == sym) {
+        } else if let Some(i) = self.function_type_params.iter().rposition(|s| *s == sym) {
             format!("M{i}")
         } else {
             let i = self.class_params().iter().position(|s| *s == sym)?;
@@ -443,7 +477,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     && let Some(i) = self
                         .function_type_params
                         .iter()
-                        .position(|s| *s == last_one.sym)
+                        .rposition(|s| *s == last_one.sym)
                 {
                     r.text.push_str(&format!("M{i}"));
                     r.variables = true;
@@ -552,6 +586,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 strings.push(sub.text.clone());
                             }
                             r.variables |= sub.variables;
+                            // Without arguments, the instantiation to bounds
+                            // (`TEST_TYPEDEF` for `TEST_TYPEDEF<T Function<T>(T)>`).
+                            if args.is_empty() && !data.type_params.is_empty() {
+                                for b in self.bounds_instantiation(&data.type_params) {
+                                    r.variables |= b.variables;
+                                    strings.push(b.text);
+                                }
+                            }
                             let mut target = self.type_recipe_with(
                                 data.target_type,
                                 &data.type_params,
@@ -578,13 +620,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 r.text.push_str(&format!("F<{}", type_params.len()));
                 if type_params.iter().any(|p| p.bound.is_some()) {
                     r.text.push(':');
+                    // An absent bound is the implicit `Object?` (`write_bounds`).
+                    let top = self.type_recipe(self.ctx.core.object_nullable).text;
                     for (i, p) in type_params.iter().enumerate() {
                         if i > 0 {
                             r.text.push(',');
                         }
                         match p.bound {
                             Some(b) => self.write_annotation(unit_ast.ty(b), linked_set, r)?,
-                            None => r.text.push('D'),
+                            None => r.text.push_str(&top),
                         }
                     }
                 }
@@ -698,7 +742,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let T::TypeParameter { param, nullable } = self.ctx.table.get(t)
             && let Some(i) = params.iter().position(|p| p == param)
         {
-            r.text.push_str(args.get(i).map_or("D", String::as_str));
+            // An argument under the typedef's own generic function binders
+            // (`TTT extends TT`): its bound variables move down as many levels.
+            let arg = args.get(i).map_or("D", String::as_str);
+            r.text.push_str(&shift_bound_levels(arg, linked_set.len()));
             if *nullable {
                 r.text.push('?');
             }
@@ -738,14 +785,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let n = linked_set.len();
                 linked_set.extend(type_params.iter().copied());
                 r.text.push_str(&format!("F<{}", type_params.len()));
+                // As `write_bounds`: an implicit bound is `Object?`, and a
+                // written `dynamic` or `void` one is kept.
+                let object_nullable = self.ctx.core.object_nullable;
                 let bounds: Vec<TypeId> = type_params
                     .iter()
-                    .map(|&p| self.ctx.table.param(p).bound)
+                    .map(|&p| {
+                        let d = self.ctx.table.param(p);
+                        if d.explicit { d.bound } else { object_nullable }
+                    })
                     .collect();
-                if !bounds
-                    .iter()
-                    .all(|&b| super::typed_entry::is_top(self.ctx, b))
-                {
+                if !bounds.iter().all(|&b| b == object_nullable) {
                     r.text.push(':');
                     for (i, &b) in bounds.iter().enumerate() {
                         if i > 0 {
@@ -1116,9 +1166,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// At the entry of a dynamic call (tear-off, adapter of the method
     /// table), checks each argument against the type of the parameter before
     /// converting it, like the VM: "type 'S' is not a subtype of type 'T' of
-    /// 'name'". Only the parameters of nominal (class) type and the class
-    /// covariant ones; the others (`dynamic`, `Object?`, function types and
-    /// type parameters of the function) keep the usual conversion.
+    /// 'name'". The parameters of a class, function, record or `FutureOr`
+    /// type and the class covariant ones; the others (`dynamic`, `Object?`
+    /// and type parameters of the function) keep the usual conversion.
     pub fn check_entry_arguments(&mut self, fid: usize, vals: &[Operand]) {
         self.check_entry_arguments_with(fid, vals, false);
     }
@@ -2025,6 +2075,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         recv: Option<Operand>,
         tuple: Option<Operand>,
     ) {
+        self.define_tearoff_rti_in(clo, fid, recv, tuple, false);
+    }
+
+    /// The type of the tear-off of the instance method `fid` from `recv`:
+    /// that of what the receiver's class runs (an override, or a forwarding
+    /// stub that makes a parameter covariant), unless `exact` (`super.m`
+    /// tears off `fid` itself).
+    pub fn define_method_tearoff_rti(
+        &mut self,
+        clo: Operand,
+        fid: usize,
+        recv: Operand,
+        exact: bool,
+    ) {
+        self.define_tearoff_rti_in(clo, fid, Some(recv), None, !exact);
+    }
+
+    fn define_tearoff_rti_in(
+        &mut self,
+        clo: Operand,
+        fid: usize,
+        recv: Option<Operand>,
+        tuple: Option<Operand>,
+        by_receiver: bool,
+    ) {
         let Some(sig) = self.ctx.outline.functions.get(fid).map(|d| d.signature) else {
             return;
         };
@@ -2044,9 +2119,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .filter(|&c| !self.ctx.is_extension_type(c));
             self.class_by_tuple = false;
         }
+        let variants = if by_receiver && self.this_param.is_some() && tuple.is_none() {
+            self.tearoff_rti_variants(fid)
+        } else {
+            Vec::new()
+        };
         self.type_tuple = tuple;
-        let r = self.tearoff_recipe(sig, fid);
-        let ty = self.recipe_rti(&r);
+        let r = self.tearoff_recipe(sig, fid, &[]);
+        if variants.is_empty() {
+            let ty = self.recipe_rti(&r);
+            self.define_rti(clo, ty);
+        } else {
+            self.define_tearoff_rti_by_class(clo, r, variants);
+        }
         (
             self.this_param,
             self.finalizable_this,
@@ -2054,7 +2139,106 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.class_by_tuple,
             self.type_tuple,
         ) = saved;
+    }
+
+    /// The recipes of the tear-off of the method `fid` that differ from its
+    /// static signature's, per receiver class (`typed_entry::tearoff_variants`):
+    /// an override with other parameter types, or a forwarding stub that
+    /// makes a parameter covariant. Each carries the class its variables are
+    /// read in and the heap class ids that reify it.
+    fn tearoff_rti_variants(&self, fid: usize) -> Vec<(Recipe, Option<ClassId>, Vec<u32>)> {
+        let base = self.tearoff_recipe(self.ctx.outline.functions[fid].signature, fid, &[]);
+        let own_class = self.ctx.program.functions[fid].class;
+        let mut groups: Vec<(Recipe, Option<ClassId>, Vec<u32>)> = Vec::new();
+        for (id, g, extra) in super::typed_entry::tearoff_variants(self.ctx, fid) {
+            let Some(sig) = self.ctx.outline.functions.get(g).map(|o| o.signature) else {
+                continue;
+            };
+            let class = self.ctx.program.functions[g].class;
+            let r = self.tearoff_recipe(sig, g, &extra);
+            if r.text == base.text && (!r.variables || class == own_class) {
+                continue;
+            }
+            let class = if r.variables { class } else { None };
+            match groups
+                .iter_mut()
+                .find(|(x, c, _)| x.text == r.text && *c == class)
+            {
+                Some((_, _, ids)) => ids.push(id),
+                None => groups.push((r, class, vec![id])),
+            }
+        }
+        // A tear-off reached through many classes keeps the static type
+        // rather than a long chain of tests.
+        if groups.iter().map(|(_, _, ids)| ids.len()).sum::<usize>() > 64 {
+            return Vec::new();
+        }
+        groups
+    }
+
+    /// Stores in `clo` the recipe of the group of `variants` the receiver's
+    /// class (`this_param`) belongs to, and the static recipe `base` for the
+    /// other classes.
+    fn define_tearoff_rti_by_class(
+        &mut self,
+        clo: Operand,
+        base: Recipe,
+        variants: Vec<(Recipe, Option<ClassId>, Vec<u32>)>,
+    ) {
+        let Some(recv) = self.this_param.clone() else {
+            let ty = self.recipe_rti(&base);
+            self.define_rti(clo, ty);
+            return;
+        };
+        let recv = self.coerce(recv, Type::Ref);
+        let class = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(recv, Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
+        let join = self.new_block();
+        let saved_class = self.enclosing_class;
+        for (r, owner, ids) in variants {
+            let mut cond: Option<Operand> = None;
+            for id in ids {
+                let eq = self.emit(
+                    Instruction::ICmp(
+                        ICmpOp::Eq,
+                        class.clone(),
+                        Operand::Constant(Constant::Int(i64::from(id))),
+                    ),
+                    Type::I1,
+                );
+                cond = Some(match cond {
+                    Some(c) => self.emit(Instruction::Or(c, eq), Type::I1),
+                    None => eq,
+                });
+            }
+            let Some(cond) = cond else { continue };
+            let hit = self.new_block();
+            let next = self.new_block();
+            self.terminate(Terminator::CondBranch {
+                cond,
+                then_block: hit,
+                else_block: next,
+            });
+            self.set_block(hit);
+            if owner.is_some() {
+                self.enclosing_class = owner;
+            }
+            let ty = self.recipe_rti(&r);
+            self.define_rti(clo.clone(), ty);
+            self.enclosing_class = saved_class;
+            self.terminate(Terminator::Branch(join));
+            self.set_block(next);
+        }
+        let ty = self.recipe_rti(&base);
         self.define_rti(clo, ty);
+        self.terminate(Terminator::Branch(join));
+        self.set_block(join);
     }
 
     /// The instantiation to bounds of `params`, as recipes (the type literal
@@ -2112,8 +2296,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// The bounds of the type parameters of a generic function type, after
-    /// its count (`F<2:B0,D;…`), when one is not a top type (`D` stands for
-    /// those): the runtime compares them in subtyping.
+    /// its count (`F<2:B0,D;…`), unless every one is the implicit `Object?`:
+    /// the runtime compares them in subtyping, and a written `dynamic` or
+    /// `void` bound makes another type than `Object?` (`void Function<X
+    /// extends dynamic>()` is not `void Function<X extends Object?>()`, as
+    /// in the VM). The runtime drops a list that substitution leaves all
+    /// `Object?`.
     fn write_bounds(
         &self,
         type_params: &[TypeParamId],
@@ -2121,14 +2309,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         subst: &HashMap<TypeParamId, TypeId>,
         r: &mut Recipe,
     ) {
+        let object_nullable = self.ctx.core.object_nullable;
         let bounds: Vec<TypeId> = type_params
             .iter()
-            .map(|&p| self.ctx.table.param(p).bound)
+            .map(|&p| {
+                let d = self.ctx.table.param(p);
+                if d.explicit { d.bound } else { object_nullable }
+            })
             .collect();
-        if bounds
-            .iter()
-            .all(|&b| super::typed_entry::is_top(self.ctx, b))
-        {
+        if bounds.iter().all(|&b| b == object_nullable) {
             return;
         }
         r.text.push(':');
@@ -2136,21 +2325,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if i > 0 {
                 r.text.push(',');
             }
-            if super::typed_entry::is_top(self.ctx, b) {
-                r.text.push('D');
-            } else {
-                self.write_type(b, linked_set, subst, r);
-            }
+            self.write_type(b, linked_set, subst, r);
         }
     }
 
     /// The runtime type of the tear-off of `fid`, whose signature is `sig`:
     /// as in the VM, a covariant parameter (written `covariant`, or generic
     /// covariant in the class) is reified as `Object?` — the method checks it.
-    fn tearoff_recipe(&self, sig: TypeId, fid: usize) -> Recipe {
+    /// `extra`: the parameters a forwarding stub of the receiver's class makes
+    /// covariant besides those of `fid`.
+    fn tearoff_recipe(&self, sig: TypeId, fid: usize, extra: &[usize]) -> Recipe {
         let covariant: Vec<usize> = match self.ctx.outline.functions.get(fid) {
             Some(o) => (0..o.parameters.len())
-                .filter(|&i| super::typed_entry::covariant_parameter(self.ctx, fid, i))
+                .filter(|&i| {
+                    extra.contains(&i) || super::typed_entry::covariant_parameter(self.ctx, fid, i)
+                })
                 .collect(),
             None => Vec::new(),
         };

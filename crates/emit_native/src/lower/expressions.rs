@@ -273,6 +273,71 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.method_tearoff(value, call, span)
     }
 
+    /// `super == e` / `super != e`: as any `==`, a `null` operand does not
+    /// call the operator (`this` is not null): `false` for `==`.
+    fn super_equality(
+        &mut self,
+        op: BinaryOp,
+        rop: Operand,
+        span: dartforge_diagnostics::Span,
+    ) -> Operand {
+        let rop = self.coerce(rop, Type::Ref);
+        let is_null = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, rop.clone(), Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
+        let b_null = self.new_block();
+        let b_call = self.new_block();
+        let join = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: is_null,
+            then_block: b_null,
+            else_block: b_call,
+        });
+        self.set_block(b_null);
+        self.terminate(Terminator::Branch(join));
+        self.set_block(b_call);
+        let r = self.super_operator("==", rop, span);
+        let r = self.to_bool(r);
+        let mut incoming = vec![(b_null, Operand::Constant(Constant::Bool(false)))];
+        if !self.is_terminated() {
+            incoming.push((self.current_block, r));
+            self.terminate(Terminator::Branch(join));
+        }
+        self.set_block(join);
+        let eq = self.emit(
+            Instruction::Phi {
+                incoming,
+                ty: Type::I1,
+            },
+            Type::I1,
+        );
+        if op == BinaryOp::NotEq {
+            self.emit(Instruction::LNot(eq), Type::I1)
+        } else {
+            eq
+        }
+    }
+
+    /// The generic `call` method of the class of `e`'s static type, if any.
+    fn generic_call_member(&self, e: ExprId) -> Option<usize> {
+        let t = self.ctx.get_type(self.unit_id, e)?;
+        let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(t) else {
+            return None;
+        };
+        let call = self.interface_member(*class, "call")?;
+        let f = &self.ctx.program.functions[call];
+        (f.kind == dartforge_elements::model::FunctionKind::Function
+            && !f.static_
+            && self
+                .ctx
+                .outline
+                .functions
+                .get(call)
+                .is_some_and(|o| !o.type_params.is_empty()))
+        .then_some(call)
+    }
+
     fn lower_expr_with_in_place(
         &mut self,
         ast: &ast::Ast,
@@ -748,16 +813,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // `super op e` (P4).
                 if matches!(ast.expr(*left).kind, ExprKind::Super) {
                     let rop = self.lower_expr(ast, *right);
-                    let name_str = match op {
-                        BinaryOp::Eq | BinaryOp::NotEq => "==",
-                        _ => super::dispatch::operator(*op).map_or("?", |(n, _)| n),
-                    };
-                    let r = self.super_operator(name_str, rop, expr.span);
-                    if *op == BinaryOp::NotEq {
-                        let b = self.to_bool(r);
-                        return self.emit(Instruction::LNot(b), Type::I1);
+                    if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) && !self.is_terminated() {
+                        return self.super_equality(*op, rop, expr.span);
                     }
-                    return r;
+                    let name_str = super::dispatch::operator(*op).map_or("?", |(n, _)| n);
+                    return self.super_operator(name_str, rop, expr.span);
+                }
+                // `d < e` with a `dynamic` `d` is `dynamic` (a user `<` may
+                // return anything): the result of the dispatch, not a `bool`.
+                if matches!(
+                    op,
+                    BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
+                ) && self.ctx.get_type(self.unit_id, *left) == Some(self.ctx.core.dynamic_)
+                    && self.ctx.get_type(self.unit_id, expr_id) == Some(self.ctx.core.dynamic_)
+                    && let Some((name_str, _)) = super::dispatch::operator(*op)
+                {
+                    let lop = self.lower_expr(ast, *left);
+                    let rop = self.lower_expr(ast, *right);
+                    if self.is_terminated() {
+                        return lop;
+                    }
+                    let lop = self.coerce(lop, Type::Ref);
+                    return self.call_by_name(
+                        lop,
+                        super::sdk_source::AccessKind::Call,
+                        name_str,
+                        &[(None, rop)],
+                    );
                 }
                 // Extension operator (P4): a direct call to the member.
                 if let Some(fid) = self.extension_operator(expr_id) {
@@ -1744,6 +1826,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }) =>
             {
                 let value = self.lower_expr(ast, *target);
+                let args = self.type_argument_recipes(type_args);
+                let tuple = self.recipe_rti(&super::rti::Recipe {
+                    text: format!("L<{}>", args.text),
+                    variables: args.variables,
+                });
+                let typ = self.ctx.get_type(self.unit_id, expr_id);
+                self.instantiate_closure_value(value, tuple, typ)
+            }
+            // `o<T…>` on an object whose class has a generic `call`
+            // (`EnumAll.v1<String>`): the instantiation of its `call` tear-off.
+            ExprKind::TypeArguments { target, type_args }
+                if self.generic_call_member(*target).is_some() =>
+            {
+                let call = self.generic_call_member(*target).expect("checked above");
+                let value = self.lower_expr(ast, *target);
+                if self.is_terminated() {
+                    return value;
+                }
+                let value = if self.ctx.bodies.units[self.unit_id.0 as usize]
+                    .implicit_calls
+                    .contains(target)
+                {
+                    value
+                } else {
+                    self.method_tearoff(value, call, ast.expr(*target).span)
+                };
                 let args = self.type_argument_recipes(type_args);
                 let tuple = self.recipe_rti(&super::rti::Recipe {
                     text: format!("L<{}>", args.text),

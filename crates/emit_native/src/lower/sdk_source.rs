@@ -2171,7 +2171,14 @@ fn generate_nsm_forwarder(
                     },
                     Type::I64,
                 );
-                let tuple = b.tuple_or_bounds(fid, own);
+                let tuple = b.tuple_or_bounds(fid, own.clone());
+                // The passed type arguments against their bounds, as the VM's
+                // forwarder entry (`(a.m as dynamic)<String>(…)` with `m<T
+                // extends num>`).
+                let params = ctx.outline.functions[fid].type_params.to_vec();
+                b.with_member_type_context(fid, Some(this.clone()), Some(tuple.clone()), |b| {
+                    b.check_passed_type_argument_bounds(own, &params);
+                });
                 b.check_method_type_arguments(fid, &vals, Some(this.clone()), tuple.clone());
                 tuple
             } else {

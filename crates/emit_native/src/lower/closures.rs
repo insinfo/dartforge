@@ -1362,6 +1362,37 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         )
     }
 
+    /// In the entry of a function value that takes no type arguments (an
+    /// instantiation): a call that passes some (`(f as dynamic)<int>(…)`)
+    /// throws the `NoSuchMethodError`, as in the VM.
+    pub(super) fn reject_type_arguments(&mut self, args: &Operand, desc: &Operand) {
+        let own = self.slot_tuple(args, desc);
+        let passed = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, own, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
+        let b_error = self.new_block();
+        let b_ok = self.new_block();
+        self.terminate(Terminator::CondBranch {
+            cond: passed,
+            then_block: b_error,
+            else_block: b_ok,
+        });
+        self.set_block(b_error);
+        self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: "dartforge_nsm_call".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        if !self.is_terminated() {
+            self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
+        }
+        self.set_block(b_ok);
+    }
+
     /// The parameters of a program function, for the uniform entry.
     pub(super) fn function_params(&self, fid: usize) -> Vec<EntryParam> {
         let Some(data) = self.ctx.outline.functions.get(fid) else {
@@ -1571,6 +1602,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             );
             let types = e.emit(Instruction::EnvGet { env, index: 1 }, Type::I64);
+            e.reject_type_arguments(&args, &desc);
             e.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_args_set_tuple".to_string(),
@@ -1600,6 +1632,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let value = self.coerce(value, Type::Ref);
         let tuple = self.coerce(tuple, Type::I64);
+        // The type arguments against the bounds of the value's own runtime
+        // type, eagerly, as the VM (`C<Object> c = C<int>(); void
+        // Function(String) f = c.foo;` with `foo<S extends T>`).
+        self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: "dartforge_rti_instantiation_bounds".to_string(),
+                args: vec![(value.clone(), Type::Ref), (tuple.clone(), Type::I64)],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
+        if self.is_terminated() {
+            return Operand::Constant(Constant::Null);
+        }
         let env = self.emit(
             Instruction::AllocEnv {
                 values: vec![value, tuple],
@@ -1795,7 +1841,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::Ref,
         );
-        self.define_tearoff_rti(c.clone(), fid, Some(recv));
+        self.define_method_tearoff_rti(c.clone(), fid, recv, exact);
         c
     }
 
@@ -1973,10 +2019,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             e.declare_arc_uniform_return();
             let env = e.closure_context(clo);
             let t = e.emit(Instruction::EnvGet { env, index: 0 }, Type::I64);
+            e.reject_type_arguments(&args, &desc);
             if let Some(vals) = e.unpack(&infos, args, desc) {
                 // The arguments of a dynamic call, checked as in the
-                // VM (" of 'name'") before being converted.
+                // VM (" of 'name'") before being converted; those whose type
+                // mentions the function's type parameters, with the fixed
+                // type arguments.
                 e.check_entry_arguments(fid, &vals);
+                e.check_method_type_arguments(fid, &vals, None, t.clone());
                 let reprs: Vec<Type> = self.ctx.outline.functions[fid]
                     .parameters
                     .iter()
@@ -2108,7 +2158,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Ref,
         );
         self.define_instantiation_rti(c.clone(), fid, typ);
-        c
+        // Canonical per constructor and type arguments, as in the VM
+        // (`identical(GGen<int>.new, GGen<int>.new)`).
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_canonical_tearoff".to_string(),
+                args: vec![(c, Type::Ref)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 
     /// The reified type of an instantiated tear-off: the static type of the
@@ -2153,6 +2212,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 member: MemberRef::Function(f),
                 ..
             } => f.0 as usize,
+            // A static member of an extension (`E.staticMethod<int>`).
+            Resolved::ExtensionMember { member, .. }
+                if self.ctx.program.functions[member.0 as usize].static_ =>
+            {
+                member.0 as usize
+            }
             _ => return None,
         };
         let f = &self.ctx.program.functions[fid];

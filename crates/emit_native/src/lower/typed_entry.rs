@@ -331,9 +331,9 @@ pub fn covariance_stub(ctx: &Context, cid: ClassId, fid: usize) -> bool {
 /// The `$c` entry checks parameter `ty` of `fid`
 /// ([`FnBuilder::check_entry_arguments`]): a nominal type (class),
 /// or a type that mentions a type parameter of the class in a covariant
-/// position (`T`, `FutureOr<T>`, `T Function()`), outside the top. The
-/// other function types and the type parameters of the function keep the
-/// usual conversion.
+/// position (`T`, `FutureOr<T>`, `T Function()`), a function, record or
+/// `FutureOr` type, outside the top. The type parameters of the function
+/// keep the usual conversion.
 pub fn checked_at_entry(ctx: &Context, fid: usize, ty: TypeId) -> bool {
     let f = &ctx.program.functions[fid];
     let generic = f
@@ -341,8 +341,116 @@ pub fn checked_at_entry(ctx: &Context, fid: usize, ty: TypeId) -> bool {
         .is_some_and(|c| mentions_covariant(ctx, ty, c, true));
     // `Null` and `Never` are checked as a class is (`(takesNull as
     // dynamic)(3)` is a `TypeError`).
+    // A function, record or `FutureOr` type is checked too: the VM's dynamic
+    // entry checks every parameter (`mv.transform((_) => mv)` against
+    // `MyView Function(Object)`). One that mentions the function's own type
+    // parameters is checked with the call's type arguments
+    // (`check_method_type_arguments`), not here.
+    let structural = matches!(
+        ctx.table.get(ty),
+        T::Function { .. } | T::Record { .. } | T::FutureOr { .. }
+    ) && !mentions_function_params(ctx, ty, 8);
     let nominal = matches!(ctx.table.get(ty), T::Interface { .. } | T::Null | T::Never);
-    !top(ctx, ty) && (generic || nominal)
+    !top(ctx, ty) && (generic || nominal || structural)
+}
+
+/// `t` mentions a type parameter of a function (a generic method or
+/// function, or an enclosing generic closure), outside the bound variables
+/// of a generic function type of its own.
+fn mentions_function_params(ctx: &Context, t: TypeId, depth: u32) -> bool {
+    if depth == 0 {
+        return true;
+    }
+    let m = |x: &TypeId| mentions_function_params(ctx, *x, depth - 1);
+    match ctx.table.get(t) {
+        T::TypeParameter { param, .. } | T::Intersection { param, .. } => {
+            !matches!(ctx.table.param(*param).owner, TypeParamOwner::Class(_))
+        }
+        T::Interface { args, .. } | T::ExtensionType { args, .. } => args.iter().any(m),
+        T::FutureOr { arg, .. } => m(arg),
+        T::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
+            let own = |x: &TypeId| match ctx.table.get(*x) {
+                T::TypeParameter { param, .. } if type_params.contains(param) => false,
+                _ => m(x),
+            };
+            own(ret)
+                || positional.iter().chain(optional.iter()).any(own)
+                || named.iter().any(|(_, p, _)| own(p))
+        }
+        T::Record {
+            positional, named, ..
+        } => positional.iter().any(m) || named.iter().any(|(_, p)| m(p)),
+        T::Dynamic | T::Void | T::Never | T::Null => false,
+    }
+}
+
+/// The implementation of the instance method `fid` in each compiled concrete
+/// subtype of its class, with the parameters that the subtype's own
+/// interface makes covariant beyond those of the implementation (the VM's
+/// forwarding stub): `(class id, implementation, extra covariant
+/// parameters)`. The tear-off reifies the type of what the receiver runs, as
+/// the VM tears off the implementation (or the stub) of the dynamic class.
+pub fn tearoff_variants(ctx: &Context, fid: usize) -> Vec<(u32, usize, Vec<usize>)> {
+    use dartforge_elements::model::FunctionKind;
+    let f = &ctx.program.functions[fid];
+    let Some(cdecl) = f.class else {
+        return Vec::new();
+    };
+    if f.static_
+        || f.variable.is_some()
+        || f.kind != FunctionKind::Function
+        || !super::user_function(ctx, fid)
+        || ctx.program.library(f.library).is_sdk
+    {
+        return Vec::new();
+    }
+    let private = ctx.symbol_name(f.name).starts_with('_');
+    let mut exit = Vec::new();
+    for &kid in ctx.subtypes(cdecl).iter() {
+        let class_ref = &ctx.program.classes[kid.0 as usize];
+        if !ctx.compiled_library(class_ref.library)
+            || class_ref.modifiers.abstract_
+            || super::members::is_mixin(ctx, kid)
+        {
+            continue;
+        }
+        let Some(id) = ctx.class_id_of(kid) else {
+            continue;
+        };
+        let implementation = super::members::linearization(ctx, kid)
+            .into_iter()
+            .find_map(|c| {
+                let g = ctx.program.classes[c.0 as usize]
+                    .instance_members
+                    .get(&f.name)?
+                    .0 as usize;
+                let ok = !(private && ctx.program.functions[g].library != f.library)
+                    && super::user_function(ctx, g)
+                    && super::members::has_body(ctx, g);
+                ok.then_some(g)
+            });
+        let Some(g) = implementation else { continue };
+        if ctx.program.functions[g].kind != FunctionKind::Function {
+            continue;
+        }
+        let n = ctx
+            .outline
+            .functions
+            .get(g)
+            .map_or(0, |o| o.parameters.len());
+        let extra: Vec<usize> = (0..n)
+            .filter(|&i| !inherited_covariant(ctx, g, i) && covariant_through(ctx, kid, g, i))
+            .collect();
+        exit.push((id, g, extra));
+    }
+    exit
 }
 
 /// Parameter `i` of `fid` needs a check even in a typed
@@ -497,6 +605,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             subst
                 .get_or_insert_with(HashMap::new)
                 .extend(data.type_params.iter().copied().zip(args.iter().copied()));
+        } else if let Some(c) = f.class
+            && matches!(f.node, FunctionRef::Constructor { .. })
+            && let Some(data) = self.ctx.outline.classes.get(c.0 as usize)
+            && !data.type_params.is_empty()
+            && let Some(t) = created
+            && let T::Interface { class, args, .. } = self.ctx.table.get(t)
+            && let Some(created_data) = self.ctx.outline.classes.get(class.0 as usize)
+            && created_data.type_params.len() == args.len()
+            && let Some(&sup) = self
+                .ctx
+                .outline
+                .hierarchy
+                .get(*class)
+                .and_then(|h| h.supertypes.get(&c))
+            && let T::Interface { args: sup_args, .. } = self.ctx.table.get(sup)
+            && sup_args.len() == data.type_params.len()
+        {
+            // The constructor of a superclass that a named mixin application
+            // forwards to (`class C<T> = B<T> with M;`, `C<String>(…)`): its
+            // parameters seen through the created class (`B.T` → `C.T` →
+            // `String`, the map applied again).
+            let map = subst.get_or_insert_with(HashMap::new);
+            map.extend(
+                data.type_params
+                    .iter()
+                    .copied()
+                    .zip(sup_args.iter().copied()),
+            );
+            map.extend(
+                created_data
+                    .type_params
+                    .iter()
+                    .copied()
+                    .zip(args.iter().copied()),
+            );
         }
         let mut t = InvocationTypes::default();
         for p in o.parameters.iter() {
@@ -753,6 +896,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     | dartforge_elements::model::FunctionKind::Function => o.return_type,
                     _ => return None,
                 };
+                // The tear-off of a generic method whose type parameter bound
+                // uses a type parameter of the class (`f<U extends T>`): the
+                // bound is invariant, so the reified type is checked too.
+                let bounds = access == e
+                    && func.kind == dartforge_elements::model::FunctionKind::Function
+                    && func.class.is_some_and(|c| {
+                        o.type_params.iter().any(|&p| {
+                            let b = self.ctx.table.param(p).bound;
+                            mentions_covariant(self.ctx, b, c, true)
+                                || mentions_covariant(self.ctx, b, c, false)
+                        })
+                    });
+                if bounds {
+                    let t = self.ctx.get_type(self.unit_id, e)?;
+                    return (!top(self.ctx, t)).then_some(t);
+                }
                 (func.class?, ty)
             }
         };
@@ -807,10 +966,87 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(t) = self.contravariant_member_access(ast, e)
             && !self.is_terminated()
         {
-            let rti = self.type_rti(t);
+            // A tear-off that inference instantiates (`void Function(A)
+            // Function(int) g = c.f;`): the check is of the generic type seen
+            // through the receiver, before the instantiation.
+            let rti = match self.uninstantiated_tearoff_recipe(ast, e) {
+                Some(r) => self.recipe_rti(&r),
+                None => self.type_rti(t),
+            };
             let r = self.coerce(v.clone(), Type::Ref);
             self.cast_rti_in(r, rti, super::rti::CastContext::Implicit);
         }
+    }
+
+    /// The type of the generic method tear-off `e` (`o.m`) as the static type
+    /// of `o` sees it, when inference instantiates it implicitly.
+    fn uninstantiated_tearoff_recipe(
+        &self,
+        ast: &ast::Ast,
+        e: ast::ExprId,
+    ) -> Option<super::rti::Recipe> {
+        self.ctx.bodies.units[self.unit_id.0 as usize].tearoff_instantiation(e)?;
+        let ast::ExprKind::Property { target, .. } = &ast.expr(e).kind else {
+            return None;
+        };
+        let Some(Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }) = self.ctx.get_resolved(self.unit_id, e)
+        else {
+            return None;
+        };
+        let fid = f.0 as usize;
+        let class = self.ctx.program.functions[fid].class?;
+        let sig = self.ctx.outline.functions.get(fid)?.signature;
+        let params = self
+            .ctx
+            .outline
+            .classes
+            .get(class.0 as usize)?
+            .type_params
+            .clone();
+        let recv = self.ctx.get_type(self.unit_id, *target)?;
+        let T::Interface {
+            class: rc, args, ..
+        } = self.ctx.table.get(recv)
+        else {
+            return None;
+        };
+        let args: Vec<TypeId> = if *rc == class {
+            args.to_vec()
+        } else {
+            let sup = *self
+                .ctx
+                .outline
+                .hierarchy
+                .get(*rc)?
+                .supertypes
+                .get(&class)?;
+            let T::Interface { args: sargs, .. } = self.ctx.table.get(sup) else {
+                return None;
+            };
+            let rparams = self
+                .ctx
+                .outline
+                .classes
+                .get(rc.0 as usize)?
+                .type_params
+                .clone();
+            if rparams.len() != args.len() || sargs.len() != params.len() {
+                return None;
+            }
+            // The map is applied again by `write_type` (`C.T` → `R.U` → arg).
+            let mut subst: HashMap<TypeParamId, TypeId> =
+                params.iter().copied().zip(sargs.iter().copied()).collect();
+            subst.extend(rparams.iter().copied().zip(args.iter().copied()));
+            return Some(self.substituted_type_recipe(sig, Some(&subst)));
+        };
+        if args.len() != params.len() {
+            return None;
+        }
+        let subst: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args).collect();
+        Some(self.substituted_type_recipe(sig, Some(&subst)))
     }
 
     /// The static type of `e` is `dynamic`.

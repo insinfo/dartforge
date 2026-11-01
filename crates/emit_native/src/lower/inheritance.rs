@@ -452,6 +452,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             span,
             &mut |s, target, this| match target {
                 SuperMember::Function(f) => {
+                    // A covariant parameter (`operator ==(covariant num
+                    // other)`) checks the argument, as the member's entry does.
+                    let value = s.coerce(right.clone(), Type::Ref);
+                    s.with_member_type_context(f, Some(this.clone()), None, |b| {
+                        b.check_entry_arguments_with(f, std::slice::from_ref(&value), true);
+                    });
                     let args = s.match_args(f, &[(None, right.clone())]);
                     s.call_direct(f, Some(this), args)
                 }

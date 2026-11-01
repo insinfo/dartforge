@@ -1703,6 +1703,10 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
+        decl: "declare void @dartforge_rti_instantiation_bounds(i64, i64)",
+        effects: CONSERVATIVE,
+    },
+    Extern {
         decl: "declare i64 @dartforge_rti_string(i64)",
         effects: CONSERVATIVE,
     },

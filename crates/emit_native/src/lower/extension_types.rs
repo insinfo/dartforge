@@ -113,10 +113,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !self.ctx.is_extension_type(*class) {
             return None;
         }
-        let static_ty = match member {
-            MemberRef::Function(f) => self.ctx.program.functions[f.0 as usize].static_,
-            MemberRef::Variable(v) => self.ctx.program.variables[v.0 as usize].static_,
+        let (static_ty, owner) = match member {
+            MemberRef::Function(f) => {
+                let f = &self.ctx.program.functions[f.0 as usize];
+                (f.static_, f.class)
+            }
+            MemberRef::Variable(v) => {
+                let v = &self.ctx.program.variables[v.0 as usize];
+                (v.static_, v.class)
+            }
         };
+        // A member of a class the extension type implements (the combined
+        // signature of `implements A, B`) is the representation's own: it is
+        // dispatched on the object, not called as an extension type member.
+        if owner.is_some_and(|c| !self.ctx.is_extension_type(c)) {
+            return None;
+        }
         (!static_ty).then_some(*member)
     }
 

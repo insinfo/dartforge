@@ -418,7 +418,7 @@ pub unsafe extern "C" fn dartforge_args_set_tuple(args: *mut i64, desc: *const i
 thread_local! {
     /// The canonical instantiated tear-offs of static functions, by code and
     /// type argument tuple (`dartforge_canonical_tearoff`).
-    static CANONICAL_TEAROFFS: RefCell<HashMap<(i64, i64), i64>> = RefCell::new(HashMap::default());
+    static CANONICAL_TEAROFFS: RefCell<HashMap<(i64, i64, i64), i64>> = RefCell::new(HashMap::default());
 }
 
 /// The canonical tear-off for `c`, an instantiated tear-off of a top-level or
@@ -436,8 +436,10 @@ pub extern "C" fn dartforge_canonical_tearoff(c: i64) -> i64 {
             return None;
         }
         let o = heap.object(ctx)?;
-        match (o.len(), o.get(0)) {
-            (1, Some((tuple, false))) => Some((closure.code, tuple)),
+        match (o.len(), o.get(0), o.get(1)) {
+            (1, Some((tuple, false)), _) => Some((closure.code, tuple, 0)),
+            // A constructor's: the type of the object and the class tuple.
+            (2, Some((object, false)), Some((tuple, false))) => Some((closure.code, object, tuple)),
             _ => None,
         }
     });

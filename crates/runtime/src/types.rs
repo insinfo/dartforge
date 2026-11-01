@@ -94,6 +94,9 @@ struct Universe {
     /// runtime's error classes 1000–1012).
     from_heap: HashMap<i64, i64>,
     rt: RuntimeClasses,
+    /// The bounds of the variables of the generic function types being
+    /// compared, by level (`Type::Enabled`): those of `S` in `S <: T`.
+    bound_env: Vec<i64>,
     cache_sub: HashMap<(i64, i64), bool>,
     eval_cache: HashMap<(i64, i64, i64, i64), i64>,
     recipes: HashMap<Vec<u16>, i64>,
@@ -403,9 +406,23 @@ impl Universe {
         self.memo_eval[i] = [k[0], k[1], k[2], k[3], r];
     }
 
-    fn intern(&mut self, t: Type) -> i64 {
+    fn intern(&mut self, mut t: Type) -> i64 {
         if let Some(&id) = self.ix.get(&t) {
             return id;
+        }
+        // The bounds of a generic function type that are all the implicit
+        // `Object?` (written so, or left so by substitution) are the absent
+        // list: `<X>() => void` is one type however it was built.
+        if let Type::Function { bounds, .. } = &mut t
+            && !bounds.is_empty()
+            && bounds
+                .iter()
+                .all(|&b| matches!(self.ty(b), Type::Nullable(x) if self.e_object(*x)))
+        {
+            bounds.clear();
+            if let Some(&id) = self.ix.get(&t) {
+                return id;
+            }
         }
         let (id, r) = {
             let mut g = global_universe().write().unwrap_or_else(|e| e.into_inner());
@@ -536,25 +553,38 @@ impl Universe {
 
     /// Replaces the recipe variables with the environment types.
     fn substitute(&mut self, t: i64, class: &[i64], function: &[i64]) -> i64 {
+        self.substitute_at(t, class, function, 0)
+    }
+
+    /// [`Self::substitute`] under `depth` generic function binders: a
+    /// replacement (a closed type, whose bound variables are its own) moves
+    /// down as many levels.
+    fn substitute_at(&mut self, t: i64, class: &[i64], function: &[i64], depth: usize) -> i64 {
         match self.ty(t).clone() {
-            Type::ClassParam(i) => class.get(i).copied().unwrap_or(T_DYNAMIC),
-            Type::FunctionParam(i) => function.get(i).copied().unwrap_or(T_DYNAMIC),
+            Type::ClassParam(i) => {
+                let r = class.get(i).copied().unwrap_or(T_DYNAMIC);
+                self.shift_enabled(r, depth)
+            }
+            Type::FunctionParam(i) => {
+                let r = function.get(i).copied().unwrap_or(T_DYNAMIC);
+                self.shift_enabled(r, depth)
+            }
             Type::Interface(c, args) => {
                 if args.is_empty() {
                     return t;
                 }
                 let a = args
                     .iter()
-                    .map(|&x| self.substitute(x, class, function))
+                    .map(|&x| self.substitute_at(x, class, function, depth))
                     .collect();
                 self.interface(c, a)
             }
             Type::Nullable(x) => {
-                let y = self.substitute(x, class, function);
+                let y = self.substitute_at(x, class, function, depth);
                 self.nullable(y)
             }
             Type::FutureOr(x) => {
-                let y = self.substitute(x, class, function);
+                let y = self.substitute_at(x, class, function, depth);
                 self.future_or(y)
             }
             Type::Function {
@@ -567,43 +597,152 @@ impl Universe {
             } => {
                 let bounds = bounds
                     .iter()
-                    .map(|&x| self.substitute(x, class, function))
+                    .map(|&x| self.substitute_at(x, class, function, depth + generics))
                     .collect();
-                let ret = self.substitute(ret, class, function);
+                let ret = self.substitute_at(ret, class, function, depth + generics);
                 let pos = pos
                     .iter()
-                    .map(|&x| self.substitute(x, class, function))
+                    .map(|&x| self.substitute_at(x, class, function, depth + generics))
                     .collect();
                 let named = named
                     .iter()
-                    .map(|(n, x, r)| (n.clone(), self.substitute(*x, class, function), *r))
+                    .map(|(n, x, r)| (n.clone(), self.substitute_at(*x, class, function, depth + generics), *r))
                     .collect();
-                self.intern(Type::Function {
+                let f = self.intern(Type::Function {
                     generics,
                     bounds,
                     ret,
                     pos,
                     n_required,
                     named,
-                })
+                });
+                self.normalize_never_bounds(f, depth)
             }
             Type::Record { pos, named } => {
                 let pos = pos
                     .iter()
-                    .map(|&x| self.substitute(x, class, function))
+                    .map(|&x| self.substitute_at(x, class, function, depth))
                     .collect();
                 let named = named
                     .iter()
-                    .map(|(n, x)| (n.clone(), self.substitute(*x, class, function)))
+                    .map(|(n, x)| (n.clone(), self.substitute_at(*x, class, function, depth)))
                     .collect();
                 self.intern(Type::Record { pos, named })
             }
             Type::Tuple(args) => {
                 let a = args
                     .iter()
-                    .map(|&x| self.substitute(x, class, function))
+                    .map(|&x| self.substitute_at(x, class, function, depth))
                     .collect();
                 self.intern(Type::Tuple(a))
+            }
+            _ => t,
+        }
+    }
+
+    /// NORM of a generic function type whose own variables (at levels
+    /// `depth..`) have the bound `Never`: each such variable is `Never`
+    /// itself (`<X extends Never>(Object?) => X` is `<X extends
+    /// Never>(Object?) => Never`), until no bound becomes `Never` (`<S
+    /// extends Never, R extends S>` makes both `Never`).
+    fn normalize_never_bounds(&mut self, f: i64, depth: usize) -> i64 {
+        let mut f = f;
+        let mut done: Vec<usize> = Vec::new();
+        loop {
+            let Type::Function { bounds, .. } = self.ty(f).clone() else {
+                return f;
+            };
+            let never: Vec<usize> = bounds
+                .iter()
+                .enumerate()
+                .filter(|&(i, &b)| b == T_NEVER && !done.contains(&(depth + i)))
+                .map(|(i, _)| depth + i)
+                .collect();
+            if never.is_empty() {
+                return f;
+            }
+            f = self.replace_never_variables(f, &never);
+            done.extend(never);
+        }
+    }
+
+    /// The generic function type `f` with its variables at `never` replaced
+    /// by `Never` (body and bounds).
+    fn replace_never_variables(&mut self, f: i64, never: &[usize]) -> i64 {
+        let Type::Function {
+            generics,
+            bounds,
+            ret,
+            pos,
+            n_required,
+            named,
+        } = self.ty(f).clone()
+        else {
+            return f;
+        };
+        let ret = self.replace_enabled(ret, never);
+        let pos = pos.iter().map(|&x| self.replace_enabled(x, never)).collect();
+        let named = named
+            .iter()
+            .map(|(n, x, r)| (n.clone(), self.replace_enabled(*x, never), *r))
+            .collect();
+        let bounds = bounds.iter().map(|&x| self.replace_enabled(x, never)).collect();
+        self.intern(Type::Function {
+            generics,
+            bounds,
+            ret,
+            pos,
+            n_required,
+            named,
+        })
+    }
+
+    /// `t` with the bound variables at `levels` replaced by `Never`.
+    fn replace_enabled(&mut self, t: i64, levels: &[usize]) -> i64 {
+        match self.ty(t).clone() {
+            Type::Enabled(i) if levels.contains(&i) => T_NEVER,
+            Type::Interface(c, args) if !args.is_empty() => {
+                let a = args.iter().map(|&x| self.replace_enabled(x, levels)).collect();
+                self.interface(c, a)
+            }
+            Type::Nullable(x) => {
+                let y = self.replace_enabled(x, levels);
+                self.nullable(y)
+            }
+            Type::FutureOr(x) => {
+                let y = self.replace_enabled(x, levels);
+                self.future_or(y)
+            }
+            ty @ (Type::Function { .. } | Type::Record { .. }) => {
+                let mapped = ty.with_children(|x| self.replace_enabled(x, levels));
+                self.intern(mapped)
+            }
+            _ => t,
+        }
+    }
+
+    /// `t` with each bound variable `B<i>` moved to `B<i + by>`.
+    fn shift_enabled(&mut self, t: i64, by: usize) -> i64 {
+        if by == 0 {
+            return t;
+        }
+        match self.ty(t).clone() {
+            Type::Enabled(i) => self.intern(Type::Enabled(i + by)),
+            Type::Interface(c, args) if !args.is_empty() => {
+                let a = args.iter().map(|&x| self.shift_enabled(x, by)).collect();
+                self.interface(c, a)
+            }
+            Type::Nullable(x) => {
+                let y = self.shift_enabled(x, by);
+                self.nullable(y)
+            }
+            Type::FutureOr(x) => {
+                let y = self.shift_enabled(x, by);
+                self.future_or(y)
+            }
+            ty @ (Type::Function { .. } | Type::Record { .. }) => {
+                let mapped = ty.with_children(|x| self.shift_enabled(x, by));
+                self.intern(mapped)
             }
             _ => t,
         }
@@ -632,6 +771,11 @@ impl Universe {
         if s == t {
             return true;
         }
+        // Inside a generic function type the answer for its bound variables
+        // depends on the bounds in scope (`bound_env`): not cached.
+        if !self.bound_env.is_empty() {
+            return self.sub_without_cache(s, t);
+        }
         if let Some(&r) = self.cache_sub.get(&(s, t)) {
             return r;
         }
@@ -651,6 +795,19 @@ impl Universe {
         }
         if matches!(ts, Type::Dynamic | Type::Void) {
             return false;
+        }
+        // A bound variable of an enclosing generic function type is a subtype
+        // of what its bound is (`Y1 extends Y0`: `Y1 <: Y0`); the other rules
+        // (`T?`, `FutureOr<T>` on the right) still apply below.
+        if let Type::Enabled(i) = ts {
+            if let Some(&b) = self.bound_env.get(i)
+                && self.sub(b, t)
+            {
+                return true;
+            }
+            if self.e_object(t) {
+                return false;
+            }
         }
         if self.e_object(t) {
             return match ts {
@@ -713,38 +870,48 @@ impl Universe {
                 if g1 != g2 || o1 > o2 || p1.len() < p2.len() {
                     return false;
                 }
-                // The type parameters must have the same bounds (each a
-                // subtype of the other); an absent one is a top type.
+                // The variables of both types are bound at the same levels,
+                // with the bounds of `S` (equal to those of `T`, checked below).
+                let level = self.bound_env.len();
                 for i in 0..g1 {
-                    let x = b1.get(i).copied().unwrap_or(T_DYNAMIC);
-                    let y = b2.get(i).copied().unwrap_or(T_DYNAMIC);
-                    if x != y && !(self.sub(x, y) && self.sub(y, x)) {
-                        return false;
-                    }
+                    self.bound_env.push(b1.get(i).copied().unwrap_or(T_DYNAMIC));
                 }
-                if !self.sub(r1, r2) {
-                    return false;
-                }
-                for (i, &q) in p2.iter().enumerate() {
-                    if !self.sub(q, p1[i]) {
-                        return false;
-                    }
-                }
-                for (name, q, req) in &n2 {
-                    match n1.iter().find(|(m, _, _)| m == name) {
-                        Some((_, p, _)) => {
-                            if !self.sub(*q, *p) {
-                                return false;
-                            }
+                let r = 'body: {
+                        // The type parameters must have the same bounds (each a
+                        // subtype of the other); an absent one is a top type.
+                    for i in 0..g1 {
+                        let x = b1.get(i).copied().unwrap_or(T_DYNAMIC);
+                        let y = b2.get(i).copied().unwrap_or(T_DYNAMIC);
+                        if x != y && !(self.sub(x, y) && self.sub(y, x)) {
+                            break 'body false;
                         }
-                        None => return false,
                     }
-                    let _ = req;
-                }
-                // Every required named parameter of S must be passed by T.
-                n1.iter()
-                    .filter(|(_, _, r)| *r)
-                    .all(|(m, _, _)| n2.iter().any(|(n, _, r)| n == m && *r))
+                    if !self.sub(r1, r2) {
+                        break 'body false;
+                    }
+                    for (i, &q) in p2.iter().enumerate() {
+                        if !self.sub(q, p1[i]) {
+                            break 'body false;
+                        }
+                    }
+                    for (name, q, req) in &n2 {
+                        match n1.iter().find(|(m, _, _)| m == name) {
+                            Some((_, p, _)) => {
+                                if !self.sub(*q, *p) {
+                                    break 'body false;
+                                }
+                            }
+                            None => break 'body false,
+                        }
+                        let _ = req;
+                    }
+                    // Every required named parameter of S must be passed by T.
+                    n1.iter()
+                        .filter(|(_, _, r)| *r)
+                        .all(|(m, _, _)| n2.iter().any(|(n, _, r)| n == m && *r))
+                };
+                self.bound_env.truncate(level);
+                r
             }
             (Type::Record { pos: p1, named: n1 }, Type::Record { pos: p2, named: n2 }) => {
                 p1.len() == p2.len()
@@ -762,6 +929,14 @@ impl Universe {
 
     /// The text of a type, like the VM's `Type.toString()`.
     fn text(&self, t: i64) -> String {
+        self.text_in(t, &mut Vec::new(), 0)
+    }
+
+    /// [`Self::text`] under generic function binders: `names` has the name of
+    /// each bound variable by level, `depth` the number of enclosing generic
+    /// function types (the VM names the parameters of a nested one
+    /// `F1Y0`, `F2Y0`…).
+    fn text_in(&self, t: i64, names: &mut Vec<String>, depth: usize) -> String {
         match self.ty(t) {
             Type::Dynamic => "dynamic".to_string(),
             Type::Void => "void".to_string(),
@@ -775,12 +950,12 @@ impl Universe {
                 if args.is_empty() {
                     name
                 } else {
-                    let a: Vec<String> = args.iter().map(|&x| self.text(x)).collect();
+                    let a: Vec<String> = args.iter().map(|&x| self.text_in(x, names, depth)).collect();
                     format!("{name}<{}>", a.join(", "))
                 }
             }
-            Type::Nullable(x) => format!("{}?", self.text(*x)),
-            Type::FutureOr(x) => format!("FutureOr<{}>", self.text(*x)),
+            Type::Nullable(x) => format!("{}?", self.text_in(*x, names, depth)),
+            Type::FutureOr(x) => format!("FutureOr<{}>", self.text_in(*x, names, depth)),
             Type::Function {
                 ret,
                 pos,
@@ -789,17 +964,23 @@ impl Universe {
                 generics,
                 bounds,
             } => {
+                let level = names.len();
+                let inner = if *generics > 0 { depth + 1 } else { depth };
+                for i in 0..*generics {
+                    names.push(if depth == 0 { format!("Y{i}") } else { format!("F{depth}Y{i}") });
+                }
+                let depth = inner;
                 let mut part_list: Vec<String> =
-                    pos[..*n_required].iter().map(|&x| self.text(x)).collect();
+                    pos[..*n_required].iter().map(|&x| self.text_in(x, names, depth)).collect();
                 if pos.len() > *n_required {
-                    let o: Vec<String> = pos[*n_required..].iter().map(|&x| self.text(x)).collect();
+                    let o: Vec<String> = pos[*n_required..].iter().map(|&x| self.text_in(x, names, depth)).collect();
                     part_list.push(format!("[{}]", o.join(", ")));
                 }
                 if !named.is_empty() {
                     let n: Vec<String> = named
                         .iter()
                         .map(|(m, x, r)| {
-                            format!("{}{} {m}", if *r { "required " } else { "" }, self.text(*x))
+                            format!("{}{} {m}", if *r { "required " } else { "" }, self.text_in(*x, names, depth))
                         })
                         .collect();
                     part_list.push(format!("{{{}}}", n.join(", ")));
@@ -807,33 +988,40 @@ impl Universe {
                 let g = if *generics > 0 {
                     // Like the VM: `<Y0, Y1 extends num>(Y0) => Y1`.
                     let v: Vec<String> = (0..*generics)
-                        .map(|i| match bounds.get(i) {
-                            Some(&b) if !self.is_top(b) => format!("Y{i} extends {}", self.text(b)),
-                            _ => format!("Y{i}"),
+                        .map(|i| {
+                            let name = names[level + i].clone();
+                            match bounds.get(i) {
+                                Some(&b) if !self.is_top(b) => {
+                                    format!("{name} extends {}", self.text_in(b, names, depth))
+                                }
+                                _ => name,
+                            }
                         })
                         .collect();
                     format!("<{}>", v.join(", "))
                 } else {
                     String::new()
                 };
-                format!("{g}({}) => {}", part_list.join(", "), self.text(*ret))
+                let r = format!("{g}({}) => {}", part_list.join(", "), self.text_in(*ret, names, depth));
+                names.truncate(level);
+                r
             }
             Type::Record { pos, named } => {
-                let mut part_list: Vec<String> = pos.iter().map(|&x| self.text(x)).collect();
+                let mut part_list: Vec<String> = pos.iter().map(|&x| self.text_in(x, names, depth)).collect();
                 if !named.is_empty() {
                     let n: Vec<String> = named
                         .iter()
-                        .map(|(m, x)| format!("{} {m}", self.text(*x)))
+                        .map(|(m, x)| format!("{} {m}", self.text_in(*x, names, depth)))
                         .collect();
                     part_list.push(format!("{{{}}}", n.join(", ")));
                 }
                 format!("({})", part_list.join(", "))
             }
-            Type::Enabled(i) => format!("Y{i}"),
+            Type::Enabled(i) => names.get(*i).cloned().unwrap_or_else(|| format!("Y{i}")),
             Type::ClassParam(i) => format!("P{i}"),
             Type::FunctionParam(i) => format!("M{i}"),
             Type::Tuple(a) => {
-                let v: Vec<String> = a.iter().map(|&x| self.text(x)).collect();
+                let v: Vec<String> = a.iter().map(|&x| self.text_in(x, names, depth)).collect();
                 format!("<{}>", v.join(", "))
             }
         }
@@ -1979,6 +2167,74 @@ pub extern "C" fn dartforge_rti_bound(s: i64, t: i64, name: i64) {
                 .unwrap_or_default()
         });
         let msg = format!("type '{s}' is not a subtype of type '{t}' of '{name}'");
+        let m = HEAP.with(|h| h.borrow_mut().allocate_str(&msg));
+        let e = with_roots(&[m], || dartforge_type_error_with_message(m));
+        with_roots(&[e], || dartforge_exception_throw(e, 3));
+    }
+}
+
+impl Universe {
+    /// `t` with the variables of the outermost generic function type
+    /// replaced: `B<i>` by `args[i]` for the first `args.len()` levels, and the
+    /// deeper levels shifted down (they bind the nested generic function types).
+    fn instantiate_bound_variables(&mut self, t: i64, args: &[i64]) -> i64 {
+        let n = args.len();
+        match self.ty(t).clone() {
+            Type::Enabled(i) if i < n => args[i],
+            Type::Enabled(i) => self.intern(Type::Enabled(i - n)),
+            Type::Interface(c, a) if !a.is_empty() => {
+                let a = a.iter().map(|&x| self.instantiate_bound_variables(x, args)).collect();
+                self.interface(c, a)
+            }
+            Type::Nullable(x) => {
+                let y = self.instantiate_bound_variables(x, args);
+                self.nullable(y)
+            }
+            Type::FutureOr(x) => {
+                let y = self.instantiate_bound_variables(x, args);
+                self.future_or(y)
+            }
+            ty @ (Type::Function { .. } | Type::Record { .. }) => {
+                let mapped = ty.with_children(|x| self.instantiate_bound_variables(x, args));
+                self.intern(mapped)
+            }
+            _ => t,
+        }
+    }
+}
+
+/// `f<T…>` on a generic function value `closure` with the type argument tuple
+/// `tuple`: each argument against the bound of its type parameter in the
+/// closure's runtime type, as the VM's eager instantiation check (a
+/// `C<Object>` holding a `C<int>` whose `foo<S extends T>` is instantiated
+/// with `String`). Pending `TypeError` on a failure.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_rti_instantiation_bounds(closure: i64, tuple: i64) {
+    let failure = RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let f = ref_type(&mut u, closure);
+        let Type::Function { generics, bounds, .. } = u.ty(f).clone() else {
+            return None;
+        };
+        let Some(Type::Tuple(args)) = u.get_value(tuple).cloned() else {
+            return None;
+        };
+        if args.len() != generics {
+            return None;
+        }
+        for (i, &b) in bounds.iter().enumerate() {
+            if u.is_top(b) {
+                continue;
+            }
+            let bound = u.instantiate_bound_variables(b, &args);
+            if !u.sub(args[i], bound) {
+                return Some((u.text(args[i]), u.text(bound), i));
+            }
+        }
+        None
+    });
+    if let Some((s, t, i)) = failure {
+        let msg = format!("type '{s}' is not a subtype of type '{t}' of 'Y{i}'");
         let m = HEAP.with(|h| h.borrow_mut().allocate_str(&msg));
         let e = with_roots(&[m], || dartforge_type_error_with_message(m));
         with_roots(&[e], || dartforge_exception_throw(e, 3));

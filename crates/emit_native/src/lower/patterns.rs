@@ -175,6 +175,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
         }
+        // A field of a record (`R3<int, String, bool>(:var $1, :var $5)`): by
+        // the record's shape, the other values through the selector.
+        let positional = text
+            .strip_prefix('$')
+            .and_then(|d| d.parse::<i64>().ok())
+            .is_some_and(|k| k >= 1);
+        if class.is_none() && (positional || !self.shapes_with_field(&text).is_empty()) {
+            let v = val_ref.clone();
+            let name = text.clone();
+            let mut rest = |s: &mut Self| s.property_by_selector(v.clone(), &name, origin, span);
+            if let Some(r) = self.read_record_field(val_ref.clone(), &text, &mut rest) {
+                return self.coerce(r, Type::Ref);
+            }
+        }
         let r = self.property_by_selector(val_ref, &text, origin, span);
         self.coerce(r, Type::Ref)
     }
@@ -594,6 +608,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 bodies[i] = bodies[i + 1];
             }
         }
+        // A body labeled by several cases has variables of its own, apart from
+        // those of each case's pattern (a closure in a guard keeps the case's).
+        let shared: Vec<bool> = bodies
+            .iter()
+            .map(|b| bodies.iter().filter(|x| *x == b).count() > 1)
+            .collect();
         // `continue label` to the label of a case goes to its body.
         let mut case_labels = Vec::new();
         for (i, c) in cases.iter().enumerate() {
@@ -666,7 +686,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.require(ok, next_item);
                 }
                 let body_i = bodies[case_scopes.len()];
-                let passing = if c.body.is_empty() && case_scopes.len() + 1 < cases.len() {
+                let k = case_scopes.len();
+                let passing = if (c.body.is_empty() && k + 1 < cases.len()) || shared[k] {
                     Some(self.new_block())
                 } else {
                     None
@@ -688,6 +709,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let Some(passing) = successes[i] else {
                 continue;
             };
+            if !cases[i].body.is_empty() {
+                // The last case of a shared body: the body's captured
+                // variables get new cells with the case's values.
+                self.set_block(passing);
+                let mut names: Vec<_> = case_scopes[i].keys().copied().collect();
+                names.sort_by_key(|&sym| self.ctx.symbol_name(sym).to_string());
+                for name_str in names {
+                    let local = case_scopes[i][&name_str].clone();
+                    if let Mode::Cell(ptr) = &local.mode {
+                        let value = self.read_local(&local);
+                        let cell = self.emit(Instruction::AllocCell { value }, Type::Ref);
+                        self.emit(
+                            Instruction::Store {
+                                ptr: ptr.clone(),
+                                val: cell,
+                            },
+                            Type::Void,
+                        );
+                    }
+                }
+                self.terminate(Terminator::Branch(bodies[i]));
+                continue;
+            }
             let Some(j) =
                 (i + 1..cases.len()).find(|&j| bodies[j] == bodies[i] && !cases[j].body.is_empty())
             else {

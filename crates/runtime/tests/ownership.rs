@@ -484,6 +484,7 @@ fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
                         | "dartforge_rti_tuple_join"
                         | "dartforge_rti_tuple_len"
                         | "dartforge_rti_bound"
+                        | "dartforge_rti_instantiation_bounds"
                         | "dartforge_args_set_tuple"
                         | "dartforge_ffi_handles_open"
                         | "dartforge_ffi_handle_new"
