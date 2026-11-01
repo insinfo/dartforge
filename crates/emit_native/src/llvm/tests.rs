@@ -371,9 +371,13 @@ fn arc_global_loads_real_bits_and_publishes_before_transferring_owner() {
     let body = body_of(&ir, "arc_global");
     assert!(body.contains("%v2 = load i64, ptr %ga2"));
     assert!(body.contains("@dartforge_arc_retain(i64 %v2)"));
+    // The copy publishes the bits, then the registry retains the new value
+    // before it releases the old one: no token of the code around it.
+    assert!(!body.contains("@dartforge_arc_retain(i64 %v0)"));
+    assert!(!body.contains("@dartforge_arc_release(i64 %v0)"));
     assert!(
-        body.find("@dartforge_arc_retain(i64 %v0)").unwrap()
-            < body.find("store i64 %v0, ptr %ga1").unwrap()
+        body.find("store i64 %v0, ptr %ga1").unwrap()
+            < body.find("@dartforge_gc_global_root").unwrap()
     );
     assert!(
         body.find("store i64 %v2, ptr %ga3").unwrap()

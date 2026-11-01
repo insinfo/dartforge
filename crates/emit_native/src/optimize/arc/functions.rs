@@ -1732,10 +1732,10 @@ mod tests {
                 assert!(ir.contains("%x = icmp ne i8 %u, 0"));
             } else {
                 assert!(
-                    // Unboxing may run Dart (TypeError): in a native scope.
+                    // Unboxing runs Dart only for its TypeError, whose throw opens
+                    // the native scope (`NATIVES_SCOPING_THEIR_DART`): no thunk.
                     matches!(&fs[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. }
-                        if name.strip_prefix(super::super::NATIVE_SCOPE_PREFIX)
-                            == Some(if ty == Type::I64 { "dartforge_unbox_int" } else { "dartforge_unbox_double" }))
+                        if name == if ty == Type::I64 { "dartforge_unbox_int" } else { "dartforge_unbox_double" })
                 );
             }
             let mut owned = f.clone();
@@ -2505,8 +2505,7 @@ mod publication_tests {
         );
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
         assert!(
-            ir.contains(&format!("define internal i64 @{name_str}(ptr"))
-                || ir.contains(&format!("define internal i64 @{name_str}(i64")),
+            ir.contains(&format!("define internal i64 @{name_str}(double")),
             "{ir}"
         );
         assert!(ir.contains("call i64 @dartforge_arc_native_scope_open_v1()"));
