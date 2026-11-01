@@ -11737,6 +11737,81 @@ mod prompt_death_tests {
         assert!(heap.arc.as_ref().unwrap().snapshots.is_empty());
     }
 
+    /// The cycle round over the in-object word against a reachability model: random
+    /// graphs of instances (self edges, repeated edges, shared children), some objects
+    /// kept by a code token; after the last releases and a full collection exactly the
+    /// objects the kept ones reach are alive, with their counts intact (the region's
+    /// index borrowed the count's bits during the round).
+    #[test]
+    #[allow(unsafe_code)]
+    fn cycle_round_on_the_word_matches_reachability() {
+        const N: usize = 24;
+        const FIELDS: usize = 3;
+        for seed in 1..=60u64 {
+            let mut rng = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            let mut next = move || {
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                rng
+            };
+            let mut heap = heap_prompt();
+            let objects: Vec<Ref> = (0..N).map(|_| owned(&mut heap, FIELDS)).collect();
+            let mut edges = [[usize::MAX; FIELDS]; N];
+            for (i, row) in edges.iter_mut().enumerate() {
+                for (f, slot) in row.iter_mut().enumerate() {
+                    if next() % 3 != 0 {
+                        let j = (next() % N as u64) as usize;
+                        heap.set_field(objects[i], f, objects[j], true);
+                        *slot = j;
+                    }
+                }
+            }
+            let kept: Vec<usize> = (0..N).filter(|_| next() % 5 == 0).collect();
+            for (i, &h) in objects.iter().enumerate() {
+                if !kept.contains(&i) {
+                    release(&mut heap, h);
+                }
+            }
+            heap.collect();
+            let mut reach = [false; N];
+            let mut stack = kept.clone();
+            while let Some(i) = stack.pop() {
+                if !std::mem::replace(&mut reach[i], true) {
+                    stack.extend(edges[i].iter().copied().filter(|&j| j != usize::MAX));
+                }
+            }
+            for i in 0..N {
+                assert_eq!(
+                    !dead(&heap, objects[i]),
+                    reach[i],
+                    "seed {seed}, object {i}"
+                );
+                if reach[i] {
+                    let incoming = (0..N)
+                        .filter(|&k| reach[k])
+                        .flat_map(|k| edges[k])
+                        .filter(|&j| j == i)
+                        .count()
+                        + usize::from(kept.contains(&i));
+                    // SAFETY: the live block of `objects[i]`.
+                    let word = unsafe { *prompt_word(objects[i]) };
+                    assert_eq!(
+                        (word & arc_word::RC) as usize,
+                        incoming,
+                        "seed {seed}, count of object {i}"
+                    );
+                    assert_eq!(word & (1 << 46), 0, "seed {seed}: region mark left");
+                }
+            }
+            for &i in &kept {
+                release(&mut heap, objects[i]);
+            }
+            heap.collect();
+            assert!(objects.iter().all(|&h| dead(&heap, h)), "seed {seed}");
+        }
+    }
+
     #[test]
     fn observational_frame_of_a_native_defers_the_death_until_it_closes() {
         let mut heap = heap_prompt();

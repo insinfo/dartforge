@@ -242,6 +242,13 @@ pub const NATIVES_SCOPING_THEIR_DART: &[&str] = &[
     "dartforge_native_TypedData_SetFloat64",
 ];
 
+/// The cycle round's mark of an object of region `R` in its in-object word, while the
+/// count's bits hold its index (`ArcHeapState::collect_cycles`): bit 46, one of the
+/// free bits between the count and the flags (`layout::arc_word`; bit 47 is the
+/// candidate pass's own mark).
+const IN_REGION: u64 = 1 << 46;
+const _: () = assert!(IN_REGION > word::RC && IN_REGION < word::LIVE);
+
 /// `null` and `Smi` are not managed references.
 #[inline]
 pub fn e_handle(h: Ref) -> bool {
@@ -1620,23 +1627,49 @@ impl ArcHeapState {
         // The protected root stays out of R: its edges remain external inputs in the
         // trial. Requeuing it allows collecting it when the root disappears.
         // A dense index per handle; counters and marks live in vectors, without three
-        // distinct hash tables for the same region.
+        // distinct hash tables for the same region. An object of the in-object word
+        // keeps its index in the word itself while the edges are resolved: its count
+        // moves to `trial` and the word holds `IN_REGION | index` in the count's bits,
+        // so neither the walk nor an edge looks a table up; the side table's objects
+        // use `index`. The words get their counts back before anything else reads
+        // them.
         let (r, in_r) = (&mut s.region, &mut s.index);
+        let trial = &mut s.trial;
         while let Some(x) = s.stack.pop() {
-            let std::collections::hash_map::Entry::Vacant(input) = in_r.entry(x) else {
-                continue;
-            };
-            let Some(m) = self.meta(x) else {
-                continue;
-            };
-            if m.immortal || m.state == ArcState::Dead {
-                continue;
+            if let Some(p) = self.word_of(x) {
+                let w = rd(p);
+                if w & IN_REGION != 0 {
+                    continue;
+                }
+                let Some(m) = word_meta(w) else {
+                    continue;
+                };
+                if m.immortal || m.state == ArcState::Dead {
+                    continue;
+                }
+                if protected(x) {
+                    self.add_candidate(x);
+                    continue;
+                }
+                trial.push((w & word::RC) as i64);
+                wr(p, (w & !word::RC) | IN_REGION | r.len() as u64);
+            } else {
+                let std::collections::hash_map::Entry::Vacant(input) = in_r.entry(x) else {
+                    continue;
+                };
+                let Some(m) = self.meta(x) else {
+                    continue;
+                };
+                if m.immortal || m.state == ArcState::Dead {
+                    continue;
+                }
+                if protected(x) {
+                    self.add_candidate(x);
+                    continue;
+                }
+                input.insert(r.len());
+                trial.push(m.rc as i64);
             }
-            if protected(x) {
-                self.add_candidate(x);
-                continue;
-            }
-            input.insert(r.len());
             r.push(x);
             s.starts.push(s.targets.len());
             graph.edges(x, &mut |v| {
@@ -1649,14 +1682,20 @@ impl ArcHeapState {
         s.starts.push(s.targets.len());
         self.statistics.examined += r.len() as u64;
         let (starts, edges) = (&s.starts, &mut s.edges);
-        edges.extend(
-            s.targets
-                .iter()
-                .map(|v| in_r.get(v).copied().unwrap_or(usize::MAX)),
-        );
+        edges.extend(s.targets.iter().map(|&v| match self.word_of(v) {
+            Some(p) if rd(p) & IN_REGION != 0 => (rd(p) & word::RC) as usize,
+            Some(_) => usize::MAX,
+            None => in_r.get(&v).copied().unwrap_or(usize::MAX),
+        }));
+        // The words get their counts back (saved in `trial`, not yet decremented).
+        for (ix, &x) in r.iter().enumerate() {
+            if let Some(p) = self.word_of(x) {
+                let w = rd(p);
+                debug_assert!(w & IN_REGION != 0 && (w & word::RC) as usize == ix);
+                wr(p, (w & !(word::RC | IN_REGION)) | trial[ix] as u64);
+            }
+        }
         // trial = rc − internal occurrences (the count has 40 bits).
-        let trial = &mut s.trial;
-        trial.extend(r.iter().map(|&x| self.meta(x).map_or(0, |m| m.rc) as i64));
         for &ix in edges.iter() {
             if ix != usize::MAX {
                 trial[ix] -= 1;
