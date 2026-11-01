@@ -814,6 +814,17 @@ execução neles.
   `shared_exits::tests::identical_exits_become_one`; 30 de integração; 127 *doctests*). Clippy
   `-D warnings` limpo no `dartforge-emit-native`.
 
+### 9.5.1 Correção: o descritor da área global uma vez entre as partes
+
+Com `DARTFORGE_PART_KB=64` sozinho (o programa dividido em partes sem o modo de programa grande),
+o `175_nested_literals_by_table` imprimia `counter` como 0: o runtime acha a área global enxuta
+pelo endereço do `@df.area` (`dartforge_globals_area`), e o particionador copiava esse descritor,
+40 bytes neste programa, para cada parte que o cita, como faz com qualquer constante local
+pequena. Cada parte tinha o seu descritor e, no caminho lento do `@df.get_area`, a sua área. No
+`new_sali/backend` o descritor tem 76 KB e já era definido uma vez (§7). Agora o `@df.area` sai sem
+`unnamed_addr` e o particionador define uma vez, em qualquer tamanho, toda constante local cujo
+endereço é significativo (sem `unnamed_addr`); as demais continuam copiadas.
+
 ### 9.6 O que resta
 
 * **A geração de código** continua a maior parte (~300 s da ligação). As gravações na moldura

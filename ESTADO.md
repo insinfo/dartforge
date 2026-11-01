@@ -579,6 +579,35 @@ frontend); a memória das recargas da biblioteca no servidor (frontend: pico 2,2
 
 ## 31/10/2026: AOT nativo de programa grande — 2,45× menos CPU para compilar, executável 15% menor (rodadas até 01/11)
 
+### 01/11/2026: correção — o descritor da área global uma vez entre as partes
+
+A validação v18 do coordenador (`corpus/native` com `DARTFORGE_PART_KB=64`, `--optimize` com e sem
+`--gc-stress`) pegou o `175_nested_literals_by_table` imprimindo `counter` como 0 na última linha.
+Nenhuma das chaves das rodadas 4 e 5 mudava nada (textos, zeragem, saídas, `PRELINK_O=2`: todas
+falhavam igual). A causa estava no particionador: o runtime acha a área global enxuta de produção
+pelo **endereço** do descritor `@df.area`, e o particionador copiava cada constante local pequena
+(< 4 KB) para cada parte que a cita. Com o programa dividido, cada parte tinha o seu descritor, e
+a parte que caía no caminho lento do `@df.get_area` ganhava uma área própria (o `next()`
+incrementava um `counter`, o `main` lia outro). No `new_sali/backend` o descritor tem 76 KB e já
+era definido uma vez (constante grande compartilhada), por isso o programa grande de verdade não
+falhava. Correção (`f04cd31e`): o `@df.area` sai sem `unnamed_addr` (o endereço é significativo),
+e o particionador define uma vez toda constante local sem `unnamed_addr`, de qualquer tamanho.
+Teste novo `partition::tests::small_constant_with_significant_address_is_defined_once`.
+
+* Validação: `corpus/native` 164/164 com `DARTFORGE_PART_KB=64` (`--optimize` com
+  `DARTFORGE_CHECK_SHADOW=1`, e `--gc-stress`), 164/164 pelo pipeline do programa grande
+  (`DARTFORGE_PART_KB=64 DARTFORGE_LARGE_PROGRAM_FUNCTIONS=0`, nos dois modos), 164/164 nos
+  quatro modos normais; clippy limpo.
+* A interação com a mudança do agente do backend em `roots.rs` (ponto fixo sem copiar o
+  conjunto vivo, passos de `dead_slots` pré-calculados) está certa: a zeragem só em laço continua
+  valendo por bloco nos pontos de coleta e no fim do bloco.
+* `cargo test -p dartforge-emit-native`: tudo passa menos
+  `actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup` (só o registro de
+  `dart:nativewrappers` certificado, em vez de 8). **Já falha no `main` atual sem esta correção**
+  (testei com a mudança do emissor revertida); vem de algum commit depois de `a9151f62` que muda o
+  corpo dos registros do SDK (suspeitos: `86a58081`, a gravação de raiz global, ou as rodadas de
+  ARC e do backend). Não mexi.
+
 ### 01/11/2026: quinta rodada — moldura de raízes mais enxuta e saídas compartilhadas
 
 A forma do código do programa grande, cada forma com a sua chave (só no programa grande em
