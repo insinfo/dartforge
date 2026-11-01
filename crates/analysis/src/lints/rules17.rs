@@ -306,15 +306,7 @@ impl PrivateTypeValidator<'_, '_> {
             return false;
         };
         let did = dartforge_frontend::ast::DeclId(decl_idx as u32);
-        let Some(class_id) = (0..program.classes.len())
-            .map(|i| ClassId(i as u32))
-            .find(|c| {
-                program
-                    .class(*c)
-                    .decl
-                    .is_some_and(|r| r.unit == s.unit && r.decl == did)
-            })
-        else {
+        let Some(class_id) = program.class_of_decl(s.unit, did) else {
             return false;
         };
         let Some(sup) = program.class(class_id).supertype_class else {

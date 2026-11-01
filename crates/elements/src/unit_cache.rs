@@ -185,6 +185,15 @@ impl AnalyzedUnitCache {
         }
     }
 
+    /// Collects units taken out of a program that stays in use (those after its
+    /// frozen prefix, before a load over the prefix).
+    pub fn reclaim_units(&mut self, units: Vec<crate::model::Unit>) {
+        for u in units {
+            let Some(path) = u.path.clone() else { continue };
+            self.units.insert(path, u);
+        }
+    }
+
     /// Collects the units of a [`Program`] that is no longer used — including
     /// those of the SDK, which do not change between edits either.
     pub fn reclaim(&mut self, program: Program) {

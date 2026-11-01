@@ -1231,8 +1231,13 @@ fn verify(
         let MemberKind::Constructor(k) = &m.kind else {
             continue;
         };
-        let cls = (0..program.functions.len())
-            .map(|i| FunctionElementId(i as u32))
+        let cls = program
+            .index()
+            .unit_functions
+            .get(u.0 as usize)
+            .into_iter()
+            .flatten()
+            .copied()
             .find(|f| matches!(program.function(*f).node, FunctionRef::Constructor { unit, member } if unit == u && std::ptr::eq(a.member(member), m)))
             .and_then(|f| program.function(f).class);
         let Some(cls) = cls else { continue };
@@ -1713,8 +1718,13 @@ pub fn deprecated_optionals(
         let MemberKind::Constructor(k) = &m.kind else {
             continue;
         };
-        let Some(f) = (0..program.functions.len())
-            .map(|i| FunctionElementId(i as u32))
+        let Some(f) = program
+            .index()
+            .unit_functions
+            .get(u.0 as usize)
+            .into_iter()
+            .flatten()
+            .copied()
             .find(|f| matches!(program.function(*f).node, FunctionRef::Constructor { unit, member } if unit == u && member.0 as usize == mi))
         else {
             continue;

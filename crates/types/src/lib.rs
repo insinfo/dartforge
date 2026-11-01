@@ -128,6 +128,30 @@ pub fn resolve_outline_with_units(
     OutlineResolver::new(program, interner, table, core).resolve_all_with_units()
 }
 
+/// Like [`resolve_outline_with_units`], resolving only the elements after
+/// the frozen prefix of `program` (`Program::frozen`) over `prefix`, the
+/// outline an earlier resolution with the same `table` gave a program with
+/// the same prefix. The diagnostics are those of the elements after the
+/// prefix.
+///
+/// # Panics
+///
+/// When `program` has no frozen prefix.
+pub fn resolve_outline_onto(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    prefix: OutlineTypes,
+) -> (
+    OutlineTypes,
+    Vec<Diagnostic>,
+    Vec<dartforge_elements::model::UnitId>,
+) {
+    let at = program.frozen.expect("a program with a frozen prefix");
+    OutlineResolver::onto(program, interner, table, core, prefix, at).resolve_all_with_units()
+}
+
 /// Entry point for type inference and body resolution in a [`Program`].
 ///
 /// Walks all bodies of functions, methods and initializers, filling the side tables

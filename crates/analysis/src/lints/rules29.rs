@@ -99,14 +99,7 @@ impl Cx<'_> {
     }
 
     fn class_of_decl(&self, u: UnitId, d: DeclId) -> Option<ClassId> {
-        (0..self.program.classes.len())
-            .map(|i| ClassId(i as u32))
-            .find(|c| {
-                self.program
-                    .class(*c)
-                    .decl
-                    .is_some_and(|r| r.unit == u && r.decl == d)
-            })
+        self.program.class_of_decl(u, d)
     }
 
     /// `declarationMap[element]`.

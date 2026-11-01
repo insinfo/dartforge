@@ -8,7 +8,7 @@
 //! `typedef` expansion, *override inference* of inherited members without an
 //! explicit annotation, and accumulation of diagnostics without stopping early.
 
-use crate::hierarchy::{ClassHierarchy, build_class_hierarchy};
+use crate::hierarchy::{ClassHierarchy, build_class_hierarchy_onto};
 use crate::ops::{nullable, substitute};
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeParamOwner, TypeTable, Variance};
 use dartforge_diagnostics::Diagnostic;
@@ -133,6 +133,28 @@ pub struct OutlineTypes {
     /// The faithful override inference (`InstanceMemberInferrer`) has already
     /// run over these types (in the first body inference).
     pub inferred_overrides: bool,
+    /// The classes before this one already had their overrides inferred (a
+    /// frozen prefix kept from an earlier outline, [`OutlineResolver::onto`]).
+    pub overrides_from: usize,
+}
+
+impl OutlineTypes {
+    /// Keeps what belongs to the frozen prefix that ends at `at` (whose types
+    /// depend on nothing after it), to resolve the rest again over it
+    /// ([`OutlineResolver::onto`]).
+    pub fn truncate(&mut self, at: &dartforge_elements::frozen::Checkpoint) {
+        self.functions.truncate(at.functions);
+        self.variables.truncate(at.variables);
+        self.classes.truncate(at.classes);
+        self.extensions.truncate(at.extensions);
+        self.typedefs.truncate(at.typedefs);
+        self.hierarchy.truncate(at.classes, at.classes);
+        self.field_overrides.retain(|o| {
+            (o.function.0 as usize) < at.functions && (o.field.0 as usize) < at.variables
+        });
+        self.written_types
+            .retain(|(u, _), _| (u.0 as usize) < at.units);
+    }
 }
 
 /// Omitted part of an override that inherits the type of a field without a
@@ -450,6 +472,10 @@ pub struct OutlineResolver<'a> {
     pub field_overrides: Vec<FieldOverride>,
     /// Ver [`OutlineTypes::written_types`].
     pub written_types: HashMap<(UnitId, ast::TypeId), TypeId>,
+    /// Where the elements this resolver resolves start ([`Self::onto`]).
+    from: dartforge_elements::frozen::Checkpoint,
+    /// The outline of the elements before [`Self::from`].
+    prefix: Option<OutlineTypes>,
 }
 
 impl<'a> OutlineResolver<'a> {
@@ -481,7 +507,40 @@ impl<'a> OutlineResolver<'a> {
             broken_bounds: None,
             field_overrides: Vec::new(),
             written_types: HashMap::new(),
+            from: Default::default(),
+            prefix: None,
         }
+    }
+
+    /// A resolver of the elements after `at` only, over `prefix`: the outline
+    /// of a frozen prefix (the SDK and the dependencies), kept from an earlier
+    /// resolution with the same `table` ([`OutlineTypes::truncate`]). Its
+    /// diagnostics are those of the elements after `at`.
+    pub fn onto(
+        program: &'a Program,
+        interner: &'a Interner,
+        table: &'a mut TypeTable,
+        core: &'a CoreTypes,
+        mut prefix: OutlineTypes,
+        at: dartforge_elements::frozen::Checkpoint,
+    ) -> Self {
+        prefix.truncate(&at);
+        let mut this = Self::new(program, interner, table, core);
+        for (i, c) in prefix.classes.iter().enumerate() {
+            this.class_type_params[i] = c.type_params.clone();
+        }
+        for (i, t) in prefix.typedefs.iter().enumerate() {
+            this.typedef_type_params[i] = t.type_params.clone();
+            this.typedef_targets[i] = Some(t.target_type);
+        }
+        for (i, e) in prefix.extensions.iter().enumerate() {
+            this.extension_type_params[i] = e.type_params.clone();
+        }
+        this.field_overrides = std::mem::take(&mut prefix.field_overrides);
+        this.written_types = std::mem::take(&mut prefix.written_types);
+        this.from = at;
+        this.prefix = Some(prefix);
+        this
     }
 
     /// `reportNullOrNonTypeElement` (named_type_resolver.dart:518-521): the
@@ -570,6 +629,11 @@ impl<'a> OutlineResolver<'a> {
 
         // 6. Resolve functions, methods and constructors (with override inference)
         let function_type_data = self.resolve_functions(&hierarchy, &mut variable_type_data);
+        let overrides_from = if self.prefix.is_some() {
+            self.from.classes
+        } else {
+            0
+        };
 
         let typedef_type_data: Vec<TypedefTypeData> = self
             .typedef_type_params
@@ -591,13 +655,15 @@ impl<'a> OutlineResolver<'a> {
             field_overrides: std::mem::take(&mut self.field_overrides),
             written_types: std::mem::take(&mut self.written_types),
             inferred_overrides: false,
+            overrides_from,
         };
 
         (outline, self.diagnostics, self.warning_units)
     }
 
     fn allocate_outline_type_params(&mut self) {
-        for (i, class) in self.program.classes.iter().enumerate() {
+        let from = self.from;
+        for (i, class) in self.program.classes.iter().enumerate().skip(from.classes) {
             let class_id = ClassId(i as u32);
             let mut params = Vec::with_capacity(class.type_params.len());
             // The written variance (`class C<out T>`), kept even with the
@@ -629,7 +695,7 @@ impl<'a> OutlineResolver<'a> {
             self.class_type_params[i] = params.into_boxed_slice();
         }
 
-        for (i, typedef) in self.program.typedefs.iter().enumerate() {
+        for (i, typedef) in self.program.typedefs.iter().enumerate().skip(from.typedefs) {
             let typedef_id = TypedefId(i as u32);
             let mut params = Vec::with_capacity(typedef.type_params.len());
             for p in typedef.type_params.iter() {
@@ -644,7 +710,13 @@ impl<'a> OutlineResolver<'a> {
             self.typedef_type_params[i] = params.into_boxed_slice();
         }
 
-        for (i, ext) in self.program.extensions.iter().enumerate() {
+        for (i, ext) in self
+            .program
+            .extensions
+            .iter()
+            .enumerate()
+            .skip(from.extensions)
+        {
             let ext_id = ExtensionId(i as u32);
             let mut params = Vec::with_capacity(ext.type_params.len());
             for p in ext.type_params.iter() {
@@ -676,7 +748,7 @@ impl<'a> OutlineResolver<'a> {
 
         // And those of typedefs (`typedef F<X extends num> = X Function();`):
         // without them, the bound was `Object?` and `F<Object>` passed.
-        for (i, typedef) in self.program.typedefs.iter().enumerate() {
+        for (i, typedef) in self.program.typedefs.iter().enumerate().skip(from.typedefs) {
             let params = self.typedef_type_params[i].clone();
             let mut scope = HashMap::with_capacity(params.len());
             for (p_elem, &pid) in typedef.type_params.iter().zip(params.iter()) {
@@ -698,7 +770,13 @@ impl<'a> OutlineResolver<'a> {
 
     /// The written bounds of the type parameters of all classes.
     fn resolve_class_bounds(&mut self) {
-        for (i, class) in self.program.classes.iter().enumerate() {
+        for (i, class) in self
+            .program
+            .classes
+            .iter()
+            .enumerate()
+            .skip(self.from.classes)
+        {
             let params = self.class_type_params[i].clone();
             let mut scope = HashMap::with_capacity(params.len());
             for (p_elem, &pid) in class.type_params.iter().zip(params.iter()) {
@@ -730,7 +808,7 @@ impl<'a> OutlineResolver<'a> {
     }
 
     fn resolve_typedefs(&mut self) {
-        for i in 0..self.program.typedefs.len() {
+        for i in self.from.typedefs..self.program.typedefs.len() {
             let typedef_id = TypedefId(i as u32);
             self.ensure_typedef_resolved(typedef_id);
         }
@@ -807,7 +885,17 @@ impl<'a> OutlineResolver<'a> {
     }
 
     fn resolve_classes_and_hierarchy(&mut self) -> (Vec<ClassTypeData>, ClassHierarchy) {
-        let mut class_type_data = Vec::with_capacity(self.program.classes.len());
+        let from = self.from.classes;
+        let (mut class_type_data, base) = match self.prefix.as_mut() {
+            Some(p) => (
+                std::mem::take(&mut p.classes),
+                std::mem::take(&mut p.hierarchy),
+            ),
+            None => (
+                Vec::with_capacity(self.program.classes.len()),
+                ClassHierarchy::default(),
+            ),
+        };
         let mut hierarchy_inputs: Vec<Option<crate::hierarchy::ImmediateSupertypeInput>> =
             Vec::with_capacity(self.program.classes.len());
 
@@ -824,7 +912,22 @@ impl<'a> OutlineResolver<'a> {
                 _ => None,
             }
         });
-        for (i, class) in self.program.classes.iter().enumerate() {
+        // The prefix's inputs, from its data (its hierarchy is kept: they are
+        // only read by the classes after it).
+        for (i, d) in class_type_data.iter().enumerate() {
+            let mut all = Vec::new();
+            all.extend(d.supertype);
+            all.extend_from_slice(&d.mixins);
+            all.extend_from_slice(&d.interfaces);
+            all.extend_from_slice(&d.on);
+            if self.program.classes[i].kind == dartforge_elements::model::ClassKind::Enum
+                && let Some(e) = enum_type
+            {
+                all.push(e);
+            }
+            hierarchy_inputs.push(Some((d.type_params.clone(), all)));
+        }
+        for (i, class) in self.program.classes.iter().enumerate().skip(from) {
             let params = self.class_type_params[i].clone();
             let mut scope = HashMap::with_capacity(params.len());
             for (p_elem, &pid) in class.type_params.iter().zip(params.iter()) {
@@ -892,13 +995,14 @@ impl<'a> OutlineResolver<'a> {
         // owner (the analyzer's `ClassHierarchy._map` is per element, and
         // same-named classes are the same element as key). The type's
         // identity remains that of each class.
-        for i in 0..hierarchy_inputs.len() {
+        for i in from..hierarchy_inputs.len() {
             let owner = self.program.class_owner(ClassId(i as u32));
             if owner.0 as usize != i && (owner.0 as usize) < hierarchy_inputs.len() {
                 hierarchy_inputs[i] = hierarchy_inputs[owner.0 as usize].clone();
             }
         }
-        let mut hierarchy = build_class_hierarchy(
+        let mut hierarchy = build_class_hierarchy_onto(
+            base.clone(),
             self.program.classes.len(),
             &hierarchy_inputs,
             self.table,
@@ -916,7 +1020,7 @@ impl<'a> OutlineResolver<'a> {
         // (the superclass may have inferred mixins).
         for _ in 0..4 {
             let mut changed = false;
-            for i in 0..self.program.classes.len() {
+            for i in from..self.program.classes.len() {
                 for j in 0..self.program.classes[i].mixins.len() {
                     if let Some(the_new_) = self.infer_mixin(&class_type_data, &hierarchy, i, j) {
                         class_type_data[i].mixins[j] = the_new_;
@@ -927,7 +1031,7 @@ impl<'a> OutlineResolver<'a> {
             if !changed {
                 break;
             }
-            for i in 0..self.program.classes.len() {
+            for i in from..self.program.classes.len() {
                 let d = &class_type_data[i];
                 let mut all = Vec::new();
                 all.extend(d.supertype);
@@ -941,13 +1045,14 @@ impl<'a> OutlineResolver<'a> {
                 }
                 hierarchy_inputs[i] = Some((d.type_params.clone(), all));
             }
-            for i in 0..hierarchy_inputs.len() {
+            for i in from..hierarchy_inputs.len() {
                 let owner = self.program.class_owner(ClassId(i as u32));
                 if owner.0 as usize != i && (owner.0 as usize) < hierarchy_inputs.len() {
                     hierarchy_inputs[i] = hierarchy_inputs[owner.0 as usize].clone();
                 }
             }
-            hierarchy = build_class_hierarchy(
+            hierarchy = build_class_hierarchy_onto(
+                base.clone(),
                 self.program.classes.len(),
                 &hierarchy_inputs,
                 self.table,
@@ -986,7 +1091,7 @@ impl<'a> OutlineResolver<'a> {
             memo.insert(i, r);
             r
         }
-        for i in 0..self.program.classes.len() {
+        for i in from..self.program.classes.len() {
             if self.program.classes[i].kind == ClassKind::ExtensionType
                 && !with_object(i, &class_type_data, self.program, self.table, &mut memo, 0)
             {
@@ -1120,8 +1225,17 @@ impl<'a> OutlineResolver<'a> {
     }
 
     fn resolve_extensions(&mut self) -> Vec<ExtensionTypeData> {
-        let mut data = Vec::with_capacity(self.program.extensions.len());
-        for (i, ext) in self.program.extensions.iter().enumerate() {
+        let mut data = match self.prefix.as_mut() {
+            Some(p) => std::mem::take(&mut p.extensions),
+            None => Vec::with_capacity(self.program.extensions.len()),
+        };
+        for (i, ext) in self
+            .program
+            .extensions
+            .iter()
+            .enumerate()
+            .skip(self.from.extensions)
+        {
             let params = self.extension_type_params[i].clone();
             let mut scope = HashMap::with_capacity(params.len());
             for (p_elem, &pid) in ext.type_params.iter().zip(params.iter()) {
@@ -1144,8 +1258,11 @@ impl<'a> OutlineResolver<'a> {
     }
 
     fn resolve_variables(&mut self) -> Vec<VariableTypeData> {
-        let mut data = Vec::with_capacity(self.program.variables.len());
-        for var in self.program.variables.iter() {
+        let mut data = match self.prefix.as_mut() {
+            Some(p) => std::mem::take(&mut p.variables),
+            None => Vec::with_capacity(self.program.variables.len()),
+        };
+        for var in self.program.variables.iter().skip(self.from.variables) {
             let (declared, inferred) = match var.node {
                 VariableRef::TopLevel { unit, decl, .. } => {
                     let decl_node = self.program.unit(unit).ast.decl(decl);
@@ -1289,10 +1406,19 @@ impl<'a> OutlineResolver<'a> {
         hierarchy: &ClassHierarchy,
         variables: &mut [VariableTypeData],
     ) -> Vec<FunctionTypeData> {
-        let mut data: Vec<FunctionTypeData> = Vec::with_capacity(self.program.functions.len());
+        let mut data: Vec<FunctionTypeData> = match self.prefix.as_mut() {
+            Some(p) => std::mem::take(&mut p.functions),
+            None => Vec::with_capacity(self.program.functions.len()),
+        };
         let augmented = self.augmented_declarations();
 
-        for (i, func) in self.program.functions.iter().enumerate() {
+        for (i, func) in self
+            .program
+            .functions
+            .iter()
+            .enumerate()
+            .skip(self.from.functions)
+        {
             let func_id = FunctionElementId(i as u32);
             let (mut sig, mut ret, mut params, tparams) =
                 self.resolve_function_signature(func_id, func, hierarchy, variables);

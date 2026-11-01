@@ -68,6 +68,9 @@ pub struct Resident {
     world: Option<World>,
     /// Analyses that started from the kept [`World`] (tests and measurement).
     pub reused_worlds: usize,
+    /// Analyses that loaded over the kept world's frozen prefix (tests and
+    /// measurement).
+    pub onto_worlds: usize,
     /// The files of the package the batches belong to ([`Resident::set_context`]):
     /// the program of every analysis imports them all, so that the batches of
     /// one package share one program and the [`World`] serves them all.
@@ -166,6 +169,23 @@ fn program_bytes(program: &Program, files: &[PathBuf]) -> (usize, usize) {
     (own, all)
 }
 
+/// What [`Resident::take_world`] gives back.
+enum Taken {
+    /// No kept world (or one that cannot serve: its units went back to the
+    /// unit cache).
+    Nothing,
+    /// The kept world, with the batch's changed bodies swapped in.
+    Swapped(World),
+    /// The kept world, whose program lost what came after its frozen prefix
+    /// (the units went back to the unit cache): the analysis loads the rest
+    /// over the prefix and resolves its outline over the prefix's.
+    Onto(World),
+}
+
+/// How many loads over the frozen prefix a world takes before a full reload
+/// (the type table keeps the types of each load's outline).
+const MAX_ONTO_LOADS: usize = 64;
+
 /// The program of an analysis with what the analysis builds over it before
 /// the initializers: the type table, the core types, the outline types and
 /// their diagnostics, the simple bounds and the load's diagnostics.
@@ -193,6 +213,8 @@ struct World {
     /// parsed for the batch, and the swapped ones); a batch unit outside it is
     /// parsed again for them when the world serves another batch.
     syntax_known: HashSet<PathBuf>,
+    /// The loads over the program's frozen prefix since the last full load.
+    onto_loads: usize,
 }
 
 /// Where an old offset of a text goes in a new one that differs from it in
@@ -265,15 +287,62 @@ impl Resident {
         imports: &BTreeSet<String>,
         files: &[PathBuf],
         texts: &HashMap<PathBuf, String>,
-    ) -> Option<World> {
-        let mut world = self.world.take()?;
-        match self.reuse(&mut world, root, packages, imports, files, texts) {
-            true => Some(world),
-            false => {
-                self.units.reclaim(world.program);
-                None
-            }
+    ) -> Taken {
+        let Some(mut world) = self.world.take() else {
+            return Taken::Nothing;
+        };
+        if self.reuse(&mut world, root, packages, imports, files, texts) {
+            return Taken::Swapped(world);
         }
+        // An API change in the batch: the program's frozen prefix (the SDK
+        // and the dependencies) and what was computed over it stay, the rest
+        // is loaded again over it. A full reload now and then drops what the
+        // type table kept of the earlier loads.
+        if let Some(at) = world.program.frozen
+            && world.onto_loads < MAX_ONTO_LOADS
+            && self.same_prefix(&world, root, packages, texts)
+        {
+            let after: Vec<dartforge_elements::model::Unit> =
+                world.program.units.drain(at.units..).collect();
+            self.units.reclaim_units(after);
+            return Taken::Onto(world);
+        }
+        self.units.reclaim(world.program);
+        Taken::Nothing
+    }
+
+    /// Whether `w` was built for the same package and packages, with nothing
+    /// outside the package changed on the disk or in the texts: the conditions
+    /// under which its frozen prefix still holds.
+    fn same_prefix(
+        &self,
+        w: &World,
+        root: &Path,
+        packages: Option<&Path>,
+        texts: &HashMap<PathBuf, String>,
+    ) -> bool {
+        use std::hash::{Hash, Hasher};
+        // The package's files may change (and the batch import others): they
+        // come after the prefix. What is outside it may not.
+        if w.root != root || w.packages.as_deref() != packages {
+            return false;
+        }
+        let outside = |k: &Path| !key(k).starts_with(root);
+        if self.units.changed().iter().any(|p| outside(p)) {
+            return false;
+        }
+        let digest = |t: &str| {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            t.hash(&mut h);
+            h.finish()
+        };
+        texts
+            .iter()
+            .all(|(k, t)| !outside(k) || self.texts.get(k) == Some(&digest(t)))
+            && self
+                .texts
+                .keys()
+                .all(|k| !outside(k) || texts.contains_key(k))
     }
 
     fn reuse(
@@ -1272,10 +1341,28 @@ impl Engine {
             .ok()
             .map(|(c, _)| c);
         let mut fresh = dartforge_intern::Interner::new();
-        let reused = resident
+        let (reused, mut onto) = match resident
             .as_deref_mut()
-            .and_then(|r| r.take_world(root, packages, &import_set, files, texts));
-        let (interner, mut units, slot, program_bytes) = match resident {
+            .map(|r| r.take_world(root, packages, &import_set, files, texts))
+        {
+            Some(Taken::Swapped(w)) => (Some(w), None),
+            Some(Taken::Onto(w)) => (None, Some(w)),
+            _ => (None, None),
+        };
+        // The libraries that do not change in an editing session (the SDK and
+        // what is outside the package) first: a later API change in the
+        // package reloads only what comes after them.
+        let frozen = |p: &Program, l: LibraryId| {
+            let lib = p.library(l);
+            lib.is_sdk
+                || lib.units.iter().all(|u| {
+                    p.unit(*u)
+                        .path
+                        .as_deref()
+                        .is_some_and(|f| !key(f).starts_with(root))
+                })
+        };
+        let (interner, mut units, slot, program_bytes, mut resident_counter) = match resident {
             Some(r) => {
                 if reused.is_none() {
                     r.prepare(files, texts, &entry);
@@ -1285,23 +1372,60 @@ impl Engine {
                     Some(&mut r.units),
                     Some(&mut r.world),
                     Some(&mut r.program_bytes),
+                    Some(&mut r.onto_worlds),
                 )
             }
-            None => (&mut fresh, None, None, None),
+            None => (&mut fresh, None, None, None, None),
         };
         let from_world = reused.is_some();
         let world = match reused {
             Some(w) => w,
             None => {
-                let (program, load_diags) = dartforge_elements::load::load_lenient_generated(
-                    &entry,
-                    &self.sdk,
-                    packages,
-                    interner,
-                    cache,
-                    units.as_deref_mut(),
-                    generation,
-                );
+                let prefix = onto.take();
+                let (program, load_diags) = match prefix.as_ref() {
+                    Some(_) => (Program::default(), Vec::new()),
+                    // `DARTFORGE_FROZEN_PREFIX=0`: in discovery order, without
+                    // a prefix (to measure).
+                    None if std::env::var_os("DARTFORGE_FROZEN_PREFIX")
+                        .is_some_and(|v| v == "0") =>
+                    {
+                        dartforge_elements::load::load_lenient_generated(
+                            &entry,
+                            &self.sdk,
+                            packages,
+                            interner,
+                            cache,
+                            units.as_deref_mut(),
+                            generation.clone(),
+                        )
+                    }
+                    None => dartforge_elements::load::load_lenient_frozen(
+                        &entry,
+                        &self.sdk,
+                        packages,
+                        interner,
+                        cache,
+                        units.as_deref_mut(),
+                        generation.clone(),
+                        &frozen,
+                    ),
+                };
+                let (program, load_diags, prefix) = match prefix {
+                    Some(mut w) => {
+                        let base = std::mem::take(&mut w.program);
+                        let (p, d) = dartforge_elements::load::load_lenient_onto(
+                            base,
+                            &entry,
+                            &self.sdk,
+                            packages,
+                            interner,
+                            units.as_deref_mut(),
+                            generation,
+                        );
+                        (p, d, Some(w))
+                    }
+                    None => (program, load_diags, None),
+                };
                 if cancelled() {
                     if let Some(u) = units {
                         u.reclaim(program);
@@ -1322,14 +1446,32 @@ impl Engine {
                     }
                 }
                 let interner: &dartforge_intern::Interner = interner;
-                let mut table = dartforge_types::TypeTable::new();
-                // Messages with the `typedef` alias and the `Never?` as written (C9).
-                table.preserve_decoration = true;
-                let core = dartforge_types::CoreTypes::init(&mut table, &program, interner);
-                let (outline, outline_diags, outline_units) =
-                    dartforge_types::resolve_outline_with_units(
-                        &program, interner, &mut table, &core,
-                    );
+                let onto_loads = prefix.as_ref().map_or(0, |w| w.onto_loads + 1);
+                let (table, core, outline, outline_diags, outline_units) = match prefix {
+                    // The prefix's types, hierarchy and inferred initializers
+                    // stay; only the outline after it is resolved.
+                    Some(w) => {
+                        let mut table = w.table;
+                        let core = w.core;
+                        let (outline, diags, units) = dartforge_types::resolve_outline_onto(
+                            &program, interner, &mut table, &core, w.outline,
+                        );
+                        if let Some(r) = &mut resident_counter {
+                            **r += 1;
+                        }
+                        (table, core, outline, diags, units)
+                    }
+                    None => {
+                        let mut table = dartforge_types::TypeTable::new();
+                        // Messages with the `typedef` alias and the `Never?` as written (C9).
+                        table.preserve_decoration = true;
+                        let core = dartforge_types::CoreTypes::init(&mut table, &program, interner);
+                        let (outline, diags, units) = dartforge_types::resolve_outline_with_units(
+                            &program, interner, &mut table, &core,
+                        );
+                        (table, core, outline, diags, units)
+                    }
+                };
                 // `computeSimplyBounded`, once for the program.
                 let simple_bounds = dartforge_analysis::simple_bounds::compute(&program);
                 World {
@@ -1346,6 +1488,7 @@ impl Engine {
                     packages: packages.map(Path::to_path_buf),
                     imports: import_set.clone(),
                     syntax_known: own.iter().cloned().collect(),
+                    onto_loads,
                 }
             }
         };
@@ -3412,6 +3555,105 @@ mod tests {
         let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// API changes in the package reload only what follows the frozen prefix
+    /// (the SDK and a library outside the package): the prefix's elements,
+    /// types and hierarchy stay, and every batch publishes what an analysis
+    /// from scratch does — a changed field type, a changed supertype, a new
+    /// class, an override of a prefix member and a generic prefix class.
+    #[test]
+    fn resident_reloads_only_after_the_frozen_prefix() {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-agent/engine-frozen-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(base.join("pkg")).unwrap();
+        std::fs::create_dir_all(base.join("ext")).unwrap();
+        let base = std::fs::canonicalize(&base).unwrap();
+        std::fs::write(
+            base.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            base.join("sdk/lib/core/core.dart"),
+            "class Object {} class bool {} class num {} class int extends num {} class Null {}",
+        )
+        .unwrap();
+        let root = base.join("pkg");
+        std::fs::write(
+            base.join("ext/e.dart"),
+            "class E { int m() => 0; }\nclass G<T> { T? t; }\nclass H extends E {}\n",
+        )
+        .unwrap();
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        let c = root.join("c.dart");
+        std::fs::write(
+            &b,
+            "import '../ext/e.dart';\nclass B extends E { int x = 0; G<int> g = G(); }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &a,
+            "import 'b.dart';\nvoid f(B b) { int y = b.x; int z = b.m(); int? w = b.g.t; }\n",
+        )
+        .unwrap();
+        std::fs::write(&c, "import 'b.dart';\nvoid g(B b) { bool z = b.x; }\n").unwrap();
+        let engine = Engine::new(&base.join("sdk/lib")).unwrap();
+        let mut resident = Resident::new();
+        let shown = |r: &AnalysisResult, f: &Path| {
+            let mut v: Vec<(usize, usize, String)> = r.files[&key(f)]
+                .diags
+                .iter()
+                .map(|d| (d.span.start, d.span.end, d.message.clone()))
+                .collect();
+            v.sort();
+            v
+        };
+        let all = vec![a.clone(), b.clone(), c.clone()];
+        let none = HashMap::new();
+        engine
+            .analyze_resident(&mut resident, &root, &all, None, &none, &|| false)
+            .unwrap();
+        let versions = [
+            "import '../ext/e.dart';\nclass B extends E { bool x = true; G<bool> g = G(); }\n",
+            "import '../ext/e.dart';\nclass B extends H { int x = 0; G<int> g = G(); }\nclass C {}\n",
+            "import '../ext/e.dart';\nclass B extends E { int x = 0; G<int> g = G(); int m() => 1; }\n",
+            "import '../ext/e.dart';\nclass B extends E { int x = 0; G<int> g = G(); m() => 'a'; }\n",
+        ];
+        for version in versions {
+            let texts = HashMap::from([(key(&b), version.to_string())]);
+            let before = resident.onto_worlds;
+            let own = engine
+                .analyze_resident(
+                    &mut resident,
+                    &root,
+                    std::slice::from_ref(&b),
+                    None,
+                    &texts,
+                    &|| false,
+                )
+                .unwrap();
+            assert_eq!(resident.onto_worlds, before + 1, "{version}");
+            let rest = vec![a.clone(), c.clone()];
+            let dependents = engine
+                .analyze_resident(&mut resident, &root, &rest, None, &texts, &|| false)
+                .unwrap();
+            let fresh = engine
+                .analyze_with(&root, &all, None, &texts, &|| false)
+                .unwrap();
+            assert_eq!(shown(&own, &b), shown(&fresh, &b), "{version}");
+            for f in [&a, &c] {
+                assert_eq!(shown(&dependents, f), shown(&fresh, f), "{version} {f:?}");
+            }
+        }
+        let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
+        std::fs::remove_dir_all(&base).unwrap();
     }
 
     /// A package whose whole program is much larger than a batch's (here a

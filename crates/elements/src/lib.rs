@@ -10,6 +10,7 @@
 pub mod augmentation;
 pub mod config;
 pub mod distribution;
+pub mod frozen;
 pub mod generated;
 pub mod incremental;
 pub mod load;

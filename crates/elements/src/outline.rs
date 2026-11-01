@@ -10,6 +10,7 @@
 //!    implicit core).
 //! 5. Resolves supertype names (`extends`, `with`, `implements`, `on`) to
 //!    `ClassId` and detects inheritance cycles.
+use crate::frozen::Checkpoint;
 use crate::model::*;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind};
@@ -129,6 +130,18 @@ pub fn build_outline(
     interner: &mut Interner,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    build_outline_from(program, interner, diagnostics, &Checkpoint::default());
+}
+
+/// [`build_outline`] of the libraries after `from` (and of their elements),
+/// over a prefix whose outline is already built and depends on nothing after
+/// it ([`crate::frozen`]).
+pub fn build_outline_from(
+    program: &mut Program,
+    interner: &mut Interner,
+    diagnostics: &mut Vec<Diagnostic>,
+    from: &Checkpoint,
+) {
     let empty_sym = interner.intern("");
     let mut t_phase = std::time::Instant::now();
 
@@ -136,7 +149,7 @@ pub fn build_outline(
     // Phase 1: collecting the declared elements per library
     // -----------------------------------------------------------------------
     let num_libs = program.libraries.len();
-    for lib_idx in 0..num_libs {
+    for lib_idx in from.libraries..num_libs {
         let lib_id = LibraryId(lib_idx as u32);
         let mut unit_ids = program.libraries[lib_idx].units.clone();
         // Makes sure source units (Library and Part) are declared before the
@@ -584,7 +597,7 @@ pub fn build_outline(
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
     // Initializes `exported` with what is declared locally and not private
-    for lib in &mut program.libraries {
+    for lib in &mut program.libraries[from.libraries..] {
         for (&sym, &binding) in &lib.declared {
             if !is_private(sym, interner) {
                 lib.exported.insert(sym, binding);
@@ -598,7 +611,7 @@ pub fn build_outline(
     while changed && iterations < 500 {
         changed = false;
         iterations += 1;
-        for lib_idx in 0..program.libraries.len() {
+        for lib_idx in from.libraries..program.libraries.len() {
             let exports = program.libraries[lib_idx].exports.clone();
             for export in exports {
                 let target_exported = program.libraries[export.library.0 as usize]
@@ -629,7 +642,7 @@ pub fn build_outline(
     program.times.outline_reexports += t_phase.elapsed();
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
-    for lib_idx in 0..program.libraries.len() {
+    for lib_idx in from.libraries..program.libraries.len() {
         let mut scope = program.libraries[lib_idx].declared.clone();
         let mut prefixes: HashMap<SymbolId, Namespace> = HashMap::new();
         let imports = program.libraries[lib_idx].imports.clone();
@@ -707,7 +720,7 @@ pub fn build_outline(
     let object_sym = interner.intern("Object");
     let core_id = program.core;
 
-    for class_idx in 0..program.classes.len() {
+    for class_idx in from.classes..program.classes.len() {
         let class_id = ClassId(class_idx as u32);
         let lib_id = program.classes[class_idx].library;
         let class_name = program.classes[class_idx].name;
@@ -782,7 +795,7 @@ pub fn build_outline(
             curr = program.classes[next_id.0 as usize].supertype_class;
         }
     }
-    compute_homonym_owners(program);
+    compute_homonym_owners(program, from.libraries);
     program.times.outline_supertypes += t_phase.elapsed();
 }
 
@@ -797,9 +810,9 @@ pub fn build_outline(
 /// resolution, the inheritance checker asks for the first in source order
 /// (the representative). Mentioning the name counts as a request (an
 /// approximation: the analyzer only asks on member access).
-fn compute_homonym_owners(program: &mut Program) {
+fn compute_homonym_owners(program: &mut Program, from: usize) {
     let inside = |a: Span, b: Span| a.start >= b.start && a.end <= b.end;
-    for li in 0..program.libraries.len() {
+    for li in from..program.libraries.len() {
         if program.libraries[li].representative.is_empty() {
             continue;
         }

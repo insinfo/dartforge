@@ -278,14 +278,7 @@ fn the_collections(
             }
             let t = match &d.kind {
                 DeclKind::Class(_) | DeclKind::Mixin(_) | DeclKind::Enum(_) => {
-                    let c = (0..program.classes.len())
-                        .map(|i| ClassId(i as u32))
-                        .find(|c| {
-                            program
-                                .class(*c)
-                                .decl
-                                .is_some_and(|r| r.unit == u && r.decl == did)
-                        })?;
+                    let c = program.class_of_decl(u, did)?;
                     let params: Vec<TypeId> = outline
                         .classes
                         .get(c.0 as usize)

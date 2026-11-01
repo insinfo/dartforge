@@ -164,12 +164,92 @@ pub fn load_lenient_entries(
         generated_sources,
         None,
         None,
+        Layout::Plain,
     )
 }
 
 /// Which units [`load_lenient_outline`] reads without their bodies, by path and
 /// source.
 type OutlineOnly<'a> = &'a dyn Fn(&Path, &str) -> bool;
+
+/// How a load lays the program out over the arenas ([`crate::frozen`]).
+enum Layout<'a> {
+    /// In discovery order.
+    Plain,
+    /// The libraries `frozen` accepts first, closed under their imports and
+    /// exports; [`Program::frozen`] marks where they end.
+    FrozenFirst(crate::frozen::Frozen<'a>),
+    /// Over a program cut at its frozen prefix: the prefix's libraries are not
+    /// read again, and the outline is built only after it.
+    Onto(Box<Program>),
+}
+
+/// Like [`load_lenient_generated`], laying the libraries `frozen` accepts (the
+/// SDK and the dependencies, which an editing session does not change) out
+/// first in every arena: [`Program::frozen`] is where they end, when they are
+/// closed under their imports and exports.
+#[allow(clippy::too_many_arguments)]
+pub fn load_lenient_frozen(
+    entry: &Path,
+    sdk: &SdkLayout,
+    package_config_path: Option<&Path>,
+    interner: &mut Interner,
+    cache: Option<crate::sdk_cache::SdkCache>,
+    units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
+    generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
+    frozen: crate::frozen::Frozen<'_>,
+) -> (Program, Vec<Diagnostic>) {
+    load_lenient_(
+        &[entry],
+        sdk,
+        package_config_path,
+        interner,
+        cache,
+        units,
+        generated_sources,
+        None,
+        None,
+        Layout::FrozenFirst(frozen),
+    )
+}
+
+/// Loads `entry` over the frozen prefix of `base` (a program from
+/// [`load_lenient_frozen`] with the same SDK, package configuration and
+/// interner): the prefix's units, libraries and elements keep their ids, and
+/// only the libraries after it are read and outlined. The result is the
+/// program [`load_lenient_frozen`] would load, except for the order of the
+/// libraries after the prefix and the diagnostics of the prefix (not
+/// repeated). A library after the prefix that a prefix library now imports
+/// cannot happen: the prefix does not change.
+///
+/// # Panics
+///
+/// When `base` has no frozen prefix.
+#[allow(clippy::too_many_arguments)]
+pub fn load_lenient_onto(
+    mut base: Program,
+    entry: &Path,
+    sdk: &SdkLayout,
+    package_config_path: Option<&Path>,
+    interner: &mut Interner,
+    units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
+    generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
+) -> (Program, Vec<Diagnostic>) {
+    let at = base.frozen.expect("a program with a frozen prefix");
+    base.truncate(&at);
+    load_lenient_(
+        &[entry],
+        sdk,
+        package_config_path,
+        interner,
+        None,
+        units,
+        generated_sources,
+        None,
+        None,
+        Layout::Onto(Box::new(base)),
+    )
+}
 
 /// Like [`load_lenient_entries`], reading the units whose path and source
 /// satisfy `outline_only` without the block bodies of their declarations
@@ -217,6 +297,7 @@ pub fn load_lenient_outline(
         generated_sources,
         None,
         Some(outline_only),
+        Layout::Plain,
     )
 }
 
@@ -240,6 +321,7 @@ pub fn load_lenient_hiding(
         None,
         Some(hidden),
         None,
+        Layout::Plain,
     )
 }
 
@@ -270,6 +352,7 @@ pub fn load_lenient_entries_hiding(
         None,
         Some(hidden),
         None,
+        Layout::Plain,
     )
 }
 
@@ -298,6 +381,7 @@ fn load_lenient_(
     generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
     hidden: Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>,
     outline_only: Option<OutlineOnly<'_>>,
+    layout: Layout<'_>,
 ) -> (Program, Vec<Diagnostic>) {
     let entry = *entries.first().expect("at least one entry");
     if let Some(u) = units.as_deref_mut() {
@@ -320,12 +404,24 @@ fn load_lenient_(
     package_config.generated_sources = generated_sources;
     package_config.hidden = hidden;
 
-    let mut program = Program::default();
-    let mut uri_to_library: HashMap<String, LibraryId> = HashMap::new();
+    let (mut program, frozen, onto) = match layout {
+        Layout::Plain => (Program::default(), None, None),
+        Layout::FrozenFirst(f) => (Program::default(), Some(f), None),
+        Layout::Onto(base) => {
+            let at = base.frozen;
+            (*base, None, at)
+        }
+    };
+    let mut uri_to_library: HashMap<String, LibraryId> = program
+        .libraries
+        .iter()
+        .enumerate()
+        .map(|(i, l)| (l.uri.clone(), LibraryId(i as u32)))
+        .collect();
     let mut queue: VecDeque<LibraryId> = VecDeque::new();
 
-    // 2. Makes sure dart:core is loaded first
-    if sdk.library("core").is_some() {
+    // 2. Makes sure dart:core is loaded first (a frozen prefix has it)
+    if onto.is_none() && sdk.library("core").is_some() {
         let core_uri = "dart:core".to_string();
         let core_id = LibraryId(program.libraries.len() as u32);
         program.libraries.push(Library {
@@ -359,7 +455,12 @@ fn load_lenient_(
         hidden: package_config.hidden.clone(),
         ..Default::default()
     };
-    let mut considered = 0usize;
+    // Over a frozen prefix, its libraries are not read again.
+    let mut considered = if onto.is_some() {
+        program.libraries.len()
+    } else {
+        0
+    };
     // SDK units already decoded from the cache by the wave, waiting for their
     // library's turn in the queue.
     let mut decoded_sdk: HashMap<String, Vec<crate::sdk_cache::UnitCache>> = HashMap::new();
@@ -881,7 +982,18 @@ fn load_lenient_(
     }
 
     // 6. Builds the outline and namespaces and resolves supertypes
-    outline::build_outline(&mut program, interner, &mut diagnostics);
+    match (frozen, onto) {
+        (_, Some(at)) => {
+            outline::build_outline_from(&mut program, interner, &mut diagnostics, &at);
+            program.frozen = Some(at);
+        }
+        (Some(f), None) => {
+            let libraries = crate::frozen::frozen_first(&mut program, f);
+            outline::build_outline(&mut program, interner, &mut diagnostics);
+            program.frozen = program.checkpoint_at(libraries);
+        }
+        (None, None) => outline::build_outline(&mut program, interner, &mut diagnostics),
+    }
 
     (program, diagnostics)
 }

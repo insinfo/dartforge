@@ -82,7 +82,8 @@ impl<'a> BodyInferrer<'a> {
         done: &mut HashSet<ClassId>,
         in_progress: &mut HashSet<ClassId>,
     ) -> Result<(), Cycle> {
-        if done.contains(&c) {
+        // A frozen prefix's classes were inferred with it.
+        if (c.0 as usize) < self.outline.overrides_from || done.contains(&c) {
             return Ok(());
         }
         if !in_progress.insert(c) {

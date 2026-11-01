@@ -101,6 +101,9 @@ pub struct Program {
     /// ([`Program::index`]): the verifiers that run once per library or per
     /// unit would otherwise walk every element of the program each time.
     pub element_index: std::sync::OnceLock<ElementIndex>,
+    /// The end of the frozen prefix ([`crate::frozen`]), when the load laid
+    /// one out ([`crate::load::load_lenient_frozen`]).
+    pub frozen: Option<crate::frozen::Checkpoint>,
 }
 
 /// The program's elements grouped by unit and by library, each list in

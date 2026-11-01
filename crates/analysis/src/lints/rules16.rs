@@ -160,14 +160,7 @@ pub(super) fn is_non_nullable(table: &TypeTable, t: TypeId) -> bool {
 
 /// The `ClassId` of a declaration of the unit.
 fn class_of_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
-    (0..s.program.classes.len())
-        .map(|i| ClassId(i as u32))
-        .find(|c| {
-            s.program
-                .class(*c)
-                .decl
-                .is_some_and(|r| r.unit == s.unit && r.decl == d)
-        })
+    s.program.class_of_decl(s.unit, d)
 }
 
 /// The path segments of a URI (`Uri.pathSegments`).

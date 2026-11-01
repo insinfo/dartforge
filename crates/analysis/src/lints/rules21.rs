@@ -73,14 +73,7 @@ fn library_name(s: &super::Semantics<'_>, interner: &Interner, l: LibraryId) -> 
 }
 
 fn class_of_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
-    (0..s.program.classes.len())
-        .map(|i| ClassId(i as u32))
-        .find(|c| {
-            s.program
-                .class(*c)
-                .decl
-                .is_some_and(|r| r.unit == s.unit && r.decl == d)
-        })
+    s.program.class_of_decl(s.unit, d)
 }
 
 /// The type is the class `name` of `dart:core`/`dart:async` (the element).
@@ -801,15 +794,14 @@ pub fn run(
                     continue;
                 }
                 // The element's return type is the class itself.
-                let ret =
-                    (0..program.functions.len()).find_map(|i| match program.functions[i].node {
-                        dartforge_elements::model::FunctionRef::Function { unit, function }
-                            if unit == s.unit && function == *fid =>
-                        {
-                            s.outline.functions.get(i).map(|d| d.return_type)
+                let ret = program.function_of_node(s.unit, *fid).and_then(|f| {
+                    match program.functions[f.0 as usize].node {
+                        dartforge_elements::model::FunctionRef::Function { .. } => {
+                            s.outline.functions.get(f.0 as usize).map(|d| d.return_type)
                         }
                         _ => None,
-                    });
+                    }
+                });
                 let is_own_class = ret.is_some_and(
                     |t| matches!(table.get(t), Type::Interface { class, .. } if *class == class_id),
                 );

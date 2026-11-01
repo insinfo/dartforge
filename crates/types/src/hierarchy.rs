@@ -45,6 +45,15 @@ impl ClassHierarchy {
         }
     }
 
+    /// Keeps the first `classes` classes (a frozen prefix, which depends on
+    /// nothing after it) and makes room for `total`.
+    pub fn truncate(&mut self, classes: usize, total: usize) {
+        self.classes.truncate(classes);
+        self.classes.resize_with(total.max(classes), || None);
+        self.extensions_without_object
+            .retain(|c| (c.0 as usize) < classes);
+    }
+
     /// Returns the hierarchy data for a given class, if any.
     pub fn get(&self, class: ClassId) -> Option<&ClassHierarchyData> {
         self.classes
@@ -162,7 +171,27 @@ pub fn build_class_hierarchy(
     table: &mut TypeTable,
     core: &CoreTypes,
 ) -> ClassHierarchy {
-    let mut hierarchy = ClassHierarchy::new(num_classes);
+    build_class_hierarchy_onto(
+        ClassHierarchy::new(num_classes),
+        num_classes,
+        immediate_supertypes,
+        table,
+        core,
+    )
+}
+
+/// [`build_class_hierarchy`] over `base`, whose classes keep the data they
+/// have (a frozen prefix): only the missing ones are computed.
+pub fn build_class_hierarchy_onto(
+    mut hierarchy: ClassHierarchy,
+    num_classes: usize,
+    immediate_supertypes: &[Option<ImmediateSupertypeInput>],
+    table: &mut TypeTable,
+    core: &CoreTypes,
+) -> ClassHierarchy {
+    hierarchy
+        .classes
+        .resize_with(num_classes.max(hierarchy.classes.len()), || None);
     let mut visiting = HashSet::new();
 
     for class_idx in 0..num_classes {

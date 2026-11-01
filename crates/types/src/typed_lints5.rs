@@ -569,15 +569,7 @@ fn super_parameters(
             _ => continue,
         };
         let did = ast::DeclId(k_decl as u32);
-        let Some(cls) = (0..program.classes.len())
-            .map(|i| ClassId(i as u32))
-            .find(|c| {
-                program
-                    .class(*c)
-                    .decl
-                    .is_some_and(|r| r.unit == u && r.decl == did)
-            })
-        else {
+        let Some(cls) = program.class_of_decl(u, did) else {
             continue;
         };
         for &mid in members {

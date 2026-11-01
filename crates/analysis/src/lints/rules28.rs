@@ -77,16 +77,7 @@ pub fn run(
     };
     let is_documented =
         |metadata: &[Annotation], pos: usize| doc_for(source, &comments, metadata, pos).is_some();
-    let class_of_decl = |d: DeclId| -> Option<ClassId> {
-        (0..program.classes.len())
-            .map(|i| ClassId(i as u32))
-            .find(|c| {
-                program
-                    .class(*c)
-                    .decl
-                    .is_some_and(|r| r.unit == s.unit && r.decl == d)
-            })
-    };
+    let class_of_decl = |d: DeclId| -> Option<ClassId> { program.class_of_decl(s.unit, d) };
     // `overriddenMember`: the name among the instance members of the
     // supertypes of the enclosing class (a setter with `_=`).
     let overrides = |class_id: Option<ClassId>, name: SymbolId, setter: bool| -> bool {

@@ -36,14 +36,7 @@ use dartforge_types::table::{Type, TypeId};
 use std::collections::{HashMap, HashSet};
 
 fn class_of_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
-    (0..s.program.classes.len())
-        .map(|i| ClassId(i as u32))
-        .find(|c| {
-            s.program
-                .class(*c)
-                .decl
-                .is_some_and(|r| r.unit == s.unit && r.decl == d)
-        })
+    s.program.class_of_decl(s.unit, d)
 }
 
 fn is_private(interner: &Interner, s: dartforge_intern::SymbolId) -> bool {
