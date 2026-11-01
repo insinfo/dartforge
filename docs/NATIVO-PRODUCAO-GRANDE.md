@@ -691,3 +691,136 @@ também não mudou o tamanho do backend.
 * **`receiver_provenance::analyze`** roda sobre o módulo inteiro três vezes (poda, desvirtualização
   física e emissão), ~12% da CPU da HIR (~6 s); o módulo muda entre as três, e reaproveitar o
   resultado exige provar que a mudança não o afeta. Não mexi.
+
+## 9. Quinta rodada: a forma do código — moldura de raízes e saídas compartilhadas (01/11/2026)
+
+Mesma máquina e mesmo método da §7 e da §8 (CPU primeiro). Base: o `main` de 01/11 com a §8
+integrada (`d30a0e6a`). Depois da §8, a geração de código do ThinLTO é a maior parte do tempo
+(~245 s de tarefa), e só cai com menos IR. Esta rodada mexe na forma do código que o programa
+grande emite, cada forma com a própria chave, medindo o tamanho do IR e a CPU por forma.
+
+### 9.1 O que foi medido
+
+As gravações na moldura da pilha-sombra (`store i64 …, ptr %gcsN`) do IR do backend
+classificadas pelo que gravam (`root_stores.py` no rascunho):
+
+* **45% eram zeragens** de vagas de valores mortos (`Roots::clear_at`, `roots.rs`): em cada
+  ponto de coleta, cada vaga compartilhada que nenhum valor vivo ocupa é zerada;
+* **17% eram textos constantes**: no `--optimize` os textos são objetos da imagem estática
+  (`static_objects`), que o coletor nem libera nem move, e mesmo assim cada um ganhava vaga;
+* o resto: resultados de chamadas, leituras de campo, parâmetros, `phi`s.
+
+E as saídas: cada chamada que pode deixar exceção pendente desvia, com a bandeira ligada, para
+um bloco próprio que só devolve o valor padrão (`FnBuilder::emit_call_with_check`). Uma função com
+200 chamadas tem 200 blocos iguais, cada um com o fechamento da moldura e um `ret` no IR: 397 mil
+`ret`s no backend.
+
+### 9.2 O que mudou
+
+As três formas valem só no programa grande em produção com memória por rastreamento e
+pilha-sombra (sem mapas de raízes, sem ARC, sem exceções por tabela). O programa pequeno, o
+servidor HTTP e `bench/performance` não mudam (§9.4).
+
+1. **Textos da imagem estática sem raiz** (`LeanRoots::static_texts`, `llvm/mod.rs`;
+   `roots::Options::immortal`): `Const(String)`/`Const(StringWtf8)` deixam de ser candidatos a
+   raiz quando os textos são objetos da imagem. `DARTFORGE_ROOT_STATIC_TEXTS=1` volta a enraizá-los.
+   O `DARTFORGE_CHECK_SHADOW` usa a mesma regra.
+2. **Zeragem das vagas mortas só dentro de laços** (`LeanRoots::clear_in_loops_only`;
+   `roots::Options::clear_in_loops_only`): a zeragem só acontece nos pontos de coleta de blocos
+   dentro de um ciclo do fluxo (componente fortemente conexo com mais de um bloco, ou bloco que
+   desvia para si; Tarjan iterativo em `blocks_in_cycles`). Fora de laço, o valor morto fica na
+   vaga até ela ser gravada de novo ou a moldura fechar: segura memória por mais tempo, nunca
+   deixa raiz pendurada (a vaga continua raiz, o coletor a lê e a atualiza). Dentro de laço, a
+   zeragem continua, porque lá um valor morto pode reter a estrutura inteira da iteração
+   anterior indefinidamente. `DARTFORGE_CLEAR_DEAD_SLOTS=all` zera em todo ponto, como antes.
+3. **Saídas compartilhadas** (`optimize/shared_exits.rs`, antes da emissão): os blocos vazios
+   que só devolvem a mesma constante (ou nada) viram um por função; os desvios vão para o
+   primeiro. Esses blocos não têm instrução nem sucessor, então nenhum `phi` os nomeia e
+   qualquer um vale pelos outros. Função com informação de depuração fica como está (cada saída
+   tem a sua posição). `DARTFORGE_SHARED_EXITS=0` desliga.
+
+Não entraram:
+
+* **o mapa de referências na gravação de campo** (`%fm*`): tirá-lo exige provar que todo objeto
+  da classe já nasce com o mapa estático; o `dartforge_object_new` grava o mapa 0 e o caminho
+  genérico depende da gravação para o coletor. Sem a prova, não é seguro;
+* **`receiver_provenance` reaproveitado**: o módulo muda entre as três análises (poda,
+  desvirtualização física, emissão) e não há prova de que a mudança não afeta o resultado; fica
+  como está;
+* **os adaptadores `$c`/`$g`/`$tc` e o `$async`**: não houve tempo nesta rodada.
+
+### 9.3 Resultado
+
+Tamanho do IR do backend (`compile-native --emit-ir --optimize`, só a emissão):
+
+| forma | bytes | linhas | gravações na moldura | `ret`s |
+|---|---:|---:|---:|---:|
+| as três desligadas | 515,7 MB | 12 024 255 | 848 892 | 397 394 |
+| só 1 (textos) | 511,1 MB | 11 901 676 | 744 539 | 397 394 |
+| só 2 (zeragem em laço) | 507,8 MB | 11 709 414 | 534 051 | 397 394 |
+| só 3 (saídas) | 505,8 MB | 11 530 886 | 848 892 | 232 883 |
+| **as três (padrão novo)** | **493,8 MB** | **11 111 635** | **447 860** | **232 883** |
+
+−4,2% de bytes, −7,6% de linhas, −47% das gravações na moldura, −41% dos `ret`s.
+
+`new_sali/backend`, `aot --optimize`, SDK em cache, objetos frios, mesmo binário, três pares
+alternados (desligadas, padrão novo, desligadas, …), carga de 45 a 116 (outros agentes, o
+`corpus/native` e os testes do `cargo` rodando ao mesmo tempo):
+
+| | ligação (CPU) | **CPU total** | executável |
+|---|---|---|---:|
+| as três desligadas | 315,4 / 366,1 / 337,8 s — mediana **337,8 s** | 455,9 / 543,0 / 507,8 s — mediana **507,8 s** | 37,61 MB |
+| **padrão novo** (as três) | 299,3 / 313,9 / 309,1 s — mediana **309,1 s** | 438,0 / 476,2 / 451,0 s — mediana **451,0 s** | **36,37 MB** |
+| `dart compile exe` (mediana de 5 medidas da rodada) | | **39,0 s** | 26,46 MB |
+
+Cada forma sozinha (uma medida cada, com as outras duas desligadas):
+
+| forma | ligação (CPU) | CPU total | executável |
+|---|---:|---:|---:|
+| só 1 (textos) | 317,4 s | 458,1 s | 37,18 MB (−0,43) |
+| só 2 (zeragem em laço) | 337,5 s | 476,9 s | 36,88 MB (−0,73) |
+| só 3 (saídas) | 340,0 s | 497,9 s | 37,46 MB (−0,15) |
+
+* As três juntas, em cada par, gastaram menos CPU (−18, −67 e −57 s). A parte atribuível às
+  formas é a ligação (a geração de código do ThinLTO): **−29 s de mediana (−8,5%)**; o resto da
+  diferença do total é a HIR, que as formas não mudam e que oscila com a carga (49 a 76 s de CPU).
+  Os objetos (pré-ligação das partes) ficaram em 63–71 s nas duas.
+* **Executável −1,24 MB (−3,3%)**, determinístico. As formas sozinhas somam −1,31 MB.
+* Uma medida por forma não separa a CPU de cada uma com essa carga (o ruído de ±25 s na ligação
+  é maior que o efeito de uma forma); o tamanho separa.
+* Contra o `dart compile exe`: **~11,6× a CPU** (mediana 451 × 39 s; era 12,1× na §8, medida com
+  carga menor — as medidas desligadas desta rodada deram 13,0×), executável **1,37×** (era 1,41×).
+* O relógio, com essa carga, não diz nada.
+
+### 9.4 Desempenho
+
+As três formas só existem no programa grande. O IR de produção dos programas de
+`bench/performance` e do servidor HTTP (`bench/http`) foi emitido com as chaves desta rodada
+desligadas e no padrão: **idêntico byte a byte** nos 12 programas. Nada a medir em tempo de
+execução neles.
+
+### 9.5 Validação
+
+* `corpus/native` pelo pipeline do programa grande (`DARTFORGE_LARGE_PROGRAM_FUNCTIONS=0`,
+  `DARTFORGE_PART_KB=64`), com as três formas: 164/164 em `--optimize` (com
+  `DARTFORGE_CHECK_SHADOW=1`) e em `--optimize --gc-stress`, o `80_tearoffs_de_corpo_identico`
+  incluído.
+* `corpus/native` no padrão: 164/164 em desenvolvimento, `--optimize` (com
+  `DARTFORGE_CHECK_SHADOW=1`), `--optimize --gc-stress` e `--wasm` (`--exec-limit 60`). Os
+  programas do corpus são pequenos, então aqui as formas não valem; a linha confirma que nada
+  mais mudou.
+* `cargo test --release -p dartforge-emit-native --features embedded-llvm --
+  --include-ignored`: tudo passa (1086 na biblioteca, com o teste novo
+  `shared_exits::tests::identical_exits_become_one`; 30 de integração; 127 *doctests*). Clippy
+  `-D warnings` limpo no `dartforge-emit-native`.
+
+### 9.6 O que resta
+
+* **A geração de código** continua a maior parte (~300 s da ligação). As gravações na moldura
+  caíram à metade; o resto do IR é o corpo de verdade e as checagens. Próximos alvos de forma:
+  o mapa de referências na gravação de campo (com a prova de que o objeto nasce com o mapa
+  estático), os adaptadores `$c`/`$g`/`$tc` (um por *tear-off*/*getter*, muitos iguais a menos
+  do alvo) e a máquina do `$async`.
+* **A zeragem fora de laço** pode voltar se aparecer retenção de memória em programa grande de
+  longa duração (`DARTFORGE_CLEAR_DEAD_SLOTS=all`); dentro de laço ela continua.
+* **`receiver_provenance`** e o **ICF** seguem como na §8.6.
