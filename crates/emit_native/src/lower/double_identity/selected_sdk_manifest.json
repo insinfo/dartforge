@@ -6,7 +6,7 @@
     {
       "library": "dart:_compact_hash",
       "role": 1,
-      "source_blake3": "b90b7bf0a3a58417ae0bd816815b3735ba14b180f723b07c3a7a65862d505573"
+      "source_blake3": "1c14120f983d7feded6d9fa378eb3a6033d90afe58822d08c1b41f9230438b2e"
     },
     {
       "library": "dart:_http",
