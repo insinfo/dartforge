@@ -34,6 +34,22 @@ fn check_arc_typed_abi(mut abi: i64) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// The typed body of `closure` and its ABI when the closure's own checks of
+/// [`arc_typed_target`] pass (everything but the registration).
+fn typed_body(heap: &Heap, closure: i64, abi: i64) -> Option<(usize, i64)> {
+    check_arc_typed_abi(abi).ok()?;
+    let object = heap.object(closure)?;
+    if object.class_id != i64::from(crate::layout::cid::CLOSURE) || object.len() != 4 {
+        return None;
+    }
+    let (code, code_ref) = object.get(2)?;
+    let (declared, ref_abi) = object.get(3)?;
+    if code_ref || ref_abi || code == 0 || declared != abi {
+        return None;
+    }
+    Some((usize::try_from(code as u64).ok()?, abi))
+}
+
 fn arc_typed_target(
     heap: &Heap, ports: &ArcNativePorts, closure: i64, abi: i64,
 ) -> Result<i64, &'static str> {
@@ -66,6 +82,7 @@ impl ArcNativePorts {
             return Err("missing typed registration or stale version");
         }
         self.typed_lists.remove(&(code, abi));
+        TYPED_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Release);
         Ok(())
     }
     fn register(&mut self, code: usize, arity: usize) -> Result<i64, &'static str> {
@@ -118,6 +135,10 @@ impl ArcNativePorts {
 #[derive(Default)]
 struct ArcPortScopes {
     scopes: Vec<ArcReturnScope>,
+    /// The last scope id of this thread, from a block of [`SCOPE_BLOCK`] ids it
+    /// took from the process (`new_scope_id`): ids stay unique among threads
+    /// without an atomic operation per scope.
+    last_id: i64,
 }
 
 impl ArcPortScopes {
@@ -128,6 +149,22 @@ impl ArcPortScopes {
         }
         Ok(self.scopes.pop().unwrap().owners)
     }
+}
+
+/// How many native scope ids a thread takes from the process at once.
+const SCOPE_BLOCK: i64 = 1 << 20;
+
+/// The scope id after `last` on this thread: the next one of its block, or the
+/// first of a new block (a block is never handed out twice).
+fn new_scope_id(last: i64) -> i64 {
+    if last != 0 && (last + 1) % SCOPE_BLOCK != 0 {
+        return last + 1;
+    }
+    static NEXT_BLOCK: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+    NEXT_BLOCK
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        .checked_mul(SCOPE_BLOCK)
+        .expect("ARC native scope IDs exhausted")
 }
 
 fn new_arc_port_id() -> i64 {
@@ -150,12 +187,25 @@ fn arc_port_records() -> &'static std::sync::Mutex<ArcNativePorts> {
     RECORDS.get_or_init(|| std::sync::Mutex::new(ArcNativePorts::default()))
 }
 
+/// Grows with every removal of a typed registration: the per-thread cache of the
+/// typed targets already checked (`TYPED_CHECKED`) then forgets them.
+static TYPED_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+thread_local! {
+    /// The `(code, abi)` pairs whose registration this thread found at the epoch it
+    /// names: a typed call of a closure checks the registration once, not under the
+    /// registry's lock on every call.
+    static TYPED_CHECKED: RefCell<(u64, Vec<(usize, i64)>)> = const { RefCell::new((0, Vec::new())) };
+}
+
 static HAS_ARC_RETURN_PORTS: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 thread_local! {
     // The managed values belong to the heap of the thread that received the return.
-    static ARC_NATIVE_PORTS: RefCell<ArcPortScopes> = RefCell::new(ArcPortScopes::default());
+    static ARC_NATIVE_PORTS: RefCell<ArcPortScopes> = const {
+        RefCell::new(ArcPortScopes { scopes: Vec::new(), last_id: 0 })
+    };
 }
 
 /// Declares an Owned Ref return of a word callback and returns its version.
@@ -311,9 +361,40 @@ pub unsafe extern "C" fn dartforge_arc_take_typed_v1(code: i64, abi: i64, versio
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_arc_typed_target_v1(closure: i64, abi: i64) -> i64 {
-    HEAP.with(|heap| arc_typed_target(&heap.borrow(),
-        &arc_port_records().lock().expect("ARC port registry poisoned"), closure, abi)
-        .expect("invalid ARC typed target"))
+    HEAP.with(|heap| checked_typed_target(&heap.borrow(), closure, abi))
+        .expect("invalid ARC typed target")
+}
+
+/// [`arc_typed_target`] with the registration looked up once per thread and epoch
+/// (`TYPED_CHECKED`) instead of under the registry's lock on every typed call.
+fn checked_typed_target(heap: &Heap, closure: i64, abi: i64) -> Result<i64, &'static str> {
+    let epoch = TYPED_EPOCH.load(std::sync::atomic::Ordering::Acquire);
+    // The closure's own checks (class, map, ABI) on every call.
+    if let Some(key) = typed_body(heap, closure, abi)
+        && TYPED_CHECKED.with(|c| {
+            let c = c.borrow();
+            c.0 == epoch && c.1.contains(&key)
+        })
+    {
+        return Ok(key.0 as i64);
+    }
+    let code = arc_typed_target(
+        heap,
+        &arc_port_records().lock().expect("ARC port registry poisoned"),
+        closure,
+        abi,
+    )?;
+    TYPED_CHECKED.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.0 != epoch {
+            *c = (epoch, Vec::new());
+        }
+        // A handful of typed bodies per program: a short list, bounded.
+        if c.1.len() < 256 {
+            c.1.push((code as usize, abi));
+        }
+    });
+    Ok(code)
 }
 
 struct ArcUniformScope(i64);
@@ -531,7 +612,8 @@ pub extern "C" fn dartforge_arc_take_return_owned_v1(code: i64, version: i64) {
 pub extern "C" fn dartforge_arc_native_scope_open_v1() -> i64 {
     ARC_NATIVE_PORTS.with(|p| {
         let mut p = p.borrow_mut();
-        let id = new_arc_port_id();
+        let id = new_scope_id(p.last_id);
+        p.last_id = id;
         p.scopes.push(ArcReturnScope {
             id,
             calls: 0,
@@ -563,6 +645,11 @@ pub extern "C" fn dartforge_arc_native_scope_close_v1(id: i64) {
             .do_close(id)
             .expect("invalid ARC native scope closing")
     });
+    // Nothing returned into the scope (the usual native call): no token to drop,
+    // and the next settle point handles any zero the native left behind.
+    if owners.is_empty() {
+        return;
+    }
     HEAP.with(|h| {
         let mut h = h.borrow_mut();
         for owner in owners {
@@ -751,6 +838,24 @@ mod arc_port_tests {
         assert_ne!(new, v);
         assert!(ports.remove_typed(3, 31, v).is_err());
         assert_eq!(heap.stats().collections, stats.collections);
+    }
+
+    #[test]
+    fn typed_target_cache_forgets_a_removed_registration() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let mut heap = Heap::new(false);
+        extern "C" fn body(_: i64) -> i64 { 0 }
+        let pc = body as *const () as usize as i64;
+        let c = heap.new_closure(pc, (0, false), pc, 6);
+        assert!(checked_typed_target(&heap, c, 6).is_err());
+        // SAFETY: a static body without consumers.
+        let v = unsafe { dartforge_arc_register_typed_v1(pc, 6) };
+        assert_eq!(checked_typed_target(&heap, c, 6), Ok(pc));
+        assert_eq!(checked_typed_target(&heap, c, 6), Ok(pc), "from the cache");
+        assert!(checked_typed_target(&heap, c, 7).is_err(), "the closure's ABI");
+        // SAFETY: no consumer of the address remains.
+        unsafe { dartforge_arc_take_typed_v1(pc, 6, v) };
+        assert!(checked_typed_target(&heap, c, 6).is_err(), "the removal empties the cache");
     }
 
     #[test]
