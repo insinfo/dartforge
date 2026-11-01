@@ -1531,7 +1531,7 @@ impl ArcHeapState {
         );
         // Detach every old backlink before callbacks can requeue a protected
         // identity into the new vector. Old indices must never name that vector.
-        for id in &candidates {
+        candidates.retain(|id| {
             if let Some(p) = self.word_of(id.handle) {
                 // A dead
                 // candidate leaves the buffer: its cell can be reused now.
@@ -1540,9 +1540,15 @@ impl ArcHeapState {
                     wr(p, x & !word::CANDIDATE);
                     if x & word::DEAD != 0 {
                         self.dead_candidates.push(id.handle);
+                        return false;
                     }
+                    return true;
                 }
-                continue;
+                // A stale entry (a cell reused since its candidate died, now
+                // another object or free) or the second entry of the same
+                // candidate: no seed, or the round would walk the closure of a live
+                // object nobody decremented.
+                return false;
             }
             if let Some(m) = self
                 .objects
@@ -1552,7 +1558,8 @@ impl ArcHeapState {
                 m.candidate = false;
                 m.candidate_index = u32::MAX;
             }
-        }
+            true
+        });
         for id in candidates.drain(..) {
             let Some(m) = self
                 .meta(id.handle)

@@ -1931,6 +1931,9 @@ struct DrainScratch {
 pub struct Heap {
     /// Identifier, slots and category: `true` counts each occurrence in ARC.
     frames: Vec<(i64, Vec<i64>, bool)>,
+    /// How many of [`Self::frames`] are observational (not owning): the real ARC's
+    /// prompt death asks it on every last release, without walking the frames.
+    observer_frames: usize,
     /// Emptied slot vectors of closed frames, for the next ones ([`FRAME_POOL`]).
     frame_pool: Vec<Vec<i64>>,
     next_frame: i64,
@@ -2232,6 +2235,7 @@ impl Heap {
     pub fn new(stress: bool) -> Self {
         Self {
             frames: Vec::new(),
+            observer_frames: 0,
             frame_pool: Vec::new(),
             next_frame: 1,
             allocations: 0,
@@ -2712,6 +2716,7 @@ impl Heap {
         let mut roots = self.frame_pool.pop().unwrap_or_default();
         roots.resize(slots, 0);
         self.frames.push((id, roots, false));
+        self.observer_frames += 1;
         id
     }
     /// Opens owning slots: copying retains and closing releases under ARC.
@@ -2730,6 +2735,7 @@ impl Heap {
     pub fn push_owning_frame(&mut self, slots: usize) -> i64 {
         let id = self.push_frame_with_slots(slots);
         self.frames.last_mut().unwrap().2 = true;
+        self.observer_frames -= 1;
         id
     }
 
@@ -3190,6 +3196,8 @@ impl Heap {
             for &h in &roots {
                 self.arc_swap_owning_root(0, h);
             }
+        } else {
+            self.observer_frames -= 1;
         }
         self.stats.root_slots -= roots.len();
         // Saturating: the generated code writes owning slots inline without the count.
@@ -5345,7 +5353,7 @@ impl Heap {
         // The shape decides which words are references: ARC snapshots the
         // counted ones before the swap.
         if self.arc.is_some() {
-            self.arc_snapshot(b, h);
+            self.arc_snapshot_any(b, h);
         }
         // SAFETY: live and writable block.
         unsafe {
@@ -7660,7 +7668,21 @@ impl Heap {
     /// The snapshot of the counted occurrences of `h` before a raw write
     /// (one per epoch): of an old object in nursery mode, of every object under pure
     /// ARC (the young object also counts writes).
+    ///
+    /// A `RAW` body holds no reference: its raw writes (bytes, code units) change no
+    /// count, so it takes no snapshot, and the settle points and the last releases
+    /// stay on their fast paths. Only a change of shape ([`Heap::set_flags`]) turns
+    /// raw words into references, and it snapshots the block first.
     fn arc_snapshot(&mut self, b: *mut Header, h: Ref) {
+        // SAFETY: live block of the space.
+        if unsafe { (*b).flags } & block_flags::FORMAT == block_flags::RAW {
+            return;
+        }
+        self.arc_snapshot_any(b, h);
+    }
+
+    /// [`Self::arc_snapshot`] of any shape.
+    fn arc_snapshot_any(&mut self, b: *mut Header, h: Ref) {
         // SAFETY: live block of the space.
         let e = unsafe { (*b).state };
         if e != OLD && e != REMEMBERED && !self.arc.as_ref().is_some_and(|a| a.pure) {
@@ -8787,7 +8809,8 @@ impl Heap {
     /// The real ARC's release of the code's last token of a plain object, the path
     /// of Swift's `swift_release`: a live object of the space whose count goes from
     /// one to zero, with no side state (`OBSERVED`, a raw-write snapshot, a deferred
-    /// zero, a cycle candidate, an out-of-line body or an attachment), dies here and
+    /// zero, an out-of-line body or an attachment), dies here — a cycle candidate of
+    /// a class page too — and
     /// its children cascade, without the settle point's work around it (the inline
     /// candidates, the purge threshold, the observational roots, the side tables).
     /// Returns false, touching nothing, when anything needs the general path
@@ -8804,7 +8827,7 @@ impl Heap {
             || !self.ephemerons.is_empty()
             || self.scratch_roots.iter().any(|&r| r != 0)
             || self.empty_storages.iter().any(|&r| r != 0)
-            || self.frames.iter().any(|(_, _, owner)| !*owner)
+            || self.observer_frames != 0
         {
             return false;
         }
@@ -8827,17 +8850,26 @@ impl Heap {
         // SAFETY: the in-object word of a block of the space.
         let x = unsafe { *p };
         if x & (arc_word::LIVE | arc_word::COLLECTING | arc_word::RC) != arc_word::LIVE | 1
-            || x & (arc_word::OBSERVED
-                | arc_word::SNAPSHOT
-                | arc_word::DEFERRED
-                | arc_word::CANDIDATE)
-                != 0
+            || x & (arc_word::OBSERVED | arc_word::SNAPSHOT | arc_word::DEFERRED) != 0
         {
             return false;
         }
         let b = (h - HANDLE_OFFSET) as *mut Header;
         // SAFETY: a block of the space (it has an in-object word).
         if unsafe { (*b).flags } & (block_flags::OUT_OF_LINE | block_flags::ATTACHMENT) != 0 {
+            return false;
+        }
+        // A cycle candidate dies here too. Bacon and Rajan leave a buffered object
+        // whose count reaches zero to the buffer's pass; here the cell of a class
+        // page is reused at once, and the entry left in the candidate buffer names
+        // nobody: the candidate passes drop it (`ArcHeapState::purge_dead_candidates`,
+        // `collect_cycles`). A candidate of a large region must leave the buffer
+        // before its memory does: the general path holds it.
+        // SAFETY: a block of the space.
+        if x & arc_word::CANDIDATE != 0
+            && unsafe { crate::space::arc_block_size(b) }
+                > block_bytes(crate::layout::LARGEST_MEDIUM)
+        {
             return false;
         }
         let x = x - 1;
@@ -8882,8 +8914,7 @@ impl Heap {
         }
         // A zero an observational root held goes back to the queue once no native
         // frame nor scratch root is left (the usual state while Dart code runs).
-        let observers = self.scratch_roots.iter().any(|&h| h != 0)
-            || self.frames.iter().any(|(_, _, owner)| !*owner);
+        let observers = self.scratch_roots.iter().any(|&h| h != 0) || self.observer_frames != 0;
         let resume = arc.state.has_deferred() && !observers;
         if !arc.state.ha_zeros() && arc.snapshots.is_empty() && !resume {
             return;
@@ -11624,6 +11655,67 @@ mod prompt_death_tests {
             live_before - 1,
             "the dead block was released more than once"
         );
+    }
+
+    /// The last release of a cycle candidate takes the fast death; the entry it
+    /// leaves in the candidate buffer neither seeds the cycle round nor frees the
+    /// block again.
+    #[test]
+    #[allow(unsafe_code)]
+    fn last_release_of_a_cycle_candidate_dies_on_the_fast_path() {
+        let mut heap = heap_prompt();
+        let object = owned(&mut heap, 1);
+        heap.retain_code_owner(object);
+        heap.collect();
+        release(&mut heap, object);
+        // SAFETY: the live block of `object`.
+        let word = unsafe { *prompt_word(object) };
+        assert!(
+            word & arc_word::CANDIDATE != 0,
+            "a release above zero buffers it"
+        );
+        let live_before = heap.objects.live_set;
+        assert!(
+            heap.prompt_release_last(object),
+            "no settle point for its death"
+        );
+        assert!(dead(&heap, object));
+        let examined = heap.arc_statistics().unwrap().examined;
+        // A full collection: the cycle round consumes the candidate buffer.
+        heap.collect();
+        assert_eq!(
+            heap.arc_statistics().unwrap().examined,
+            examined,
+            "the stale entry seeded the cycle round"
+        );
+        assert!(
+            heap.objects.live_set <= live_before - 1,
+            "the dead block was not reclaimed"
+        );
+        let other = owned(&mut heap, 1);
+        assert!(heap.prompt_release_last(other));
+        assert!(dead(&heap, other));
+    }
+
+    /// A raw write into a `RAW` body (bytes, code units) takes no snapshot: no
+    /// count can change through it, and the next last release stays on the fast
+    /// path. A body with references still snapshots its counted occurrences.
+    #[test]
+    fn raw_writes_of_a_body_without_references_take_no_snapshot() {
+        let mut heap = heap_prompt();
+        let bytes = heap.allocate(cid::typed(1), 4, flags::RAW);
+        heap.retain_code_owner(bytes);
+        heap.words_mut(bytes)[1] = 0x0102_0304;
+        assert!(heap.arc.as_ref().unwrap().snapshots.is_empty());
+        let object = owned(&mut heap, 1);
+        assert!(heap.prompt_release_last(object));
+        assert!(dead(&heap, object));
+        let list = heap.allocate(cid::LIST, layout::list_words(1), flags::REFS);
+        heap.retain_code_owner(list);
+        heap.words_mut(list)[0] = 1;
+        assert!(!heap.arc.as_ref().unwrap().snapshots.is_empty());
+        heap.arc_settle();
+        assert!(heap.arc.as_ref().unwrap().snapshots.is_empty());
     }
 
     #[test]
