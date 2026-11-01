@@ -498,6 +498,8 @@ constante que ele cita.
    (`corpus/native/80_tearoffs_de_corpo_identico` igual à VM), mas no programa pequeno o ganho
    é 0,5% (16 KB de 3,3 MB) e o executável já é menor que o do Dart: fica só no programa em
    partes, como o *outliner*. `DARTFORGE_ICF` escolhe (`none`, `safe`, `safe_thunks`, `all`).
+   **Revertido na §8:** no programa em partes ele junta *tear-offs* (os objetos do ThinLTO saem
+   sem `__llvm_addrsig`); hoje fica desligado por padrão.
 5. **Buscas lineares que eram quadráticas**:
    * mapa e conjunto constantes (avaliação e verificação de chave/elemento repetido,
      `const_eval/evaluation.rs` e `verifier.rs`): índice por valor primitivo (`KeyIndex`);
@@ -585,3 +587,107 @@ Achado no caminho: a inferência do front-end dá `Map<int, List<Object?>>` a um
 aninhado num mapa cujo outro valor é `{}`, e a VM dá `Map<dynamic, dynamic>` (o LUB do contexto
 desce para os elementos). É anterior a esta rodada e não depende do caminho por tabela; o
 `corpus/native/175` declara o tipo para não depender disso.
+
+## 8. Quarta rodada: a otimização dobrada, o teste `is` fora de linha e o ICF revertido (01/11/2026)
+
+Mesma máquina e mesmo método da §7 (CPU primeiro; carga 37–70 nestas medidas). Base: o `main` de
+01/11 com a §7 integrada. Todas as linhas abaixo são do mesmo binário, mudando só as chaves.
+
+### 8.1 O que foi medido
+
+Dos 575 s de CPU da §7, 462 eram LLVM. No perfil da ligação (`--time-trace`), a geração de
+código era 68% do tempo das tarefas do ThinLTO (seleção de instruções 183 s de tarefa, alocação de
+registradores 90 s) e a otimização 27%; a pré-ligação `-O2` das partes, 101 s de CPU no Clang,
+otimizava as mesmas funções que o ThinLTO `-O1` otimiza de novo.
+
+| pré-ligação das partes | objetos | ligação | CPU total | executável |
+|---|---:|---:|---:|---:|
+| `-O2` (antes) | 100,9 s | 361 s | 575 s | 36,98 MB |
+| `-O1` | 67,8 s | 355 s | 571 s | 36,95 MB |
+| `-O0` | 23,9 s | 368 s | 474 s | 37,09 MB |
+
+(as três com o binário da §7, objetos frios; a HIR varia com a carga)
+
+O ThinLTO quase não muda com o nível da pré-ligação. `-O0` poupa mais, mas o executável cresce
+0,1 MB; `-O1` poupa 33 s e não muda o tamanho.
+
+### 8.2 O que mudou
+
+1. **Pré-ligação `-O1` nas partes** (`generator::parts_prelink`; `DARTFORGE_PRELINK_O`
+   escolhe, `0` fica como chave de medida). O programa pequeno (um módulo, LTO com o SDK) segue
+   com `-O2`.
+2. **O teste `is` com cache do local de uso fora de linha no programa grande**
+   (`@df.rti_test`, `llvm/mod.rs`; `rti_test` em `OUTLINED_HELPERS_LARGE_PROGRAM`): ~40
+   instruções de IR em cada um dos ~16 mil locais (4% das linhas do IR) viram uma chamada para um
+   ajudante `noinline` que é folha do coletor, como o `@df.rti_is_probe` que ele chama. O
+   programa pequeno continua com o teste em linha. `DARTFORGE_OUTLINED_HELPERS` escolhe.
+3. **`"nooutline"` nos inicializadores longos de topo** do programa grande (membro de biblioteca
+   sem parâmetros, com 2 000 instruções ou mais): as tabelas de código do `saslprep`, montadas
+   por centenas de elementos `for`, custavam ~17 s de CPU ao *outliner* para 4 KB.
+4. **ICF desligado** (`DARTFORGE_ICF` liga para medir). Passando o `corpus/native` pelo
+   pipeline do programa grande (`DARTFORGE_PART_KB=64`, que divide até um programa pequeno em
+   partes de 64 KB, e `DARTFORGE_LARGE_PROGRAM_FUNCTIONS=0`), o
+   `80_tearoffs_de_corpo_identico` diverge da VM com o `--icf=safe_thunks` da §7: dois
+   *tear-offs* de corpo igual com o mesmo endereço (`conjunto: 9` em vez de 10). Os objetos que o
+   ThinLTO do `ld64.lld` 22.1.8 gera para as partes não têm `__llvm_addrsig` (conferido com
+   `otool` nos objetos retidos por `-object_path_lto`): o `-mllvm -addrsig` não chega às tarefas
+   do ThinLTO, e o `safe` vira `all`. Sem ICF o `80` passa. Custa o 1,0 MB que a §7 tinha
+   ganhado.
+
+### 8.3 Resultado
+
+`new_sali/backend`, `aot --optimize`, SDK em cache, objetos frios, mesmo binário:
+
+| | objetos | ligação | **CPU total** | relógio (carga) | IR | executável |
+|---|---:|---:|---:|---:|---:|---:|
+| itens 1 e 2 desligados (`-O2`, `is` em linha), ICF ligado | 92,9 s | 324 s | 495 s | 261 s (71) | 534 MB | 37,26 MB |
+| itens 1 e 2 ligados, ICF ligado | 65,7 s | 316 s | 457 s | 238 s (51) | 512 MB | 36,45 MB |
+| **padrão novo** (itens 1–4) | 65,2 s | 327 s | **469 s** | 260 s (59) | 512 MB | **37,42 MB** |
+| `dart compile exe` (mediana destas medidas) | | | **38,8 s** | 78 s | | 26,46 MB |
+
+* Os itens 1 e 2: −38 s de CPU e −0,81 MB; tirar o ICF devolve +0,97 MB.
+* Contra a §7 (575 s, 36,98 MB com o ICF que estava errado): **−106 s de CPU (−18%)**, +0,44 MB.
+  Parte da queda de CPU vem do `main` de 01/11 (as linhas medidas no mesmo binário isolam os itens
+  desta rodada).
+* Contra o `dart compile exe`: **12,1× a CPU** (era 13,9×), relógio ~3,3× com a máquina menos
+  carregada, executável **1,41×**.
+
+### 8.4 Desempenho
+
+Nenhum dos itens muda o código do servidor HTTP nem dos programas de `bench/performance`: são
+programas pequenos (um módulo), e os itens 1–3 só valem no programa em partes ou no programa
+grande. Como substituto, os programas de `bench/performance` foram compilados pelo pipeline das
+partes (`DARTFORGE_PART_KB=64`) com a pré-ligação `-O2` contra `-O0`: os executáveis saíram com o
+mesmo tamanho em cada programa (bytes diferentes; o ThinLTO refaz a otimização), e a medida alternada
+oscilou de 0,84× a 1,87× entre núcleos com código praticamente igual — com a máquina carregada
+o A/B não diz nada. Por isso a pré-ligação `-O0` ficou só como chave e o padrão é `-O1`, que
+também não mudou o tamanho do backend.
+
+### 8.5 Validação
+
+* `corpus/native` pelo pipeline do programa grande (partes de 64 KB, campos e ajudantes por
+  chamada, `optsize`, *outliner*, `@df.rti_test`): 164/164 em `--optimize` e em
+  `--optimize --gc-stress` sem ICF (com o ICF da §7, 163/164: o `80`).
+* `corpus/native` no padrão: 164/164 em desenvolvimento, `--optimize` (com
+  `DARTFORGE_CHECK_SHADOW=1`), `--optimize --gc-stress` e `--wasm` (`--exec-limit 60`).
+* `cargo test --release -p dartforge-emit-native --features embedded-llvm --
+  --include-ignored`: 1083 de 1084 na biblioteca, 29 de integração e 128 *doctests*. A falha,
+  `allocation_inventory::imports::tests::actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup`,
+  é o inventário do SDK certificando também o registro de `dart:async`; nenhum item desta rodada
+  muda o IR do SDK (todos valem só para o programa), e o teste passava antes do `main` de 01/11
+  (que trouxe `951ffb98` e `7f35a02f`, que mexem no SDK e no inventário). Clippy `-D warnings`
+  limpo no `dartforge-emit-native`.
+
+### 8.6 O que resta
+
+* **A geração de código** é agora a maior parte: ~245 s de CPU no ThinLTO para 512 MB de IR.
+  Só cai com menos código: a moldura da pilha-sombra (as gravações de raiz, 8% das instruções do
+  IR), a checagem da exceção depois de cada chamada, o mapa de referências na gravação de campo
+  (`%fm*`, 8%), os adaptadores `$c`/`$g`/`$tc` e o `$async`. São escolhas do modelo de execução
+  (raízes na pilha-sombra, exceção por bandeira), não do *driver*.
+* **ICF de verdade** precisa da tabela de endereços significativos nos objetos do ThinLTO:
+  ou um `ld64.lld` que a escreva nas tarefas do ThinLTO, ou marcar as funções cujo endereço é
+  comparado e dobrar o resto no próprio IR (o `MergeFunctions` já faz parte disso, com *thunks*).
+* **`receiver_provenance::analyze`** roda sobre o módulo inteiro três vezes (poda, desvirtualização
+  física e emissão), ~12% da CPU da HIR (~6 s); o módulo muda entre as três, e reaproveitar o
+  resultado exige provar que a mudança não o afeta. Não mexi.
