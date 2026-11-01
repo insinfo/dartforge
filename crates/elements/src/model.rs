@@ -104,6 +104,11 @@ pub struct Program {
     /// The end of the frozen prefix ([`crate::frozen`]), when the load laid
     /// one out ([`crate::load::load_lenient_frozen`]).
     pub frozen: Option<crate::frozen::Checkpoint>,
+    /// With a frozen prefix: for each library after it, where its group (the
+    /// libraries that import each other, transitively) starts. The groups
+    /// come in dependency order, so the libraries before a group's start do
+    /// not depend on it ([`crate::frozen::lay_out`]).
+    pub groups: Vec<u32>,
 }
 
 /// The program's elements grouped by unit and by library, each list in

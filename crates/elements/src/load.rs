@@ -181,7 +181,7 @@ enum Layout<'a> {
     FrozenFirst(crate::frozen::Frozen<'a>),
     /// Over a program cut at its frozen prefix: the prefix's libraries are not
     /// read again, and the outline is built only after it.
-    Onto(Box<Program>),
+    Onto(Box<Program>, crate::frozen::Checkpoint),
 }
 
 /// Like [`load_lenient_generated`], laying the libraries `frozen` accepts (the
@@ -225,9 +225,14 @@ pub fn load_lenient_frozen(
 /// # Panics
 ///
 /// When `base` has no frozen prefix.
+///
+/// `at` is where `base` is cut: its frozen prefix, or later, at the start of a
+/// group of [`Program::groups`] (the libraries before it depend on nothing
+/// after it). The libraries after `at` are laid out in dependency order too.
 #[allow(clippy::too_many_arguments)]
 pub fn load_lenient_onto(
     mut base: Program,
+    at: crate::frozen::Checkpoint,
     entry: &Path,
     sdk: &SdkLayout,
     package_config_path: Option<&Path>,
@@ -235,7 +240,7 @@ pub fn load_lenient_onto(
     units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
     generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
 ) -> (Program, Vec<Diagnostic>) {
-    let at = base.frozen.expect("a program with a frozen prefix");
+    assert!(base.frozen.is_some(), "a program with a frozen prefix");
     base.truncate(&at);
     load_lenient_(
         &[entry],
@@ -247,7 +252,7 @@ pub fn load_lenient_onto(
         generated_sources,
         None,
         None,
-        Layout::Onto(Box::new(base)),
+        Layout::Onto(Box::new(base), at),
     )
 }
 
@@ -407,10 +412,7 @@ fn load_lenient_(
     let (mut program, frozen, onto) = match layout {
         Layout::Plain => (Program::default(), None, None),
         Layout::FrozenFirst(f) => (Program::default(), Some(f), None),
-        Layout::Onto(base) => {
-            let at = base.frozen;
-            (*base, None, at)
-        }
+        Layout::Onto(base, at) => (*base, None, Some(at)),
     };
     let mut uri_to_library: HashMap<String, LibraryId> = program
         .libraries
@@ -984,11 +986,11 @@ fn load_lenient_(
     // 6. Builds the outline and namespaces and resolves supertypes
     match (frozen, onto) {
         (_, Some(at)) => {
+            crate::frozen::lay_out(&mut program, &at, None);
             outline::build_outline_from(&mut program, interner, &mut diagnostics, &at);
-            program.frozen = Some(at);
         }
         (Some(f), None) => {
-            let libraries = crate::frozen::frozen_first(&mut program, f);
+            let libraries = crate::frozen::lay_out(&mut program, &Default::default(), Some(f));
             outline::build_outline(&mut program, interner, &mut diagnostics);
             program.frozen = program.checkpoint_at(libraries);
         }

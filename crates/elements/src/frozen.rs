@@ -61,29 +61,47 @@ impl Program {
         self.entry = self.entry.filter(|l| (l.0 as usize) < at.libraries);
         self.element_index = std::sync::OnceLock::new();
         self.times = Default::default();
+        self.groups.truncate(at.libraries);
+    }
+
+    /// Where the group of library `l` starts ([`Program::groups`]); the
+    /// library itself without a layout.
+    pub fn group_start(&self, l: LibraryId) -> usize {
+        self.groups
+            .get(l.0 as usize)
+            .map_or(l.0 as usize, |&g| g as usize)
     }
 }
 
-/// Before the outline, reorders the libraries and units so that the ones
-/// `frozen` accepts come first (each group in the order it had), after
-/// taking out of the group any library that imports or exports one outside
-/// it. Returns how many libraries the prefix has.
+/// Before the outline of the libraries after `from`, reorders them and their
+/// units: first the ones `frozen` accepts (in the order they had), after
+/// taking out of that group any library that imports or exports one outside
+/// it; then the others in dependency order, a group of libraries that import
+/// each other at a time ([`Program::groups`]). Returns where the frozen ones
+/// end. What is before `from` keeps its ids.
 ///
 /// # Panics
 ///
-/// When the program already has elements.
-pub(crate) fn frozen_first(program: &mut Program, frozen: Frozen<'_>) -> usize {
+/// When the libraries after `from` already have elements.
+pub(crate) fn lay_out(
+    program: &mut Program,
+    from: &Checkpoint,
+    frozen: Option<Frozen<'_>>,
+) -> usize {
     assert!(
-        program.classes.is_empty() && program.functions.is_empty() && program.variables.is_empty(),
-        "the frozen prefix is laid out before the outline"
+        program.classes.len() == from.classes
+            && program.functions.len() == from.functions
+            && program.variables.len() == from.variables,
+        "the libraries are laid out before their outline"
     );
     let n = program.libraries.len();
+    let first = from.libraries;
     let mut keep: Vec<bool> = (0..n)
-        .map(|l| frozen(program, LibraryId(l as u32)))
+        .map(|l| l < first || frozen.is_some_and(|f| f(program, LibraryId(l as u32))))
         .collect();
     loop {
         let mut changed = false;
-        for l in 0..n {
+        for l in first..n {
             if !keep[l] {
                 continue;
             }
@@ -99,20 +117,20 @@ pub(crate) fn frozen_first(program: &mut Program, frozen: Frozen<'_>) -> usize {
             break;
         }
     }
-    let order: Vec<usize> = (0..n)
-        .filter(|&l| keep[l])
-        .chain((0..n).filter(|&l| !keep[l]))
-        .collect();
+    let frozen_end = keep.iter().filter(|k| **k).count();
+    // The others, in dependency order (Tarjan's components come out after
+    // everything they reach): a library after all it imports or exports.
+    let rest: Vec<usize> = (first..n).filter(|&l| !keep[l]).collect();
+    let (rest, starts) = dependency_order(program, &rest);
+    let order: Vec<usize> = (0..n).filter(|&l| keep[l]).chain(rest).collect();
     let mut library_map = vec![LibraryId(0); n];
     for (new, &old) in order.iter().enumerate() {
         library_map[old] = LibraryId(new as u32);
     }
     let units = program.units.len();
-    let unit_frozen = |u: usize| keep[program.units[u].library.0 as usize];
-    let unit_order: Vec<usize> = (0..units)
-        .filter(|&u| unit_frozen(u))
-        .chain((0..units).filter(|&u| !unit_frozen(u)))
-        .collect();
+    let mut unit_order: Vec<usize> = (from.units..units).collect();
+    unit_order.sort_by_key(|&u| library_map[program.units[u].library.0 as usize].0);
+    let unit_order: Vec<usize> = (0..from.units).chain(unit_order).collect();
     let mut unit_map = vec![UnitId(0); units];
     for (new, &old) in unit_order.iter().enumerate() {
         unit_map[old] = UnitId(new as u32);
@@ -162,7 +180,94 @@ pub(crate) fn frozen_first(program: &mut Program, frozen: Frozen<'_>) -> usize {
         .collect();
     program.core = program.core.map(lib);
     program.entry = program.entry.map(lib);
-    keep.iter().filter(|k| **k).count()
+    program.groups.truncate(first);
+    program.groups.extend((first..frozen_end).map(|l| l as u32));
+    program
+        .groups
+        .extend(starts.iter().map(|&s| (frozen_end + s) as u32));
+    frozen_end
+}
+
+/// `libraries` in dependency order, with the position (in the result) where
+/// each one's group of mutually dependent libraries starts.
+fn dependency_order(program: &Program, libraries: &[usize]) -> (Vec<usize>, Vec<usize>) {
+    let inside: std::collections::HashMap<usize, usize> =
+        libraries.iter().enumerate().map(|(i, &l)| (l, i)).collect();
+    let edges: Vec<Vec<usize>> = libraries
+        .iter()
+        .map(|&l| {
+            let lib = &program.libraries[l];
+            let mut e: Vec<usize> = lib
+                .imports
+                .iter()
+                .map(|i| i.library.0 as usize)
+                .chain(lib.exports.iter().map(|e| e.library.0 as usize))
+                .filter_map(|t| inside.get(&t).copied())
+                .collect();
+            e.sort_unstable();
+            e.dedup();
+            e
+        })
+        .collect();
+    // Iterative Tarjan.
+    let m = libraries.len();
+    let mut index = vec![usize::MAX; m];
+    let mut low = vec![0; m];
+    let mut on_stack = vec![false; m];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut next = 0;
+    let mut order = Vec::with_capacity(m);
+    let mut starts = vec![0; m];
+    for root in 0..m {
+        if index[root] != usize::MAX {
+            continue;
+        }
+        let mut calls: Vec<(usize, usize)> = vec![(root, 0)];
+        index[root] = next;
+        low[root] = next;
+        next += 1;
+        stack.push(root);
+        on_stack[root] = true;
+        while let Some(&mut (v, ref mut e)) = calls.last_mut() {
+            if *e < edges[v].len() {
+                let w = edges[v][*e];
+                *e += 1;
+                if index[w] == usize::MAX {
+                    index[w] = next;
+                    low[w] = next;
+                    next += 1;
+                    stack.push(w);
+                    on_stack[w] = true;
+                    calls.push((w, 0));
+                } else if on_stack[w] {
+                    low[v] = low[v].min(index[w]);
+                }
+                continue;
+            }
+            calls.pop();
+            if let Some(&(parent, _)) = calls.last() {
+                low[parent] = low[parent].min(low[v]);
+            }
+            if low[v] == index[v] {
+                let start = order.len();
+                let mut group = Vec::new();
+                loop {
+                    let w = stack.pop().expect("v is on the stack");
+                    on_stack[w] = false;
+                    group.push(w);
+                    if w == v {
+                        break;
+                    }
+                }
+                group.sort_unstable();
+                for w in group {
+                    starts[order.len()] = start;
+                    order.push(libraries[w]);
+                }
+            }
+        }
+    }
+    (order, starts)
 }
 
 #[cfg(test)]
@@ -351,7 +456,7 @@ mod tests {
         .unwrap();
         let sdk = crate::sdk::SdkLayout::default();
         let (onto, _) =
-            crate::load::load_lenient_onto(first, &a, &sdk, None, &mut names, None, None);
+            crate::load::load_lenient_onto(first, at, &a, &sdk, None, &mut names, None, None);
         assert_eq!(onto.frozen, Some(at));
         assert_eq!(names.resolve(onto.classes[class_e].name), "E");
         let fresh = frozen_load(&a, &ext, &mut names);
@@ -361,6 +466,40 @@ mod tests {
                 .iter()
                 .any(|l| l.ends_with("#C extends None implements []") || l.contains("#C extends"))
         );
+
+        // Cut inside the package, at the group of `a.dart` (which nothing
+        // imports): what comes before it keeps its ids.
+        let a_lib = onto
+            .libraries
+            .iter()
+            .position(|l| l.uri.ends_with("pkg/a.dart"))
+            .unwrap();
+        let b_lib = onto
+            .libraries
+            .iter()
+            .position(|l| l.uri.ends_with("pkg/b.dart"))
+            .unwrap();
+        assert!(b_lib < a_lib, "the dependency first");
+        let cut = onto
+            .checkpoint_at(onto.group_start(crate::model::LibraryId(a_lib as u32)))
+            .unwrap();
+        assert!(cut.libraries > at.libraries);
+        let class_b = onto
+            .classes
+            .iter()
+            .position(|c| names.resolve(c.name) == "B")
+            .unwrap();
+        std::fs::write(
+            &a,
+            "import '../ext/f.dart';\nimport '../ext/g.dart';\nimport 'b.dart';\n\
+             class A extends F implements C {}\nclass D {}\n",
+        )
+        .unwrap();
+        let (again, _) =
+            crate::load::load_lenient_onto(onto, cut, &a, &sdk, None, &mut names, None, None);
+        assert_eq!(names.resolve(again.classes[class_b].name), "B");
+        let fresh = frozen_load(&a, &ext, &mut names);
+        assert_eq!(dump(&again, &names), dump(&fresh, &names));
         std::fs::remove_dir_all(&root).ok();
     }
 }

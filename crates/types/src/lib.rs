@@ -129,10 +129,13 @@ pub fn resolve_outline_with_units(
 }
 
 /// Like [`resolve_outline_with_units`], resolving only the elements after
-/// the frozen prefix of `program` (`Program::frozen`) over `prefix`, the
-/// outline an earlier resolution with the same `table` gave a program with
-/// the same prefix. The diagnostics are those of the elements after the
-/// prefix.
+/// `at` over `prefix`, the outline an earlier resolution with the same `table`
+/// gave a program with the same libraries before `at` (which depend on
+/// nothing after it: the frozen prefix of `program`, or a later group start,
+/// `Program::groups`). The diagnostics are those of the elements after `at`.
+/// The override inference of the next body inference runs from the classes
+/// of the frozen prefix's end on (`OutlineTypes::overrides_from`), so that the
+/// package's classes before `at` give their diagnostics again.
 ///
 /// # Panics
 ///
@@ -143,13 +146,23 @@ pub fn resolve_outline_onto(
     table: &mut TypeTable,
     core: &CoreTypes,
     prefix: OutlineTypes,
+    at: dartforge_elements::frozen::Checkpoint,
 ) -> (
     OutlineTypes,
     Vec<Diagnostic>,
     Vec<dartforge_elements::model::UnitId>,
 ) {
-    let at = program.frozen.expect("a program with a frozen prefix");
-    OutlineResolver::onto(program, interner, table, core, prefix, at).resolve_all_with_units()
+    let frozen = program.frozen.expect("a program with a frozen prefix");
+    let (outline, diags, units) =
+        OutlineResolver::onto(program, interner, table, core, prefix, at).resolve_all_with_units();
+    (
+        OutlineTypes {
+            overrides_from: frozen.classes.min(at.classes),
+            ..outline
+        },
+        diags,
+        units,
+    )
 }
 
 /// Entry point for type inference and body resolution in a [`Program`].
