@@ -1550,11 +1550,21 @@ impl Engine {
                             .collect();
                         old.append(&mut load_diags);
                         load_diags = old;
-                        syntax_known.extend(w.syntax_known.into_iter().filter(|k| {
-                            program.units[..at.units]
-                                .iter()
-                                .any(|u| u.path.as_deref().is_some_and(|p| key(p) == *k))
-                        }));
+                        // By the keys of the kept units, computed once (a key
+                        // asks the file system).
+                        let kept_keys: HashSet<PathBuf> = program.units[..at.units]
+                            .iter()
+                            .filter(|u| {
+                                u.path.as_deref().is_some_and(|p| {
+                                    w.syntax_known
+                                        .iter()
+                                        .any(|k| k.ends_with(p.file_name().unwrap_or_default()))
+                                })
+                            })
+                            .filter_map(|u| u.path.as_deref().map(key))
+                            .collect();
+                        syntax_known
+                            .extend(w.syntax_known.into_iter().filter(|k| kept_keys.contains(k)));
                         (table, core, outline, all_diags, all_units)
                     }
                     None => {
