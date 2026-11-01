@@ -2520,6 +2520,47 @@ mod publication_tests {
         assert_eq!(format!("{m:?}"), before);
     }
 
+    /// A native whose result gets an owner but that never runs Dart (`effects.tsv`)
+    /// goes through the generic Owned thunk without a native scope: no Dart port can
+    /// return an owner into it. One that may run Dart keeps the scope.
+    #[test]
+    fn owned_thunk_of_a_native_that_never_runs_dart_opens_no_scope() {
+        for (native, scoped) in [
+            ("dartforge_native_List_allocate", false),
+            ("dartforge_native_String_charAt", true),
+        ] {
+            assert_eq!(crate::llvm::externs::effects_of(native).calls_dart, scoped);
+            let mut m = Module::new();
+            m.arc_memory = true;
+            m.functions.push(saved(
+                "nativa",
+                vec![(ValueId(0), "x".into(), Type::Ref)],
+                Instruction::CallRuntime {
+                    name: native.into(),
+                    args: vec![(val(0), Type::Ref)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ));
+            m.dart_ref_returns.insert("nativa".into());
+            let mut plans = HashMap::from([("nativa".into(), DartFunctionPlan::default())]);
+            prepare_arc_dart_module(&mut m, &mut plans).unwrap();
+            let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+            let thunk = format!(
+                "define internal i64 @{}{native}(",
+                super::super::GENERIC_OWNED_PREFIX
+            );
+            let body = &ir[ir.find(&thunk).unwrap_or_else(|| panic!("{ir}"))..];
+            let body = &body[..body.find("\n}\n").unwrap()];
+            assert_eq!(
+                body.contains("@dartforge_arc_native_scope_open_v1()"),
+                scoped,
+                "{body}"
+            );
+            assert!(body.contains("retain"), "{body}");
+        }
+    }
+
     #[test]
     fn check_gets_pending_guard_and_tables_get_invoke() {
         for by_tables in [false, true] {
