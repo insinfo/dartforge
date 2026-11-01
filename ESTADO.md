@@ -65,6 +65,19 @@ a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
+**Andamento (01/11, 20h), item 3 (memória em sessões longas):**
+- O residente coleta a tabela de tipos a cada carga sobre um corte, e a recarga total a cada
+  16 cargas saiu.
+- Repouso depois de 12 rodadas de mudanças de API contra 1 rodada:
+  - backend **plano (−1%)**;
+  - frontend +7% (era +16%);
+  - `limitless_ui` +19% (era +30%).
+- O critério (repouso a poucos % de um servidor recém-aberto) ainda não vale para o frontend
+  e o `limitless_ui`. O programa mantido acumula as bibliotecas que os lotes já importaram.
+- O cenário de sessão longa com ondas de `build_runner` (3a) não foi escrito.
+- O *debounce* das ondas (3c) tem teste que falha sem ele.
+- Detalhes em `docs/LSP.md`, "Sétima rodada".
+
 **Andamento (01/11, 18h):**
 - Passo 4, primeira parte: as bibliotecas do pacote em ordem de dependência. Uma mudança de
   API recarrega a partir do grupo da biblioteca editada, e não do pacote inteiro.

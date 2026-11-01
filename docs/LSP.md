@@ -1244,6 +1244,69 @@ ms, quando não indicado:
   não foi escrito. Só o *debounce* das ondas ficou pronto.
 - **O passo 5 (índice de referências resolvidas)** não foi começado.
 
+#### Sétima rodada (2026-11-01): coleta da tabela de tipos do residente
+
+**Coleta (`fdb70ba2`).** `TypeTable::collect(raízes)` mantém só os tipos alcançáveis a
+partir de:
+- as raízes;
+- os limites de todos os parâmetros de tipo;
+- as decorações (alias de `typedef`, tipo canônico) do que fica.
+
+Os tipos mantidos são renumerados na ordem antiga e o resultado é o mapa de remapeamento. A
+tabela refaz o `lookup`, `display`, `decorated`, `canonical` e `fresh_formals`. As
+estruturas que guardam `TypeId` aplicam o mapa: `OutlineTypes::for_each_type`,
+`ClassHierarchy::for_each_type` e `CoreTypes::for_each_type`.
+
+A cada carga sobre um corte, o residente corta o *outline*, coleta a tabela
+(`dartforge_types::collect_types`) e só então resolve o *outline* depois do corte. Os
+*outlines* e corpos das cargas anteriores saem da tabela. A recarga total a cada 16 cargas
+saiu; `DARTFORGE_LSP_ONTO_LIMIT=N` a traz de volta, só como rede de segurança.
+
+Teste: `resident_reloads_only_after_the_frozen_prefix` repete as mudanças de API e exige
+que o tamanho da tabela seja o mesmo a cada repetição.
+
+**Teste do *debounce* (`664cc80b`).** `a_wave_of_disk_changes_is_analyzed_once` conta as
+análises (`Server::typed_analyses`), com as notificações espaçadas como o editor manda.
+- Com o *debounce*: uma análise para a onda.
+- Com `DARTFORGE_LSP_DISK_QUIET_MS=0`: 12 análises, e o teste falha. Isso prova que ele
+  detecta o defeito.
+
+**Validação:**
+- testes em *release* de `elements`, `types`, `analysis`, `world`, `emit_js`,
+  `emit_js_production`, `parity`, `lsp` e `dev`: 843, sem falhas;
+- corpus JS 277/277 em desenvolvimento e em `-O2`;
+- harness nativo 164/164;
+- oráculo de paridade com o binário final: tabela de recursos idêntica (references, implementation e definition 100%, completion top-5 100%).
+
+**Memória em repouso depois de 1 e de 12 rodadas de mudanças de API.** Cada rodada tem uma
+mudança privada e uma exportada, cada uma desfeita. *Footprint* somando todos os processos,
+em MiB, sessões em sequência revezando os servidores, carga 5–36:
+
+| | agora (coleta) | sexta rodada (recarga a cada 16) | Dart |
+|---|---|---|---|
+| backend | 206,7 → **205,1 (−1%)** | 215,9 → 206,0 | 396,5 → 279,4 |
+| `limitless_ui` | 304,8 → 364,0 (+19%) | 309,1 → 402,3 (+30%) | 482,2 → 426,8 |
+| frontend | 442,0 → 471,1 (+7%) | 428,9 → 498,3 (+16%) | 494,3 → 442,2 |
+
+- **Backend:** plano.
+- **`limitless_ui` e frontend:** a coleta corta o crescimento pela metade, mas não o zera.
+  No `limitless_ui`, o pico de RSS quase não sobe (315,8 → 329,5 MiB) enquanto o
+  *footprint* em repouso sobe 19%. Parte é memória que o alocador do macOS guarda e não
+  devolve, e parte é o programa mantido: sem o pacote inteiro em cada lote, o programa do
+  residente acumula todas as bibliotecas que algum lote já importou.
+- **O critério do proprietário não está cumprido:** repouso a poucos % de um servidor
+  recém-aberto, sem reiniciar nada. Falta:
+  - descartar do programa mantido as bibliotecas que o lote atual não alcança;
+  - medir o que é retenção do alocador e o que é dado vivo (`DARTFORGE_LSP_MEMORY=1` no
+    residente).
+
+**O que não foi feito nesta rodada:**
+- **Cenário de sessão longa no `editing_latency.rs`** (item 3a): ondas de `build_runner`
+  intercaladas com edições, centenas de cargas e curva de RSS dos dois servidores. Não foi
+  escrito. A tabela acima, com 12 rodadas, é o substituto curto.
+- O resto do passo 4 (só os dependentes dentro de um grupo grande) e o passo 5 (índice de
+  referências).
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
