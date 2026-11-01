@@ -65,6 +65,22 @@ a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
+**Andamento (01/11, 22h), item 3, diagnóstico dos +49%** (residente em repouso,
+`vmmap`; recém-aberto 319,6 MiB → sessão longa 494,1 MiB, +174,5 MiB):
+- Dado vivo do `malloc`: **+89,5 MiB**.
+- Fragmentação: **+52,9 MiB** (5% → 16%).
+- Fora do `malloc`: +32,1 MiB.
+- Tempo por carga (DartForge × Dart):
+  - onda de 40 `.g.dart`: **1.513 × 10 ms**;
+  - mudança de API: 1.840 × 128 ms;
+  - edição de corpo: 77 × 35 ms.
+- Ainda não feitos:
+  - dividir o dado vivo por estrutura;
+  - devolver memória ao sistema;
+  - descartar o que o lote não alcança;
+  - corrigir o custo das ondas.
+- Detalhes em `docs/LSP.md`, "Nona rodada".
+
 **Andamento (01/11, 21h), item 3, sessão longa medida** (`editing_latency --long`):
 - Cenário: `new_sali` inteiro, 150 rodadas, 510 cargas (ondas de 40 `.g.dart`, edições de
   corpo e de API), carga 26–69.

@@ -1360,6 +1360,48 @@ sob carga (o nosso em repouso deu 11,7 MiB de RSS e 506 MiB de *footprint*), ent
   a nova medição de planicidade que depende dela.
 - **O resto do passo 4 e o passo 5** não foram começados.
 
+#### Nona rodada (2026-11-01): de onde vêm os +49% e o tempo por tipo de carga
+
+**Dado vivo × retenção.** `vmmap --summary` do processo residente em repouso, com carga
+18–46. "Sessão longa": 150 rodadas, 510 cargas, depois de um minuto quieto. "Recém-aberto":
+o servidor aberto sobre os mesmos arquivos finais. Em MiB:
+
+| residente | recém-aberto | sessão longa | diferença |
+|---|---:|---:|---:|
+| *footprint* | 319,6 | 494,1 | +174,5 |
+| `malloc`: alocado (vivo) | 287,4 | 376,9 | **+89,5** |
+| `malloc`: fragmentação | 14,9 (5%) | 67,8 (16%) | **+52,9** |
+| resto (fora do `malloc`: regiões, pilhas, binário) | 17,3 | 49,4 | +32,1 |
+
+- **Dado vivo:** cerca de metade do crescimento. Ainda não está dividido por estrutura
+  (programa mantido, arquivos gerados, tabela de tipos, caches). O `heap` do macOS não
+  separa alocações de Rust por tipo; isso pede contadores próprios no residente.
+- **Fragmentação do alocador do sistema:** cerca de 30% do crescimento.
+- **Resto:** o restante, fora do `malloc`.
+- O processo do servidor e o *driver* não crescem (13–15 MiB e 30 MiB).
+
+**Tempo por tipo de carga** (`af2f56b9`; 30 rodadas, carga 20–34; tempo até assentado):
+
+| carga | DartForge | Dart |
+|---|---:|---:|
+| onda de 40 `.g.dart` | **1.513 ms** | 10 ms |
+| edição de corpo (e desfazer) | 77 ms | 35 ms |
+| mudança de API (e desfazer) | 1.840 ms | 128 ms |
+
+- As ondas dominam (45 dos 81 s ativos), seguidas das mudanças de API.
+- A onda custa mais que uma mudança de API: cerca de 250 ms são o *debounce*, e o resto é
+  recarregar e analisar os 40 arquivos gerados.
+- O Dart assenta a onda em 10 ms. É preciso ver se ele de fato reanalisa os arquivos ou só
+  os marca, antes de comparar.
+
+**O que não foi feito nesta rodada:**
+- **Dividir o dado vivo por estrutura, e com isso a correção correspondente:** descartar o
+  que o lote não alcança e limitar caches.
+- **Devolver memória ao sistema depois de cada carga:** `malloc_zone_pressure_relief` já se
+  mostrou inútil antes. As saídas são uma arena por carga ou um alocador com *purge*
+  (mimalloc/jemalloc), o que pede trocar o alocador global do residente.
+- **Corrigir o custo da onda**, e rodar de novo o `--long 150` dos dois servidores.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
