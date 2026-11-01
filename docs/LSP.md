@@ -988,6 +988,81 @@ carrega o arquivo grande que ninguém importa e publica o mesmo que uma análise
 `raw_result_is_written_as_the_result` (`crates/lsp/src/transport.rs`: o quadro é byte a byte
 o dos valores).
 
+#### Projeto: reanalisar só o que mudou e índice de referências (2026-11-01)
+
+Plano da prioridade do `ESTADO.md` ("LSP mais rápido e mais leve que o servidor oficial"), em
+passos que mantêm tudo funcionando. Cada passo tem teste contra uma análise do zero.
+
+**Onde está o custo.** Medido com `DARTFORGE_ENGINE_TIMES=1` no frontend, com a máquina
+calma (carga 18–31). Depois de uma mudança de API, a análise do próprio arquivo leva ~0,4 s
+(Dart: 84–89 ms):
+
+| Fase | Tempo |
+|---|---:|
+| carga com o pacote inteiro: modelo de elementos de ~2.460 bibliotecas | 0,14 s |
+| *outline* de tipos, `CoreTypes` e `simple_bounds` do programa inteiro | 0,12 s |
+| passes dos inicializadores | 0,10 s |
+
+Das ~2.460 bibliotecas do programa, só ~112 são do pacote. O resto (SDK e dependências)
+não muda numa sessão de edição e não importa nada do pacote.
+
+**Passo 1 — prefixo congelado em `crates/elements`.**
+- Antes do `build_outline`, as bibliotecas e unidades são permutadas para que as
+  *congeladas* (fora das raízes editáveis: SDK, `pub cache`, pacotes por caminho fora do
+  projeto) venham primeiro, na ordem relativa de antes. Esse prefixo é fechado por
+  dependência.
+- `Program::checkpoint()` dá o comprimento de cada arena no fim do prefixo:
+  - unidades, bibliotecas, classes, extensões, *typedefs*, funções e variáveis.
+- `Program::truncate(checkpoint)` descarta o resto. Um carregamento sobre o prefixo reaproveita
+  os `LibraryId` do prefixo pelo URI e não os relê. `build_outline_from(checkpoint)` só cria
+  elementos, `exported`, escopos e supertipos do sufixo.
+- Os IDs do prefixo sobrevivem às recargas: é a identidade estável de tudo o que não é do
+  pacote. Os IDs do pacote são uma visão densa por carga. Uma diretiva nova para fora do
+  prefixo recarrega tudo.
+- Teste: programa recarregado sobre o prefixo, despejado de forma canônica (URI da biblioteca
+  e caminho da declaração), igual ao do zero.
+
+**Passo 2 — *outline* de tipos por faixa em `crates/types`.**
+- `OutlineResolver` a partir de um `OutlineTypes` do prefixo:
+  - reaproveita os parâmetros de tipo, a hierarquia, os tipos escritos e os tipos inferidos
+    das classes, funções e variáveis do prefixo;
+  - resolve só os elementos do sufixo.
+- A `TypeTable` fica com o residente e cresce. O lixo do sufixo antigo é descartado por uma
+  recarga total quando passar de um limite.
+- Teste: os diagnósticos e os tipos de cada elemento do sufixo são iguais aos de uma
+  resolução do zero.
+
+**Passo 3 — o residente usa os passos 1 e 2 numa mudança de API** (`crates/parity`):
+- trunca o programa no ponto de controle, recarrega o pacote e refaz o *outline* dele;
+- roda os passes de inicializadores só do sufixo;
+- mantém `CoreTypes`, `simple_bounds` e os inicializadores inferidos do prefixo.
+
+Teste: `analyze_resident` igual a `analyze_with` depois de mudanças de API privadas,
+exportadas e de hierarquia.
+
+**Passo 4 — dentro do pacote.**
+- As bibliotecas do pacote ficam em ordem topológica: componentes fortemente conexos,
+  dependências primeiro, e as editadas por último.
+- O ponto de truncamento é a primeira biblioteca afetada. As que vêm antes mantêm IDs, tipos
+  e corpos inferidos.
+- Para que uma edição numa biblioteca muito importada não invalide quem só cita os tipos dela,
+  a identidade passa a ser (URI da biblioteca, caminho da declaração), com os índices densos
+  como visão. Só refaz o *outline* de quem herda ou infere tipos do que mudou: isso vem da
+  assinatura de API por declaração, que `crates/elements/src/incremental.rs` já calcula para o
+  arquivo inteiro.
+
+**Passo 5 — índice de referências resolvidas.**
+- A inferência de corpos (`crates/types`) registra, para cada nome resolvido, a faixa e o
+  alvo, com a identidade (URI da biblioteca, caminho da declaração).
+- `crates/lsp/src/project.rs` converte a sua identidade de declaração para essa.
+- O residente guarda o índice por biblioteca e o refaz junto com cada análise. As bibliotecas
+  do prefixo (SDK e dependências, quando o resultado do Dart as inclui) são indexadas uma
+  vez por sessão, em segundo plano.
+- `references` consulta o índice só quando ele cobre todos os arquivos que a busca atual
+  leria. Senão, cai na busca de hoje. Nunca responde parcial.
+- Teste: o oráculo (`references` 100%) e a igualdade do índice com a busca atual nos três
+  projetos.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
