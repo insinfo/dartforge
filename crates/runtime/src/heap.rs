@@ -8919,6 +8919,25 @@ impl Heap {
         if !arc.state.ha_zeros() && arc.snapshots.is_empty() && !resume {
             return;
         }
+        // The usual settle point with work (the end of an owning frame, a field
+        // write): zeros to drain and nothing else pending — no raw write, deferred
+        // zero, ephemeron or observational root. When every death took the
+        // in-object path no dead waits for the side tables, and the rest of the
+        // settle point would find nothing to do.
+        let plain = !observers
+            && arc.snapshots.is_empty()
+            && !arc.state.has_deferred()
+            && self.ephemerons.is_empty()
+            && self.empty_storages.iter().all(|&h| h == 0);
+        if plain {
+            let mut arc = self.arc.take().expect("ARC on");
+            self.arc_drain_zeros(&mut arc, &|_| false);
+            let done = !arc.state.has_dead() && !arc.state.ha_zeros();
+            self.arc.set(arc);
+            if done {
+                return;
+            }
+        }
         let mut arc = self.arc.take().expect("ARC on");
         // The raw writes and the ephemerons count their current occurrences first:
         // an object they hold must not die by a count that misses them.
