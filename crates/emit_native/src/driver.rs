@@ -214,6 +214,10 @@ pub fn compile_and_link(
             } else {
                 generator.clone()
             };
+        let generation = Generation {
+            prelink: crate::generator::parts_prelink(),
+            ..generation
+        };
         let objects = generate_parts(&plan, &parts_generator, generation, cache, &staging, &stem)?;
         drop(plan);
         let clang_duration = t_clang.elapsed();
@@ -476,12 +480,6 @@ thread_local! {
     /// The link in progress receives already optimized native objects (the distributed
     /// ThinLTO, `distributed_lto.rs`): the linker does no LTO.
     static NO_LTO_AT_LINK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// Whether the link in progress on this thread is that of a program in parts
-/// (the large program, ThinLTO between the parts).
-pub fn linking_in_parts() -> bool {
-    LINK_IN_PARTS.get()
 }
 
 /// The optimization level of the production LTO (`DARTFORGE_LTO_LEVEL`, 0–3):

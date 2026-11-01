@@ -49,8 +49,16 @@ pub const DEFAULT_TARGET: usize = 16 << 20;
 pub const SHARED_CONSTANT_BYTES: usize = 4096;
 
 /// The threshold and the target, adjustable (`DARTFORGE_PART_MB`, in MiB; `0` turns
-/// splitting off).
+/// splitting off; `DARTFORGE_PART_KB`, in KiB, splits even a small program, to
+/// measure the pipeline of the large one on the benchmarks).
 pub fn limits() -> Option<(usize, usize)> {
+    if let Some(kb) = std::env::var("DARTFORGE_PART_KB")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|kb| *kb > 0)
+    {
+        return Some((2 * (kb << 10), kb << 10));
+    }
     match std::env::var("DARTFORGE_PART_MB")
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())

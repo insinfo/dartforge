@@ -47,6 +47,20 @@ pub struct Generation {
     pub prelink: u8,
 }
 
+/// The pre-link level of the parts of a large program (ThinLTO;
+/// `DARTFORGE_PRELINK_O` chooses, 0–2): `-O1`. The ThinLTO back end optimizes
+/// each part again with its imports, so the `-O2` of the parts optimized the
+/// same functions twice: on new_sali/backend `-O1` took the part bitcode from
+/// 101 to 68 s of CPU with the ThinLTO the same and the executable 0.1% smaller
+/// (docs/NATIVO-PRODUCAO-GRANDE.md §8).
+pub fn parts_prelink() -> u8 {
+    std::env::var("DARTFORGE_PRELINK_O")
+        .ok()
+        .and_then(|v| v.trim().parse::<u8>().ok())
+        .filter(|n| *n <= 2)
+        .unwrap_or(1)
+}
+
 impl Generation {
     /// The program object in the requested profile: `-O0` in development;
     /// in production with the source SDK, bitcode (`lto`).

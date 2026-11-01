@@ -1300,6 +1300,9 @@ impl<'a> LlvmEmitter<'a> {
             self.out.push_str(&rti_eval_probe_helper());
         }
         self.out.push_str(&rti_is_probe_helper());
+        if self.outlined_helpers.iter().any(|h| h == "rti_test") {
+            self.out.push_str(&rti_test_helper());
+        }
         if self.compact_selector {
             self.out.push_str(SELECTOR_BY_DESCRIPTOR);
         }
@@ -1459,9 +1462,23 @@ impl<'a> LlvmEmitter<'a> {
         // Dart recursion must still grow the stack and throw StackOverflowError.
         // Reading sp does not make a frame escape: without this attribute LLVM
         // can replace a recursive call with a loop and hoist its stack check.
+        // A long top-level initializer of the large program (a parameterless
+        // library member of 2,000 or more instructions: the code-point tables of
+        // `saslprep`, built by hundreds of `for` elements) runs once, and the
+        // machine outliner spent ~17 s of CPU on four of them to save 4 KB.
+        let no_outline = self.optimize_size
+            && func.params.is_empty()
+            && func.symbol.contains("..")
+            && func
+                .blocks
+                .iter()
+                .map(|b| b.instructions.len())
+                .sum::<usize>()
+                >= 2000;
         let attributes = format!(
-            "{}{}{} \"disable-tail-calls\"=\"true\"",
+            "{}{}{}{} \"disable-tail-calls\"=\"true\"",
             if self.optimize_size { " optsize" } else { "" },
+            if no_outline { " \"nooutline\"" } else { "" },
             inline_attribute,
             if frame_pointers() {
                 " \"frame-pointer\"=\"non-leaf\""
@@ -1669,7 +1686,9 @@ impl<'a> LlvmEmitter<'a> {
                     } else if !self.maps && Self::rti_evaluate_cached(i) {
                         Some((b.id.0, format!("ra{v}.fim")))
 
-                    } else if Self::rti_test_cached(i) {
+                    } else if Self::rti_test_cached(i)
+                        && !self.outlined_helpers.iter().any(|h| h == "rti_test")
+                    {
                         Some((b.id.0, format!("rt{v}.fim")))
                     } else if self.prepared_inline_box_int(i) {
                         Some((b.id.0, format!("bi{v}.fim")))
@@ -4848,94 +4867,16 @@ impl<'a> LlvmEmitter<'a> {
         let slot = self.cache_slot();
         let o = &mut self.out;
         writeln!(o, "  %rt{v}c = getelementptr i64, ptr %area, i64 {slot}").unwrap();
-        writeln!(o, "  %rt{v}m = and i64 {value}, {OBJECT_MASK}").unwrap();
-        writeln!(o, "  %rt{v}o = icmp eq i64 %rt{v}m, 2").unwrap();
-        writeln!(o, "  br i1 %rt{v}o, label %rt{v}.obj, label %rt{v}.imm").unwrap();
-        // `null` (0) and a `Smi` (low bit set): the keys of their cids.
-        writeln!(o, "rt{v}.imm:").unwrap();
-        writeln!(o, "  %rt{v}sb = and i64 {value}, 1").unwrap();
-        writeln!(o, "  %rt{v}si = icmp ne i64 %rt{v}sb, 0").unwrap();
-        writeln!(o, "  %rt{v}nu = icmp eq i64 {value}, 0").unwrap();
-        writeln!(o, "  %rt{v}im = or i1 %rt{v}si, %rt{v}nu").unwrap();
-        writeln!(
-            o,
-            "  %rt{v}ki = select i1 %rt{v}si, i64 {}, i64 {}",
-            -16 - i64::from(layout::cid::SMI),
-            -16 - i64::from(layout::cid::NULL)
-        )
-        .unwrap();
-        writeln!(o, "  br i1 %rt{v}im, label %rt{v}.cmp, label %rt{v}.lenta").unwrap();
-        writeln!(o, "rt{v}.obj:").unwrap();
-        writeln!(o, "  %rt{v}p = inttoptr i64 {value} to ptr").unwrap();
-        writeln!(
-            o,
-            "  %rt{v}mp = getelementptr inbounds i8, ptr %rt{v}p, i64 10"
-        )
-        .unwrap();
-        writeln!(o, "  %rt{v}md = load i32, ptr %rt{v}mp, align 4").unwrap();
-        writeln!(
-            o,
-            "  %rt{v}cp = getelementptr inbounds i8, ptr %rt{v}p, i64 2"
-        )
-        .unwrap();
-        writeln!(o, "  %rt{v}cl = load i32, ptr %rt{v}cp, align 4").unwrap();
-        writeln!(o, "  %rt{v}mz = zext i32 %rt{v}md to i64").unwrap();
-        writeln!(o, "  %rt{v}cs = sext i32 %rt{v}cl to i64").unwrap();
-        writeln!(o, "  %rt{v}cn = sub i64 -16, %rt{v}cs").unwrap();
-        writeln!(o, "  %rt{v}tm = icmp ne i32 %rt{v}md, 0").unwrap();
-        writeln!(
-            o,
-            "  %rt{v}ko = select i1 %rt{v}tm, i64 %rt{v}mz, i64 %rt{v}cn"
-        )
-        .unwrap();
-        writeln!(o, "  br label %rt{v}.cmp").unwrap();
-        writeln!(o, "rt{v}.cmp:").unwrap();
-        writeln!(
-            o,
-            "  %rt{v}k = phi i64 [ %rt{v}ko, %rt{v}.obj ], [ %rt{v}ki, %rt{v}.imm ]"
-        )
-        .unwrap();
-        writeln!(o, "  %rt{v}k0 = load i64, ptr %rt{v}c, align 8").unwrap();
-        writeln!(
-            o,
-            "  %rt{v}wp = getelementptr inbounds i64, ptr %rt{v}c, i64 1"
-        )
-        .unwrap();
-        writeln!(o, "  %rt{v}w = load i64, ptr %rt{v}wp, align 8").unwrap();
-        writeln!(o, "  %rt{v}wt = lshr i64 %rt{v}w, 1").unwrap();
-        writeln!(o, "  %rt{v}ok1 = icmp eq i64 %rt{v}k0, %rt{v}k").unwrap();
-        writeln!(o, "  %rt{v}ok2 = icmp eq i64 %rt{v}wt, {t}").unwrap();
-        writeln!(o, "  %rt{v}ok = and i1 %rt{v}ok1, %rt{v}ok2").unwrap();
-        writeln!(
-            o,
-            "  br i1 %rt{v}ok, label %rt{v}.acerto, label %rt{v}.lenta"
-        )
-        .unwrap();
-        writeln!(o, "rt{v}.acerto:").unwrap();
-        writeln!(o, "  %rt{v}b = and i64 %rt{v}w, 1").unwrap();
-        writeln!(o, "  %rt{v}r1 = trunc i64 %rt{v}b to i8").unwrap();
-        writeln!(o, "  br label %rt{v}.fim").unwrap();
-        // One call per site for every miss: the thread's memo
-        // (`rti_is_probe_helper`) with the key, or 0 (no key) for the runtime.
-        writeln!(o, "rt{v}.lenta:").unwrap();
-        writeln!(
-            o,
-            "  %rt{v}kk = phi i64 [ 0, %rt{v}.imm ], [ %rt{v}k, %rt{v}.cmp ]"
-        )
-        .unwrap();
-        writeln!(
-            o,
-            "  %rt{v}r2 = call i8 @df.rti_is_probe(ptr %rt{v}c, i64 %rt{v}kk, i64 {value}, i64 {t})"
-        )
-        .unwrap();
-        writeln!(o, "  br label %rt{v}.fim").unwrap();
-        writeln!(o, "rt{v}.fim:").unwrap();
-        writeln!(
-            o,
-            "  %v{v} = phi i8 [ %rt{v}r1, %rt{v}.acerto ], [ %rt{v}r2, %rt{v}.lenta ]"
-        )
-        .unwrap();
-        self.current_label = format!("rt{v}.fim");
+        if self.outlined_helpers.iter().any(|h| h == "rti_test") {
+            writeln!(
+                o,
+                "  %v{v} = call i8 @df.rti_test(ptr %rt{v}c, i64 {value}, i64 {t})"
+            )
+            .unwrap();
+        } else {
+            write_rti_test(o, &v.to_string(), &value, &t);
+            self.current_label = format!("rt{v}.fim");
+        }
     }
 
     /// `P<i>` evaluated with a cache at the use site (N17): two words of the
@@ -8843,6 +8784,7 @@ pub const OUTLINED_HELPERS_LARGE_PROGRAM: &[&str] = &[
     "element_barrier",
     "get_area",
     "new_instance",
+    "rti_test",
 ];
 
 /// The list of out-of-line helpers: `DARTFORGE_OUTLINED_HELPERS` (a list
@@ -9306,6 +9248,112 @@ fn rti_memo_insert(a: &str, b: &str, kind: &str, answer: &str) -> String {
         .unwrap();
         writeln!(o, "  store i64 {w}, ptr %mw0p{i}, align 8").unwrap();
     }
+    o
+}
+
+/// The `is` test with the cache of the use site at `%rt{v}c`
+/// ([`LlvmEmitter::emit_rti_test_cached`]), into `%v{v}` (an `i8`): inline in the
+/// function, or the body of `@df.rti_test` ([`rti_test_helper`]).
+fn write_rti_test(o: &mut String, v: &str, value: &str, t: &str) {
+    writeln!(o, "  %rt{v}m = and i64 {value}, {OBJECT_MASK}").unwrap();
+    writeln!(o, "  %rt{v}o = icmp eq i64 %rt{v}m, 2").unwrap();
+    writeln!(o, "  br i1 %rt{v}o, label %rt{v}.obj, label %rt{v}.imm").unwrap();
+    // `null` (0) and a `Smi` (low bit set): the keys of their cids.
+    writeln!(o, "rt{v}.imm:").unwrap();
+    writeln!(o, "  %rt{v}sb = and i64 {value}, 1").unwrap();
+    writeln!(o, "  %rt{v}si = icmp ne i64 %rt{v}sb, 0").unwrap();
+    writeln!(o, "  %rt{v}nu = icmp eq i64 {value}, 0").unwrap();
+    writeln!(o, "  %rt{v}im = or i1 %rt{v}si, %rt{v}nu").unwrap();
+    writeln!(
+        o,
+        "  %rt{v}ki = select i1 %rt{v}si, i64 {}, i64 {}",
+        -16 - i64::from(layout::cid::SMI),
+        -16 - i64::from(layout::cid::NULL)
+    )
+    .unwrap();
+    writeln!(o, "  br i1 %rt{v}im, label %rt{v}.cmp, label %rt{v}.lenta").unwrap();
+    writeln!(o, "rt{v}.obj:").unwrap();
+    writeln!(o, "  %rt{v}p = inttoptr i64 {value} to ptr").unwrap();
+    writeln!(
+        o,
+        "  %rt{v}mp = getelementptr inbounds i8, ptr %rt{v}p, i64 10"
+    )
+    .unwrap();
+    writeln!(o, "  %rt{v}md = load i32, ptr %rt{v}mp, align 4").unwrap();
+    writeln!(
+        o,
+        "  %rt{v}cp = getelementptr inbounds i8, ptr %rt{v}p, i64 2"
+    )
+    .unwrap();
+    writeln!(o, "  %rt{v}cl = load i32, ptr %rt{v}cp, align 4").unwrap();
+    writeln!(o, "  %rt{v}mz = zext i32 %rt{v}md to i64").unwrap();
+    writeln!(o, "  %rt{v}cs = sext i32 %rt{v}cl to i64").unwrap();
+    writeln!(o, "  %rt{v}cn = sub i64 -16, %rt{v}cs").unwrap();
+    writeln!(o, "  %rt{v}tm = icmp ne i32 %rt{v}md, 0").unwrap();
+    writeln!(
+        o,
+        "  %rt{v}ko = select i1 %rt{v}tm, i64 %rt{v}mz, i64 %rt{v}cn"
+    )
+    .unwrap();
+    writeln!(o, "  br label %rt{v}.cmp").unwrap();
+    writeln!(o, "rt{v}.cmp:").unwrap();
+    writeln!(
+        o,
+        "  %rt{v}k = phi i64 [ %rt{v}ko, %rt{v}.obj ], [ %rt{v}ki, %rt{v}.imm ]"
+    )
+    .unwrap();
+    writeln!(o, "  %rt{v}k0 = load i64, ptr %rt{v}c, align 8").unwrap();
+    writeln!(
+        o,
+        "  %rt{v}wp = getelementptr inbounds i64, ptr %rt{v}c, i64 1"
+    )
+    .unwrap();
+    writeln!(o, "  %rt{v}w = load i64, ptr %rt{v}wp, align 8").unwrap();
+    writeln!(o, "  %rt{v}wt = lshr i64 %rt{v}w, 1").unwrap();
+    writeln!(o, "  %rt{v}ok1 = icmp eq i64 %rt{v}k0, %rt{v}k").unwrap();
+    writeln!(o, "  %rt{v}ok2 = icmp eq i64 %rt{v}wt, {t}").unwrap();
+    writeln!(o, "  %rt{v}ok = and i1 %rt{v}ok1, %rt{v}ok2").unwrap();
+    writeln!(
+        o,
+        "  br i1 %rt{v}ok, label %rt{v}.acerto, label %rt{v}.lenta"
+    )
+    .unwrap();
+    writeln!(o, "rt{v}.acerto:").unwrap();
+    writeln!(o, "  %rt{v}b = and i64 %rt{v}w, 1").unwrap();
+    writeln!(o, "  %rt{v}r1 = trunc i64 %rt{v}b to i8").unwrap();
+    writeln!(o, "  br label %rt{v}.fim").unwrap();
+    // One call per site for every miss: the thread's memo
+    // (`rti_is_probe_helper`) with the key, or 0 (no key) for the runtime.
+    writeln!(o, "rt{v}.lenta:").unwrap();
+    writeln!(
+        o,
+        "  %rt{v}kk = phi i64 [ 0, %rt{v}.imm ], [ %rt{v}k, %rt{v}.cmp ]"
+    )
+    .unwrap();
+    writeln!(
+        o,
+        "  %rt{v}r2 = call i8 @df.rti_is_probe(ptr %rt{v}c, i64 %rt{v}kk, i64 {value}, i64 {t})"
+    )
+    .unwrap();
+    writeln!(o, "  br label %rt{v}.fim").unwrap();
+    writeln!(o, "rt{v}.fim:").unwrap();
+    writeln!(
+        o,
+        "  %v{v} = phi i8 [ %rt{v}r1, %rt{v}.acerto ], [ %rt{v}r2, %rt{v}.lenta ]"
+    )
+    .unwrap();
+}
+
+/// `@df.rti_test(cache, v, t)`: the use-site `is` cache out of line, for the
+/// large program (`rti_test` in [`OUTLINED_HELPERS_LARGE_PROGRAM`]): the inline
+/// test is ~40 instructions of IR at each of the ~16 thousand sites of
+/// new_sali/backend. A GC leaf, like the `@df.rti_is_probe` it calls.
+fn rti_test_helper() -> String {
+    let mut o = String::from(
+        "define internal i8 @df.rti_test(ptr %rtxc, i64 %value, i64 %t) noinline \"gc-leaf-function\" {\nentry:\n",
+    );
+    write_rti_test(&mut o, "x", "%value", "%t");
+    o.push_str("  ret i8 %vx\n}\n");
     o
 }
 

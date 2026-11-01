@@ -1148,15 +1148,8 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
         {
             cmd.arg(format!("--icf={m}"));
         }
-        // `--icf=safe_thunks` (`icf_mode`), with the LTO objects carrying
-        // `__llvm_addrsig` (`-mllvm -addrsig` above): identical machine code is
-        // folded, and a function whose address is taken (a tear-off, compared
-        // by identity) becomes a thunk to the kept body instead of sharing its
-        // address. Without the table (18 October 2026, File Explorer), `safe`
-        // degenerated into `all`, and corpus/native/80_tearoffs_de_corpo_identico
-        // diverged from the VM. Measured on new_sali/backend (31 October 2026):
-        // 38.93 → 37.92 MB with the same ThinLTO CPU time; corpus 80 equal to
-        // the VM.
+        // `--icf` only on request (`icf_mode`): with ThinLTO between the parts,
+        // safe folding still merged tear-offs compared by identity.
         // `-S` strips the debug map (J05); `-x`, the local symbols;
         // `-no_function_starts`, the `LC_FUNCTION_STARTS` table that only serves
         // the symbolization of a binary that keeps its symbols (−145,728 B of
@@ -1265,17 +1258,21 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
     Ok(())
 }
 
-/// The identical code folding of the production link (`--icf=`): `safe_thunks`
-/// for the program in parts (the large program, where size comes first, like
-/// the outliner); none for a small one, whose executable is already below
-/// `dart compile exe` and gained only 0.5% (16 KB of 3.3 MB). `DARTFORGE_ICF`
-/// chooses (`none`, `safe`, `safe_thunks`, `all`; measurement). `safe` and
-/// `safe_thunks` make the LTO emit `__llvm_addrsig`, so that a function whose
-/// address is taken (a tear-off, compared by identity) keeps an address of its
-/// own (`safe_thunks`: a thunk to the folded body); `all` folds those too.
+/// The identical code folding of the production link (`--icf=`): off by
+/// default; `DARTFORGE_ICF` chooses (`none`, `safe`, `safe_thunks`, `all`;
+/// measurement). `safe` and `safe_thunks` make the LTO emit `__llvm_addrsig`, so
+/// that a function whose address is taken keeps an address of its own
+/// (`safe_thunks`: a thunk to the folded body); `all` folds those too.
+///
+/// `safe_thunks` was the default of the program in parts (−1.0 MB on
+/// new_sali/backend), until corpus/native/80_tearoffs_de_corpo_identico, run
+/// through the pipeline of the large program (`DARTFORGE_PART_KB=64`), showed
+/// two tear-offs of identical bodies sharing an address (`conjunto: 9` instead of
+/// 10): with ThinLTO between parts the address-significance tables do not keep
+/// them apart. A single module (the small program) keeps them apart.
 pub fn icf_mode() -> Option<&'static str> {
     match std::env::var("DARTFORGE_ICF") {
-        Err(_) => crate::driver::linking_in_parts().then_some("safe_thunks"),
+        Err(_) => None,
         Ok(v) => match v.trim() {
             "none" => Some("none"),
             "safe" => Some("safe"),
