@@ -1063,6 +1063,108 @@ exportadas e de hierarquia.
 - Teste: o oráculo (`references` 100%) e a igualdade do índice com a busca atual nos três
   projetos.
 
+#### Quinta rodada (2026-11-01): prefixo congelado, passos 1–3 do projeto
+
+Os passos 1 a 3 do projeto acima estão feitos (`a91e9b4c`). Os passos 4 e 5 ficam para a
+próxima rodada.
+
+* **`crates/elements`.**
+  - `load_lenient_frozen` põe as bibliotecas congeladas na frente de todas as arenas:
+    SDK e o que está fora da raiz do pacote, fechadas por importação e exportação
+    (`frozen::frozen_first`). `Program::frozen` marca onde o prefixo termina.
+  - `load_lenient_onto` corta o programa nesse ponto (`Program::truncate`) e carrega o
+    pacote sobre o prefixo, sem reler as bibliotecas dele.
+  - `build_outline_from` só monta elementos, `exported`, escopos e supertipos depois do
+    ponto de controle.
+  - O caminho dos compiladores (`Layout::Plain`) não muda.
+* **`crates/types`.** `OutlineResolver::onto` e `resolve_outline_onto` resolvem só os
+  elementos depois do prefixo, sobre o `OutlineTypes` do prefixo (`OutlineTypes::truncate`).
+  Reaproveitam do prefixo:
+  - os parâmetros de tipo;
+  - os alvos de *typedef*;
+  - os dados das classes e a hierarquia (`build_class_hierarchy_onto`);
+  - os tipos das variáveis e funções (inclusive os inferidos);
+  - os `field_overrides` e os tipos escritos.
+
+  `OutlineTypes::overrides_from` faz a inferência de *overrides* pular as classes do prefixo.
+* **`crates/parity`.** Numa mudança de API, `take_world` devolve `Taken::Onto` quando nada
+  fora do pacote mudou no disco nem nos textos. O residente devolve as unidades do pacote ao
+  cache de unidades, carrega sobre o prefixo e mantém a `TypeTable`, os `CoreTypes` e o
+  `OutlineTypes` do prefixo. A cada 16 cargas sobre o prefixo há uma recarga total, que
+  descarta os tipos que a tabela acumulou. `DARTFORGE_FROZEN_PREFIX=0` volta à ordem de
+  descoberta, para medir.
+* **Buscas lineares.** Treze *lints* procuravam a classe de uma declaração andando por
+  todas as classes do programa: `rules16`–`rules29`, `typed_lints4` e `typed_lints5`. Duas
+  verificações de `phase_deprecated` faziam o mesmo para um construtor. Com o pacote depois
+  do prefixo, essas buscas iam até o fim da arena. Agora usam o índice do programa
+  (`Program::class_of_decl`, `ElementIndex::unit_functions`).
+
+Testes novos (os dois comparam com uma análise do zero):
+- `a_load_onto_the_frozen_prefix_is_a_full_load` (`crates/elements`): o programa carregado
+  sobre o prefixo, despejado por URI e nome, é igual ao da carga inteira, e os IDs do
+  prefixo sobrevivem;
+- `resident_reloads_only_after_the_frozen_prefix` (`crates/parity`): quatro mudanças de API
+  — tipo de campo, supertipo, classe nova, sobrescrita de membro do prefixo e classe
+  genérica do prefixo — no próprio arquivo e nos dependentes publicam o mesmo que uma
+  análise do zero.
+
+Validação:
+- testes em *release* de `elements`, `types`, `analysis`, `world`, `emit_js`,
+  `emit_js_production`, `parity`, `lsp` e `dev`: 842, sem falhas;
+- corpus JS 277/277 em desenvolvimento e em produção `-O2`;
+- harness nativo (desenvolvimento): 164/164 (`--native`, `DARTFORGE_LLVM_DIR` com o LLVM 22.1.8);
+- oráculo de paridade nos quatro projetos com a tabela de recursos idêntica (references,
+  implementation e definition 100%, completion top-5 100%).
+
+**Medição.** Três sessões revezando três servidores: o desta rodada ("agora"), o da quarta
+rodada ("r4", `0265b0f2`) e o Dart. A máquina estava mais calma (carga 16–48). O `limitless_ui` foi medido numa rodada à parte
+(carga 17–48), com o binário final, que faz a recarga total a cada 16 cargas sobre o
+prefixo. No frontend e no backend, uma sessão não chega a 16 dessas cargas, então o
+comportamento é o mesmo.
+
+| ms (mediana) | frontend: r4 → agora × Dart | backend | `limitless_ui` |
+|---|---|---|---|
+| API privada → diagnóstico do arquivo | 478 → **236** × 25 | 127 → 105 × 30 | 272 → **161** × 85 |
+| API exportada → diagnóstico do arquivo | 583 → **226** × 50 | 119 → 97 × 61 | 179 → **86** × 53 |
+| API privada: CPU | 691 → **448** × 50 | 1.353 → 1.293 × 161 | 919 → 750 × 137 |
+| API exportada: CPU | 2.180 → 1.999 × 110 | 1.388 → 1.337 × 183 | 866 → 657 × 101 |
+| API privada → assentado | 776 → 668 × 53 | 1.924 → 1.722 × 275 | 1.207 → 924 × 145 |
+| API exportada → assentado | 3.150 → 3.906 × 150 | 1.730 → 1.634 × 333 | 1.481 → 717 × 106 |
+| tecla num corpo: CPU | 80 → 80 × 46 | 61 → 64 × 41 | 123 → 117 × 151 |
+| partida: CPU de todos os processos | 3.328 → 3.381 × 3.961 | 1.956 → 2.051 × 2.792 | 4.376 → 4.279 × 3.802 |
+| memória em repouso (MiB) | 744 → 776 × 847 | 286 → 299 × 469 | 1.045 → 1.105 × 773 |
+| memória, pico (MiB) | 1.621 → 1.585 × 934 | 286 → 299 × 476 | 1.087 → 1.120 × 780 |
+
+No frontend, sem a disputa por CPU da sessão revezada (`DARTFORGE_ENGINE_TIMES=1`, uma
+sessão), o diagnóstico do arquivo depois de uma mudança de API caiu de 412–446 para 154–171 ms:
+
+| Fase | Antes | Agora |
+|---|---:|---:|
+| carga | 0,14 s | 0,057 s |
+| *outline* de tipos | 0,12 s | 0,053 s |
+| passes de inicializadores | 0,10 s | 0,011 s |
+
+O assentado da mudança exportada no frontend (3,2 → 3,9 s) é relógio dos dependentes; a CPU
+dele caiu (2,18 → 2,00 s). No `limitless_ui`, a memória em repouso subiu 6% (1.045 → 1.105
+MiB) e o pico 3%: a tabela de tipos guarda os *outlines* das cargas sobre o prefixo até a
+recarga total. Com o limite em 64 cargas, a memória em repouso tinha subido 18%.
+
+**O que falta para a meta:**
+* **O diagnóstico do arquivo ainda leva 4–10× o do Dart (25–50 ms).** Sobram por mudança de
+  API:
+  - a carga das ~112 bibliotecas do pacote (cache de unidades, elementos e escopos);
+  - o *outline* delas;
+  - `simple_bounds` do programa inteiro;
+  - os verificadores do arquivo.
+
+  O passo 4 (reaproveitar as bibliotecas do pacote que não dependem da editada) e um
+  `simple_bounds` por faixa são o próximo passo.
+* **Os dependentes de uma mudança exportada custam ~2 s de CPU contra 110 ms do Dart** (a
+  inferência dos corpos de todos os dependentes). Isso não muda com o *outline*
+  incremental: pede reaproveitar os corpos cujas dependências de API não mudaram, como o
+  Dart faz com a assinatura de API por biblioteca.
+* **`references` dos tipos do SDK (passo 5)** continua de 4 a 37× o Dart.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
