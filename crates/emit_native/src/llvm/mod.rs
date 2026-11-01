@@ -2151,24 +2151,15 @@ impl<'a> LlvmEmitter<'a> {
                         self.check_arc_global(sym_name);
                         let val_ref = self.arc_reference(value);
                         self.global_address(v, sym_name);
-                        let virtual_tokens = self.module.arc_virtual_tokens;
-                        if *mode == StrongStoreMode::Copy && !virtual_tokens {
-                            writeln!(self.out, "  call void @{arc_retain_target}(i64 {val_ref})")
-                                .unwrap();
-                        }
                         writeln!(self.out, "  store i64 {val_ref}, ptr %ga{v}").unwrap();
                         writeln!(self.out, "  %gr{v} = ptrtoint ptr %ga{v} to i64").unwrap();
                         if *mode == StrongStoreMode::Move {
                             writeln!(self.out, "  call void @dartforge_arc_global_receive_v1(i64 %gr{v}, i64 {val_ref})").unwrap();
                         } else {
+                            // The registry retains the new value before it releases the
+                            // old one (`Heap::set_global_root`): a copy needs no token
+                            // of its own around the call.
                             writeln!(self.out, "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {val_ref}) nounwind").unwrap();
-                            if !virtual_tokens {
-                                writeln!(
-                                    self.out,
-                                    "  call void @{arc_release_target}(i64 {val_ref})"
-                                )
-                                .unwrap();
-                            }
                         }
                     }
                     Instruction::ArcLoadStrong { slot } => {

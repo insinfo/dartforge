@@ -2384,21 +2384,27 @@ impl Heap {
     /// heap.set_global_root(10, 0);
     /// ```
     pub fn set_global_root(&mut self, id: i64, handle: i64) {
-        if smi::e_handle(handle) {
+        let managed = smi::e_handle(handle);
+        if managed {
             self.check_live(handle);
         }
-        let old = self.globals.get(&id).copied().unwrap_or(0);
-        if handle != old {
-            self.arc_swap_owning_root(handle, 0);
-        }
-        if !smi::e_handle(handle) {
-            // null or `Smi`: nothing in the heap to keep alive.
-            self.globals.remove(&id);
+        // One lookup of the slot's entry (the path of every `static` write).
+        let old = if managed {
+            match self.globals.entry(id) {
+                std::collections::hash_map::Entry::Occupied(mut e) => e.insert(handle),
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(handle);
+                    0
+                }
+            }
         } else {
-            self.globals.insert(id, handle);
-        }
+            // null or `Smi`: nothing in the heap to keep alive.
+            self.globals.remove(&id).unwrap_or(0)
+        };
         if handle != old {
-            self.arc_swap_owning_root(0, old);
+            // The new owner before the old one leaves: the new value may be held
+            // only through the old one (`g = g.next`).
+            self.arc_swap_owning_root(handle, old);
         }
     }
 
