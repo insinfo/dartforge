@@ -83,35 +83,45 @@ word:
 pub(super) fn prompt_helpers() -> String {
     use dartforge_runtime::layout::{self, arc_word};
     let word = prompt_word;
-    let counting = |name: &str, fast: &str, slow: &str| {
-        format!(
-            r#"define internal void @{name}(i64 %value) alwaysinline nounwind "gc-leaf-function" {{
+    // A registered, live object: one more occurrence. An object nobody counted yet
+    // (a zeroed word: the runtime's fresh object, without flags) is registered
+    // inline with this first occurrence, cycle-free when its body has no
+    // references, as `ArcHeapState::register_live_with` does.
+    let retain = format!(
+        r#"define internal void @{RETAIN}(i64 %value) alwaysinline nounwind "gc-leaf-function" {{
 entry:
-{word}{fast}
-  br i1 %fast, label %fastpath, label %slow
+{word}  %live = and i64 %w, {live}
+  %fast = icmp ne i64 %live, 0
+  br i1 %fast, label %fastpath, label %fresh
 fastpath:
+  %w1 = add i64 %w, 1
   store i64 %w1, ptr %wp, align 8
   br label %done
+fresh:
+  %zero = icmp eq i64 %w, 0
+  br i1 %zero, label %register, label %slow
+register:
+  %fp = getelementptr inbounds i8, ptr %bp, i64 {flags}
+  %fl = load i8, ptr %fp, align 1
+  %fm = and i8 %fl, {format}
+  %raw = icmp eq i8 %fm, {raw}
+  %wr = select i1 %raw, i64 {acyclic}, i64 {counted}
+  store i64 %wr, ptr %wp, align 8
+  br label %done
 slow:
-  call void @{slow}(i64 %value)
+  call void @dartforge_arc_retain(i64 %value)
   br label %done
 done:
   ret void
 }}
 "#,
-            word = word("done", "slow"),
-        )
-    };
-    // A registered, live object: one more occurrence.
-    let retain = counting(
-        RETAIN,
-        &format!(
-            "  %live = and i64 %w, {live}
-  %fast = icmp ne i64 %live, 0
-  %w1 = add i64 %w, 1",
-            live = arc_word::LIVE
-        ),
-        "dartforge_arc_retain",
+        word = word("done", "slow"),
+        live = arc_word::LIVE,
+        flags = layout::offsets::FLAGS,
+        format = layout::flags::FORMAT,
+        raw = layout::flags::RAW,
+        acyclic = arc_word::LIVE | arc_word::CYCLE_FREE | 1,
+        counted = arc_word::LIVE | 1,
     );
     // A release that leaves a live object above zero: inline when it is already a
     // cycle candidate or cycle-free; a new candidate is flagged inline and its handle

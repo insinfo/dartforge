@@ -572,7 +572,8 @@ impl LlvmEmitter<'_> {
     /// native scope (the tokens that Dart ports return stay in it), and the
     /// result gets a code owner before the scope closes; with a
     /// pending exception, null without an owner — the same protocol as
-    /// `owner_em_escopo_nativo` in the runtime.
+    /// `owner_in_native_scope` in the runtime. A base that never runs Dart
+    /// (`effects.tsv`) runs without the scope.
     fn emit_owned_thunks(&mut self) {
         // A virtual token has no runtime owner to create.
         let retain_line = if self.module.arc_virtual_tokens {
@@ -588,6 +589,41 @@ impl LlvmEmitter<'_> {
                 .map(|(i, t)| format!("{} %a{i}", t.llvm_ir()))
                 .collect();
             let params = params.join(", ");
+            // A base that never runs Dart has no Dart port to return an owner into
+            // the scope: the scope would only cost two runtime calls. One that
+            // never throws needs no pending test either.
+            let effects = super::externs::effects_of(&base);
+            if !effects.calls_dart {
+                if effects.throws {
+                    let _ = write!(
+                        self.out,
+                        "define internal i64 @{name}({params}) {{\n\
+                         entrada:\n\
+                         \x20 %r = call i64 @{base}({params})\n\
+                         \x20 %p = call i8 @dartforge_exception_pending()\n\
+                         \x20 %z = icmp ne i8 %p, 0\n\
+                         \x20 br i1 %z, label %fim, label %ok\n\
+                         ok:\n\
+                         {retain_line}\
+                         \x20 br label %fim\n\
+                         fim:\n\
+                         \x20 %res = phi i64 [ 0, %entrada ], [ %r, %ok ]\n\
+                         \x20 ret i64 %res\n\
+                         }}\n"
+                    );
+                } else {
+                    let _ = write!(
+                        self.out,
+                        "define internal i64 @{name}({params}) {{\n\
+                         entrada:\n\
+                         \x20 %r = call i64 @{base}({params})\n\
+                         {retain_line}\
+                         \x20 ret i64 %r\n\
+                         }}\n"
+                    );
+                }
+                continue;
+            }
             let _ = write!(
                 self.out,
                 "define internal i64 @{name}({params}) {{\n\
