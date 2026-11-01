@@ -174,6 +174,10 @@ pub struct FnBuilder<'a, 'c> {
     /// The constant expression that the current canonical getter evaluates (it is not
     /// canonicalized again inside it).
     pub constant_in_progress: Option<ExprId>,
+    /// The span of the `const {…}` literal whose source collection the current
+    /// canonical getter builds (`constants.rs`): its plain elements go into the
+    /// data without hashing (`literals.rs`, `_dfConstAdd`).
+    pub const_source_span: Option<dartforge_diagnostics::Span>,
     /// Inside a constant context (a `const` initializer, a default value,
     /// arguments of a `const C(…)`): `C(…)`, `[…]` and `{…}` are constants.
     pub in_const_context: bool,
@@ -461,6 +465,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             entries_in_progress: Vec::new(),
             extra_globals: Vec::new(),
             constant_in_progress: None,
+            const_source_span: None,
             in_const_context: false,
             local_const_keys: HashMap::new(),
             refutable_pattern: false,

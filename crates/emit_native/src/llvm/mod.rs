@@ -5261,6 +5261,13 @@ impl<'a> LlvmEmitter<'a> {
                 self.externals
                     .insert(r.clone(), format!("declare void @{r}()"));
             }
+            // The tear-offs of each SDK library, after all the records.
+            for r in &self.module.sdk_records {
+                let t = crate::sdk_module::tearoff_registration_symbol(r);
+                writeln!(self.out, "  call void @{t}()").unwrap();
+                self.externals
+                    .insert(t.clone(), format!("declare void @{t}()"));
+            }
             writeln!(self.out, "  call void @df.register.program()").unwrap();
             if !drops.is_empty() {
                 writeln!(

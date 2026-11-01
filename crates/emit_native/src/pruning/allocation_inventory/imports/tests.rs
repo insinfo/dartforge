@@ -607,12 +607,17 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
         .filter(|symbol| inventory.entry(symbol))
         .cloned()
         .collect();
-    // `dart:mirrors` is no longer among them: since c29dfd3c its registration
-    // also hands the runtime the addresses of its method tear-offs
-    // (`dartforge_register_tearoff`, for the VM's closure `toString`), an
-    // obligation this inventory does not certify. `dart:async` joined them in
-    // 7f35a02f: its `_dartforge*` helpers are registered through
-    // `RUNTIME_HELPERS` now, so its body no longer keeps `Future`/`Timer` live.
+    // `dart:async` joined them in 7f35a02f: its `_dartforge*` helpers are
+    // registered through `RUNTIME_HELPERS` now, so its body no longer keeps
+    // `Future`/`Timer` live. Since c29dfd3c an SDK library also hands the
+    // runtime the addresses of its tear-off entries (`dartforge_register_tearoff`
+    // for the VM's closure `toString`, `dartforge_register_tearoff_key` for
+    // `==`, `dartforge_register_instantiation`), an obligation this inventory
+    // does not certify: that left `dart:mirrors` out, and every library with
+    // tear-offs once 863d4159 stopped losing their names in `join_arc_facts`.
+    // They go in a function of their own now (`df.register.<lib>.tearoffs`,
+    // `sdk_module::tearoff_registration_symbol`), called at startup after the
+    // records, so each record is nominal again — `dart:mirrors` included.
     let expected: Vec<_> = [
         "collection",
         "math",
@@ -622,6 +627,7 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
         "developer",
         "nativewrappers",
         "_http",
+        "mirrors",
     ]
     .iter()
     .map(|name| crate::sdk_module::registration_symbol(&format!("dart:{name}")))

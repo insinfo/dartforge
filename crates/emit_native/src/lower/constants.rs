@@ -726,7 +726,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let set = self.literal_is_set(e, elements);
             let ty = self.ctx.get_type(self.unit_id, e);
             self.lower_canonical_getter(value, root, false, |b| {
+                b.const_source_span = Some(ast.expr(e).span);
                 let source = b.lower_expr(ast, e);
+                b.const_source_span = None;
                 b.source_constant_collection(source, ty, set, ast.expr(e).span)
             });
             return;

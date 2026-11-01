@@ -183,6 +183,73 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
     }
 
+    /// The source of a `const {…}` map or set (the literal of the canonical
+    /// getter, `const_source_span`) with only plain elements: the keys (and
+    /// values) go into the data in order, without hashing
+    /// (`_HashVMBase._dfConstAdd`); `_ConstMap._fromSource` /
+    /// `_ConstSet._fromSource` adopt the data and index it lazily with the
+    /// canonical hash. As in the VM, where the constant is built by the front
+    /// end, building it never runs a `hashCode` or `==` the key class
+    /// overrides (`const/map_hashcode_override`); the front end already
+    /// rejected repeated keys.
+    fn fill_constant_source(
+        &mut self,
+        ast: &ast::Ast,
+        target: Operand,
+        typ: Collection,
+        elements: &[CollectionElement],
+        span: Span,
+        expected: &[TypeId],
+    ) -> bool {
+        if typ == Collection::List || self.const_source_span != Some(span) {
+            return false;
+        }
+        self.const_source_span = None;
+        let plain = elements.iter().all(|el| {
+            matches!(
+                (el, typ),
+                (
+                    CollectionElement::MapEntry {
+                        null_aware_key: false,
+                        null_aware_value: false,
+                        ..
+                    },
+                    Collection::Map,
+                ) | (CollectionElement::Expression(_), Collection::Set)
+            )
+        });
+        let add = self
+            .ctx
+            .sdk_class("_compact_hash", "_HashVMBase")
+            .and_then(|c| {
+                let sym = self.ctx.interner.lookup("_dfConstAdd")?;
+                let f = self.ctx.program.classes[c.0 as usize]
+                    .instance_members
+                    .get(&sym)?;
+                super::members::has_body(self.ctx, f.0 as usize).then_some(f.0 as usize)
+            });
+        let (true, Some(add)) = (plain, add) else {
+            return false;
+        };
+        for el in elements {
+            let parts: Vec<ExprId> = match el {
+                CollectionElement::MapEntry { key, value, .. } => vec![*key, *value],
+                CollectionElement::Expression(e) => vec![*e],
+                _ => unreachable!("checked above"),
+            };
+            for (index, e) in parts.into_iter().enumerate() {
+                let x = self.lower_literal_element(ast, e, expected.get(index).copied());
+                if self.is_terminated() {
+                    return true;
+                }
+                let x = self.coerce(x, Type::Ref);
+                let args = self.match_args(add, &[(None, x)]);
+                self.call_direct(add, Some(target.clone()), args);
+            }
+        }
+        true
+    }
+
     /// A collection literal with control elements (or a set literal).
     pub fn lower_collection_literal(
         &mut self,
@@ -193,6 +260,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         expected: &[TypeId],
     ) -> Operand {
         let target = self.empty_collection(typ);
+        if self.fill_constant_source(ast, target.clone(), typ, elements, span, expected) {
+            return target;
+        }
         if self.fill_from_table(ast, target.clone(), typ, elements, span) {
             return target;
         }

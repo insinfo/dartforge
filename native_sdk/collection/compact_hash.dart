@@ -213,6 +213,26 @@ abstract class _HashVMBase implements _HashAbstractBase {
   int _usedData = 0;
 
   int _deletedKeys = 0;
+
+  // DartForge: an element (a key or a value) of the source of a `const {…}`
+  // (`lower/literals.rs`, `fill_constant_source`), appended to the data
+  // without hashing: `_ConstMap._fromSource`/`_ConstSet._fromSource` adopt the
+  // data and index it lazily with the canonical hash. The VM builds the
+  // constant in the front end and never runs a `hashCode` the key class
+  // overrides (`const/map_hashcode_override`).
+  @pragma("vm:entry-point")
+  void _dfConstAdd(Object? element) {
+    final List<Object?> data = _data;
+    if (_usedData == data.length) {
+      final grown = new List<Object?>.filled(
+          data.length < 4 ? 8 : data.length * 2, null);
+      for (int i = 0; i < _usedData; i++) {
+        grown[i] = data[i];
+      }
+      _data = grown;
+    }
+    _data[_usedData++] = element;
+  }
 }
 
 // Base class for immutable VM-internal classes.

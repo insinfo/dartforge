@@ -1931,8 +1931,10 @@ fn field_symbol(ctx: &Context, vid: VariableId) -> String {
 /// with a patch or a native).
 pub(super) fn implemented(ctx: &Context, fid: usize) -> bool {
     let f = &ctx.program.functions[fid];
-    if f.variable.is_some() {
-        return !f.abstract_;
+    if let Some(v) = f.variable {
+        // An `external` field nothing implements answers like an absent
+        // member: the dispatch falls into `noSuchMethod`.
+        return !f.abstract_ && !super::members::external_without_implementation(ctx, v);
     }
     if f.external {
         return true;

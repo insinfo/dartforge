@@ -66,7 +66,8 @@ class _AsyncAwaitCompleter<T> implements Completer<T> {
     // it after, because `then` on an already completed future schedules its
     // own microtask (scratchpad verify-http-async/order.dart, corpus 57).
     // `isSync` keeps deciding `completeError`, where the VM also differs
-    // before and after the first suspension (`_handleException`).
+    // before and after the first `await` (`_handleException`: the
+    // activation has a `_SuspendState` from its first `await` on).
     if (value is Future) {
       _future._asyncCompleteUnchecked(value);
     } else {
@@ -96,6 +97,12 @@ class _AsyncAwaitCompleter<T> implements Completer<T> {
 
   @pragma("dartforge:hidden-frame")
   void _await(Object? object, @pragma('vm:awaiter-link') _WrappedAsyncBody bodyFunction) {
+    // From the first `await` on, an uncaught exception completes the future
+    // at once, as the VM's `_handleException` does once the activation has a
+    // `_SuspendState`: one that leaves the `then` of a user-defined future
+    // before the call returns reaches the zone synchronously when nothing
+    // listens yet (`await_user_defined_future_soundness`).
+    isSync = true;
     final thenCallback =
         _thenCallback ??= (result) => bodyFunction(_SUCCESS, result);
     final errorCallback =
@@ -128,6 +135,7 @@ class _AsyncAwaitCompleter<T> implements Completer<T> {
   /// check of `_awaitWithTypeCheck`).
   @pragma("dartforge:hidden-frame")
   void _awaitValue(Object? object, @pragma('vm:awaiter-link') _WrappedAsyncBody bodyFunction) {
+    isSync = true;
     final thenCallback =
         _thenCallback ??= (result) => bodyFunction(_SUCCESS, result);
     _errorCallback ??= (Object error, StackTrace stackTrace) {

@@ -210,6 +210,14 @@ pub fn registration_symbol(uri: &str) -> String {
     format!("df.register.{}", crate::context::escape_str(uri))
 }
 
+/// The function of the SDK library whose record is `record` that registers
+/// the names, identity keys and instantiation entries of its tear-offs
+/// (`llvm/selectors.rs`, `emit_registration`): the program's startup calls it
+/// after the records, so the record itself stays nominal metadata.
+pub fn tearoff_registration_symbol(record: &str) -> String {
+    format!("{record}.tearoffs")
+}
+
 /// The registration functions of the [`SOURCE_LIBRARIES`], in order.
 pub fn sdk_records() -> Vec<String> {
     source_libraries()

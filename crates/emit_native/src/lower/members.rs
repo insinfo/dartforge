@@ -156,6 +156,37 @@ pub fn variable_type(ctx: &Context, vid: VariableId) -> TypeId {
         .unwrap_or(ctx.core.dynamic_)
 }
 
+/// An `external` variable of the program that nothing implements: not an
+/// FFI field (of a `Struct`/`Union`, or `@Native`), not interop. As in the
+/// VM, its accessors throw `NoSuchMethodError` (`external_fields`).
+pub fn external_without_implementation(ctx: &Context, vid: VariableId) -> bool {
+    let v = &ctx.program.variables[vid.0 as usize];
+    if !v.external || ctx.program.library(v.library).is_sdk {
+        return false;
+    }
+    if let Some(c) = v.class
+        && super::ffi::composites(ctx).is_some_and(|k| k.classes.contains_key(&c))
+    {
+        return false;
+    }
+    let annotated = match v.node {
+        dartforge_elements::model::VariableRef::TopLevel { unit, decl, .. } => {
+            !ctx.program.unit(unit).ast.decls[decl.0 as usize]
+                .metadata
+                .is_empty()
+        }
+        _ => false,
+    };
+    if annotated {
+        // `@Native`/`@JS` top-level variables have their own lowering.
+        return false;
+    }
+    [v.getter, v.setter]
+        .into_iter()
+        .flatten()
+        .all(|f| super::js_members::interop_member(ctx, f.0 as usize).is_none())
+}
+
 /// `sub` is `sup` or a nominal subtype of it (superclass, mixin or interface).
 pub fn subclass_of(ctx: &Context, sub: ClassId, sup: ClassId) -> bool {
     if sub == sup {
@@ -532,6 +563,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Stores an instance field; `is_ref` by the representation (E1).
     pub fn store_field(&mut self, obj: Operand, vid: VariableId, val: Operand, span: Span) {
         if self.store_ffi_field(obj.clone(), vid, val.clone()) {
+            return;
+        }
+        if external_without_implementation(self.ctx, vid) {
+            let name = self
+                .ctx
+                .symbol_name(self.ctx.program.variables[vid.0 as usize].name);
+            self.throw_nsm(&format!("{name}="));
             return;
         }
         let var = &self.ctx.program.variables[vid.0 as usize];
@@ -1053,6 +1091,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Field read; if `late` with an initializer, initializes on the first read.
     pub fn read_field_with_late(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
+        if external_without_implementation(self.ctx, vid) {
+            let name = self
+                .ctx
+                .symbol_name(self.ctx.program.variables[vid.0 as usize].name);
+            return self.throw_nsm(name);
+        }
         if let Some(r) = self.read_source_field(obj.clone(), vid) {
             return r;
         }
@@ -2782,6 +2826,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(v) = self.read_native_variable(vid, span) {
             return v;
         }
+        if external_without_implementation(self.ctx, vid) {
+            let name = self
+                .ctx
+                .symbol_name(self.ctx.program.variables[vid.0 as usize].name);
+            return self.throw_nsm(name);
+        }
         // Primitive `const`: the constant, without the getter (`primitive_const.rs`).
         if let Some(v) = self.read_primitive_const(vid) {
             return v;
@@ -2896,6 +2946,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // `@JS() external T name;`: the interop setter.
         if let Some(setter) = super::js_members::interop_variable_accessor(self.ctx, vid, true) {
             self.call_direct(setter, None, vec![val.clone()]);
+            return val;
+        }
+        if external_without_implementation(self.ctx, vid) {
+            let name = self
+                .ctx
+                .symbol_name(self.ctx.program.variables[vid.0 as usize].name);
+            self.throw_nsm(&format!("{name}="));
             return val;
         }
         if !self

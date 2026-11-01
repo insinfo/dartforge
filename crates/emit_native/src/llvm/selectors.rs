@@ -319,7 +319,12 @@ impl LlvmEmitter<'_> {
         }
         // The name of each function tear-off of the module, for the closure's
         // `toString` (`Module::tearoff_names`); an entry the pruning removed has
-        // no closure to describe.
+        // no closure to describe. An SDK library hands them over in a function
+        // of its own ([`crate::sdk_module::tearoff_registration_symbol`], called
+        // at startup after the records): its record keeps only nominal and
+        // textual metadata, the startup body the allocation inventory certifies
+        // (`actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup`).
+        let mut tearoffs = String::new();
         let defined: std::collections::HashSet<&str> =
             module.functions.iter().map(|f| f.symbol.as_str()).collect();
         for (symbol, (name, is_static)) in &module.tearoff_names {
@@ -328,7 +333,7 @@ impl LlvmEmitter<'_> {
             }
             let idx = self.string_const_index(name.as_bytes()).unwrap_or(0);
             writeln!(
-                body,
+                tearoffs,
                 "  call void @dartforge_register_tearoff(ptr @{}, ptr @.str.{idx}, i64 {}, i8 {})",
                 symbol,
                 name.len(),
@@ -339,7 +344,7 @@ impl LlvmEmitter<'_> {
             // has two codes: its identity is the symbol, or the selector for
             // an instance method (`tearoff_key`).
             writeln!(
-                body,
+                tearoffs,
                 "  call void @dartforge_register_tearoff_key(ptr @{}, i64 {})",
                 symbol,
                 selector_hash(&tearoff_key(symbol, *is_static))
@@ -349,11 +354,19 @@ impl LlvmEmitter<'_> {
         for symbol in &module.instantiation_entries {
             if defined.contains(symbol.as_str()) {
                 writeln!(
-                    body,
+                    tearoffs,
                     "  call void @dartforge_register_instantiation(ptr @{symbol})"
                 )
                 .unwrap();
             }
+        }
+        if module.sdk_library {
+            let symbol = crate::sdk_module::tearoff_registration_symbol(record);
+            writeln!(self.out, "define void @{symbol}() {{\nb0:").unwrap();
+            self.out.push_str(&tearoffs);
+            self.out.push_str("  ret void\n}\n\n");
+        } else {
+            body.push_str(&tearoffs);
         }
         for (sub, sup) in &module.subtyping_edges {
             writeln!(
