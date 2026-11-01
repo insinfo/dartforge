@@ -287,7 +287,7 @@ fn a_wave_of_disk_changes_is_analyzed_once() {
         .receive(json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
     let mut outputs = p.server.pump();
     outputs.extend(p.server.await_diagnostics(LIMIT));
-    let before = p.server.typed_analyzed_files();
+    let before = p.server.typed_analyses();
     for (i, g) in generated.iter().enumerate() {
         p.write(
             g,
@@ -299,9 +299,11 @@ fn a_wave_of_disk_changes_is_analyzed_once() {
             }}),
         );
         outputs.extend(p.server.pump());
+        // The editor reports a wave over some time, not at once.
+        std::thread::sleep(Duration::from_millis(40));
     }
     outputs.extend(p.server.await_diagnostics(LIMIT));
-    let analyzed = p.server.typed_analyzed_files() - before;
+    let analyses = p.server.typed_analyses() - before;
     let mut shown = Shown::new();
     record(&p, &outputs, &mut shown);
     for g in &generated {
@@ -310,6 +312,6 @@ fn a_wave_of_disk_changes_is_analyzed_once() {
             "{g} shows the new error: {shown:?}"
         );
     }
-    // The twelve files once, not one analysis per notification.
-    assert!(analyzed <= generated.len() + 2, "{analyzed} files analyzed");
+    // One analysis for the wave, not one per notification.
+    assert!(analyses <= 2, "{analyses} analyses for the wave");
 }

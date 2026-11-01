@@ -807,6 +807,11 @@ impl<A: Analyzer> Server<A> {
     /// Files the typed analyses have analyzed so far (measurement and tests: an
     /// edit that keeps the API reanalyzes only its library, `docs/LSP.md`,
     /// "Edição incremental").
+    /// Typed analyses started so far (tests and measurement).
+    pub fn typed_analyses(&self) -> usize {
+        self.typed.as_ref().map_or(0, |t| t.analyses())
+    }
+
     pub fn typed_analyzed_files(&self) -> usize {
         self.typed.as_ref().map_or(0, |t| t.analyzed_files())
     }

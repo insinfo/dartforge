@@ -152,6 +152,8 @@ struct State {
     stale: BTreeSet<PathBuf>,
     /// Files given to the analyses so far (measurement and tests).
     analyzed_files: usize,
+    /// Analyses started so far (measurement and tests).
+    analyses: usize,
     /// When the last file changed on the disk, while no editor change came
     /// after it: a wave of generated files (`build_runner`, `webdev`) arrives
     /// as many notifications, and one analysis follows the wave
@@ -161,7 +163,15 @@ struct State {
 
 /// How long the disk must stay quiet after a change, without an editor change
 /// in between, before the analysis of what changed starts.
+/// `DARTFORGE_LSP_DISK_QUIET_MS` changes it (`0`: no wait, to measure).
 const DISK_QUIET: Duration = Duration::from_millis(250);
+
+fn disk_quiet() -> Duration {
+    std::env::var("DARTFORGE_LSP_DISK_QUIET_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map_or(DISK_QUIET, Duration::from_millis)
+}
 
 type Shared = Arc<(Mutex<State>, Condvar)>;
 
@@ -364,6 +374,10 @@ impl Typed {
     }
 
     /// Files given to the analyses so far (a cancelled analysis counts too).
+    pub(crate) fn analyses(&self) -> usize {
+        self.state().analyses
+    }
+
     pub(crate) fn analyzed_files(&self) -> usize {
         self.state().analyzed_files
     }
@@ -464,7 +478,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             }
             // A wave of files changing on the disk: one analysis after it.
             if let Some(at) = e.disk_at {
-                let left = DISK_QUIET.saturating_sub(at.elapsed());
+                let left = disk_quiet().saturating_sub(at.elapsed());
                 if !left.is_zero() {
                     let _ = sinal
                         .wait_timeout(e, left)
@@ -607,7 +621,11 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             // Nothing to analyze: every file to publish keeps what it had.
             Some(Vec::new())
         } else {
-            block().analyzed_files += job.open.len() + job.others.len();
+            {
+                let mut e = block();
+                e.analyzed_files += job.open.len() + job.others.len();
+                e.analyses += 1;
+            }
             // The edited documents first (Dart's priority files): when the batch
             // also has their dependents, their own library is analyzed and
             // published before the rest.
