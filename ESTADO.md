@@ -11,7 +11,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | Ferramenta | Velocidade | Tamanho e memória | Data |
 |---|---|---|---|
 | **JS dev** × DDC/webdev | compilar 1 arquivo: **7,6× mais rápido** (19 × 150 ms). Início do zero, sem `build_runner`: **29,6 × 212,5 s** (`limitless_ui`) e **56,1 × 383,3 s** (`new_sali`). Edição até a página, `limitless_ui`: template **3,3 × 7,6 s**, corpo **2,4 × 8,1 s**, API **8,8 × 51,8 s** (máquina carregada: valem as razões). Código gerado ≈ igual ao DDC (`closures` 1,65×, 13/10) | memória **0,5 × 4,9 GB**; JS em gzip **4,4 × 5,4 MB** (bruto 56 × 49 MB) | 31/10 noite |
-| **JS produção** × `dart2js -O4` | ganha em `Set<int>` (9,7 × 15,3 ms), `list_sort` (0,84×) e `collections/map` (0,79×); empata em `collatz` (139 × 136 ms), `list_methods` (37 × 38 ms), `map_iterate` e `closures`; **perde** em `jsonEncode` 1,1–1,4×, `async_await` 1,5× (agora comparado), `map_str_int` 1,20×. Compila **2–2,8× mais rápido** (-O2) | projetos grandes **0,90–0,94×** bruto, **0,96×** gzip; programas pequenos 0,96× bruto, mas **1,003× no gzip (perde)** | 31/10 noite |
+| **JS produção** × `dart2js -O4` | ganha em `collections/set_str` (0,54×), `map` (0,79×), `list_sort` (0,85×) e `map_str_int` (13,4 × 15,6 ms); empata em `collatz` (150 × 150), `Set<int>` (16 × 15), `list_methods` (37 × 36), `map_iterate` e `closures`; **perde** em `jsonEncode` 1,03–1,2× e `async_await` 1,2–1,4×. Compila **2–2,8× mais rápido** (-O2) | projetos grandes **0,90–0,94×** bruto, **0,96×** gzip; 16 programas pequenos **0,954×** bruto, mas **1,0009× no gzip (perde por 212 bytes)** | 31/10 noite |
 | **LSP** × servidor de análise | por tecla em projeto grande: 175–383 ms. *Hover*/*completion* ~0,9 s no `new_sali/frontend`. O servidor oficial **não foi medido** nos mesmos projetos. Pedido a pedido (13/10): *references* 2,5 × 3,1 ms, *completion* 8,8 × 6,0 ms | **27–664 MiB × 737–1.402 MiB** (`new_sali`) | 31/10 e 13/10 |
 | **`analyze`** × `dart analyze` | `new_sali/backend`: ~5 s × 21,7 s frio (2,6 s com cache); `format`: **0,42 × 1,55 s** | — | 13–14/10 |
 | **`test`** / **`pub`** × `dart test` / `dart pub` | **não medido** | — | — |
@@ -36,12 +36,77 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | Wasm: tamanho (ainda 17–27×) e velocidade (coletor, `List<bool>.filled` não desvirtualizado) | rodada de 31/10 concluída; a próxima fica para quando a máquina estiver mais livre (a suíte wasm completa também precisa rodar) |
 | `analyze`: falsos positivos do verificador de tipos (107 → 20) | concluído em 31/10; os 12 do *parser* (`augment`) ficam para o *parser* |
 | JS dev: subir de um checkout limpo sem `build_runner`; edição de template | concluído em 31/10 (29,6 × 212,5 s; template 3,3 × 7,6 s) |
-| JS produção: `jsonEncode`, `async_await` e `map_str_int` no máximo iguais ao `dart2js -O4`; gzip dos programas pequenos abaixo dele (`collatz`, `Set<int>` e `list_methods` já resolvidos) | agente JS produção (desde 31/10, 16h) |
+| JS produção: `jsonEncode` e `async_await` no máximo iguais ao `dart2js -O4`; gzip dos programas pequenos abaixo dele (`map_str_int` resolvido em 31/10, noite; faltam o caminho do `noSuchMethod` do `toJson` e o *pretty printer* do JSON, cortes de mundo) | agente JS produção (desde 31/10, 16h) |
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
 | Backend nativo (AOT e wasm): as 87 falhas da suíte `tests/language` | agente backend nativo |
 | AOT nativo: tempo de compilação (6× o `dart compile exe`) e tamanho de programa grande (1,4×) | agente AOT (desde 31/10, 17h) |
 | ARC real: 3× os ciclos do tracing no HTTP (205 × 66 mil por pedido no `dart:io`; Swift cru 26 mil) | agente ARC real (desde 31/10, noite) |
 | LSP: medir o servidor oficial nos mesmos projetos e reduzir *hover*/*completion* | agente LSP |
+
+## 31/10/2026, noite (2): JS de produção — `List.filled` do JSON, `join`, resto por divisor não literal e o `[]=` dos tipos de extensão
+
+Detalhes em `docs/JS-PRODUCAO-VELOCIDADE.md` §13. Sobre o `ecbaceb7` (as
+formas da §12, do outro agente de JS, integradas antes desta rodada).
+Validado localmente no macOS: corpus JS 277/277 em desenvolvimento e em
+`-O2`, 260/260 em `-O3` (no binário de antes de o resto deixar os divisores
+literais de fora, o que só restringe a forma), 256/256 em `-O4` (os
+excluídos de `production_levels.tsv`); `production_forms` contra a VM em
+`-O1` a `-O4` com as chaves ligadas e desligadas; testes de `emit_js`,
+`emit_js_production` e `world` com os ignorados (190, 0 falhas); `clippy -D
+warnings`; `rustfmt`. Máquina **muito** carregada (carga 37–236, seis
+agentes): os tempos são medianas de execuções alternadas na mesma sessão,
+com o `uptime` anotado no documento.
+
+**Causas achadas** (perfis `node --cpu-prof` do `-O4` e edições à mão no
+arquivo gerado, uma por vez):
+- `jsonEncode`: o `List.filled` de cada objeto JSON custava 12,5% porque o
+  `JSArray.of` grava a rti (propriedade de símbolo) **antes** do
+  `Array.prototype.fill`, e o `fill` do V8 sai do caminho rápido num
+  *array* cujo mapa mudou (à mão: 40,9 → 32,4 µs/op só trocando a ordem);
+- `list_methods`: `JSArray.join` passava por um `List<String>.filled` com a
+  checagem de imutabilidade a cada escrita;
+- `map_str_int`: `keys[(i * 7) % keys.length]`, o resto por divisor não
+  literal ia pelo símbolo do `JSNumber`.
+
+**Formas novas** (só produção, cada uma com chave `=0`):
+`DARTFORGE_JSPROD_SHORT_FILL` (a da §12) passa a gravar a rti depois do
+`fill` nas listas longas; `DARTFORGE_JSPROD_ARRAY_JOIN`;
+`DARTFORGE_JSPROD_NONNEGATIVE_REMAINDER` (`x % y` com `x` nunca negativo
+pelo passe da §12 e `y` um `int` não literal é o `%` do JavaScript).
+
+**Defeito do mundo corrigido:** o `operator []=` de um tipo de extensão
+usado só por escrita composta (`k[2] += 10`) não era mantido (o nó resolve
+para a leitura); vivia por acaso enquanto algum outro `[]=` do programa
+mantinha o seletor. O `join` novo tirou o último do SDK no corpus 231.
+
+**Resultado** (Node, `-O4`, ms, `main` × nosso × `dart2js -O4`):
+`map_str_int` 15,4 × **13,4** × 15,6; `list_methods` (programa de um
+*kernel* só) 36,7–39,0 × 36,2 do `dart2js`; `collatz` 148,8 × 149,9 ×
+149,9; `set_int` 15,0 × 16,2 × 15,4 (as mesmas células); `jsonEncode`
+1,03–1,14× do `dart2js` (ruído contra o `main`). Tamanho: 16 programas de
+`bench/` 701.603 → 697.384 (gz 240.699 → 239.191), **0,954× bruto e 1,0009×
+gzip** do `dart2js -O4` (antes 1,007×); `limitless_ui` 3.350.093 →
+3.350.051 (gz 947.503 → 947.491), `new_sali` 7.147.071 → 7.147.069 (gz
+1.939.642 → 1.939.532): não crescem.
+
+**Medidos e descartados:** o `IdentitySet` sobre um `IdentityMap`
+(−1.084 bytes no `limitless_ui`, mas `set_int` 1,2× e `set_str` 2,3× mais
+lentos que as células); `dart.str` de número sem o `toString` de extensão e
+`JSArray.addAll` por índice (no ruído, +149 bytes no `limitless_ui`); a
+receita do `is Map` em variável e `Array.isArray` antes do `is List` no
+`writeJsonValue`; uma análise de locais nunca negativos mais geral
+(*closures*, `switch`, `try`, resolução conferida), escrita em paralelo à
+da §12 — ficou a da §12.
+
+**O que continua:** `async_await` 1,2–1,4× (rti por chamada `async`); o
+`_JsonStringifier` (o `dart2js` desvirtualiza `writeString` para
+`_contents += s`); o gzip dos programas pequenos, 0,09% acima: o caminho
+do `noSuchMethod` (`InvocationImpl`, `NoSuchMethodError`, `_checkAndCall`,
+símbolos) que o `toJson` dinâmico do `_defaultToEncodable` mantém em todo
+programa com `jsonEncode` (o `dart2js` escreve `object.toJson$0()` e deixa
+o `TypeError` do JavaScript virar o erro) e o *pretty printer* do JSON
+(`_JsonPrettyPrintMixin`), vivo mesmo sem `JsonEncoder.withIndent` — os
+dois só saem com prova no mundo.
 
 ## 31/10/2026: `dartforge pub` com o solucionador PubGrub do Pub e os subcomandos do dia a dia; relator `expanded` do `dart test`
 

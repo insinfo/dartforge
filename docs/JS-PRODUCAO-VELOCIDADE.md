@@ -973,3 +973,158 @@ gzip dos programas pequenos: o `IdentitySet` em células acrescenta ~1 KB
 bruto (~0,2 KB gzip) a `collections` e `collection_operations`; os 16
 programas (com o `async_await`) ficam em 0,956× bruto e 1,003× gzip do
 `dart2js -O4`, os 15 de antes em 1,011× gzip.
+
+## 13. Sexta rodada: o `List.filled` do JSON, o `join`, o resto por divisor não literal e o `[]=` dos tipos de extensão
+
+Rodada de 2026-10-31, noite (macOS, Node 24.21), sobre o `ecbaceb7` (§12).
+Mesmo método (`scripts/compare-js-production.py`). A máquina esteve
+**muito** carregada (carga 70–236, outros agentes compilando): os absolutos
+saem inflados e uma linha isolada varia até ~1,5×; só as razões das mesmas
+execuções alternadas contam.
+
+### 13.1 Onde era mais lento
+
+Perfis (`node --cpu-prof` no arquivo `-O4` minificado; a posição dá o
+trecho) e edições à mão no arquivo gerado, uma causa por vez:
+
+| *kernel* | causa | prova |
+| --- | --- | --- |
+| `json_encode/*_json` | o `List.filled` do `writeMap` (um por objeto JSON) era 12,5% do tempo. Não é a avaliação da rti nem o laço: é a **ordem**. O `JSArray.of` grava a rti (uma propriedade de símbolo) no *array* novo e só depois vem o `Array.prototype.fill`; com o mapa do *array* já trocado, o `fill` do V8 sai do caminho rápido | à mão: sem gravar a rti, 40,9 → 31,3 µs/op; gravando-a **depois** do `fill`, 32,4; trocando o `fill` por laço (o que a §12 fez para `length < 64`), 33,7; sem avaliar a rti mas gravando-a antes, 38,3 (nada) |
+| `collection_operations/list_methods` | 53% em `JSArray.join` (um `List<String>.filled` com a checagem de imutabilidade em cada escrita, e o `dart.str` de cada número) e 25% em `JSArray.addAll` (`for…of` pelo iterador do *array*), no binário anterior ao `==` de primitivo da §12 | perfil |
+| `collection_operations/map_str_int` | `keys[(i * 7) % keys.length]`: o divisor não é literal, e o `%` ia pelo símbolo do `JSNumber` (`e[re](…)`) | perfil |
+| tamanho dos programas com `Set<int>` | o `IdentitySet` em células tem tabelas, células e iterador próprios: +0,75–1,0 KB em cada programa que usa `Set<int>`/`Set<String>` (`limitless_ui` +957 bytes) | build com e sem a chave |
+
+### 13.2 O que mudou
+
+Todas as formas valem só na produção, nos quatro níveis; cada uma tem a
+sua chave (`=0` desliga). Programa de teste: `production_forms.dart`
+(seções novas `nonnegativeMore`, `identitySetsMore`, `stringsAndLists`; esta também confere `join`, `addAll` e `dart.str` de números),
+contra a VM em `-O1` a `-O4`, com as chaves ligadas e desligadas.
+
+| mudança | onde | chave |
+| --- | --- | --- |
+| `List.filled` longo (64 elementos ou mais) preenche com `fill` **antes** de gravar a rti; o curto continua no laço da §12. A chave é a mesma da §12 | remendo de `core_patch.dart` | `DARTFORGE_JSPROD_SHORT_FILL` |
+| `JSArray.join` converte para um *array* JavaScript próprio, que não escapa, em vez de um `List<String>.filled` com checagem de imutabilidade por escrita | remendo de `js_array.dart` | `DARTFORGE_JSPROD_ARRAY_JOIN` |
+| `x % y` com `x` nunca negativo (o passe da §12) e `y` um `int` que não é literal é o `%` do JavaScript: o resultado tem o sinal de `x`, as correções do `JSNumber.%` nunca valem (`y == 0` e os infinitos dão o mesmo `NaN` ou `x`). Um divisor literal mantém as formas que já tinha (o `%` do SDK para `0` e os negativos, que `positive_counter_modulo` exige; a §12 para os positivos) | `emit_js/src/expr.rs` | `DARTFORGE_JSPROD_NONNEGATIVE_REMAINDER` |
+
+Defeito achado e corrigido no caminho (sem chave: é correção do mundo): o mundo fechado não mantinha o
+`operator []=` de um **tipo de extensão** usado só por escrita composta
+(`k[2] += 10`): o nó resolve para a leitura (`[]`), e a escrita vivia só se
+algum outro `[]=` do programa mantivesse o seletor. O `ARRAY_JOIN` tirou o
+último `[]=` do SDK no `231_tipos_de_extensao_escrita_composta` e o
+programa quebrou (`Contador.#[]= is not a function`). Agora
+`write_to_target` (`world/src/impact.rs`) usa o `[]=` do tipo de extensão
+(ou de um tipo de extensão que ele implementa; o de uma classe
+implementada continua pelo seletor).
+
+Medidos e descartados:
+
+* `Array.isArray` antes do teste `is List` e a receita do `is Map` como
+  variável no `writeJsonValue` (à mão): dentro do ruído.
+* `List.of` (o `toList` do `where`/`map`) gravando a rti depois dos `push`:
+  nada (o `push` não sofre como o `fill`).
+* O `IdentitySet` sobre um `IdentityMap` (as chaves do mapa em células, que
+  quase todo programa já tem; `add`/`remove` comparam o `_length` do mapa
+  antes e depois): o conjunto custa ~120 bytes acima do `Set` do
+  JavaScript, contra ~750 das células próprias da §12 (`limitless_ui`
+  −1.084 bytes, gz −327, contra o `main`), mas `set_int` ficou 1,2× **mais
+  lento** que as células (17,8 contra 15,3 ms; `dart2js` 14,5) e `set_str`
+  2,3× (29,6 contra 12,9: as *strings* montadas em tempo de execução vão
+  para o objeto sem protótipo do mapa, a mesma causa da §12.2). Ficaram as
+  células. Também as células compactas (uma tabela por elemento,
+  `instanceof Map` em cada acesso): +587 bytes, ainda grande.
+* `dart.str` de um número pelo corpo do `JSNumber.toString` (sem ler o
+  `toString` de extensão) e `JSArray.addAll` de outro *array* por índice
+  (como o `_addAllFromArray` do `dart2js`, com `l.addAll(l)` lançando
+  `ConcurrentModificationError`): no `list_methods` de um *kernel* só, 5
+  execuções alternadas, 39,0 (as duas) × 37,0 (sem o `str`) × 36,7 (sem o
+  `addAll`) ms — ruído —, e juntas custavam +149 bytes no `limitless_ui`.
+  Fora.
+* Gravar a rti depois do `fill` em todo tamanho, no lugar do laço curto da
+  §12: dentro do ruído contra o laço no `json_encode` (33,1 contra 31,2
+  µs/op na mesma sessão carregada); ficou o laço para os curtos e a ordem
+  nova para os longos.
+* A análise de locais nunca negativos mais geral (resolução conferida contra
+  a `Resolved::Local`, *closures*, `switch` de constantes e `try`) chegou a
+  ser escrita nesta rodada, em paralelo à da §12; ficou a da §12, mais o
+  consumidor de `%` acima.
+
+### 13.3 Resultado
+
+Node, `-O4`, ms (µs/op no `json_encode`), mediana de 5 execuções
+alternadas `main` × nosso × `dart2js -O4`, numa sessão só (`uptime`: carga
+37,6 no início e 69,6 no fim). `main` é o `3a00b3fa` (o `ecbaceb7` da §12
+mais commits de documentação e do desenvolvimento), compilado à parte;
+“nosso” é esta rodada, ainda com o `dart.str` e o `addAll` que saíram
+depois (no `list_methods` de um *kernel* só eles ficaram no ruído):
+
+| *kernel* | `main` | nosso | `dart2js -O4` | nosso/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| `collection_operations/map_str_int` | 15,44 | **13,36** | 15,62 | 0,86 |
+| `collection_operations/list_methods` | 47,36 | **37,58** | 47,31 | 0,79 |
+| `numeric/collatz` | 148,84 | 149,88 | 149,87 | 1,00 |
+| `collection_operations/set_int` | 14,95 | 16,22 | 15,43 | 1,05 |
+| `collections/set_str` | 15,10 | 15,00 | 27,55 | 0,54 |
+| `collections/map` | 41,86 | 38,07 | 47,99 | 0,79 |
+| `collections/list_sort` | 198,0 | 199,0 | 233,7 | 0,85 |
+| `json_encode/ascii_json` | 31,91 | 33,28 | 29,08 | 1,14 |
+| `json_encode/latin1_json` | 32,49 | 30,35 | 28,86 | 1,05 |
+| `json_encode/mixed_utf16_json` | 57,26 | 56,72 | 54,94 | 1,03 |
+| `json/encode_small` | 29,85 | 26,98 | 24,59 | 1,10 |
+| `json/encode_medium` | 43,70 | 47,87 | 38,90 | 1,23 |
+| `json/encode_large` | 113,8 | 109,0 | 121,9 | 0,89 |
+
+O `list_methods` do `dart2js` desta sessão (47,3) saiu alto; no programa
+de um *kernel* só (`lm.dart`, 5 execuções alternadas, carga 58–70): nosso
+36,7–39,0 contra 36,2 do `dart2js` (1,01–1,08×). As demais linhas do
+`main` e do nosso diferem dentro do ruído (o `set_int` com as mesmas
+células nos dois). O `map_str_int` é o resto por `keys.length`.
+
+### 13.4 Tamanho
+
+`-O4`, `gzip -9`:
+
+| alvo | `main` | nosso | `dart2js -O4` | nosso/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| 16 programas de `bench/` (com o `async_await`) | 701.603 (gz 240.699) | **697.384 (gz 239.191)** | 730.866 (gz 238.979) | 0,954× (gz **1,0009×**) |
+| os 15 de antes | 658.534 (gz 225.452) | 654.804 (gz 224.129) | 679.062 (gz 222.025) | 0,964× (gz 1,0095×) |
+| `limitless_ui/example` | 3.350.093 (gz 947.503) | **3.350.051 (gz 947.491)** | 3.704.125 (gz 982.814) | 0,904× (gz 0,964×) |
+| `new_sali/frontend` | 7.147.071 (gz 1.939.642) | **7.147.069 (gz 1.939.532)** | 7.614.136 (gz 2.018.523) | 0,939× (gz 0,961×) |
+
+(`dart2js -O4` dos projetos: os números da §21.7 da especificação de
+tamanho.) Nos programas pequenos a rodada tira 0,6% do bruto e do gzip
+(o `join` sem `List<String>.filled` e os `>>>`/`%` mais curtos), mas o
+gzip dos 16 continua 0,09% acima do `dart2js` (212 bytes) e o dos 15, 1%.
+Nos projetos a rodada fica neutra: −42 e −2 bytes (gz −12 e −110); em
+`-O2`, `limitless_ui` 3.369.413 → 3.369.371 (gz 951.082 → 951.071). O
+crescimento dos projetos desde a §11 (`limitless_ui` 3.343.296 →
+3.350.093) é da §12 (as células do `IdentitySet`, as receitas únicas no
+prelúdio).
+
+### 13.5 Validação e o que continua
+
+Corpus JS (`dartforge-differential --production`, `--jobs 2`): 277/277 em
+desenvolvimento e em `-O2`, 260/260 em `-O3` (no binário de antes de o
+resto deixar os divisores literais de fora, o que só restringe a forma),
+256/256 em `-O4`; `production_forms` contra a VM em `-O1` a `-O4` com as
+chaves ligadas e desligadas; testes de `emit_js`, `emit_js_production` e
+`world` com os ignorados (190, 0 falhas; o `positive_counter_modulo` pegou
+a primeira versão do resto, que valia também para os divisores literais
+`0` e negativos, onde ele exige o `%` do SDK); `clippy -D warnings`; `rustfmt`. O texto do desenvolvimento não
+muda (as formas estão atrás de `ctx.production()` ou nos remendos do SDK de
+produção; a correção do mundo vale só para a produção, que é quem poda).
+
+Continua:
+
+* **`async_await` (1,2–1,4×)**: a rti do *completer* e do `_Future` por
+  chamada `async` (o perfil tem ~18% em buscas de `_eval`).
+* **JSON a codificar (1,03–1,2×)**: o `writeString` pelo `StringSink`
+  (o `dart2js` escreve `t1._contents += s`) e a *closure* do `forEach` de
+  cada `writeMap`.
+* **gzip dos programas pequenos (1,0009×)**: dois cortes de mundo, nenhum
+  feito: o `toJson` dinâmico do `_defaultToEncodable` mantém o caminho do
+  `noSuchMethod` (`InvocationImpl`, `NoSuchMethodError`, `_checkAndCall`,
+  `callMethod`, os símbolos; ~10 KB sem minificar) em todo programa com
+  `jsonEncode`, e o `_JsonPrettyPrintMixin`/`_JsonStringStringifierPretty`
+  ficam vivos sem nenhum `JsonEncoder.withIndent` (o campo `indent` é
+  sempre `null`, mas o mundo só prova parâmetros nulos fora do SDK).

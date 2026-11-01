@@ -1004,14 +1004,27 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
         "  if (JS<bool>('!', '# == null', x)) return JS<bool>('!', '# == null', y);\n  if (JS<bool>('!', 'typeof # == \"number\" || typeof # == \"string\" || typeof # == \"boolean\"', x, x, x)) {\n    return JS<bool>('!', '# === #', x, y);\n  }\n  var probe = JS('', '#[#]', x, extensionSymbol('_equals'));\n",
     ),
     // `List.filled` of a short list (the `writeMap` of every JSON object
-    // allocates one) fills it with a JavaScript loop: the `fill` builtin
-    // costs more than the writes below a few dozen elements
-    // (`json_encode/ascii_json` 17% faster). Long lists keep `fill`.
+    // allocates one) fills it with a JavaScript loop, and a long one with
+    // `Array.prototype.fill` before the array's rti is set: `JSArray.of`
+    // writes the rti as a symbol property, and V8's `fill` leaves its fast
+    // path for an array whose map is no longer the initial one (by hand,
+    // `json_encode/ascii_json` 40,9 → 32,4 µs/op with the rti after `fill`,
+    // 33,7 with the loop; `docs/JS-PRODUCAO-VELOCIDADE.md` §12 and §13).
     (
         Some("DARTFORGE_JSPROD_SHORT_FILL"),
         "_internal/js_dev_runtime/patch/core_patch.dart",
         "    var list = JSArray<E>.of(JS('', 'new Array(#)', length));\n    JS('', '#.fill(#)', list, fill);\n",
-        "    var list = JSArray<E>.of(JS('', 'new Array(#)', length));\n    if (length < 64) {\n      for (var i = 0; i < length; i++) {\n        JS('', '#[#] = #', list, i, fill);\n      }\n    } else {\n      JS('', '#.fill(#)', list, fill);\n    }\n",
+        "    var array = JS('', 'new Array(#)', length);\n    if (length < 64) {\n      for (var i = 0; i < length; i++) {\n        JS('', '#[#] = #', array, i, fill);\n      }\n    } else {\n      JS('', '#.fill(#)', array, fill);\n    }\n    var list = JSArray<E>.of(array);\n",
+    ),
+    // `JSArray.join` converted each element into a `List<String>.filled`
+    // (the rti of `JSArray<String>` evaluated, and the immutability check of
+    // each indexed set): the strings go to a JavaScript array of their own,
+    // which never escapes, with the same reads and conversions.
+    (
+        Some("DARTFORGE_JSPROD_ARRAY_JOIN"),
+        "_internal/js_dev_runtime/private/js_array.dart",
+        "    var list = List<String>.filled(length, \"\");\n    for (int i = 0; i < length; i++) {\n      list[i] = \"${this[i]}\";\n    }\n",
+        "    var list = JS('', 'new Array(#)', length);\n    for (int i = 0; i < length; i++) {\n      JS('', '#[#] = #', list, i, \"${this[i]}\");\n    }\n",
     ),
     // `IdentitySet` (every `Set<int>`/`Set<String>` and the `identity` sets)
     // keeps its elements in cells linked in insertion order, found through

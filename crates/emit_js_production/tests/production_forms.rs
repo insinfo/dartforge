@@ -4,10 +4,11 @@
 //! `identical(x, literal)` without the runtime, and the native sort of lists
 //! of numbers or strings; and those of §12: `IdentitySet` in cells, `==`
 //! of a primitive by identity, the shift and remainder of a never-negative
-//! local, the callbacks of `await` made once per invocation and the short
-//! `List.filled` by a loop. The
-//! program gives
-//! the VM's answers at each level, with the switches and without them.
+//! local, the callbacks of `await` made once per invocation; and those of
+//! §13: `List.filled` (a loop when short, the rti set after the fill when
+//! long), `JSArray.join` and the remainder of a never-negative local by a
+//! non-literal `int`. The program gives the
+//! VM's answers at each level, with the switches and without them.
 
 use std::path::Path;
 use std::process::Command;
@@ -25,6 +26,8 @@ const SWITCHES: &[&str] = &[
     "DARTFORGE_JSPROD_NONNEGATIVE_SHIFTS",
     "DARTFORGE_JSPROD_AWAIT_CALLBACKS",
     "DARTFORGE_JSPROD_SHORT_FILL",
+    "DARTFORGE_JSPROD_ARRAY_JOIN",
+    "DARTFORGE_JSPROD_NONNEGATIVE_REMAINDER",
 ];
 
 #[test]

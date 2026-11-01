@@ -5075,6 +5075,40 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 ctx.t_int(),
             );
         }
+        // Production: `x % y` with `x` never negative (`crate::nonnegative`)
+        // and `y` an `int` that is not a literal
+        // (`keys[(i * 7) % keys.length]`): the JavaScript
+        // remainder has the sign of `x`, so `JSNumber.%`'s corrections never
+        // apply (`y == 0` and the infinities give the same `NaN` or `x`), and
+        // a non-nullable `int` needs no argument check
+        // (`DARTFORGE_JSPROD_NONNEGATIVE_REMAINDER=0` keeps the call).
+        if op == BinaryOp::Rem
+            && ctx.production()
+            && ctx.is_int(lt)
+            && ctx.is_int(rt)
+            // A literal divisor (`0`, `-5`, a positive one) keeps its own
+            // forms: the SDK's `%` for zero and the negatives, the literal
+            // modulo below for the positives.
+            && !r
+                .code
+                .trim_start_matches(['(', '-', ' '])
+                .trim_end_matches(')')
+                .parse::<f64>()
+                .is_ok()
+            && std::env::var("DARTFORGE_JSPROD_NONNEGATIVE_REMAINDER").map_or(true, |v| v != "0")
+            && crate::own_sdk::certified_number_modulo(ctx)
+            && node
+                .and_then(|n| match self.expr(n).kind {
+                    ExprKind::Binary { left, .. } => Some(left),
+                    _ => None,
+                })
+                .is_some_and(|x| self.nonnegative_operand(x))
+        {
+            return (
+                Js::new(format!("{} % {}", l.at(P_MUL), r.at(P_MUL + 1)), P_MUL),
+                ctx.t_int(),
+            );
+        }
         // Production: `i % k` with a non-nullable `int` on the left and a
         // positive `int` literal on the right is the Euclidean modulo
         // `(i % k + k) % k`: exact for integers (|i % k| < k), never `-0`,

@@ -982,6 +982,49 @@ fn write_to_target(m: &mut Engine<'_>, ctx: &Context, lhs: ExprId) {
                 NameTarget::Skip => {}
             }
         }
+        // `a[i] += v` on an extension type: its operators are static
+        // dispatch (`operator_member`), and the node resolves to the read
+        // (`[]`) only. The write `[]=` (of the declaration or of a type it
+        // implements) is used here, or nothing keeps it but an unrelated
+        // `[]=` selector somewhere in the program.
+        ExprKind::Index { target, .. }
+            if let Some(dartforge_types::table::Type::ExtensionType { decl, .. }) = e
+                .bodies
+                .units
+                .get(ctx.unit.0 as usize)
+                .and_then(|u| u.get_type(*target))
+                .map(|t| e.table.get(t)) =>
+        {
+            // The declaration's own `[]=`, or the one of an implemented
+            // extension type; an implemented class's is dispatch by selector.
+            let mut selector = false;
+            let mut seen = Vec::new();
+            let mut pending = vec![*decl];
+            while let Some(c) = pending.pop() {
+                if seen.contains(&c) {
+                    continue;
+                }
+                seen.push(c);
+                let class = e.program.class(c);
+                if class.kind != ClassKind::ExtensionType {
+                    selector = true;
+                    continue;
+                }
+                let found = class
+                    .instance_members
+                    .iter()
+                    .find(|(n, _)| e.interner.resolve(**n) == "[]=")
+                    .map(|(_, f)| *f);
+                match found {
+                    Some(f) => m.use_function(f),
+                    None => pending.extend(class.interface_classes.iter().copied()),
+                }
+            }
+            if selector && m.operators_by_selector() {
+                let receiver = receiver_class(m, ctx, *target);
+                m.new_selector_with_receiver("[]=", receiver);
+            }
+        }
         // `a[i] += v`, `a[i]++`: the read (`[]`) comes from the expression
         // itself.
         ExprKind::Index { target, .. } if m.operators_by_selector() => {

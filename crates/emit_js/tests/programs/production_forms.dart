@@ -513,6 +513,171 @@ void filled() {
   }
 }
 
+int longestCollatz(int limit) {
+  var longest = 0;
+  for (var n = 1; n < limit; n++) {
+    var x = n, steps = 0;
+    while (x != 1) {
+      x = x.isEven ? x >> 1 : 3 * x + 1;
+      steps++;
+    }
+    if (steps > longest) longest = steps;
+  }
+  return longest;
+}
+
+int negativeInClosure() {
+  var z = 5;
+  void f() {
+    z = -9;
+  }
+
+  f();
+  return z % 4;
+}
+
+int shadowed(int x) {
+  var s = 0;
+  {
+    var x = 6;
+    s += x >> 1;
+  }
+  // The parameter, not the block's local.
+  return s + x % 5;
+}
+
+void nonnegativeMore() {
+  print(longestCollatz(3000));
+  // Proven: counters, sums, products, masks, lengths, code units.
+  final keys = ['a', 'bb', 'ccc', 'dddd', 'eeeee'];
+  var t = 0;
+  for (var i = 0; i < 12; i++) {
+    final k = keys[(i * 7) % keys.length];
+    var h = k.length * 31 + k.codeUnitAt(0);
+    h = (h ^ 0xff) & 0x3fffffff;
+    t += (h >> 2) + h % 7 + (i % -5) + (h % (i + 1));
+    var m = h;
+    m >>= 3;
+    m %= 11;
+    t += m;
+  }
+  print(t);
+  var big = 3000000000;
+  big += 7;
+  print('${big >> 1} ${big % 1000} ${(big * 1) >> 31}');
+  // Not proven: subtraction, decrement, negation, parameters, closures,
+  // `for`-in variables, `late` and uninitialized locals.
+  var y = 0 - 7;
+  print('${y % 5} ${y ~/ 2}');
+  var d = 3;
+  d--;
+  d -= 10;
+  print(d % 4);
+  var neg = 4;
+  neg = -neg;
+  print(neg % 3);
+  print(negativeInClosure());
+  int w = 1;
+  for (w in [-3, -11]) {}
+  print(w % 4);
+  late int lazy = -13;
+  print(lazy % 5);
+  int unset;
+  unset = -21;
+  print(unset % 8);
+  print(shadowed(-17));
+  var c = 10;
+  c = c > 5 ? -c : c;
+  print(c % 3);
+}
+
+void identitySetsMore() {
+  final s = <int>{};
+  for (var i = 0; i < 40; i++) {
+    s.add(i * 13 % 17);
+  }
+  print('${s.length} ${s.take(6).toList()} ${s.contains(16)} ${s.contains(17)}');
+  print('${s.remove(3)} ${s.remove(3)} ${s.length} ${s.contains(3)}');
+  s.add(3);
+  print('${s.last} ${s.first} ${s.elementAt(2)}');
+  final large = <int>{1 << 31, -5, 1099511627776, 0x3fffffff, 0x40000000, -5, 1099511627776};
+  print('${large.length} ${large.contains(-5)} ${large.contains(1099511627776)} ${large.toList()}');
+  large.remove(-5);
+  large.remove(1099511627776);
+  print(large);
+  final words = <String>{'b', '__proto__', 'constructor', '0', 'a', 'b', 'hasOwnProperty'};
+  print('$words ${words.contains('__proto__')} ${words.contains('toString')} ${words.lookup('a')}');
+  words.removeWhere((w) => w.length > 5);
+  print(words);
+  final mixed = Set<Object?>.identity()..addAll([0, '0', null, true, 0, null, 'x']);
+  print('${mixed.length} ${mixed.contains(null)} ${mixed.contains('0')} ${mixed.contains(false)}');
+  mixed.remove(null);
+  print(mixed);
+  final a = {1, 2, 3, 4}, b = {3, 4, 5};
+  print('${a.union(b)} ${a.intersection(b)} ${a.difference(b)} ${a.toSet()..add(9)}');
+  a.retainWhere((x) => x.isOdd);
+  print('$a ${a.isEmpty} ${a.isNotEmpty}');
+  a.clear();
+  print('$a ${a.isEmpty} ${a.length}');
+  a.addAll([7, 7, 8]);
+  print(a);
+  final copy = <String>{...words, 'z'};
+  print(copy.map((x) => x.length).toList());
+  try {
+    for (final v in s) {
+      s.remove(v);
+    }
+  } on ConcurrentModificationError {
+    print('remove CME');
+  }
+  final it = (<int>{1, 2}).iterator;
+  print('${it.moveNext()} ${it.current} ${it.moveNext()} ${it.current} ${it.moveNext()}');
+}
+
+class Shown {
+  @override
+  String toString() => 'shown';
+}
+
+void stringsAndLists() {
+  Object o = 3;
+  Object? n;
+  final values = <Object?>[1, 2.5, -0.0, null, 'x', true, Shown(), -12, 1e21, double.infinity];
+  print(values.join(','));
+  print('$o ${values[1]} ${values[2]} $n ${values[6]}');
+  print([for (var i = 0; i < 5; i++) i * i].join('-'));
+  print(<String>[].join('x').isEmpty);
+  final grown = [1, 2]..addAll([3, 4]);
+  grown.addAll(grown.toList());
+  grown.addAll(<int>{9, 8});
+  grown.addAll(Iterable.generate(2, (i) => i - 5));
+  print('$grown ${grown.length}');
+  final fixed = List.filled(1, 0);
+  try {
+    fixed.addAll([1]);
+  } on UnsupportedError {
+    print('addAll to a fixed list');
+  }
+  final filled = List.filled(3, 'a');
+  print('$filled ${filled is List<String>} ${List<Object>.filled(2, 1) is List<int>}');
+  final nulls = List<int?>.filled(2, null, growable: true)..add(4);
+  print('$nulls ${nulls.length}');
+  print('${List.filled(0, 1)} ${List<double>.filled(2, 0.5)}');
+  try {
+    List.filled(2, 0).add(1);
+  } on UnsupportedError {
+    print('fixed length');
+  }
+  print(jsonEncode({
+    'a': [
+      1,
+      2,
+      {'b': null}
+    ],
+    'c': {'d': 'e"f'}
+  }));
+}
+
 void main() {
   asyncs();
   filled();
@@ -524,4 +689,7 @@ void main() {
   identitySets();
   untypedEquality();
   shifts();
+  nonnegativeMore();
+  identitySetsMore();
+  stringsAndLists();
 }
