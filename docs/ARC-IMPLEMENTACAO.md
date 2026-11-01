@@ -940,6 +940,54 @@ nos três modos e testes de runtime e emit-native (seção de 01/11 do `ESTADO.m
    memória tocada por objeto examinado.
 3. As escritas de globais (`set_global_root`: mapa e dois swaps por escrita).
 
+### 9.4 Escopo só no erro, índice da rodada na palavra e globais (2026-11-01, manhã)
+
+**Os escopos que sobravam.** A contagem dos escopos em linha no bitcode do SDK (o *callee* que
+segue cada `dartforge_arc_native_scope_open_v1`) mostrou de onde vinham: `dartforge_nsm_call`
+(9,9 mil sítios), `dartforge_rti_as_with_context` (9,6 mil), `dartforge_unbox_int` (7,2 mil),
+`dartforge_safepoint` (831) e `dartforge_unbox_double` (436). O `as` e o `unbox` estão em todo
+caminho quente do `dart:io` (genéricos, `dynamic`, mapas), e só rodam Dart para construir o
+`TypeError`; o mesmo vale para as leituras e escritas de *typed data*, `DartForge_list_get`, os
+`_setIndexed`, `codeUnitAt` e `String.[]` com o `RangeError`/`IndexError`. O `nsm_call` só é
+chamado no erro de chamada e o `safepoint` só no caminho lento da interrupção.
+
+**O desenho.** O *helper* que lança (`throw_index`, `throw_range`, `throw_range_err`,
+`throw_type_error`, a falha do `rti_as_with_context`) abre um escopo nativo próprio em volta do
+*helper* Dart; o erro devolvido Owned fica nesse escopo até a exceção pendente, raiz contada,
+segurá-lo, e o fechamento solta o token do *helper*. Os nativos cujo único caminho para o Dart é
+um desses lançamentos estão em `dartforge_runtime::arc::NATIVES_SCOPING_THEIR_DART`; a
+preparação (`optimize::arc::natives::scope`) não lhes dá *thunk* de escopo e a certificação das
+portas os aceita. Continuam `runs_dart` no `effects.tsv`: os empréstimos que atravessam a chamada
+continuam invalidados. Testes: `error_of_a_self_scoping_native_needs_no_outer_scope` (o
+`codeUnitAt` fora do intervalo sem escopo externo: o erro vive pela exceção pendente e morre
+quando ela é limpa), `natives_scoping_their_dart_run_dart` e
+`native_scoping_its_error_gets_no_scope_thunk`.
+
+**A rodada de ciclos.** Cada objeto percorrido e cada aresta da região `R` passava pelo mapa
+handle→índice. O objeto da palavra no objeto agora guarda o índice nos bits da contagem enquanto
+as arestas são resolvidas (`IN_REGION`, bit 46, entre a contagem e as *flags*; o bit 47 é a marca
+do passe de candidatos), com a contagem salva no vetor do *trial* e devolvida logo depois; só os
+objetos da tabela lateral usam o mapa. O teste `cycle_round_on_the_word_matches_reachability`
+compara 60 grafos aleatórios (laços, arestas repetidas, filhos compartilhados, raízes por token)
+com a alcançabilidade e confere as contagens dos sobreviventes.
+
+**Globais.** `set_global_root` consulta o registro uma vez (`entry`) e troca os donos num único
+*swap* (o novo antes do velho: `g = g.next`); a cópia gerada para um global forte não retém nem
+solta um token em volta da chamada, porque o registro já retém o novo valor.
+
+**Medidas** (contadores da thread do isolate, carga 35–40, mediana de 3 rodadas alternadas):
+
+| servidor | tracing | ARC real antes (`9abd761e`) | ARC real agora (`b35c41ed`) |
+|---|---:|---:|---:|
+| `dart:io`, instruções/pedido | 200 mil | 705 mil | 666 mil (−5,6%) |
+| `dart:io`, ciclos/pedido | 123 mil | 311 mil | 306 mil (−2%, no ruído) |
+| cru, instruções/pedido | 123 mil | 277 mil | 248 mil (−10%) |
+| cru, ciclos/pedido | 56 mil | 107 mil | 98 mil (−8%) |
+| RSS (`dart:io` / cru) | 18,0 / 16,2 MB | 26,0 / 22,6 MB | 25,1 / 22,1 MB |
+
+Somando as duas rodadas de 01/11: `dart:io` −18% de instruções e −11% de ciclos; cru −31% e
+−20%. Falta 2,5× (`dart:io`) e 1,7× (cru) para os ciclos do tracing.
+
 ## 5. Pendências
 
 O lowering registra nominalmente os retornos Ref de corpos tipados Dart
