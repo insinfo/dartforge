@@ -53,7 +53,7 @@ use std::time::{Duration, Instant};
 /// Result of an analysis for one file: an open document (with the version
 /// of the analyzed text) or a file of the roots that is not open (without a
 /// version, with the disk text for the ranges).
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Result {
     pub uri: String,
     /// Version of the analyzed text; `None` for a file that is not open.
@@ -559,27 +559,65 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             all,
             changed,
         });
-        let fresh = if job.open.is_empty() && job.others.is_empty() {
-            // Nothing to analyze: every file to publish keeps what it had.
-            Some(Vec::new())
-        } else {
-            block().analyzed_files += job.open.len() + job.others.len();
-            let results = match process.as_deref().and_then(|exe| {
+        let mut run = |job: &Arc<Job>| -> Vec<Result> {
+            match process.as_deref().and_then(|exe| {
                 // A large batch (the first analysis of a package, an API edit that
                 // many files see) runs in a process of its own: its peak does not
                 // stay with the resident process.
                 let small = !job.all && job.open.len() + job.others.len() <= RESIDENT_BATCH;
                 if budget > 0 && small {
-                    run_in_resident(&mut resident, exe, &job, &cancelled)
+                    run_in_resident(&mut resident, exe, job, &cancelled)
                 } else {
                     None
                 }
-                .or_else(|| run_in_child(exe, &job, &cancelled))
+                .or_else(|| run_in_child(exe, job, &cancelled))
             }) {
                 Some(results) => results,
-                None => run_in_process(engine_ref, &job, &cancelled),
+                None => run_in_process(engine_ref, job, &cancelled),
+            }
+        };
+        // The publications already sent by the first phase, by URI.
+        let mut sent: HashMap<String, Option<i32>> = HashMap::new();
+        let fresh = if job.open.is_empty() && job.others.is_empty() {
+            // Nothing to analyze: every file to publish keeps what it had.
+            Some(Vec::new())
+        } else {
+            block().analyzed_files += job.open.len() + job.others.len();
+            // The edited documents first (Dart's priority files): when the batch
+            // also has their dependents, their own library is analyzed and
+            // published before the rest.
+            let (first, rest) = match split(&job, &plan.priority) {
+                Some((first, rest)) => (Some(Arc::new(first)), Arc::new(rest)),
+                None => (None, Arc::clone(&job)),
             };
-            (!results.is_empty()).then_some(results)
+            let early = match first {
+                Some(first) => {
+                    let results = run(&first);
+                    if !results.is_empty() {
+                        for r in &results {
+                            sent.insert(r.uri.clone(), r.version);
+                            let _ = tx.send(r.clone());
+                        }
+                        if let Some(d) = &wake {
+                            (d.0)();
+                        }
+                    }
+                    Some(results)
+                }
+                None => None,
+            };
+            match early {
+                // Cancelled or failed: so is the whole analysis.
+                Some(early) if early.is_empty() => None,
+                early => {
+                    let results = run(&rest);
+                    (!results.is_empty()).then(|| {
+                        let mut all = early.unwrap_or_default();
+                        all.extend(results);
+                        all
+                    })
+                }
+            }
         };
         let Some(fresh) = fresh else {
             let mut e = block();
@@ -606,7 +644,9 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             continue;
         };
         let memo = memos.entry(root.clone()).or_default();
-        let results = merge(memo, fresh, plan.order, plan.excluded);
+        let mut results = merge(memo, fresh, plan.order, plan.excluded);
+        // What the first phase published is not sent again.
+        results.retain(|r| sent.get(&r.uri) != Some(&r.version));
         let happened = !results.is_empty();
         for r in results {
             let _ = tx.send(r);
@@ -624,7 +664,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
 }
 
 /// What in the client configuration changes the analysis.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct AnalysisConfiguration {
     all: bool,
     all_types: Vec<String>,
@@ -1195,6 +1235,10 @@ struct Plan {
     order: Vec<Target>,
     /// The open documents in excluded folders: published empty.
     excluded: Vec<(String, i32)>,
+    /// The library of each changed open document (the file with its parts and
+    /// its owner): analyzed and published first when the batch has more
+    /// ([`split`]).
+    priority: BTreeSet<PathBuf>,
 }
 
 /// Decides what to analyze and what to publish (Dart's driver republishes the
@@ -1264,6 +1308,7 @@ fn plan(
             others,
             order,
             excluded,
+            priority: BTreeSet::new(),
         };
     };
     // The changed files as they are now: their signatures and directives.
@@ -1357,6 +1402,14 @@ fn plan(
         .filter(|t| t.open.is_none() && fresh.contains(&t.key))
         .map(|t| t.path.clone())
         .collect();
+    let priority = closure(
+        changed
+            .iter()
+            .filter(|k| open_keys.contains(*k))
+            .map(PathBuf::as_path)
+            .collect(),
+        &parts,
+    );
     let open = open
         .into_iter()
         .filter(|o| fresh.contains(&key(&o.2)))
@@ -1366,7 +1419,44 @@ fn plan(
         others,
         order,
         excluded,
+        priority,
     }
+}
+
+/// Splits `job` into the analysis of the `priority` files and that of the
+/// rest, when it has both and is not a first analysis (which also publishes
+/// the YAML files). A file's diagnostics depend only on its library's text and
+/// on the declarations it sees ([`plan`]), so the two halves publish what the
+/// whole batch would.
+fn split(job: &Job, priority: &BTreeSet<PathBuf>) -> Option<(Job, Job)> {
+    if job.all || priority.is_empty() {
+        return None;
+    }
+    let (open_first, open_rest): (Vec<_>, Vec<_>) = job
+        .open
+        .iter()
+        .cloned()
+        .partition(|o| priority.contains(&key(&o.2)));
+    let (others_first, others_rest): (Vec<_>, Vec<_>) = job
+        .others
+        .iter()
+        .cloned()
+        .partition(|a| priority.contains(&key(a)));
+    if open_first.is_empty() || open_rest.len() + others_rest.len() == 0 {
+        return None;
+    }
+    let half = |open, others| Job {
+        sdk_lib: job.sdk_lib.clone(),
+        root: job.root.clone(),
+        open,
+        others,
+        texts: job.texts.clone(),
+        config: job.config.clone(),
+        in_workspace: job.in_workspace,
+        all: false,
+        changed: job.changed.clone(),
+    };
+    Some((half(open_first, others_first), half(open_rest, others_rest)))
 }
 
 /// The results to publish after an analysis: those of `fresh`, which also

@@ -163,6 +163,60 @@ pub fn load_lenient_entries(
         units,
         generated_sources,
         None,
+        None,
+    )
+}
+
+/// Which units [`load_lenient_outline`] reads without their bodies, by path and
+/// source.
+type OutlineOnly<'a> = &'a dyn Fn(&Path, &str) -> bool;
+
+/// Like [`load_lenient_entries`], reading the units whose path and source
+/// satisfy `outline_only` without the block bodies of their declarations
+/// ([`dartforge_frontend::parser::parse_lexed_outline`]). For a program in
+/// which only some libraries have their bodies analyzed (the LSP's queries
+/// on one file): the other libraries contribute their declarations, which is
+/// all their bodies would be read for, at a fraction of the parsing time and
+/// of the tree's memory.
+///
+/// # Panics
+///
+/// When `entries` is empty.
+///
+/// ```
+/// use dartforge_elements::load::load_lenient_outline;
+/// let dir = std::env::temp_dir().join(format!("df-outline-{}", std::process::id()));
+/// std::fs::create_dir_all(&dir).unwrap();
+/// std::fs::write(dir.join("a.dart"), "import 'b.dart';\nint f() { return g(); }\n").unwrap();
+/// std::fs::write(dir.join("b.dart"), "int g() { return 1 + 2; }\n").unwrap();
+/// let sdk = dartforge_elements::sdk::SdkLayout::default();
+/// let mut names = dartforge_intern::Interner::new();
+/// let (program, _) = load_lenient_outline(&[&dir.join("a.dart")], &sdk, &mut names, None, &|p, _| p.ends_with("b.dart"));
+/// let statements = |name: &str| {
+///     let u = program.units.iter().find(|u| u.path.as_deref().is_some_and(|p| p.ends_with(name))).unwrap();
+///     u.ast.stmts.len()
+/// };
+/// assert!(statements("a.dart") > 1);
+/// assert_eq!(statements("b.dart"), 1);
+/// # std::fs::remove_dir_all(&dir).ok();
+/// ```
+pub fn load_lenient_outline(
+    entries: &[&Path],
+    sdk: &SdkLayout,
+    interner: &mut Interner,
+    generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
+    outline_only: &dyn Fn(&Path, &str) -> bool,
+) -> (Program, Vec<Diagnostic>) {
+    load_lenient_(
+        entries,
+        sdk,
+        None,
+        interner,
+        None,
+        None,
+        generated_sources,
+        None,
+        Some(outline_only),
     )
 }
 
@@ -185,6 +239,7 @@ pub fn load_lenient_hiding(
         None,
         None,
         Some(hidden),
+        None,
     )
 }
 
@@ -214,6 +269,7 @@ pub fn load_lenient_entries_hiding(
         None,
         None,
         Some(hidden),
+        None,
     )
 }
 
@@ -241,6 +297,7 @@ fn load_lenient_(
     mut units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
     generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
     hidden: Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>,
+    outline_only: Option<OutlineOnly<'_>>,
 ) -> (Program, Vec<Diagnostic>) {
     let entry = *entries.first().expect("at least one entry");
     if let Some(u) = units.as_deref_mut() {
@@ -377,10 +434,12 @@ fn load_lenient_(
             // SDK).
             if let Some(c) = cache.as_mut() {
                 let t_cache = std::time::Instant::now();
+                // Those a resident session kept are not decoded again.
                 let names_: Vec<&str> = program.libraries[considered..]
                     .iter()
                     .filter_map(|l| l.uri.strip_prefix("dart:"))
                     .filter(|n| c.has(n))
+                    .filter(|n| !units.as_deref().is_some_and(|u| u.has_sdk_library(n)))
                     .collect();
                 if !names_.is_empty() {
                     decoded_sdk.extend(c.remove_several(&names_));
@@ -397,12 +456,34 @@ fn load_lenient_(
         // Determines the library's files (source + patches if it is the SDK)
         if lib_uri.starts_with("dart:") {
             let lib_name = lib_uri.strip_prefix("dart:").unwrap();
+            // A resident session's kept units of the library, as the previous
+            // load had them (from the SDK cache or read).
+            let kept = if cache.is_some() {
+                units
+                    .as_deref_mut()
+                    .and_then(|u| u.take_sdk_library(lib_name))
+            } else {
+                None
+            };
             let t_cache = std::time::Instant::now();
-            let from_cache = decoded_sdk
-                .remove(lib_name)
-                .or_else(|| cache.as_mut().and_then(|c| c.take(lib_name)));
+            let from_cache = if kept.is_some() {
+                None
+            } else {
+                decoded_sdk
+                    .remove(lib_name)
+                    .or_else(|| cache.as_mut().and_then(|c| c.take(lib_name)))
+            };
             program.times.sdk_cache += t_cache.elapsed();
-            if let Some(units) = from_cache {
+            if let Some(kept) = kept {
+                program.times.reused_units += kept.len();
+                for mut u in kept {
+                    u.library = lib_id;
+                    let unit_id = UnitId(program.units.len() as u32);
+                    program.units.push(u);
+                    program.libraries[lib_id.0 as usize].units.push(unit_id);
+                }
+                cached_libs.insert(lib_id);
+            } else if let Some(units) = from_cache {
                 for u in units {
                     let unit_id = UnitId(program.units.len() as u32);
                     program.units.push(Unit {
@@ -433,6 +514,7 @@ fn load_lenient_(
                     &mut diagnostics,
                     read_substitute(sdk, &sdk_lib.path),
                     units.as_deref_mut(),
+                    outline_only,
                 );
                 if let Some(uid) = main_unit {
                     program.libraries[lib_id.0 as usize].units.push(uid);
@@ -455,6 +537,7 @@ fn load_lenient_(
                         &mut diagnostics,
                         read_substitute(sdk, patch_path),
                         units.as_deref_mut(),
+                        outline_only,
                     );
                     if let Some(uid) = patch_unit {
                         program.libraries[lib_id.0 as usize].units.push(uid);
@@ -486,6 +569,7 @@ fn load_lenient_(
                     &mut diagnostics,
                     prefetch.take(&path),
                     units.as_deref_mut(),
+                    outline_only,
                 );
                 if let Some(uid) = main_unit {
                     program.libraries[lib_id.0 as usize].units.push(uid);
@@ -690,6 +774,7 @@ fn load_lenient_(
                             read_substitute(sdk, &canonical_part)
                                 .or_else(|| prefetch.take(&canonical_part)),
                             units.as_deref_mut(),
+                            outline_only,
                         );
 
                         if let Some(p_uid) = part_unit {
@@ -1137,6 +1222,7 @@ fn load_unit(
     diagnostics: &mut Vec<Diagnostic>,
     read_file: Option<ReadFile>,
     units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
+    outline_only: Option<OutlineOnly<'_>>,
 ) -> Option<UnitId> {
     // Resident session: an already analyzed unit comes straight in (what
     // changed was already invalidated by the cache's owner; the load does not
@@ -1194,7 +1280,11 @@ fn load_unit(
         program.libraries[lib_id.0 as usize].features = features;
     }
     let t = std::time::Instant::now();
-    let parsed = dartforge_frontend::parser::parse_lexed_with(&source, tokens, interner, features);
+    let parsed = if outline_only.is_some_and(|f| f(path, &source)) {
+        dartforge_frontend::parser::parse_lexed_outline(&source, tokens, interner, features)
+    } else {
+        dartforge_frontend::parser::parse_lexed_with(&source, tokens, interner, features)
+    };
     program.times.parse += t.elapsed();
     for mut d in parsed.diagnostics {
         d.message = format!("{}:{}: {}", path.display(), d.span.start, d.message);
@@ -1555,6 +1645,7 @@ fn attach_macro_augmentation(
         program,
         diagnostics,
         read_file,
+        None,
         None,
     )?;
     Some(uid)

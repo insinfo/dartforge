@@ -7,7 +7,7 @@ use crate::{Analyzer, DocumentStore, Hover, References, SyntacticAnalyzer};
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::{
     generated::GenerationBuilder,
-    load::load_lenient_generated,
+    load::load_lenient_outline,
     model::{Program, UnitId},
     sdk::SdkLayout,
 };
@@ -29,6 +29,11 @@ pub struct SemanticAnalyzer {
     /// libraries outside the project are inferred on demand and stay
     /// (docs/LSP-ESPECIFICACAO.md §11.9 B).
     wide_session: crate::session::Session,
+    /// Per project root: the whole wide load fits in the wide session's
+    /// budget ([`crate::project::wide_source_estimate`]); otherwise each
+    /// reference search loads only what cites its name. Cleared when the
+    /// package configuration changes.
+    wide_fits: std::collections::HashMap<std::path::PathBuf, bool>,
     /// The summaries of the known libraries (export namespace) of `ImportLibrary`.
     known: crate::known_libraries::LibraryIndex,
     /// The current `maxCompletionItems`.
@@ -55,6 +60,7 @@ impl SemanticAnalyzer {
             sdk,
             session: crate::session::Session::new(),
             wide_session: crate::session::Session::wide(),
+            wide_fits: Default::default(),
             known: Default::default(),
             completion_max: crate::completion::MAX_PATTERN,
             not_imported_in_completion: true,
@@ -125,15 +131,21 @@ impl SemanticAnalyzer {
 
     /// The wide load of `uri` with the bodies of the libraries that cite or
     /// declare `name` inferred (the candidates of `_addResults`, §11.2), from
-    /// the wide session or loaded.
+    /// the wide session or loaded. With `only_citing` and a whole load that
+    /// does not fit in the wide session (so it would be loaded again at every
+    /// search), the load of that name's search alone (`load_wide_project` with
+    /// `citing`): what a reference search needs, not a transitive subtype
+    /// search.
     pub(crate) fn wide(
         &mut self,
         documents: &DocumentStore,
         uri: &str,
         name: &str,
+        only_citing: bool,
     ) -> Option<crate::session::Use<'_>> {
         let SemanticAnalyzer {
             wide_session,
+            wide_fits,
             sdk: Some(sdk),
             ..
         } = self
@@ -141,10 +153,21 @@ impl SemanticAnalyzer {
             return None;
         };
         let root = crate::project::project_root(&crate::project::uri_file(uri)?);
-        let mut usage =
-            wide_session.get(crate::session::Scope::Project(root), documents, || {
-                crate::project::load_wide_project(sdk, documents, uri)
-            })?;
+        let fits = *wide_fits.entry(root.clone()).or_insert_with(|| {
+            crate::project::wide_source_estimate(&root) <= wide_session.budget()
+        });
+        let (scope, citing) = if only_citing && !fits {
+            let scope = crate::session::Scope::Search {
+                root,
+                name: name.to_string(),
+            };
+            (scope, Some(name))
+        } else {
+            (crate::session::Scope::Project(root), None)
+        };
+        let mut usage = wide_session.get(scope, documents, || {
+            crate::project::load_wide_project(sdk, documents, uri, citing)
+        })?;
         usage.widen_to(name);
         Some(usage)
     }
@@ -257,16 +280,21 @@ impl SemanticAnalyzer {
     ) -> Option<References> {
         // Non-local search: the wide load, with the SDK and the packages that cite
         // the name (docs/LSP-ESPECIFICACAO.md §11.9 B); a local one stays in the
-        // project.
+        // file's library. What is at the cursor resolves the same in the
+        // library's load (the file and what it imports) as in the whole
+        // project's, so the library names the search.
         let name = {
-            let project = self.project(documents, uri)?;
+            let project = self.library(documents, uri)?;
             let unit = project.uri_unit(uri)?;
             let d = project.identify(unit, offset).ok()??;
             project.search_name(&d.target)
         };
-        if let Some(name) = name
-            && let Some(wide) = self.wide(documents, uri, &name)
-        {
+        let Some(name) = name else {
+            // A local, a type parameter or a prefix: only this file has them.
+            let library = self.library(documents, uri)?;
+            return references_in(&library, uri, offset);
+        };
+        if let Some(wide) = self.wide(documents, uri, &name, true) {
             return references_in(&wide, uri, offset);
         }
         let project = self.project(documents, uri)?;
@@ -373,16 +401,20 @@ pub(crate) fn load(
     let owning = owning_library(&path, text, documents);
     let generation = generator.finish(1).ok()?;
     let key = dartforge_elements::generated::key(&path);
+    // Only this library's bodies are inferred: the libraries outside the
+    // project (the SDK and the packages, which no query here edits or shows
+    // the bodies of) come in without them. The project's keep theirs, for the
+    // queries that look into another project file (`colors`, the assists).
+    let root = crate::project::project_root(&path);
+    let outline = |p: &std::path::Path, _: &str| !crate::project::inside(p, &root);
     for entry in owning.iter().chain([&path]) {
         let mut names = Interner::new();
-        let (program, _) = load_lenient_generated(
-            entry,
+        let (program, _) = load_lenient_outline(
+            &[entry],
             sdk,
-            None,
             &mut names,
-            None,
-            None,
             Some(generation.clone()),
+            &outline,
         );
         let unit = program.units.iter().position(|u| {
             u.path
@@ -536,6 +568,7 @@ impl Analyzer for SemanticAnalyzer {
         self.syntactic.project_configuration_changed();
         self.session.invalidate();
         self.wide_session.invalidate();
+        self.wide_fits.clear();
         self.known = Default::default();
     }
 
@@ -588,7 +621,10 @@ impl Analyzer for SemanticAnalyzer {
         uri: &str,
         offset: usize,
     ) -> Result<Option<(Span, String)>, String> {
-        let Some(project) = self.project(documents, uri) else {
+        // `getElementToRename` and `checkInitialConditions` look only at the
+        // element under the cursor: the library's load is enough (the rename
+        // itself loads the whole project).
+        let Some(project) = self.library(documents, uri) else {
             return Ok(None);
         };
         crate::rename::prepare(&project, uri, offset)
@@ -872,14 +908,14 @@ impl Analyzer for SemanticAnalyzer {
     ) -> Vec<(String, Span)> {
         // `searchAllSubtypes` searches every known file, including the whole SDK
         // (`JSString` from `dart:_interceptors` implements `String`): the wide
-        // load, like the references'.
-        let name = self.project(documents, uri).and_then(|project| {
+        // load, like the references'. The library's load names the search.
+        let name = self.library(documents, uri).and_then(|project| {
             let unit = project.uri_unit(uri)?;
             let d = project.identify(unit, offset).ok()??;
             project.search_name(&d.target)
         });
         if let Some(name) = name
-            && let Some(wide) = self.wide(documents, uri, &name)
+            && let Some(wide) = self.wide(documents, uri, &name, false)
             && let Some(unit) = wide.uri_unit(uri)
         {
             return wide

@@ -317,6 +317,54 @@ pub fn parse_lexed_with(
     interner: &mut Interner,
     features: LibraryFeatures,
 ) -> Parsed {
+    parse_lexed_reading(source, tokens, interner, features, false)
+}
+
+/// Like [`parse_lexed_with`], without the block bodies of the declarations
+/// (top-level functions, methods, constructors, getters and setters): each
+/// becomes an empty block whose span is that of its braces, as in the
+/// analyzer's outline of a library it only links. What the signatures and the
+/// inference of the outline need stays: parameters, initializer lists, the
+/// initializers of variables and fields (with the function literals in them)
+/// and the `=>` bodies. The tree is for a library whose bodies are never
+/// analyzed, shown or edited (a dependency of the analyzed library); the
+/// diagnostics of the skipped bodies are not reported.
+///
+/// ```
+/// use dartforge_frontend::ast::{FunctionBody, StmtKind};
+/// let mut names = dartforge_intern::Interner::new();
+/// let source = "int f() { return 1 + 2; }\nvar g = () { return 3; };\n";
+/// let tokens = dartforge_frontend::lexer::lex(source);
+/// let parsed = dartforge_frontend::parser::parse_lexed_outline(
+///     source,
+///     tokens,
+///     &mut names,
+///     dartforge_frontend::LibraryFeatures::current(),
+/// );
+/// let body = &parsed.ast.functions[0].body;
+/// let FunctionBody::Block(block) = *body else { panic!("{body:?}") };
+/// let StmtKind::Block(statements) = &parsed.ast.stmt(block).kind else { panic!() };
+/// assert!(statements.is_empty());
+/// assert_eq!(&source[parsed.ast.stmt(block).span.start..parsed.ast.stmt(block).span.end], "{ return 1 + 2; }");
+/// // The function literal of the initializer keeps its body.
+/// assert!(parsed.ast.stmts.len() > 1);
+/// ```
+pub fn parse_lexed_outline(
+    source: &str,
+    tokens: Result<Vec<Token>, Diagnostic>,
+    interner: &mut Interner,
+    features: LibraryFeatures,
+) -> Parsed {
+    parse_lexed_reading(source, tokens, interner, features, true)
+}
+
+fn parse_lexed_reading(
+    source: &str,
+    tokens: Result<Vec<Token>, Diagnostic>,
+    interner: &mut Interner,
+    features: LibraryFeatures,
+    skip_bodies: bool,
+) -> Parsed {
     let tokens = match tokens {
         Ok(tokens) => tokens,
         Err(diagnostic) => {
@@ -354,6 +402,7 @@ pub fn parse_lexed_with(
         parser.synthetic_closers = closers.clone();
         parser.features = features;
         parser.mode_313 = mode_313;
+        parser.skip_bodies = skip_bodies;
         parser.diagnostics.extend(from_scanner.iter().cloned());
         let unit = parser.parse_compilation_unit();
         let redo = !mode_313 && parser.diverged_313 && parser.new_syntax;
@@ -518,6 +567,14 @@ pub struct Parser<'s, 'i> {
     /// where `name(…) {` and `name(…) =>` are not a named function literal (the
     /// `{` is the constructor body and the `=>` is the case's).
     pub(crate) without_named_function: bool,
+    /// Outline read ([`parse_lexed_outline`]): the block bodies of
+    /// declarations (functions, methods, constructors, accessors) are not
+    /// read; each becomes an empty block over the same braces.
+    pub(crate) skip_bodies: bool,
+    /// How many function bodies are being read (a declaration's body is only
+    /// skipped at depth 0, so a function literal in an initializer keeps its
+    /// body and whatever it declares).
+    pub(crate) body_depth: u32,
     /// Lookahead of type arguments that fasta drops when `recovered`
     /// (`computeMethodTypeArguments`): a record type with exactly one
     /// positional field and no trailing comma does not make a type there
@@ -590,6 +647,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             only_3_13: Vec::new(),
             without_named_function: false,
             strict_records: std::cell::Cell::new(false),
+            skip_bodies: false,
+            body_depth: 0,
         }
     }
 

@@ -14,20 +14,25 @@
 //!   `didChange` or `didClose` — no tree of an old version stays alive;
 //! * before reusing it, the key is checked: the version and size of each
 //!   open document, and the date and size of each disk file that took part
-//!   in the load, plus the list of the project's `.dart` files (a new file
-//!   may satisfy an import);
+//!   in the load (except the SDK and the pub cache, which nothing edits in
+//!   place), plus the modification time of each folder of the project (a new
+//!   `.dart` file may satisfy an import);
 //! * it only retains a program whose total source fits in the budget
 //!   (`DARTFORGE_LSP_SESSION_MIB`, in MiB of source; default
 //!   [`DEFAULT_BUDGET_MIB`]; `0` turns the session off). The measured live
 //!   cost is proportional to the source (`docs/LSP.md`, "Sessão semântica").
 
 use crate::DocumentStore;
-use crate::project::{Project, project_files};
+use crate::project::{Project, project_dirs};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-/// Default budget, in MiB of loaded source (SDK included).
-pub(crate) const DEFAULT_BUDGET_MIB: usize = 8;
+/// Default budget, in MiB of loaded source (SDK included). A library's load
+/// reads the libraries outside the project without their bodies
+/// (`semantic::load`), so the program of a file of a large Angular package
+/// (`new_sali/frontend`: 2,835 libraries, 23 MiB of source) fits, and its
+/// queries stop reloading it (~1 s each).
+pub(crate) const DEFAULT_BUDGET_MIB: usize = 32;
 
 /// Default budget of the wide load of non-local searches, in MiB of source
 /// (the analyzer's SDK has ~8 MiB; the project's packages add the rest).
@@ -40,6 +45,9 @@ pub(crate) enum Scope {
     Library(PathBuf),
     /// All libraries of the project with this root (references, rename).
     Project(PathBuf),
+    /// The load of one reference search for `name` in the project with this
+    /// root (`load_wide_project` with `citing`).
+    Search { root: PathBuf, name: String },
 }
 
 /// What must stay the same for the entry to be valid.
@@ -50,8 +58,9 @@ struct Key {
     open: Vec<(String, i32, usize)>,
     /// Files read from disk during the load, with (date, size).
     disk: Vec<(PathBuf, Option<(SystemTime, u64)>)>,
-    /// `.dart` files of the project at load time.
-    files: Vec<PathBuf>,
+    /// The folders of the project at load time, with their modification
+    /// times (a file created or removed in one changes it).
+    dirs: Vec<(PathBuf, Option<SystemTime>)>,
 }
 
 /// Session counters (measurement and tests).
@@ -109,6 +118,11 @@ impl Session {
         }
     }
 
+    /// The budget, in bytes of source.
+    pub(crate) fn budget(&self) -> usize {
+        self.budget
+    }
+
     /// Discards the entry (a text changed). The program drops here, not later.
     pub(crate) fn invalidate(&mut self) {
         if self.entry.take().is_some() {
@@ -158,7 +172,8 @@ impl Session {
     }
 
     /// The retained entry is valid with the current open documents if only
-    /// `uri` joined or left the list and its unit has `text`.
+    /// `uri` joined or left the list and its unit has `text` (or it is a file
+    /// on disk outside the load).
     fn keep(&mut self, documents: &DocumentStore, uri: &str, text: Option<String>) -> bool {
         let Some((key, project)) = self.entry.as_mut() else {
             return true;
@@ -172,7 +187,14 @@ impl Session {
             return false;
         }
         let Some(u) = project.uri_unit(uri) else {
-            return false;
+            // A file outside the load (another library's, for a library entry):
+            // its text took no part in it. One on disk cannot be an import the
+            // load failed to resolve either; one that is not may be, and reloads.
+            let on_disk = crate::project::uri_file(uri).is_some_and(|p| p.is_file());
+            if on_disk {
+                key.open = new;
+            }
+            return on_disk;
         };
         if project.program().unit(u).source != text {
             return false;
@@ -253,14 +275,17 @@ impl Session {
         let project = load()?;
         self.stats.loaded += 1;
         let source: usize = project.program().units.iter().map(|u| u.source.len()).sum();
-        if self.budget == 0 || source > self.budget {
+        // The load of one search serves only that name again: it is not worth
+        // the memory it would keep.
+        let single_use = matches!(scope, Scope::Search { .. });
+        if self.budget == 0 || source > self.budget || single_use {
             // It does not fit: valid only for this query and dropped with the response.
             self.stats.above_budget += 1;
             return Some(Use::Own(Box::new(project)));
         }
         let key = Key {
             disk: read_files(&project, documents),
-            files: project_files(&project.root),
+            dirs: project_dirs(&project.root),
             scope,
             open,
         };
@@ -321,7 +346,47 @@ fn metadata(path: &Path) -> Option<(SystemTime, u64)> {
     Some((m.modified().ok()?, m.len()))
 }
 
-/// The files the load read from disk (the open ones came from the editor).
+/// The roots of the pub cache: `PUB_CACHE`, or pub's default for the platform.
+fn pub_cache_roots() -> &'static [PathBuf] {
+    static ROOTS: std::sync::OnceLock<Vec<PathBuf>> = std::sync::OnceLock::new();
+    ROOTS.get_or_init(|| {
+        let mut roots = Vec::new();
+        if let Some(p) = std::env::var_os("PUB_CACHE") {
+            roots.push(PathBuf::from(p));
+        } else if cfg!(windows) {
+            if let Some(p) = std::env::var_os("LOCALAPPDATA") {
+                roots.push(PathBuf::from(p).join("Pub").join("Cache"));
+            }
+        } else if let Some(p) = std::env::var_os("HOME") {
+            roots.push(PathBuf::from(p).join(".pub-cache"));
+        }
+        roots
+            .into_iter()
+            .map(|r| {
+                dartforge_elements::config::without_verbatim(std::fs::canonicalize(&r).unwrap_or(r))
+            })
+            .collect()
+    })
+}
+
+/// A file that no edit is expected to change while the server runs: an SDK
+/// library or a package in the pub cache (`hosted/`, `git/`), which pub never
+/// rewrites in place and the Dart server does not watch. Checking their dates
+/// at every query was most of the cost of a reused query on a large program
+/// (thousands of `stat`s).
+fn immutable(project: &Project, unit: &dartforge_elements::model::Unit) -> bool {
+    if project.program().library(unit.library).is_sdk {
+        return true;
+    }
+    unit.path.as_deref().is_some_and(|p| {
+        pub_cache_roots()
+            .iter()
+            .any(|r| p.starts_with(r.join("hosted")) || p.starts_with(r.join("git")))
+    })
+}
+
+/// The files the load read from disk (the open ones came from the editor),
+/// without the [`immutable`] ones.
 fn read_files(
     project: &Project,
     documents: &DocumentStore,
@@ -330,6 +395,7 @@ fn read_files(
         .program()
         .units
         .iter()
+        .filter(|u| !immutable(project, u))
         .filter_map(|u| u.path.clone())
         .filter(|p| {
             url::Url::from_file_path(p)
@@ -348,9 +414,9 @@ fn read_files(
 
 /// The disk is still as it was at load time.
 fn disk_equal(key: &Key) -> bool {
-    let root = match &key.scope {
-        Scope::Project(r) => r.clone(),
-        Scope::Library(a) => crate::project::project_root(a),
-    };
-    key.disk.iter().all(|(p, m)| metadata(p) == *m) && project_files(&root) == key.files
+    key.disk.iter().all(|(p, m)| metadata(p) == *m)
+        && key
+            .dirs
+            .iter()
+            .all(|(d, m)| std::fs::metadata(d).and_then(|x| x.modified()).ok() == *m)
 }

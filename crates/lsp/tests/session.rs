@@ -97,7 +97,8 @@ fn changed_disk_or_new_file_reloads() {
         references(&mut p, "lib/a.dart", 0, 4),
         vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]
     );
-    // The same request reuses it.
+    // The same request reuses the library that names the search (the uses come
+    // from the wide load, with a session of its own).
     references(&mut p, "lib/a.dart", 0, 4);
     assert_eq!(stats(&p).reused, 1);
     // Closed file changed on disk (another tool, `git checkout`).
@@ -117,8 +118,10 @@ fn changed_disk_or_new_file_reloads() {
             "lib/a.dart:0:4"
         ]
     );
+    // `b.dart` is not part of `a.dart`'s library load, which stays valid; the new
+    // file (it may satisfy an import) reloads it.
     let e = stats(&p);
-    assert_eq!((e.loaded, e.reused), (3, 1), "{e:?}");
+    assert_eq!((e.loaded, e.reused), (2, 2), "{e:?}");
 }
 
 #[test]
@@ -174,12 +177,14 @@ fn open_and_close_with_disk_text_keeps_session() {
         vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]
     );
     assert_eq!(stats(&p).loaded, loaded, "{:?}", stats(&p));
-    // Opened with a different text (one more use): reloads and sees the use.
+    // Opened with a different text (one more use): the wide load of the search
+    // reloads and sees the use; `a.dart`'s library, which does not read
+    // `b.dart`, stays.
     p.server.receive(json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri_b, "languageId": "dart", "version": 1, "text": "import 'a.dart';\nint h() => f() + f();\n"}}}));
     p.server.pump();
     assert_eq!(
         references(&mut p, "lib/a.dart", 0, 4),
         vec!["lib/b.dart:1:11", "lib/b.dart:1:17", "lib/a.dart:0:4"]
     );
-    assert!(stats(&p).loaded > loaded);
+    assert_eq!(stats(&p).loaded, loaded, "{:?}", stats(&p));
 }

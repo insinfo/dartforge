@@ -52,6 +52,11 @@ pub struct AnalyzedUnitCache {
     marks: HashMap<PathBuf, FileStamp>,
     /// Units reused in the current load.
     pub reused: usize,
+    /// The paths of the units of each reclaimed `dart:` library, in order, by
+    /// library name: a load serves the whole library from the kept units
+    /// ([`AnalyzedUnitCache::take_sdk_library`]) instead of decoding it from
+    /// the SDK cache again.
+    sdk_libraries: HashMap<String, Vec<PathBuf>>,
 }
 
 impl AnalyzedUnitCache {
@@ -76,6 +81,7 @@ impl AnalyzedUnitCache {
     pub fn clear(&mut self) {
         self.units.clear();
         self.marks.clear();
+        self.sdk_libraries.clear();
     }
 
     /// Source bytes retained — the share that grows with the project, not with
@@ -152,6 +158,25 @@ impl AnalyzedUnitCache {
         u
     }
 
+    /// The library `dart:<name>` has all its units kept.
+    pub(crate) fn has_sdk_library(&self, name: &str) -> bool {
+        self.sdk_libraries
+            .get(name)
+            .is_some_and(|paths| paths.iter().all(|p| self.units.contains_key(p)))
+    }
+
+    /// Takes out the units of `dart:<name>`, in order, when all of them are
+    /// kept (the SDK does not change during a session).
+    pub(crate) fn take_sdk_library(&mut self, name: &str) -> Option<Vec<Unit>> {
+        if !self.has_sdk_library(name) {
+            return None;
+        }
+        let paths = self.sdk_libraries.get(name)?.clone();
+        let units: Vec<Unit> = paths.iter().filter_map(|p| self.units.remove(p)).collect();
+        self.reused += units.len();
+        Some(units)
+    }
+
     /// Records the stamp of a freshly read file (one `stat`, at read time — it
     /// is the only disk query the load makes per new file).
     pub(crate) fn annotate_marker(&mut self, path: &Path) {
@@ -163,7 +188,21 @@ impl AnalyzedUnitCache {
     /// Collects the units of a [`Program`] that is no longer used — including
     /// those of the SDK, which do not change between edits either.
     pub fn reclaim(&mut self, program: Program) {
-        let Program { units, .. } = program;
+        let Program {
+            units, libraries, ..
+        } = program;
+        for l in &libraries {
+            if let Some(name) = l.uri.strip_prefix("dart:") {
+                let paths: Option<Vec<PathBuf>> = l
+                    .units
+                    .iter()
+                    .map(|u| units.get(u.0 as usize).and_then(|u| u.path.clone()))
+                    .collect();
+                if let Some(paths) = paths {
+                    self.sdk_libraries.insert(name.to_string(), paths);
+                }
+            }
+        }
         for u in units {
             let Some(path) = u.path.clone() else { continue };
             self.units.insert(path, u);

@@ -4279,9 +4279,58 @@ impl<'s, 'i> Parser<'s, 'i> {
         let saved = (self.in_async, self.in_generator);
         self.in_async = matches!(modifier, AsyncModifier::Async | AsyncModifier::AsyncStar);
         self.in_generator = matches!(modifier, AsyncModifier::AsyncStar | AsyncModifier::SyncStar);
-        let body = self.parse_body_after_modifier(expect_semicolon);
+        let body = if expect_semicolon
+            && self.skip_bodies
+            && self.body_depth == 0
+            && let Some(block) = self.skip_block_body()
+        {
+            Ok(FunctionBody::Block(block))
+        } else {
+            self.body_depth += 1;
+            let body = self.parse_body_after_modifier(expect_semicolon);
+            self.body_depth -= 1;
+            body
+        };
         (self.in_async, self.in_generator) = saved;
         Ok((modifier, body?))
+    }
+
+    /// In an outline read, the `{...}` at the cursor as an empty block over the
+    /// same braces, with the cursor after the matching `}`. `None` (nothing
+    /// consumed) when the cursor is not at `{` or the braces do not match
+    /// before the end of the unit.
+    fn skip_block_body(&mut self) -> Option<crate::ast::StmtId> {
+        if !self.at_op(Op::LBrace) {
+            return None;
+        }
+        let mut depth = 0usize;
+        let mut i = self.pos;
+        while i < self.tokens.len() {
+            match self.tokens[i].kind {
+                Kind::Op(Op::LBrace) => depth += 1,
+                Kind::Op(Op::RBrace) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                Kind::Eof => return None,
+                _ => {}
+            }
+            i += 1;
+        }
+        if i >= self.tokens.len() {
+            return None;
+        }
+        let span = Span {
+            start: self.tokens[self.pos].span.start,
+            end: self.tokens[i].span.end,
+        };
+        self.pos = i + 1;
+        Some(self.ast.push_stmt(crate::ast::Stmt {
+            span,
+            kind: crate::ast::StmtKind::Block(Box::default()),
+        }))
     }
 
     /// `async`, `async*`, `sync*` (contextual identifiers; `*` is a separate
@@ -6194,5 +6243,86 @@ import 'dart:core' as prefix0;
             assert!(matches!(member(&out, c, 1), MemberKind::Constructor(_)));
             assert!(matches!(member(&out, c, 2), MemberKind::Method(_)));
         }
+    }
+
+    /// The outline read skips the block bodies of declarations, braces in
+    /// strings and nested blocks included, and keeps everything else: the
+    /// declarations after them, initializer lists, `=>` bodies and the function
+    /// literals of initializers.
+    #[test]
+    fn outline_read_skips_declaration_bodies() {
+        use crate::ast::StmtKind;
+        let source = "class A {\n\
+                      final int x;\n\
+                      final f = () { return 1; };\n\
+                      A(this.x) : assert(x > 0) { if (x > 1) { print('${x} }'); } }\n\
+                      int get g => x + 1;\n\
+                      void m() { var s = \"{\"; for (;;) { break; } }\n\
+                      }\n\
+                      int top() async { await null; return 2; }\n\
+                      var after = 3;\n";
+        let mut names = Interner::new();
+        let tokens = crate::lexer::lex(source);
+        let full = crate::parser::parse_lexed_with(
+            source,
+            tokens.clone(),
+            &mut names,
+            crate::LibraryFeatures::current(),
+        );
+        let outline = crate::parser::parse_lexed_outline(
+            source,
+            tokens,
+            &mut names,
+            crate::LibraryFeatures::current(),
+        );
+        assert!(outline.diagnostics.is_empty(), "{:?}", outline.diagnostics);
+        assert_eq!(outline.ast.decls.len(), full.ast.decls.len());
+        assert_eq!(outline.ast.members.len(), full.ast.members.len());
+        assert!(outline.ast.stmts.len() < full.ast.stmts.len());
+        // Each declaration body is an empty block over the same braces as the
+        // full read's.
+        let blocks = |p: &Parsed| -> Vec<(usize, usize, usize)> {
+            p.ast
+                .functions
+                .iter()
+                .filter_map(|f| match f.body {
+                    FunctionBody::Block(b) => {
+                        let s = p.ast.stmt(b);
+                        let n = match &s.kind {
+                            StmtKind::Block(list) => list.len(),
+                            _ => usize::MAX,
+                        };
+                        Some((s.span.start, s.span.end, n))
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        let (b_full, b_outline) = (blocks(&full), blocks(&outline));
+        assert_eq!(b_full.len(), b_outline.len());
+        for (f, o) in b_full.iter().zip(&b_outline) {
+            assert_eq!((f.0, f.1), (o.0, o.1));
+        }
+        // The function literal of `f` keeps its statement; the bodies of `m` and
+        // `top` are empty (the constructor's is not in `functions`; the smaller
+        // statement count above covers it).
+        assert_eq!(
+            b_outline.iter().filter(|b| b.2 > 0).count(),
+            1,
+            "{b_full:?} {b_outline:?}"
+        );
+        assert_eq!(
+            b_outline.iter().filter(|b| b.2 == 0).count(),
+            2,
+            "{b_full:?} {b_outline:?}"
+        );
+        // `async` survives the skip.
+        assert!(
+            outline
+                .ast
+                .functions
+                .iter()
+                .any(|f| f.modifier == AsyncModifier::Async)
+        );
     }
 }

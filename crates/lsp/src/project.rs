@@ -193,6 +193,36 @@ pub(crate) fn project_files(root: &Path) -> Vec<PathBuf> {
     output
 }
 
+/// The folders [`project_files`] walks (the root included), each with its
+/// modification time: a `.dart` file created, renamed or deleted in one changes
+/// that time, so comparing them tells whether the list of files changed without
+/// walking the tree again (`stat` per folder instead of reading every folder).
+pub(crate) fn project_dirs(root: &Path) -> Vec<(PathBuf, Option<std::time::SystemTime>)> {
+    let mut output = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let modified = std::fs::metadata(&dir).and_then(|m| m.modified()).ok();
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            output.push((dir, modified));
+            continue;
+        };
+        for e in entries.flatten() {
+            let path = e.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if e.file_type().is_ok_and(|t| t.is_dir())
+                && !name.starts_with('.')
+                && name != "build"
+                && !path.join("pubspec.yaml").is_file()
+            {
+                stack.push(path);
+            }
+        }
+        output.push((dir, modified));
+    }
+    output.sort();
+    output
+}
+
 /// The text is a part (`part of`), which cannot come in as a library.
 pub(crate) fn is_part(text: &str) -> bool {
     if !text.contains("part") {
@@ -224,7 +254,7 @@ pub(crate) fn load_project(
     documents: &DocumentStore,
     uri: &str,
 ) -> Option<Project> {
-    load_project_with(sdk, documents, uri, None)
+    load_project_with(sdk, documents, uri, None, None)
 }
 
 /// The synthetic file of the wide load: imports every SDK library and every
@@ -280,10 +310,20 @@ pub(crate) fn packages_with_name(root: &Path) -> Vec<(String, PathBuf)> {
 /// the packages, with the project's bodies inferred. Those of the outside
 /// libraries that cite or declare a name come in through
 /// [`Project::widen_to`].
+///
+/// With `citing`, the load of one search for that name: only the project's
+/// files and the packages' `lib/` files whose text has the name come in as
+/// entries (with what they import), the units without it come without their
+/// bodies, and only the project's libraries with it are inferred. A file whose text does not
+/// have the name neither references nor declares it (the referenced names
+/// are identifiers, `computeReferencedNames`), so the search finds what the
+/// whole load finds, without reading and inferring the rest. The subtype
+/// search (`implementation`) is transitive and keeps the whole load.
 pub(crate) fn load_wide_project(
     sdk: &SdkLayout,
     documents: &DocumentStore,
     uri: &str,
+    citing: Option<&str>,
 ) -> Option<Project> {
     let file = uri_file(uri)?;
     let root = project_root(&file);
@@ -313,8 +353,30 @@ pub(crate) fn load_wide_project(
             }
         }
         files.sort();
-        for (k, a) in files.into_iter().enumerate() {
-            if std::fs::read_to_string(&a).is_ok_and(|t| is_part(&t)) {
+        // The parts that have the name: their owning libraries come in, found as
+        // the files of the package that name them.
+        let texts: Vec<Option<String>> = files
+            .iter()
+            .map(|a| std::fs::read_to_string(a).ok())
+            .collect();
+        let parts_citing: Vec<String> = match citing {
+            Some(name) => files
+                .iter()
+                .zip(&texts)
+                .filter(|(_, t)| t.as_deref().is_some_and(|t| t.contains(name) && is_part(t)))
+                .filter_map(|(a, _)| Some(a.file_name()?.to_string_lossy().into_owned()))
+                .collect(),
+            None => Vec::new(),
+        };
+        for (k, (a, source)) in files.into_iter().zip(texts).enumerate() {
+            let Some(source) = source else { continue };
+            if is_part(&source) {
+                continue;
+            }
+            if let Some(name) = citing
+                && !source.contains(name)
+                && !parts_citing.iter().any(|p| source.contains(p.as_str()))
+            {
                 continue;
             }
             let Ok(rel) = a.strip_prefix(&lib) else {
@@ -326,7 +388,44 @@ pub(crate) fn load_wide_project(
             ));
         }
     }
-    load_project_with(sdk, documents, uri, Some((root.join(KNOWN), text)))
+    load_project_with(sdk, documents, uri, Some((root.join(KNOWN), text)), citing)
+}
+
+/// The source the whole wide load of `root` reads, estimated without reading
+/// it: the analyzer's SDK (~8 MiB), the `.dart` files of the packages' `lib/`
+/// and those of the project, in bytes.
+pub(crate) fn wide_source_estimate(root: &Path) -> usize {
+    const SDK: usize = 8 * 1024 * 1024;
+    let mut total = SDK
+        + project_files(root)
+            .iter()
+            .filter_map(|f| std::fs::metadata(f).ok())
+            .map(|m| m.len() as usize)
+            .sum::<usize>();
+    let mut stack: Vec<PathBuf> = packages_with_name(root)
+        .into_iter()
+        .map(|(_, lib)| lib)
+        .filter(|lib| !lib.starts_with(root))
+        .collect();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    while let Some(d) = stack.pop() {
+        if !seen.insert(d.clone()) {
+            continue;
+        }
+        let Ok(r) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in r.flatten() {
+            let c = e.path();
+            let Ok(m) = e.metadata() else { continue };
+            if m.is_dir() {
+                stack.push(c);
+            } else if c.extension().is_some_and(|x| x == "dart") {
+                total += m.len() as usize;
+            }
+        }
+    }
+    total
 }
 
 impl Project {
@@ -397,6 +496,7 @@ fn load_project_with(
     documents: &DocumentStore,
     uri: &str,
     synthetic: Option<(PathBuf, String)>,
+    citing: Option<&str>,
 ) -> Option<Project> {
     let file = uri_file(uri)?;
     let root = project_root(&file);
@@ -424,10 +524,30 @@ fn load_project_with(
             candidates.push(c);
         }
     }
+    // With `citing`, only the libraries that have the name (or a part with it)
+    // and the file's are entries: the others come in only if one of them
+    // imports them.
+    let citing_parts: Vec<String> = match citing {
+        Some(name) => candidates
+            .iter()
+            .filter(|c| text_of(c).is_some_and(|t| is_part(&t) && t.contains(name)))
+            .filter_map(|c| Some(c.file_name()?.to_string_lossy().into_owned()))
+            .collect(),
+        None => Vec::new(),
+    };
     for c in candidates {
-        if text_of(&c).is_some_and(|t| !is_part(&t)) {
-            entries.push(c);
+        let Some(t) = text_of(&c) else { continue };
+        if is_part(&t) {
+            continue;
         }
+        if let Some(name) = citing
+            && c != file
+            && !t.contains(name)
+            && !citing_parts.iter().any(|p| t.contains(p.as_str()))
+        {
+            continue;
+        }
+        entries.push(c);
     }
     if let Some(c) = &synthetic_path {
         entries.push(c.clone());
@@ -439,15 +559,38 @@ fn load_project_with(
     let generation = generator.finish(1).ok()?;
     let mut names = dartforge_intern::Interner::new();
     let references: Vec<&Path> = entries.iter().map(PathBuf::as_path).collect();
-    let (program, _) = dartforge_elements::load::load_lenient_entries(
-        &references,
-        sdk,
-        None,
-        &mut names,
-        None,
-        None,
-        Some(generation),
-    );
+    let (program, _) = match citing {
+        Some(name) => dartforge_elements::load::load_lenient_outline(
+            &references,
+            sdk,
+            &mut names,
+            Some(generation),
+            &|_: &Path, source: &str| !source.contains(name),
+        ),
+        None => dartforge_elements::load::load_lenient_entries(
+            &references,
+            sdk,
+            None,
+            &mut names,
+            None,
+            None,
+            Some(generation),
+        ),
+    };
+    let key = dartforge_elements::generated::key(&file);
+    // With `citing`, the libraries with a unit that has the name, and the file's.
+    let wanted = |l: LibraryId| {
+        citing.is_none_or(|name| {
+            program.library(l).units.iter().any(|&u| {
+                let unit = program.unit(u);
+                unit.source.contains(name)
+                    || unit
+                        .path
+                        .as_deref()
+                        .is_some_and(|p| dartforge_elements::generated::key(p) == key)
+            })
+        })
+    };
     let libraries: HashSet<LibraryId> = program
         .units
         .iter()
@@ -456,6 +599,7 @@ fn load_project_with(
                 && u.path
                     .as_deref()
                     .is_some_and(|p| inside(p, &root) && Some(p) != synthetic_path.as_deref())
+                && wanted(u.library)
         })
         .map(|u| u.library)
         .collect();
