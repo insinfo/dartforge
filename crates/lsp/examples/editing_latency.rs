@@ -1002,6 +1002,10 @@ fn main() {
         if let Some(e) = r.get("error") {
             println!("{method} at {line}:{character}: error {e}");
         }
+        if method == "textDocument/references" {
+            let n = r["result"].as_array().map_or(0, Vec::len);
+            println!("references at {line}:{character}: {n} locations");
+        }
         (d, cpu)
     };
     let methods = [
