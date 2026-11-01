@@ -837,6 +837,9 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
     };
     let mut api = o.api.as_ref().map(|a| Document::open(c, a));
     c.settle_after(Instant::now());
+    // Time to settled per kind of load: waves, body edits (and undos), API
+    // changes (and undos).
+    let mut kinds = [(Duration::ZERO, 0u32); 3];
     for round in 1..=rounds {
         // A wave: every generated file rewritten, one notification each,
         // spread as a file watcher reports them.
@@ -848,15 +851,17 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
             );
             std::thread::sleep(Duration::from_millis(5));
         }
-        c.settle_after(Instant::now());
+        kinds[0].0 += c.settle_after(Instant::now());
+        kinds[0].1 += 1;
         loads.fetch_add(1, Ordering::Relaxed);
         // A body edit and its undo.
         let at = body_insertion(&doc.text);
         let statement = "\n    var dfLongSession = 1;";
         doc.insert(c, at, statement);
-        c.settle_after(Instant::now());
+        kinds[1].0 += c.settle_after(Instant::now());
         doc.remove(c, at, at + statement.len());
-        c.settle_after(Instant::now());
+        kinds[1].0 += c.settle_after(Instant::now());
+        kinds[1].1 += 2;
         loads.fetch_add(2, Ordering::Relaxed);
         // An API change and its undo.
         if round % 5 == 0
@@ -865,9 +870,10 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
             let at = a.text.rfind('}').map_or(a.text.len(), |i| i + 1);
             let declaration = format!("\nint dfLongSessionApi{round}() => {round};\n");
             a.insert(c, at, &declaration);
-            c.settle_after(Instant::now());
+            kinds[2].0 += c.settle_after(Instant::now());
             a.remove(c, at, at + declaration.len());
-            c.settle_after(Instant::now());
+            kinds[2].0 += c.settle_after(Instant::now());
+            kinds[2].1 += 2;
             loads.fetch_add(2, Ordering::Relaxed);
         }
         if round % 10 == 0 {
@@ -880,6 +886,16 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
         }
     }
     let busy_end = started.elapsed().as_secs_f64();
+    for ((total, n), kind) in kinds.iter().zip(["wave", "body edit", "API change"]) {
+        if *n > 0 {
+            println!(
+                "long session {}: {kind}: {n} loads, {:.1} s in all, {:.0} ms each to settled",
+                o.label,
+                total.as_secs_f64(),
+                ms(*total) / f64::from(*n)
+            );
+        }
+    }
     std::thread::sleep(Duration::from_secs(60));
     let (rest_rss, rest_foot) = rss_of_all(pid);
     stop.store(true, Ordering::Relaxed);
