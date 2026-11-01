@@ -38,7 +38,15 @@ fn helper(name: &str) -> Option<usize> {
 
 /// `IndexError` of `ix` in `target` of size `size` (the VM's `RangeError
 /// (index)`).
+///
+/// The error comes from a Dart helper: under ARC, its Owned return lives in a native
+/// scope of this throw, so a native that only runs Dart here needs none of its own
+/// (`dartforge_runtime::arc::NATIVES_SCOPING_THEIR_DART`).
 fn throw_index(ix: i64, target: i64, size: i64) {
+    in_native_scope_if_arc(|| throw_index_scoped(ix, target, size));
+}
+
+fn throw_index_scoped(ix: i64, target: i64, size: i64) {
     if let Some(f) = helper("_dartforgeIndexError") {
         // SAFETY: registered by the `dart:_internal` library with this signature
         // (`int`, `Object?`, `int`) → `Object`.
@@ -61,8 +69,12 @@ fn throw_index(ix: i64, target: i64, size: i64) {
 /// The bounds check of `[]` (`name` "length") and of the lists' `_setIndexed`
 /// ("index") in the VM: `RangeError.range(index, 0, size - 1, name)`, not
 /// `IndexError` (e.g. "RangeError (length): Invalid value: Not in inclusive range
-/// 0..2: 10").
+/// 0..2: 10"). In a native scope of its own, as [`throw_index`].
 fn throw_range(ix: i64, size: i64, name: &str) {
+    in_native_scope_if_arc(|| throw_range_scoped(ix, size, name));
+}
+
+fn throw_range_scoped(ix: i64, size: i64, name: &str) {
     let n = allocate_str(name);
     let error = with_roots(&[n], || dartforge_range_error_range(ix, 0, size - 1, n, 0));
     if dartforge_exception_pending() != 0 {

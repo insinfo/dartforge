@@ -205,6 +205,43 @@ pub struct ArcStats {
     pub deferred_zeros: u64,
 }
 
+/// The natives that may run Dart (`runs_dart` in `effects.tsv`) only to build the
+/// error they throw, through a throw helper that opens its own native scope
+/// (`throw_index`, `throw_range`, `throw_range_err`): the Owned error of the Dart
+/// helper lives in that scope until the pending exception holds it. The prepared ARC
+/// calls them without a native scope of its own (`optimize::arc::natives::scope`).
+/// A native goes here only when every path of its body into Dart is one of those
+/// throws; `natives_scoping_their_dart_run_dart` keeps the names in the table.
+pub const NATIVES_SCOPING_THEIR_DART: &[&str] = &[
+    "dartforge_native_DartForge_list_get",
+    "dartforge_native_DartForge_string_codeUnitAt",
+    "dartforge_native_DartForge_typed_getInt8",
+    "dartforge_native_DartForge_typed_getInt16",
+    "dartforge_native_DartForge_typed_getInt32",
+    "dartforge_native_DartForge_typed_getInt64",
+    "dartforge_native_DartForge_typed_getUint8",
+    "dartforge_native_DartForge_typed_getUint16",
+    "dartforge_native_DartForge_typed_getUint32",
+    "dartforge_native_DartForge_typed_getUint64",
+    "dartforge_native_DartForge_typed_index_double",
+    "dartforge_native_DartForge_typed_index_int",
+    "dartforge_native_DartForge_typed_setInt8",
+    "dartforge_native_DartForge_typed_setInt16",
+    "dartforge_native_DartForge_typed_setInt32",
+    "dartforge_native_DartForge_typed_setInt64",
+    "dartforge_native_DartForge_typed_setUint8",
+    "dartforge_native_DartForge_typed_setUint16",
+    "dartforge_native_DartForge_typed_setUint32",
+    "dartforge_native_DartForge_typed_setUint64",
+    "dartforge_native_GrowableList_setIndexed",
+    "dartforge_native_List_setIndexed",
+    "dartforge_native_String_charAt",
+    "dartforge_native_TypedData_GetFloat32",
+    "dartforge_native_TypedData_GetFloat64",
+    "dartforge_native_TypedData_SetFloat32",
+    "dartforge_native_TypedData_SetFloat64",
+];
+
 /// `null` and `Smi` are not managed references.
 #[inline]
 pub fn e_handle(h: Ref) -> bool {
@@ -1764,6 +1801,17 @@ impl ArcHeapState {
 #[cfg(test)]
 mod tests_mod {
     use super::*;
+
+    #[test]
+    fn natives_scoping_their_dart_run_dart() {
+        for name in NATIVES_SCOPING_THEIR_DART {
+            let effects = crate::effects::EFFECTS.iter().find(|e| e.0 == *name);
+            assert!(
+                effects.is_some_and(|e| e.3),
+                "{name}: not an extern that runs Dart"
+            );
+        }
+    }
 
     #[test]
     fn immortal_does_not_reuse_generation_after_exhaustion() {

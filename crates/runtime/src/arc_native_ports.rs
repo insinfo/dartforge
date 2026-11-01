@@ -840,6 +840,43 @@ mod arc_port_tests {
         assert_eq!(heap.stats().collections, stats.collections);
     }
 
+    /// A native of `NATIVES_SCOPING_THEIR_DART`, called without a native scope: its
+    /// throw helper opens one for the Dart helper's Owned error, the pending exception
+    /// holds the error, and clearing it lets the error die.
+    #[test]
+    fn error_of_a_self_scoping_native_needs_no_outer_scope() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        extern "C" fn range_error(_: i64, _: i64, _: i64, _: i64) -> i64 {
+            let x = dartforge_arc_box_int_owned_v1(i64::MAX);
+            LAST.with(|u| u.set(x));
+            x
+        }
+        std::thread::spawn(|| {
+            dartforge_memory_arc_v1();
+            let pc = range_error as *const () as usize;
+            let version = register(pc, 4);
+            HELPERS.with(|a| a.borrow_mut().insert("_dartforgeRangeError".into(), pc));
+            let text = allocate_str("ab");
+            assert!(ARC_NATIVE_PORTS.with(|p| p.borrow().scopes.is_empty()));
+            assert_eq!(dartforge_native_DartForge_string_codeUnitAt(text, 1), i64::from(b'b'));
+            assert_eq!(dartforge_native_DartForge_string_codeUnitAt(text, 9), 0);
+            assert_ne!(dartforge_exception_pending(), 0);
+            assert!(ARC_NATIVE_PORTS.with(|p| p.borrow().scopes.is_empty()));
+            let error = LAST.with(|u| u.get());
+            dartforge_arc_collect();
+            // Live (bit 0), held by the pending exception's root, and no code token
+            // left (bit 1): the throw's scope released the helper's.
+            assert_eq!(dartforge_arc_observe_heap_v1(error), 1);
+            dartforge_exception_clear();
+            dartforge_arc_collect();
+            assert_eq!(dartforge_arc_observe_heap_v1(error), 0);
+            HELPERS.with(|a| a.borrow_mut().remove("_dartforgeRangeError"));
+            dartforge_arc_take_return_owned_v1(pc as i64, version);
+        })
+        .join()
+        .unwrap();
+    }
+
     #[test]
     fn typed_target_cache_forgets_a_removed_registration() {
         let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());

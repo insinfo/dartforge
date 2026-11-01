@@ -50,10 +50,16 @@ fn copied_string(handle: i64) -> Text {
 
 /// Throws `RangeError.range(value, min, max, name)`, like `dart:core`'s
 /// `RangeError.checkValidRange`/`checkValueInInterval`.
+///
+/// In a native scope of its own: under ARC the Dart helper's Owned error lives there
+/// until the pending exception holds it, so a native that only runs Dart here needs
+/// no scope (`dartforge_runtime::arc::NATIVES_SCOPING_THEIR_DART`).
 fn throw_range_err(value: i64, min: i64, max: i64, name: &str) {
-    let n = allocate_str(name);
-    let err = with_roots(&[n], || dartforge_range_error_range(value, min, max, n, 0));
-    dartforge_exception_throw(err, 3);
+    in_native_scope_if_arc(|| {
+        let n = allocate_str(name);
+        let err = with_roots(&[n], || dartforge_range_error_range(value, min, max, n, 0));
+        dartforge_exception_throw(err, 3);
+    });
 }
 
 /// `dart:core`'s `RangeError.checkValidRange(start, end, length)`

@@ -2488,13 +2488,10 @@ mod publication_tests {
         m.arc_memory = true;
         m.functions.push(saved(
             "unidade",
-            vec![(ValueId(0), "s".into(), Type::Ref)],
+            vec![(ValueId(0), "x".into(), Type::F64)],
             Instruction::CallRuntime {
-                name: "dartforge_native_DartForge_string_codeUnitAt".into(),
-                args: vec![
-                    (val(0), Type::Ref),
-                    (Operand::Constant(Constant::Int(0)), Type::I64),
-                ],
+                name: "dartforge_native_DartForge_double_toInt".into(),
+                args: vec![(val(0), Type::F64)],
                 ret_ty: Type::I64,
             },
             Type::I64,
@@ -2502,7 +2499,7 @@ mod publication_tests {
         let mut plans = HashMap::from([("unidade".into(), DartFunctionPlan::default())]);
         prepare_arc_dart_module(&mut m, &mut plans).unwrap();
         let name_str = super::super::NATIVE_SCOPE_PREFIX.to_string()
-            + "dartforge_native_DartForge_string_codeUnitAt";
+            + "dartforge_native_DartForge_double_toInt";
         assert!(
             matches!(&m.functions[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. } if *name == name_str)
         );
@@ -2518,6 +2515,38 @@ mod publication_tests {
         let before = format!("{m:?}");
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
         assert_eq!(format!("{m:?}"), before);
+    }
+
+    /// A native that only runs Dart to build its error opens its own scope in the
+    /// runtime's throw helper (`NATIVES_SCOPING_THEIR_DART`): no scope thunk.
+    #[test]
+    fn native_scoping_its_error_gets_no_scope_thunk() {
+        let mut m = Module::new();
+        m.arc_memory = true;
+        m.functions.push(saved(
+            "unidade",
+            vec![(ValueId(0), "s".into(), Type::Ref)],
+            Instruction::CallRuntime {
+                name: "dartforge_native_DartForge_string_codeUnitAt".into(),
+                args: vec![
+                    (val(0), Type::Ref),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                ],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        ));
+        let mut plans = HashMap::from([("unidade".into(), DartFunctionPlan::default())]);
+        prepare_arc_dart_module(&mut m, &mut plans).unwrap();
+        assert!(matches!(
+            &m.functions[0].blocks[0].instructions[0].1,
+            Instruction::CallRuntime { name, .. } if name == "dartforge_native_DartForge_string_codeUnitAt"
+        ));
+        let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
+        assert!(
+            !ir.contains("call i64 @dartforge_arc_native_scope_open_v1()"),
+            "{ir}"
+        );
     }
 
     /// A native whose result gets an owner but that never runs Dart (`effects.tsv`)

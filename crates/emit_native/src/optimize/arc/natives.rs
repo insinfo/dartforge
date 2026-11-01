@@ -282,13 +282,16 @@ pub(super) fn prepare(f: &mut Function) -> Result<(), String> {
 /// Each call to a runtime function that may run Dart, with its own contract,
 /// now runs in a native scope (`NATIVE_SCOPE_PREFIX`). Runs
 /// after the preparations that create calls (`boxes`, `fields`…). The
-/// `dartforge_arc_*` ABIs already scope internally (`em_escopo_nativo`).
+/// `dartforge_arc_*` ABIs already scope internally (`em_escopo_nativo`), and so do
+/// the natives that only run Dart to build their error
+/// (`dartforge_runtime::arc::NATIVES_SCOPING_THEIR_DART`).
 pub(super) fn scope(f: &mut Function) {
     for (_, inst, _) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
         if let Instruction::CallRuntime { name, .. } = inst
             && !name.starts_with("dartforge_arc_")
             && !name.starts_with("df.")
             && crate::llvm::externs::effects_of(name).calls_dart
+            && !dartforge_runtime::arc::NATIVES_SCOPING_THEIR_DART.contains(&name.as_str())
             && super::contract(name).is_ok()
         {
             *name = format!("{}{name}", super::NATIVE_SCOPE_PREFIX);
