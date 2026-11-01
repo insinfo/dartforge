@@ -27,10 +27,33 @@ não no LSP.
      - o residente manter esse índice.
    - **Restrição:** um índice parcial não serve, porque quebraria a paridade de 100% do
      `references` no oráculo.
+3. **Memória estável em sessões longas.** É o problema que o proprietário vive com o
+   servidor oficial no VS Code.
+   - **Cenário:** o `new_sali` aberto inteiro, com frontend, core e backend. São cerca de
+     1 milhão de linhas com as dependências, das quais 200 mil são do próprio projeto.
+     Enquanto isso, rodam `dart run build_runner` / `webdev build` / `webdev serve` e há
+     muitas edições de template e de código.
+   - **Sintoma no Dart:** o *analysis server* cresce até **~10 GB**. O `build_runner`
+     reescreve em massa os arquivos gerados (`.g.dart`, `.template.dart`, `.dart_tool/`),
+     e cada onda dispara reanálise e acumula memória.
+   - **Meta:** a memória do `dartforge-lsp` fica limitada e plana ao longo da sessão.
+     Depois de cada onda de arquivos gerados, volta ao patamar de repouso, bem abaixo do
+     Dart nas mesmas condições.
+   - **O que pede:**
+     - um cenário de sessão longa no driver de medição (`crates/lsp/examples/editing_latency.rs`):
+       horas simuladas de edições, mais ondas de reescrita dos arquivos gerados como as
+       do `build_runner`, mais `didChangeWatchedFiles` em massa;
+     - a RSS dos dois servidores amostrada ao longo do tempo;
+     - o pico e a inclinação (MiB por hora) como métricas;
+     - nenhuma estrutura que cresça com o número de recargas. A alta de 6% do
+       `limitless_ui` com o prefixo congelado é desse tipo e tem de sumir.
+   - **Agrupar as ondas:** uma rajada de arquivos gerados é tratada como uma recarga só,
+     com espera curta, e não arquivo a arquivo.
 
 **Como validar:** cada passo com teste contra uma análise do zero, o oráculo de paridade a
 100% e a medição revezada com o servidor oficial (com a coluna de CPU) nos três projetos.
-Nenhum projeto pode piorar.
+Nenhum projeto pode piorar. O item 3 se mede no `new_sali` inteiro, na sessão longa, com
+a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
