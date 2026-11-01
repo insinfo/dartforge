@@ -38,7 +38,8 @@
 //!
 //! CPU time (`proc_pid_rusage`): for each edit, from the change to settled,
 //! that of the server, of its ended children and of its live descendants; for
-//! each request, that of the server process (where both servers answer them).
+//! each request, that of the server process and of the children it waited for
+//! (where both servers answer them, or a DartForge reference search child).
 //! On a loaded machine it is the steadier measure: the wall time also counts
 //! the waits for a core.
 //!
@@ -269,9 +270,11 @@ fn cpu_of_all(pid: u32) -> u64 {
         .sum::<u64>()
 }
 
-/// The CPU time (ns) of the server process alone (the queries run there).
+/// The CPU time (ns) of the server process and of its children that ended
+/// (the queries run there, or in a child of their own that the server waits
+/// for: DartForge's reference searches that do not fit).
 fn cpu_of(pid: u32) -> u64 {
-    footprint::of(pid).map_or(0, |s| s.cpu)
+    footprint::of(pid).map_or(0, |s| s.cpu + s.children_cpu)
 }
 
 #[derive(Default)]

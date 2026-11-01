@@ -12,7 +12,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 |---|---|---|---|
 | **JS dev** × DDC/webdev | compilar 1 arquivo: **7,6× mais rápido** (19 × 150 ms). Início do zero, sem `build_runner`: **29,6 × 212,5 s** (`limitless_ui`) e **56,1 × 383,3 s** (`new_sali`). Edição até a página, `limitless_ui`: template **3,3 × 7,6 s**, corpo **2,4 × 8,1 s**, API **8,8 × 51,8 s** (máquina carregada: valem as razões). Código gerado ≈ igual ao DDC (`closures` 1,65×, 13/10) | memória **0,5 × 4,9 GB**; JS em gzip **4,4 × 5,4 MB** (bruto 56 × 49 MB) | 31/10 noite |
 | **JS produção** × `dart2js -O4` | ganha em `collections/set_str` (0,54×), `map` (0,79×), `list_sort` (0,85×) e `map_str_int` (13,4 × 15,6 ms); empata em `async_await` (464 × 466 ms), `collatz` (150 × 150), `Set<int>` (16 × 15), `list_methods` (37 × 36), `map_iterate` e `closures`; **perde** em `jsonEncode` 1,0–1,2×. Compila **2–2,8× mais rápido** (-O2) | projetos grandes **0,90–0,94×** bruto, **0,96×** gzip; 16 programas pequenos **0,915×** bruto e **0,963× gzip** (o `json` de `bench/performance` sozinho, 1,034× gzip) | 01/11 |
-| **LSP** × servidor de análise | medido nos mesmos 3 projetos, revezado, carga 40–190 (não conclusivo perto de 1×). **Empata** em *hover* no frontend (2,3 × 1,5 ms; CPU 2,3 × 2,2) e **ganha** no `limitless_ui` (0,7 × 1,3 ms) e em `references` nele (4,7 × 36 ms); *definition*/*prepareRename* 2–6× em ms. **Perde** no diagnóstico por tecla (frontend 1,3 s × 82 ms; CPU 403 × 48 ms), nos dependentes de mudança de API (10–32×), em `references`/`completion` no frontend (7,2 s × 235 ms; 277 × 9 ms) e na partida (1,2–2,3×) | pico 308–1.981 × 359–888 MiB; repouso frontend **1.522 × 864 MiB (perde)**, backend 215 × 321 MiB. Diagnósticos finais 99,6% iguais (backend) | 31/10 |
+| **LSP** × servidor de análise | mesmos 3 projetos, revezado, com CPU (carga 32–91; perto de 1× não é conclusivo). **Tecla → diagnósticos**: frontend **102 × 58 ms** (CPU 75 × 50; era 1,3 s), backend 62 × 38 ms, `limitless_ui` **142 × 225 ms (ganha)**. **Ganha** em *hover* depois de edição e no `limitless_ui`, e em `references` no `limitless_ui` (3,7 × 54 ms). **Perde** nos dependentes de mudança de API (3,6–34×), em `references` no frontend (7,3 s × 173 ms), em `completion` no frontend (163 × 4,7 ms) e na partida (1,9–2,4×, com CPU igual ou menor) | frontend pico/repouso **2.096/1.170 × 939/863 MiB (perde)**, `limitless_ui` 1.194/1.088 × 764/764, backend **274/274 × 461/458 (ganha)**. Diagnósticos finais 99,6% iguais (backend); oráculo de paridade: references/implementation/definition 100%, completion top-5 100% | 01/11 |
 | **`analyze`** × `dart analyze` | `new_sali/backend`: ~5 s × 21,7 s frio (2,6 s com cache); `format`: **0,42 × 1,55 s** | — | 13–14/10 |
 | **`test`** / **`pub`** × `dart test` / `dart pub` | **não medido** | — | — |
 | **Wasm** × `dart2wasm` (Node 24) | **perde** 1,2–3× em alocação/árvores, JSON, strings e crivo (ganho de só 10–20% em 31/10 noite; o coletor pesa ~25% no JSON); **ganha** 2–8× em `list.add`, `list[i]` e `sort` | módulo **1,26–1,94 MB × 47–114 KB (17–27× maior**; era 2,2–2,7 MB, −28 a −42%); memória **2,3–3,4× menor**. Exceções nativas do Wasm (`exnref`) são o padrão: −2,6 a −4,5% de tamanho | 31/10 noite |
@@ -41,7 +41,47 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | Backend nativo (AOT e wasm): as 57 falhas restantes da suíte `tests/language` (de 88) | agente backend nativo |
 | AOT nativo: tempo de compilação de programa grande (13,9× a CPU do `dart compile exe`) e tamanho (1,40×) | agente AOT nativo (tempo e tamanho; seção de 31/10 abaixo) |
 | ARC real: 3× os ciclos do tracing no HTTP (205 × 66 mil por pedido no `dart:io`; Swift cru 26 mil) | agente ARC real (desde 31/10, noite) |
-| LSP: motor residente incremental (tecla e API), índice para `references`, `completion` fora de corpo, memória das buscas | agente LSP (medição e consultas concluídas em 31/10; próxima rodada) |
+| LSP: *outline* incremental (mudança de API), índice de nomes referenciados para `references`, `completion` dentro de corpo sem recarregar, memória das recargas da biblioteca | agente LSP (residente incremental por tecla concluído em 01/11) |
+
+## 01/11/2026: LSP — o residente reaproveita o programa a cada tecla
+
+Segunda rodada contra o `dart language-server` 3.6.2 (mesmo driver, projetos e arquivos de
+31/10; 3 rodadas revezadas; carga 32–91). Tabelas completas em `docs/LSP.md`, "Segunda
+rodada".
+
+| ms (mediana; CPU) | `new_sali/frontend`: 31/10 → agora × Dart | `new_sali/backend` | `limitless_ui` |
+|---|---|---|---|
+| tecla num corpo → assentado | 1.294 → **102** (75) × 58 (50) | 148 → **62** (61) × 38 (42) | 531 → **142** (112) × 225 (150) |
+| edição de corpo → diagnóstico | 1.449 → **124** × 29 | 200 → 52 × 17 | 538 → **171** × 217 |
+| API exportada → diagnóstico do arquivo | 983 → 692 × 59 | 80 → 106 × 64 | 221 → 169 × 204 |
+| API exportada → dependentes | 9.807 → **5.947** × 246 | 5.022 → 5.504 × 382 | 2.772 → 1.402 × 392 |
+| `completion` sem edição | 277 → 163 (84) × 4,7 | 13 → 36 (13) × 8,6 | 292 → 107 (74) × 20 |
+| `references` sem edição | 7.226 → 7.255 × 173 | 4,1 → 4,0 × 1,3 | 4,7 → 3,7 × 54 |
+| memória pico / repouso (MiB) | 1.981/1.522 → 2.096/**1.170** × 939/863 | 308/215 → 274/274 × 461/458 | 1.129/1.058 → 1.194/1.088 × 764/764 |
+
+- **Residente incremental** (`crates/parity/src/analysis.rs`, `World`): o processo residente
+  guarda o programa, as tabelas de tipos, o *outline*, os limites simples e o resultado das
+  passadas de inicializadores. Quando a análise seguinte é do mesmo lote e só corpos dos
+  arquivos do lote mudaram, as unidades trocam de texto no lugar (`swap_unit`) e os
+  diagnósticos desses passos só mudam de posição. No frontend, por tecla: carga 0,25–0,55 s
+  → 0,01–0,03 s, *outline* 0,4–0,8 s → < 0,03 s, inicializadores 0,4–0,8 s → 0.
+- **Buscas de referências que não cabem** num processo filho (`--reference-search`).
+- **`completion` fora de um corpo** com a análise retida do texto real.
+- **Lotes grandes no residente** (`DARTFORGE_LSP_RESIDENT_BATCH`, padrão 1.024; era 32): os
+  dependentes de uma exportação do *barrel* do frontend assentam em 4,9 s em vez de 9,3 s,
+  com pico total menor (472 × 791 MiB).
+
+**Validação**: testes de `lsp`, `elements`, `frontend`, `parity` e `dev` em `289f373c` (main)
+passam (654/654); no código desta rodada, `cargo test --release -p dartforge-lsp -p dartforge-parity` 357/357 e clippy `-D warnings` limpo (`elements`, `frontend` e `dev` não mudaram). Testes novos: `resident_reuses_the_program_when_only_bodies_change`
+(parity) e `reference_search_in_a_child_process_finds_the_same` (lsp). Oráculo de paridade
+(4 projetos, 410 posições): tabela de recursos idêntica em `22955178`, `289f373c` e agora —
+references, implementation e definition 100%, completion top-5 100%, top-1 99%.
+
+**O que falta**: *outline* incremental para mudanças de API (os dependentes ainda custam
+3,6–34×); índice de nomes referenciados no residente (`references` no frontend, 4,5–42×);
+`completion` dentro de um corpo quando a troca com a sentinela é recusada (~1 s de CPU no
+frontend); a memória das recargas da biblioteca no servidor (frontend: pico 2,2×, repouso
+1,36×).
 
 ## 31/10/2026: AOT nativo de programa grande — 2,45× menos CPU para compilar, executável 15% menor
 

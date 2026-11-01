@@ -258,14 +258,16 @@ camadas, em `crates/lsp/src/typed.rs`:
     workspace. Só diagnósticos e alvos de diretivas ficam, nunca programa.
 * **Processo de análise residente** (`ResidentChild`,
   `dartforge-lsp --typed-analysis --resident`). As análises pequenas (até
-  32 arquivos, fora a primeira do pacote) vão para um filho que vive entre
-  as análises e guarda as unidades analisadas (fonte e árvore) de todo o
+  1.024 arquivos desde 2026-11-01, eram 32; fora a primeira do pacote) vão
+  para um filho que vive entre as análises e guarda as unidades analisadas (fonte e árvore) de todo o
   programa, SDK incluído (`dartforge_parity::analysis::Resident`, sobre o
   `AnalyzedUnitCache` do `dartforge dev`); a carga seguinte só reanalisa o
   que mudou: textos abertos que mudaram ou deixaram de estar abertos,
   arquivos com data/tamanho diferentes no disco, os arquivos do lote (cujos
   diagnósticos de sintaxe vêm da análise) e a entrada sintética. Tipos,
-  escopos e diagnósticos são refeitos em toda análise. Protocolo: uma
+  escopos e diagnósticos são refeitos em toda análise, salvo quando só
+  corpos do mesmo lote mudaram (desde 2026-11-01 o programa e o *outline*
+  ficam; ver "Segunda rodada" abaixo). Protocolo: uma
   mensagem JSON por linha (`Analyze {id, job}`, `Cancel {id}`), uma
   resposta por análise. Cancelar é cooperativo (o filho para no próximo
   ponto de cancelamento do motor); se não parar em 500 ms, o processo é
@@ -539,6 +541,150 @@ Iguais antes e depois deste commit.
   do sistema não devolve as páginas, ver "Memória"); somam-se a biblioteca retida pela sessão
   e, no `limitless_ui`, a carga larga retida (1,39× em repouso). No backend, 0,6–0,9×. O
   próximo passo é a busca larga num processo filho, como a análise tipada.
+
+#### Segunda rodada (2026-11-01): o residente reaproveita o programa
+
+Mesmo driver (agora com a CPU de cada pedido incluindo a dos filhos que o servidor espera:
+a busca de referências no filho entra na conta), mesmos projetos e arquivos, 3 rodadas
+revezadas com o Dart. "31/10" é o binário de `289f373c` (as tabelas acima); "agora" é o
+deste commit. Carga da máquina na faixa do título de cada tabela.
+
+O que mudou:
+
+* **O processo residente guarda o programa entre análises** (`World`,
+  `crates/parity/src/analysis.rs`). Quando a análise seguinte é do mesmo lote e só corpos
+  dos arquivos do lote mudaram (mesma forma e assinatura de API; nada mais em memória nem no
+  disco), as unidades editadas trocam de texto no lugar
+  (`dartforge_elements::incremental::swap_unit`, o mesmo das consultas) e a análise segue do
+  *outline* em diante: carga, escopos, *outline*, limites simples e as duas passadas de
+  inicializadores não são refeitos. Os diagnósticos desses passos, que dependem só de
+  assinaturas e inicializadores, só mudam de posição: são deslocados (a edição é um trecho
+  contínuo; um diagnóstico dentro dele volta ao caminho de sempre), e os de sintaxe da
+  unidade vêm da nova leitura. A inferência dos corpos do lote, os verificadores e os
+  diagnósticos são refeitos. Uma troca recusada, outro lote, um arquivo mudado no disco ou
+  outro texto em memória voltam à carga completa. No frontend, com
+  `DARTFORGE_ENGINE_TIMES=1`: carga 0,25–0,55 s → 0,01–0,03 s, *outline* 0,4–0,8 s →
+  0,004–0,03 s, inicializadores 0,4–0,8 s → 0.
+* **Buscas de referências que não cabem no orçamento da carga larga num processo filho**
+  (`dartforge-lsp --reference-search`): a carga vive e morre com o filho e o servidor não
+  fica no pico dela.
+* **`completion` fora de um corpo** responde com a análise retida do texto real (ali só o
+  escopo importa), em vez de recarregar a biblioteca com a sentinela.
+* **Lotes grandes no residente**: `DARTFORGE_LSP_RESIDENT_BATCH` (padrão 1.024, era 32).
+  Medido no frontend (exportação do *barrel*, ~200 dependentes): os dependentes assentam em
+  4,9 s em vez de 9,3 s e o diagnóstico do próprio arquivo em 0,49 s em vez de 1,0 s, com a
+  mesma CPU (3,1 s); o pico do residente quase não muda (446 → 465 MiB) e o pico total cai
+  (791 → 472 MiB), porque não há um segundo processo frio que lê e analisa tudo de novo.
+
+Testes novos: `resident_reuses_the_program_when_only_bodies_change` (`crates/parity`:
+corpo, erro de sintaxe, local não usado, declaração nova, arquivo de fora mudado no disco;
+cada passo comparado com uma análise do zero, inclusive o erro de um inicializador depois dos
+corpos editados) e `reference_search_in_a_child_process_finds_the_same`
+(`tests/editor_session.rs`: a busca no filho, forçada com `DARTFORGE_LSP_WIDE_MIB=0`, acha o
+mesmo que a do servidor). O oráculo de paridade nos quatro projetos de sempre (cópias de
+`args-2.7.0`, `path-1.9.1`, `string_scanner-1.4.1` e um `app` com erros comuns) tem a tabela
+de recursos idêntica antes (`22955178`), em `289f373c` e agora: `references`,
+`implementation` e `definition` 100%, *completion* top-5 100% (top-1 99%).
+
+##### frontend (3+3 sessões em 31/10, 3+3 agora; carga 32–91)
+
+| ms (mediana) | DartForge 31/10 | DartForge agora | Dart 3.6.2 | agora/Dart | CPU agora | CPU Dart |
+|---|---:|---:|---:|---:|---:|---:|
+| partida até a 1ª análise assentar | 10.771 | 10.236 | 5.419 | 1,89× | 3.308 | 3.991 |
+| tecla num corpo → assentado | 1.294 | 102 | 58 | 1,77× | 75 | 50 |
+| edição de corpo → diagnóstico publicado | 1.449 | 124 | 29 | 4,32× | 81 | 37 |
+| edição de API privada → diagnóstico publicado | 1.091 | 986 | 28 | 35× | — | — |
+| idem → assentado (dependentes) | 3.307 | 2.629 | 78 | 34× | 956 | 55 |
+| edição de API exportada (*barrel*) → diagnóstico publicado | 983 | 692 | 59 | 12× | — | — |
+| idem → assentado (dependentes) | 9.807 | 5.947 | 246 | 24× | 3.115 | 108 |
+| hover, 1º depois de uma edição | 4,9 | 2,6 | 11 | 0,24× | 2,6 | 7,8 |
+| hover, sem edição | 2,3 | 2,4 | 1,4 | 1,71× | 2,3 | 2,3 |
+| completion, 1º depois de uma edição | 2.113 | 1.073 | 193 | 5,57× | 1.030 | 55 |
+| completion, sem edição | 277 | 163 | 4,7 | 35× | 84 | 4,8 |
+| definition, sem edição | 3,2 | 3,3 | 1,0 | 3,30× | 3,3 | 1,0 |
+| references, 1º depois de uma edição | 51.136 | 35.652 | 7.861 | 4,54× | 15.472 | 2.475 |
+| references, sem edição | 7.226 | 7.255 | 173 | 42× | 2.266 | 107 |
+| prepareRename, sem edição | 2,0 | 3,4 | 0,8 | 4,53× | 3,3 | 0,8 |
+| codeAction, sem edição | 19 | 20 | 1,8 | 12× | 16 | 1,6 |
+| memória, todos os processos: pico (MiB, *footprint*) | 1.981 | 2.096 | 939 | 2,23× | | |
+| memória: média da sessão (MiB) | 1.267 | 1.231 | 635 | 1,94× | | |
+| memória: em repouso no fim (MiB) | 1.522 | 1.170 | 863 | 1,36× | | |
+| memória: pico de RSS (MiB) | 1.112 | 1.323 | 862 | 1,54× | | |
+
+##### backend (3+3 sessões em 31/10, 3+3 agora; carga 39–83)
+
+| ms (mediana) | DartForge 31/10 | DartForge agora | Dart 3.6.2 | agora/Dart | CPU agora | CPU Dart |
+|---|---:|---:|---:|---:|---:|---:|
+| partida até a 1ª análise assentar | 6.577 | 7.360 | 3.626 | 2,03× | 2.314 | 3.327 |
+| tecla num corpo → assentado | 148 | 62 | 38 | 1,61× | 61 | 42 |
+| edição de corpo → diagnóstico publicado | 200 | 52 | 17 | 3,05× | 57 | 21 |
+| edição de API privada → diagnóstico publicado | 190 | 191 | 22 | 8,52× | — | — |
+| idem → assentado (dependentes) | 4.245 | 5.300 | 362 | 15× | 1.643 | 161 |
+| edição de API exportada (*barrel*) → diagnóstico publicado | 80 | 106 | 64 | 1,65× | — | — |
+| idem → assentado (dependentes) | 5.022 | 5.504 | 382 | 14× | 1.650 | 187 |
+| hover, 1º depois de uma edição | 7,8 | 5,1 | 5,9 | 0,86× | 5,1 | 1,6 |
+| hover, sem edição | 2,3 | 2,4 | 0,6 | 4,00× | 2,2 | 0,7 |
+| completion, 1º depois de uma edição | 14 | 21 | 35 | 0,59× | 14 | 16 |
+| completion, sem edição | 13 | 36 | 8,6 | 4,19× | 13 | 8,5 |
+| definition, sem edição | 2,9 | 2,9 | 0,8 | 3,62× | 2,8 | 0,8 |
+| references, 1º depois de uma edição | 4,9 | 5,5 | 1,9 | 2,89× | 4,6 | 1,9 |
+| references, sem edição | 4,1 | 4,0 | 1,3 | 3,12× | 4,0 | 1,4 |
+| prepareRename, sem edição | 2,9 | 3,0 | 0,3 | 8,57× | 2,9 | 0,5 |
+| codeAction, sem edição | 8,9 | 8,9 | 1,1 | 8,43× | 8,8 | 1,1 |
+| memória, todos os processos: pico (MiB, *footprint*) | 308 | 274 | 461 | 0,60× | | |
+| memória: média da sessão (MiB) | 183 | 175 | 354 | 0,49× | | |
+| memória: em repouso no fim (MiB) | 215 | 274 | 458 | 0,60× | | |
+| memória: pico de RSS (MiB) | 274 | 257 | 505 | 0,51× | | |
+
+##### limitless_ui (3+3 sessões em 31/10, 3+3 agora; carga 32–82)
+
+| ms (mediana) | DartForge 31/10 | DartForge agora | Dart 3.6.2 | agora/Dart | CPU agora | CPU Dart |
+|---|---:|---:|---:|---:|---:|---:|
+| partida até a 1ª análise assentar | 16.040 | 10.627 | 4.394 | 2,42× | 4.492 | 4.124 |
+| tecla num corpo → assentado | 531 | 142 | 225 | 0,63× | 112 | 150 |
+| edição de corpo → diagnóstico publicado | 538 | 171 | 217 | 0,79× | 124 | 94 |
+| edição de API privada → diagnóstico publicado | 393 | 311 | 205 | 1,52× | — | — |
+| idem → assentado (dependentes) | 3.065 | 1.798 | 306 | 5,88× | 962 | 152 |
+| edição de API exportada (*barrel*) → diagnóstico publicado | 221 | 169 | 204 | 0,83× | — | — |
+| idem → assentado (dependentes) | 2.772 | 1.402 | 392 | 3,57× | 846 | 140 |
+| hover, 1º depois de uma edição | 1,0 | 1,0 | 4,6 | 0,22× | 0,9 | 2,7 |
+| hover, sem edição | 0,7 | 0,7 | 1,1 | 0,64× | 0,7 | 1,0 |
+| completion, 1º depois de uma edição | 38 | 34 | 28 | 1,20× | 32 | 17 |
+| completion, sem edição | 292 | 107 | 20 | 5,29× | 74 | 19 |
+| definition, sem edição | 4,2 | 4,2 | 1,4 | 3,00× | 4,2 | 1,4 |
+| references, 1º depois de uma edição | 6,6 | 5,8 | 8,4 | 0,69× | 3,0 | 7,9 |
+| references, sem edição | 4,7 | 3,7 | 54 | 0,07× | 3,7 | 26 |
+| prepareRename, sem edição | 5,1 | 5,0 | 0,9 | 5,56× | 4,9 | 0,9 |
+| codeAction, sem edição | 70 | 30 | 4,0 | 7,28× | 29 | 2,2 |
+| memória, todos os processos: pico (MiB, *footprint*) | 1.129 | 1.194 | 764 | 1,56× | | |
+| memória: média da sessão (MiB) | 480 | 417 | 494 | 0,85× | | |
+| memória: em repouso no fim (MiB) | 1.058 | 1.088 | 764 | 1,43× | | |
+| memória: pico de RSS (MiB) | 752 | 1.061 | 729 | 1,46× | | |
+
+**Onde passamos a ganhar ou empatar:** o diagnóstico por tecla no `limitless_ui` (142 × 225
+ms; CPU 112 × 150) e a edição de corpo nele (171 × 217 ms); no frontend a tecla foi de 1,3 s
+para 102 ms (Dart 58; CPU 75 × 50) e no backend de 148 para 62 ms (Dart 38; CPU 61 × 42);
+`hover` logo depois de uma edição (frontend 2,6 × 11 ms); o diagnóstico do próprio arquivo
+numa exportação do *barrel* no `limitless_ui` (169 × 204 ms); `references` no
+`limitless_ui`; a memória do backend (0,5–0,6×).
+
+**O que ainda perdemos:**
+
+* **Mudança de API, privada ou exportada: dependentes 3,6–34× até assentar e o diagnóstico
+  do próprio arquivo até 35× no frontend.** Uma mudança de assinatura recusa a troca e a
+  carga é completa; falta o *outline* incremental (refazer só as bibliotecas cuja assinatura
+  mudou e as que dependem delas).
+* **`references` no frontend: 4,5–42×.** Nomes comuns: a busca carrega e infere todos os
+  arquivos que citam o nome; falta o índice de nomes referenciados mantido pelo residente.
+  Agora roda num filho, então não deixa mais o servidor no pico.
+* **`completion` no frontend: 5,6–35×** (dentro de um corpo, quando a troca com a sentinela
+  é recusada, a biblioteca é recarregada: ~1 s de CPU); no `limitless_ui`, 1,2–5,3×.
+* **Memória: frontend pico 2,2× e repouso 1,36× (o repouso caiu de 1.522 para 1.170 MiB;
+  Dart 863); `limitless_ui` 1,56× e 1,43×.** No frontend, cada recarga da biblioteca no
+  servidor (depois de uma mudança de API, e as do `completion` acima) deixa páginas que o
+  alocador não devolve; no `limitless_ui` é a carga larga retida. No backend, 0,5–0,6×.
+* **Partida: 1,9–2,4× em parede, com CPU igual ou menor que a do Dart.**
+* `definition`, `prepareRename` e `codeAction` continuam em 3–30 ms contra 0,3–4 ms.
 
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
