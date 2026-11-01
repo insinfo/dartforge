@@ -835,10 +835,14 @@ pub extern "C" fn dartforge_box_int(v: i64) -> i64 {
 }
 
 /// Throws the `TypeError` of a failed implicit coercion (`null` or another type
-/// where the scalar was expected).
+/// where the scalar was expected). In a native scope of its own: under ARC the Dart
+/// helper's Owned error lives there until the pending exception holds it, so the
+/// unboxing natives need no scope (`dartforge_runtime::arc::NATIVES_SCOPING_THEIR_DART`).
 fn throw_type_error() {
-    let err = dartforge_type_error_new();
-    dartforge_exception_throw(err, 3);
+    in_native_scope_if_arc(|| {
+        let err = dartforge_type_error_new();
+        dartforge_exception_throw(err, 3);
+    });
 }
 
 /// `Unbox` (R3/R10): the `int` of a reference (`Smi` or `_Mint`); null or another

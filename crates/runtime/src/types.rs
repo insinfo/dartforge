@@ -2294,9 +2294,13 @@ pub extern "C" fn dartforge_rti_as_with_context(v: i64, t: i64, context: i64, na
         }
     });
     if let Some(msg) = failure {
-        let m = HEAP.with(|h| h.borrow_mut().allocate_str(&msg));
-        let e = with_roots(&[m], || dartforge_type_error_with_message(m));
-        with_roots(&[e], || dartforge_exception_throw(e, 3));
+        // Only the error runs Dart: in a native scope of its own, so the check needs
+        // none (`dartforge_runtime::arc::NATIVES_SCOPING_THEIR_DART`).
+        in_native_scope_if_arc(|| {
+            let m = HEAP.with(|h| h.borrow_mut().allocate_str(&msg));
+            let e = with_roots(&[m], || dartforge_type_error_with_message(m));
+            with_roots(&[e], || dartforge_exception_throw(e, 3));
+        });
     }
 }
 

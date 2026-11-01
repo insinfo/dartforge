@@ -207,7 +207,8 @@ pub struct ArcStats {
 
 /// The natives that may run Dart (`runs_dart` in `effects.tsv`) only to build the
 /// error they throw, through a throw helper that opens its own native scope
-/// (`throw_index`, `throw_range`, `throw_range_err`): the Owned error of the Dart
+/// (`throw_index`, `throw_range`, `throw_range_err`, `throw_type_error`, the failure
+/// of `dartforge_rti_as_with_context`): the Owned error of the Dart
 /// helper lives in that scope until the pending exception holds it. The prepared ARC
 /// calls them without a native scope of its own (`optimize::arc::natives::scope`).
 /// A native goes here only when every path of its body into Dart is one of those
@@ -240,6 +241,10 @@ pub const NATIVES_SCOPING_THEIR_DART: &[&str] = &[
     "dartforge_native_TypedData_GetFloat64",
     "dartforge_native_TypedData_SetFloat32",
     "dartforge_native_TypedData_SetFloat64",
+    "dartforge_rti_as_with_context",
+    "dartforge_unbox_bool",
+    "dartforge_unbox_double",
+    "dartforge_unbox_int",
 ];
 
 /// The cycle round's mark of an object of region `R` in its in-object word, while the
