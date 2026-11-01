@@ -216,7 +216,18 @@ impl SemanticAnalyzer {
                 })
                 .collect(),
         };
-        run_search_child(&exe, &request).map(|r| {
+        let found = run_search_child(&exe, &request);
+        if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
+            eprintln!(
+                "[dartforge-lsp] reference search for {name} in a child: {}",
+                if found.is_some() {
+                    "answered"
+                } else {
+                    "failed"
+                }
+            );
+        }
+        found.map(|r| {
             r.map(|f| References {
                 declaration: f.declaration,
                 uses: f.uses,

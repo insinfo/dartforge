@@ -175,7 +175,8 @@ pub struct Server<A = SyntacticAnalyzer> {
     documents: DocumentStore,
     /// Text and line table of the disk files (not open) that the current request
     /// converted to LSP positions: a search that returns thousands of locations
-    /// in the SDK reads each file once. Emptied at each request (the disk may
+    /// in the SDK reads each file once, since they come grouped by file. Only
+    /// the last file is kept, and it is emptied at each request (the disk may
     /// change between them).
     disk_lines: std::cell::RefCell<HashMap<String, Option<TextWithLines>>>,
     analyzer: A,
@@ -1077,6 +1078,10 @@ impl<A: Analyzer> Server<A> {
                 self.handle_request(&request)
             }));
             let elapsed = started.elapsed();
+            if crate::memory::logging() {
+                let method = request.get("method").and_then(Value::as_str).unwrap_or("");
+                crate::memory::log(&format!("after {method}"));
+            }
             match response {
                 // `null`: a formatting answered later (`drain_formatting`).
                 Ok(Value::Null) => {}
@@ -1793,8 +1798,11 @@ impl<A: Analyzer> Server<A> {
                     // The order of the Dart server's `SearchEngine` (probed on 3.6.2): the
                     // other files by path, then the declaring one; within each one, by
                     // position. The declaration goes at the end (`_getDeclarations`, §11.5).
-                    let owner = found.declaration.as_ref().map(|(target, _)| target.clone());
-                    let mut uses = found.uses.clone();
+                    let crate::References {
+                        declaration,
+                        mut uses,
+                    } = found;
+                    let owner = declaration.as_ref().map(|(target, _)| target.clone());
                     uses.sort_by(|(a, sa), (b, sb)| {
                         (Some(a) == owner.as_ref(), a, sa.start).cmp(&(
                             Some(b) == owner.as_ref(),
@@ -1802,7 +1810,7 @@ impl<A: Analyzer> Server<A> {
                             sb.start,
                         ))
                     });
-                    let declaration = found.declaration.filter(|_| include_declaration);
+                    let declaration = declaration.filter(|_| include_declaration);
                     let locals: Vec<Value> = uses
                         .iter()
                         .chain(declaration.iter())
@@ -4285,9 +4293,15 @@ impl<A: Analyzer> Server<A> {
         if let (Some(text), Some(table)) = (self.documents.get(uri), self.documents.lines(uri)) {
             return Some(lsp_range(text, table, span.start, span.end));
         }
-        let read = self
-            .disk_lines
-            .borrow_mut()
+        // Only the last file stays: the results come grouped by file (the
+        // references of `String` in a large Angular package touch hundreds of
+        // SDK and package files, whose texts would otherwise all stay in the
+        // server until the next request).
+        let mut cache = self.disk_lines.borrow_mut();
+        if !cache.contains_key(uri) {
+            cache.clear();
+        }
+        let read = cache
             .entry(uri.to_string())
             .or_insert_with(|| {
                 let path = url::Url::parse(uri).ok()?.to_file_path().ok()?;

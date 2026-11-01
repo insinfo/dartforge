@@ -229,7 +229,13 @@ pub(crate) fn is_part(text: &str) -> bool {
         return false;
     }
     let mut names = dartforge_intern::Interner::new();
-    let analyzed = dartforge_frontend::parser::parse(text, &mut names);
+    // Only the directives matter: the outline read skips the bodies.
+    let analyzed = dartforge_frontend::parser::parse_lexed_outline(
+        text,
+        dartforge_frontend::lexer::lex(text),
+        &mut names,
+        dartforge_frontend::LibraryFeatures::current(),
+    );
     analyzed
         .unit
         .directives

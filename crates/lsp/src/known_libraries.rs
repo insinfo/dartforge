@@ -140,7 +140,16 @@ struct Summary {
 
 fn summarize(text: &str) -> Summary {
     let mut names = dartforge_intern::Interner::new();
-    let a = dartforge_frontend::parser::parse(text, &mut names);
+    // Only the top-level declarations, their signatures and the directives
+    // matter: the outline read skips the bodies (most of the allocations when
+    // the SDK and every package are summarized, which the system allocator
+    // then keeps in the server).
+    let a = dartforge_frontend::parser::parse_lexed_outline(
+        text,
+        dartforge_frontend::lexer::lex(text),
+        &mut names,
+        dartforge_frontend::LibraryFeatures::current(),
+    );
     let mut r = Summary::default();
     let by = |n: Option<ast::Name>,
               kind: Kind,
