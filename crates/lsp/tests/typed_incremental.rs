@@ -266,3 +266,50 @@ fn edit_and_compare(name: &str, in_child: bool) {
         );
     }
 }
+
+/// A wave of generated files rewritten on the disk (`build_runner`), each in
+/// its own `didChangeWatchedFiles`: one analysis follows the wave, and every
+/// rewritten file shows its new error.
+#[test]
+fn a_wave_of_disk_changes_is_analyzed_once() {
+    let mut p = Project::new("typed-disk-wave");
+    for (relative, text) in FILES {
+        p.write(relative, text);
+    }
+    let generated: Vec<String> = (0..12).map(|i| format!("lib/gen_{i}.g.dart")).collect();
+    for (i, g) in generated.iter().enumerate() {
+        p.write(
+            g,
+            &format!("import 'model.dart';\nint gen{i}(Model m) => m.twice();\n"),
+        );
+    }
+    p.server
+        .receive(json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
+    let mut outputs = p.server.pump();
+    outputs.extend(p.server.await_diagnostics(LIMIT));
+    let before = p.server.typed_analyzed_files();
+    for (i, g) in generated.iter().enumerate() {
+        p.write(
+            g,
+            &format!("import 'model.dart';\nString gen{i}(Model m) => m.twice();\n"),
+        );
+        p.server.receive(
+            json!({"jsonrpc":"2.0","method":"workspace/didChangeWatchedFiles","params":{
+                "changes":[{"uri":p.uri(g),"type":2}]
+            }}),
+        );
+        outputs.extend(p.server.pump());
+    }
+    outputs.extend(p.server.await_diagnostics(LIMIT));
+    let analyzed = p.server.typed_analyzed_files() - before;
+    let mut shown = Shown::new();
+    record(&p, &outputs, &mut shown);
+    for g in &generated {
+        assert!(
+            shown.get(g.as_str()).is_some_and(|d| !d.is_empty()),
+            "{g} shows the new error: {shown:?}"
+        );
+    }
+    // The twelve files once, not one analysis per notification.
+    assert!(analyzed <= generated.len() + 2, "{analyzed} files analyzed");
+}

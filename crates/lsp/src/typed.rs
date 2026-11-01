@@ -152,7 +152,16 @@ struct State {
     stale: BTreeSet<PathBuf>,
     /// Files given to the analyses so far (measurement and tests).
     analyzed_files: usize,
+    /// When the last file changed on the disk, while no editor change came
+    /// after it: a wave of generated files (`build_runner`, `webdev`) arrives
+    /// as many notifications, and one analysis follows the wave
+    /// ([`DISK_QUIET`]).
+    disk_at: Option<Instant>,
 }
+
+/// How long the disk must stay quiet after a change, without an editor change
+/// in between, before the analysis of what changed starts.
+const DISK_QUIET: Duration = Duration::from_millis(250);
 
 type Shared = Arc<(Mutex<State>, Condvar)>;
 
@@ -252,6 +261,7 @@ impl Typed {
             return;
         }
         let mut e = self.state();
+        e.disk_at = None;
         let root = package_root(&path, &e.folders);
         e.dirty.insert(root.clone());
         e.changed
@@ -317,6 +327,7 @@ impl Typed {
             e.stale.insert(root.clone());
             e.changed.entry(root.clone()).or_default().insert(key(path));
             e.dirty.insert(root);
+            e.disk_at = Some(Instant::now());
             self.shared.1.notify_all();
             return;
         }
@@ -329,6 +340,7 @@ impl Typed {
         }
         e.changed.entry(root.clone()).or_default().insert(key(path));
         e.dirty.insert(root);
+        e.disk_at = Some(Instant::now());
         self.shared.1.notify_all();
     }
 
@@ -449,6 +461,17 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             }
             if e.shutdown {
                 return;
+            }
+            // A wave of files changing on the disk: one analysis after it.
+            if let Some(at) = e.disk_at {
+                let left = DISK_QUIET.saturating_sub(at.elapsed());
+                if !left.is_zero() {
+                    let _ = sinal
+                        .wait_timeout(e, left)
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    continue;
+                }
+                e.disk_at = None;
             }
             if e.scan {
                 // The walk runs without the lock: the server keeps answering.
