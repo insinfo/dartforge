@@ -455,6 +455,14 @@ fn type_check(
                                     .extension_fields
                                     .insert(x, m.ty);
                             }
+                            // The extension member the field reads (`P(:var b)` with
+                            // `b` of an extension on `P`): the native backend calls it
+                            // directly, as the analyzer's pattern flow records it.
+                            if m.of_extension {
+                                inf.body_types.units[cx.unit.0 as usize]
+                                    .field_elements
+                                    .insert(x, m.resolved.clone());
+                            }
                             m.ty
                         }
                         Search::NeverType => inf.core.never,

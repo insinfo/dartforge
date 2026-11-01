@@ -1228,6 +1228,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(r) = self.call_annotated_native(fid, args, span) {
                     return Some(r);
                 }
+                // An `external` of the program that nothing implements (no
+                // native, no interop): the VM throws `NoSuchMethodError` at the
+                // call (`external const A.foo(dynamic arg);`).
+                if !self.ctx.program.library(f.library).is_sdk {
+                    return Some(self.throw_nsm(&member));
+                }
                 return Some(self.unsupported(
                     &format!("external without an implementation `{member}`"),
                     span,

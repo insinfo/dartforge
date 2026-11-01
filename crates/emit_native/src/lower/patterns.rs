@@ -110,6 +110,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
+    /// The extension member (not of an extension type) that inference resolved
+    /// for the object pattern field whose subpattern is `sub`.
+    fn pattern_extension_member(&self, sub: PatternId) -> Option<usize> {
+        let units = &self.ctx.bodies.units;
+        let u = self.unit_id.0 as usize;
+        match units.get(u)?.field_elements.get(&sub)? {
+            dartforge_types::resolved::Resolved::ExtensionMember { member, .. }
+                if super::user_function(self.ctx, member.0 as usize) =>
+            {
+                Some(member.0 as usize)
+            }
+            _ => None,
+        }
+    }
+
     /// Reads member `name` of `value` for an object pattern: through the class
     /// of the pattern when it belongs to the program, otherwise through dynamic dispatch.
     fn read_pattern_member(
@@ -542,7 +557,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         self.unsupported("object pattern field without a name", f.span);
                         continue;
                     };
-                    let x = self.read_pattern_member(v.clone(), class, name_str, origin, f.span);
+                    let x = match self.pattern_extension_member(f.pattern) {
+                        // A getter (or method) of an extension that inference resolved
+                        // for the field (`R3<…>(:var $3)` with `$3` declared by an
+                        // extension on the record type): direct, like `r.$3`.
+                        Some(fid) => {
+                            let receiver = self.ctx.bodies.units[self.unit_id.0 as usize]
+                                .pattern_types
+                                .get(&p)
+                                .copied();
+                            let r = self.read_extension(v.clone(), fid, receiver, f.span);
+                            self.coerce(r, Type::Ref)
+                        }
+                        None => {
+                            self.read_pattern_member(v.clone(), class, name_str, origin, f.span)
+                        }
+                    };
                     // `:x` declares `x` even in a matching pattern.
                     let saved = self.refutable_pattern;
                     if f.name.is_none() {

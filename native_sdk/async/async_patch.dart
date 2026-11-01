@@ -26,6 +26,11 @@ part "timer_patch.dart";
 @pragma("vm:external-name", "Error_trySetStackTrace")
 external void _trySetStackTrace(Object error, StackTrace stackTrace);
 
+/// Throws the `TypeError` of a `value` that is not of the type argument `T`
+/// of `future` as a `Future<T>` (the runtime reads `T` from its RTI).
+@pragma("vm:external-name", "DartForge_check_future_value")
+external void _checkFutureValue(Future future, Object? value);
+
 /// Status codes of the continuation of an `async` body (those of dart2js's
 /// `dart:_async_status_codes`).
 const int _SUCCESS = 0;
@@ -110,7 +115,12 @@ class _AsyncAwaitCompleter<T> implements Completer<T> {
     } else if (object is! Future) {
       _awaitNotFuture(object, thenCallback);
     } else {
-      object.then(thenCallback, onError: errorCallback);
+      // A user-defined future: the value is checked against its `T`
+      // (`_checkFutureValue`, as in `_awaitOnObject`).
+      object.then((result) {
+        _checkFutureValue(object, result);
+        return bodyFunction(_SUCCESS, result);
+      }, onError: errorCallback);
     }
   }
 
@@ -309,7 +319,14 @@ void _awaitOnObject(object, @pragma('vm:awaiter-link') _WrappedAsyncBody bodyFun
     // The continuation was already registered in the zone (`_wrapBody`).
     object._thenAwait(thenCallback, errorCallback);
   } else if (object is Future) {
-    object.then(thenCallback, onError: errorCallback);
+    // A user-defined `Future<T>` may hand the continuation a value that is no
+    // `T`: the VM instantiates the callback with the future's type argument
+    // (`_awaitUserDefinedFuture`), so the call throws a `TypeError` before
+    // the body resumes.
+    object.then((result) {
+      _checkFutureValue(object, result);
+      return bodyFunction(_SUCCESS, result);
+    }, onError: errorCallback);
   } else {
     _Future future = _Future().._setValue(object);
     future._thenAwait(thenCallback, errorCallback);

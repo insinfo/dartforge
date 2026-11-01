@@ -294,13 +294,40 @@ pub fn analyze_with_options(
         live_set
     };
 
+    // The fixpoint only needs what is live at the entry of each block: the
+    // same walk as `walk_block`, in place, without the copies of the live set
+    // that the visitor needs (one per instruction: quadratic in a function
+    // with tens of thousands of `Ref` values, `regress/regress41983`).
+    let live_at_entry = |b: usize, exit: Set| -> Set {
+        let block = &func.blocks[b];
+        let mut live_set = exit;
+        for v in terminator_uses(&block.terminator) {
+            if let Some(i) = idx(&v) {
+                live_set.by(i);
+            }
+        }
+        for (vid, inst, _) in block.instructions.iter().rev() {
+            if matches!(inst, Instruction::Phi { .. }) {
+                continue;
+            }
+            if let Some(d) = idx(vid) {
+                live_set.take_out(d);
+            }
+            for v in uses_of(inst) {
+                if let Some(i) = idx(&v) {
+                    live_set.by(i);
+                }
+            }
+        }
+        live_set
+    };
     let nb = func.blocks.len();
     let mut entry = vec![Set::empty(n); nb];
     loop {
         let mut changed = false;
         for b in (0..nb).rev() {
             let exit = live_at_exit_set(b, &entry);
-            let e = walk_block(b, exit, &mut |_, _, _, _, _| {});
+            let e = live_at_entry(b, exit);
             if e != entry[b] {
                 entry[b] = e;
                 changed = true;
@@ -552,11 +579,40 @@ fn dead_slots(
         .iter()
         .map(|(k, v)| (*k, occupied(v)))
         .collect();
+    // Each block as its steps, computed once (the fixpoint below visits every
+    // block several times, and hashing every instruction on every visit was the
+    // cost of a function with tens of thousands of instructions,
+    // `regress/regress41983`): a collection point (its live slots) or the
+    // write of a slot, in order, then the end of the block.
+    enum Step<'s> {
+        Point(ValueId, &'s Set),
+        Write(usize),
+    }
+    let steps: Vec<Vec<Step<'_>>> = func
+        .blocks
+        .iter()
+        .map(|block| {
+            let mut v = Vec::new();
+            for (vid, _, _) in &block.instructions {
+                if let Some(live) = live_at.get(vid) {
+                    v.push(Step::Point(*vid, live));
+                }
+                if let Some(s) = slot_of(vid) {
+                    v.push(Step::Write(s));
+                }
+            }
+            v
+        })
+        .collect();
+    let ends: Vec<Option<&Set>> = func
+        .blocks
+        .iter()
+        .map(|block| live_at_end.get(&block.id))
+        .collect();
     // The pass over a block: from the slots that may hold a value at its entry, those at its
     // exit; `record` receives the zeroings.
     let walk =
         |b: usize, mut state: Set, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| -> Set {
-            let block = &func.blocks[b];
             let clears_here = clears[b];
             let clear =
                 |state: &mut Set,
@@ -574,15 +630,13 @@ fn dead_slots(
                         record(who, dead);
                     }
                 };
-            for (vid, _, _) in &block.instructions {
-                if let Some(live) = live_at.get(vid) {
-                    clear(&mut state, live, Some(*vid), record);
-                }
-                if let Some(s) = slot_of(vid) {
-                    state.by(s);
+            for step in &steps[b] {
+                match step {
+                    Step::Point(vid, live) => clear(&mut state, live, Some(*vid), record),
+                    Step::Write(s) => state.by(*s),
                 }
             }
-            if let Some(live) = live_at_end.get(&block.id) {
+            if let Some(live) = ends[b] {
                 clear(&mut state, live, None, record);
             }
             state

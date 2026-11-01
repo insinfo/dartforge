@@ -29,6 +29,29 @@ pub fn selector_hash(text: &str) -> i64 {
     crate::lower::closures::hash_name(text)
 }
 
+/// The identity of a tear-off entry for `==` and `hashCode` of its closures
+/// (`dartforge_register_tearoff_key`). The tear-off of an instance method
+/// that dispatches (`df.<library>.<class>.<name>$tearm`) is identified by its
+/// selector, the name (with the library for a private one): on one receiver
+/// every entry of the selector runs the same implementation, so the VM's
+/// "same function and receiver" holds whether the member was named by the
+/// static type (`null.toString` is `Object.toString`) or chosen by the
+/// dispatch (`Null.toString`). Any other entry is identified by its symbol.
+pub(crate) fn tearoff_key(symbol: &str, is_static: bool) -> String {
+    let parts: Vec<&str> = symbol.split('.').collect();
+    match (is_static, symbol.strip_suffix("$tearm"), parts.as_slice()) {
+        (false, Some(_), ["df", library, _, member]) => {
+            let member = member.strip_suffix("$tearm").unwrap_or(member);
+            if member.starts_with('_') {
+                format!("$tearm:{library}.{member}")
+            } else {
+                format!("$tearm:{member}")
+            }
+        }
+        _ => symbol.to_string(),
+    }
+}
+
 /// Escapes bytes for an LLVM `c"…"`.
 pub(super) fn llvm_bytes(s: &str) -> String {
     let mut t = String::new();
@@ -310,6 +333,16 @@ impl LlvmEmitter<'_> {
                 symbol,
                 name.len(),
                 u8::from(*is_static)
+            )
+            .unwrap();
+            // The same entry linked into the program and into the SDK image
+            // has two codes: its identity is the symbol, or the selector for
+            // an instance method (`tearoff_key`).
+            writeln!(
+                body,
+                "  call void @dartforge_register_tearoff_key(ptr @{}, i64 {})",
+                symbol,
+                selector_hash(&tearoff_key(symbol, *is_static))
             )
             .unwrap();
         }
@@ -878,5 +911,41 @@ impl LlvmEmitter<'_> {
             symbol.to_string(),
             format!("declare {} @{symbol}({})", ret.llvm_ir(), a.join(", ")),
         );
+    }
+}
+
+#[cfg(test)]
+mod tearoff_key_tests {
+    use super::tearoff_key;
+
+    #[test]
+    fn instance_method_entries_share_the_selector() {
+        let object = tearoff_key("df.dart$3acore.Object.toString$tearm", false);
+        let null = tearoff_key("df.dart$3acore.Null.toString$tearm", false);
+        assert_eq!(object, null);
+        assert_eq!(
+            object,
+            tearoff_key("df.main$2edart.C.toString$tearm", false)
+        );
+        // A private name is the library's.
+        assert_ne!(
+            tearoff_key("df.a$2edart.A._m$tearm", false),
+            tearoff_key("df.b$2edart.B._m$tearm", false)
+        );
+        assert_eq!(
+            tearoff_key("df.a$2edart.A._m$tearm", false),
+            tearoff_key("df.a$2edart.B._m$tearm", false)
+        );
+    }
+
+    #[test]
+    fn other_entries_keep_the_symbol() {
+        for (symbol, is_static) in [
+            ("df.dart$3acore.Object.toString$tears", false),
+            ("df.main$2edart.C.m$tearm", true),
+            ("df.main$2edart.ext$3aE.m$tearm", true),
+        ] {
+            assert_eq!(tearoff_key(symbol, is_static), symbol);
+        }
     }
 }

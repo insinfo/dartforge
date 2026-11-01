@@ -1351,6 +1351,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     };
                 }
 
+                // `p.loadLibrary` of an `import … deferred as p`, as a value.
+                if self.ctx.symbol_name(name.sym) == "loadLibrary"
+                    && let Some(t) = self.load_library_tearoff(ast, *target, span)
+                {
+                    return t;
+                }
                 // `prefix.x`: the element imported with a prefix.
                 if let Some(el) = self.prefixed_element(ast, *target, name.sym) {
                     return self.read_element(el, span);

@@ -2716,6 +2716,15 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     // `C<id> <parameters> <name>`, `R<id> <recipe>`, `F<shape> <id>`.
     let mut table = String::new();
     let mut b = FnBuilder::new(ctx, u, RTI_START.to_string(), "rti".to_string(), Type::Void);
+    // The runtime shapes first: reading a rule normalizes its types, and
+    // `FutureOr<Null>` is `Future<Null>?` only once the runtime knows which
+    // class is `Future` (`class H extends I<FutureOr<Null>?>`, `H() is
+    // I<Future<Null>?>`).
+    for (shape, c) in &shapes {
+        if let Some(c) = c {
+            table.push_str(&format!("F{shape} {}\n", ctx.id_rti(*c)));
+        }
+    }
     for &c in &classes {
         let id = ctx.id_rti(c);
         let name_str = visible_name(ctx, c);
@@ -2748,11 +2757,6 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             b.enclosing_class = saved.0;
             b.class_by_tuple = saved.1;
             table.push_str(&format!("R{id} {}\n", r.text));
-        }
-    }
-    for (shape, c) in shapes {
-        if let Some(c) = c {
-            table.push_str(&format!("F{shape} {}\n", ctx.id_rti(c)));
         }
     }
     // The error classes that the runtime represents (ids 1000–1012).

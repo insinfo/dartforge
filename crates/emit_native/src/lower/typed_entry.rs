@@ -1057,9 +1057,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The value of `return e`, against the declared return type (the future
     /// value type of an `async` body).
     pub(super) fn return_downcast(&mut self, e: ast::ExprId, value: &Operand) {
-        if let Some(t) = self.return_context {
+        let Some(t) = self.return_context else {
+            return;
+        };
+        let in_async = self
+            .async_state
+            .as_ref()
+            .is_some_and(|s| s.ty == super::async_sm::BodyType::Async);
+        if !in_async {
             self.implicit_downcast(e, value, t);
+            return;
         }
+        // In an `async` body the value of a `dynamic` `e` may be a future that
+        // `_asyncReturn` awaits: the CFE checks it against `FutureOr<T>`
+        // (`return fvi as dynamic` in a `Future<int>` function).
+        if self.is_terminated() || top(self.ctx, t) || !self.dynamic_expression(e) {
+            return;
+        }
+        let inner = self.type_recipe(t);
+        let recipe = super::rti::Recipe {
+            text: format!("O<{}>", inner.text),
+            variables: inner.variables,
+        };
+        let rti = self.recipe_rti(&recipe);
+        let v = self.coerce(value.clone(), Type::Ref);
+        self.cast_rti_in(v, rti, super::rti::CastContext::Implicit);
     }
 
     /// Member `name` in the interface of class `c` (declared in it or in a

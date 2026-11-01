@@ -279,6 +279,10 @@ pub extern "C" fn dartforge_native_DartForge_json_close_list(
     list
 }
 
+/// The VM's `Array::kMaxElements` on 64 bits (the largest `_List` length it
+/// accepts before any memory check).
+const MAX_LIST_ELEMENTS: i64 = (1 << 59) - 1;
+
 /// `_List(length)`: `length` nulls, fixed length. The parameter has no type in
 /// the declaration (`external factory _List(length)`): it arrives as a `Ref`.
 #[unsafe(no_mangle)]
@@ -288,16 +292,22 @@ pub extern "C" fn dartforge_native_List_allocate(length: i64, tuple: i64) -> i64
     // is built in its shape and typed under one borrow of the heap. A fresh list
     // holds only nulls, which a compact shape keeps as zero bits — what
     // `adjust_list_shape` would have converted them to.
+    let n = if crate::layout::smi::is_smi(length) {
+        crate::layout::smi::value(length)
+    } else {
+        HEAP.with(|heap| heap.borrow().int_of(length).unwrap_or(0))
+    };
+    // The VM's `List_allocate`: a length outside `0..Array::kMaxElements` is a
+    // `RangeError (length)` (`List.filled(-1, 0)`, `List.generate(-1, …)`).
+    if !(0..=MAX_LIST_ELEMENTS).contains(&n) {
+        throw_range(n, MAX_LIST_ELEMENTS + 1, "length");
+        return 0;
+    }
+    let n = n as usize;
     let ty = tuple_list_type(tuple, Some(i64::from(crate::layout::cid::LIST)));
     let shape = ty.map_or(crate::lists::Element::General, type_list_shape_memo);
     HEAP.with(|heap| {
         let mut heap = heap.borrow_mut();
-        let n = if crate::layout::smi::is_smi(length) {
-            crate::layout::smi::value(length)
-        } else {
-            heap.int_of(length).unwrap_or(0)
-        }
-        .max(0) as usize;
         let h = heap.new_list(crate::layout::cid::LIST, n, shape);
         if let Some(ty) = ty {
             heap.set_metadata(h, ty + 1);

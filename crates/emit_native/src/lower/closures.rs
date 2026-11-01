@@ -534,24 +534,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // passes none (a dynamic call): the written bounds, like
         // instantiation to bounds; `dynamic` without a bound or when the bound
         // depends on type variables.
+        // A bound that mentions the closure's own earlier parameters takes
+        // their defaults (`T2 extends Map<Q1, T1>`), and one that mentions the
+        // enclosing functions' parameters (`M<i>`) is read in the outer tuple
+        // at the entry; one that needs the class's (`P<i>`) stays `dynamic`.
         let pattern = generic.then(|| {
+            let ids: Vec<dartforge_types::table::TypeParamId> = own_set
+                .iter()
+                .map(|(_, id, _)| *id)
+                .filter(|id| id.0 != u32::MAX)
+                .collect();
+            let mut defaults = self.bounds_instantiation(&ids).into_iter();
             let mut text = String::from("L<");
+            let mut variables = false;
             for (i, (_, id, _)) in own_set.iter().enumerate() {
                 if i > 0 {
                     text.push(',');
                 }
                 let limit = (id.0 != u32::MAX)
-                    .then(|| self.ctx.table.param(*id))
-                    .filter(|d| d.explicit)
-                    .map(|d| self.type_recipe(d.bound))
-                    .filter(|r| !r.variables);
+                    .then(|| defaults.next())
+                    .flatten()
+                    .filter(|r| !r.variables || !r.text.contains('P'));
+                if let Some(r) = &limit {
+                    variables |= r.variables;
+                }
                 text.push_str(limit.as_ref().map_or("D", |r| r.text.as_str()));
             }
             text.push('>');
-            super::rti::Recipe {
-                text,
-                variables: false,
-            }
+            super::rti::Recipe { text, variables }
         });
         if let Some(vals) = e.unpack(&infos, args.clone(), desc.clone()) {
             // The tuple of a generic closure: the outer one joined with the
@@ -571,7 +581,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 } else {
                     Operand::Constant(Constant::Int(0))
                 };
+                // The outer type variables of the defaults (`M<i>`, `i` <
+                // `n_outside`) are read in the outer tuple.
+                let saved = e.type_tuple.replace(from_outside.clone());
                 let pattern = e.recipe_rti(pattern);
+                e.type_tuple = saved;
                 e.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_rti_tuple_join".to_string(),

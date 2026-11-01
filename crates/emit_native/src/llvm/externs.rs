@@ -108,6 +108,14 @@ pub const EXTERNS: &[Extern] = &[
         },
     },
     Extern {
+        decl: "declare void @dartforge_register_tearoff_key(ptr, i64)",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
         decl: "declare void @dartforge_register_tearoff(ptr, ptr, i64, i8)",
         effects: Effects {
             allocates: false,

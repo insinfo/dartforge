@@ -452,7 +452,36 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             && let DeclKind::Enum(e) = &self.ctx.program.unit(unit).ast.decl(decl).kind
         {
             let written_set = e.constants[index].type_args.to_vec();
-            let recipe = if written_set.is_empty() {
+            let params_len = self.ctx.outline.classes[cid.0 as usize].type_params.len();
+            // Without written arguments, those that inference gave the
+            // constructor call (`v2(y: 2)` is an `EnumAll<num, int>`).
+            let inferred: Option<Vec<dartforge_types::table::TypeId>> = e.constants[index]
+                .arguments
+                .as_ref()
+                .and_then(|a| {
+                    self.ctx
+                        .bodies
+                        .units
+                        .get(unit.0 as usize)?
+                        .instantiation(a.span.start)
+                })
+                .filter(|t| t.len() == params_len)
+                .map(<[dartforge_types::table::TypeId]>::to_vec);
+            let recipe = if let Some(types) = inferred.filter(|_| written_set.is_empty()) {
+                let mut r = super::rti::Recipe {
+                    text: String::new(),
+                    variables: false,
+                };
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 {
+                        r.text.push(',');
+                    }
+                    let x = self.type_recipe(*t);
+                    r.text.push_str(&x.text);
+                    r.variables |= x.variables;
+                }
+                r
+            } else if written_set.is_empty() {
                 let params = self.ctx.outline.classes[cid.0 as usize].type_params.clone();
                 let mut r = super::rti::Recipe {
                     text: String::new(),
@@ -547,9 +576,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         };
         let constant = &e.constants[index];
+        // `v6.new()` names the unnamed constructor.
         let ctor_name = constant
             .constructor
             .map(|n| n.sym)
+            .filter(|&s| self.ctx.symbol_name(s) != "new")
             .or_else(|| self.ctx.interner.lookup(""));
         let ctor = ctor_name.and_then(|s| {
             self.ctx.program.classes[cid.0 as usize]
@@ -572,6 +603,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         self.terminate(Terminator::Return(Some(obj)));
+    }
+
+    /// `Enum.value` of the enum value `this` of class `cid` (`EnumAll.v1`).
+    pub fn enum_value_text(&mut self, cid: ClassId, this: Operand) -> Operand {
+        let name = self
+            .ctx
+            .symbol_name(self.ctx.program.classes[cid.0 as usize].name)
+            .to_string();
+        let prefix = self.emit(
+            Instruction::Const(Constant::String(format!("{name}."))),
+            Type::Ref,
+        );
+        let this = self.coerce(this, Type::Ref);
+        let n = self.enum_member(cid, "name", this).expect("enum");
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_string_concat".to_string(),
+                args: vec![(prefix, Type::Ref), (n, Type::Ref)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 
     /// Default `toString()` of an enum: `Enum.value`.

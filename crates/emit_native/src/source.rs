@@ -175,10 +175,14 @@ fn uses_dart_async(program: &Program, interner: &Interner, async_lib: LibraryId)
         .map(|(i, _)| LibraryId(i as u32))
         .collect();
     for lib in program.libraries.iter().filter(|l| !l.is_sdk) {
+        // A `deferred` import: `p.loadLibrary()` is a `Future` that completes
+        // from a timer (`_dartforgeLoadLibrary`), so the program needs the
+        // event loop even without naming `dart:async` (`main() =>
+        // p.loadLibrary().then(…)`, whose callback never ran).
         if lib
             .imports
             .iter()
-            .any(|i| i.library == async_lib || with_loop.contains(&i.library))
+            .any(|i| i.deferred || i.library == async_lib || with_loop.contains(&i.library))
         {
             return true;
         }

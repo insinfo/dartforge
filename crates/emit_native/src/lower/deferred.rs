@@ -160,7 +160,58 @@ impl FnBuilder<'_, '_> {
         let ExprKind::Identifier(p) = &ast.expr(target).kind else {
             return self.unsupported("loadLibrary without its prefix", span);
         };
-        let p = p.sym;
+        self.load_library_of(p.sym, span)
+    }
+
+    /// `p.loadLibrary` as a value (`var x = lib.loadLibrary; x().then(…)`): a
+    /// closure without parameters whose call is `p.loadLibrary()`.
+    pub(super) fn load_library_tearoff(
+        &mut self,
+        ast: &ast::Ast,
+        target: ExprId,
+        span: Span,
+    ) -> Option<Operand> {
+        let p = self.deferred_prefix_of(ast, target)?;
+        let flag = self.deferred_flag(p);
+        let symbol = format!("{flag}.tear");
+        if self.done_entries.insert(symbol.clone()) {
+            let mut e = FnBuilder::new(
+                self.ctx,
+                self.unit_id,
+                symbol.clone(),
+                "loadLibrary".to_string(),
+                Type::Ref,
+            );
+            e.add_param("closure".to_string(), Type::Ref);
+            let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
+            let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
+            e.declare_arc_uniform_return();
+            // The flag and the `.mark` entry are already this function's.
+            e.done_entries = self.done_entries.clone();
+            if e.unpack(&[], args, desc).is_some() {
+                let future = e.load_library_of(p, span);
+                if !e.is_terminated() {
+                    e.terminate(Terminator::Return(Some(future)));
+                }
+            }
+            self.done_entries
+                .extend(std::mem::take(&mut e.done_entries));
+            self.extra_globals
+                .extend(std::mem::take(&mut e.extra_globals));
+            self.absorb(e);
+        }
+        let env = self.emit(Instruction::AllocEnv { values: Vec::new() }, Type::Ref);
+        Some(self.emit(
+            Instruction::AllocClosure {
+                code_symbol: symbol,
+                env,
+            },
+            Type::Ref,
+        ))
+    }
+
+    /// `p.loadLibrary()` of the deferred prefix `p`.
+    fn load_library_of(&mut self, p: SymbolId, span: Span) -> Operand {
         let flag = self.deferred_flag(p);
         let symbol = format!("{flag}.mark");
         if self.done_entries.insert(symbol.clone()) {

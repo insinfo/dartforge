@@ -1795,6 +1795,16 @@ fn walk_pattern(m: &mut Engine<'_>, ctx: &Context, id: PatternId) {
                         }
                     }
                 }
+                // A field that reads an extension member (`P(:var b)` with `b`
+                // of an extension on `P`): the function itself, not a selector.
+                if let Some(r @ Resolved::ExtensionMember { .. }) = e
+                    .bodies
+                    .units
+                    .get(ctx.unit.0 as usize)
+                    .and_then(|u| u.field_elements.get(&f.pattern))
+                {
+                    apply_resolved(m, r, None);
+                }
                 walk_pattern(m, ctx, f.pattern);
             }
         }

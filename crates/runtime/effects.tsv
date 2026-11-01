@@ -220,6 +220,7 @@ dartforge_native_DartForge_Timer_cancel	1	1	0
 dartforge_native_DartForge_Timer_new	1	1	0
 dartforge_native_DartForge_Timer_tick	1	1	0
 dartforge_native_DartForge_capability_new	1	1	0
+dartforge_native_DartForge_check_future_value	1	1	0
 dartforge_native_DartForge_class_not_sendable	1	1	0
 dartforge_native_DartForge_class_transferable	1	1	0
 dartforge_native_DartForge_current_message	1	1	0
@@ -831,6 +832,7 @@ dartforge_register_subclass	1	1	0
 dartforge_register_table	1	1	0
 dartforge_register_tables	1	1	0
 dartforge_register_tearoff	0	0	0
+dartforge_register_tearoff_key	0	0	0
 dartforge_release_isolates	1	1	0
 dartforge_remember	0	0	0
 dartforge_request_at_safepoint	1	1	0

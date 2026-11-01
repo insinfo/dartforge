@@ -203,6 +203,13 @@ thread_local! {
     /// The function of each tear-off entry, by code (`dartforge_register_tearoff`):
     /// its Dart name and whether it is static.
     pub(crate) static TEAROFF_NAMES: RefCell<HashMap<i64, (String, bool)>> = RefCell::new(HashMap::default());
+    /// The identity of each tear-off entry, by code (`dartforge_register_tearoff_key`):
+    /// the same entry compiled into two images (the program and the SDK) has
+    /// two codes and one key, and so do the entries of one instance method
+    /// selector (`null.toString` names `Object.toString`, `(null as dynamic).toString`
+    /// gets `Null.toString`; on one receiver both run the same implementation),
+    /// so their tear-offs of one receiver are equal, as in the VM.
+    static TEAROFF_KEYS: RefCell<HashMap<i64, i64>> = RefCell::new(HashMap::default());
     /// The codes of the instantiation closures (`f<int>` of a generic function
     /// value, `dartforge_register_instantiation`): their context is the
     /// instantiated closure and the type argument tuple.
@@ -390,6 +397,20 @@ pub unsafe extern "C" fn dartforge_register_tearoff(code: *const u8, ptr: *const
     let bytes = if len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(ptr, len) } };
     let name = String::from_utf8_lossy(bytes).into_owned();
     TEAROFF_NAMES.with(|map| map.borrow_mut().insert(code as usize as i64, (name, is_static != 0)));
+}
+
+/// Registers the identity `key` of the tear-off entry `code` (a hash of the
+/// selector of an instance method, of the symbol otherwise):
+/// [`dartforge_native_Closure_equals`] and the closure's hash compare keys,
+/// not codes.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_register_tearoff_key(code: *const u8, key: i64) {
+    TEAROFF_KEYS.with(|map| map.borrow_mut().insert(code as usize as i64, key));
+}
+
+/// The identity of the closure code `code`: its registered key, or the code.
+fn tearoff_key(code: i64) -> i64 {
+    TEAROFF_KEYS.with(|map| map.borrow().get(&code).copied()).unwrap_or(code)
 }
 
 /// Registers the code of an instantiation closure (`f<int>` of a value of
@@ -1196,14 +1217,14 @@ pub extern "C" fn dartforge_native_Closure_equals(this: i64, other_one: i64) -> 
     let parts = HEAP.with(|heap| {
         let heap = heap.borrow();
         let (Some(a), Some(b)) = (heap.closure(this), heap.closure(other_one)) else { return None };
-        if a.code != b.code {
+        if a.code != b.code && tearoff_key(a.code) != tearoff_key(b.code) {
             return Some(Err(0));
         }
         if let (Some(x), Some(y)) = (instantiation_parts(&heap, &a), instantiation_parts(&heap, &b)) {
             return Some(Ok((x, y)));
         }
         Some(Err(match (tearoff_receiver(&heap, &a), tearoff_receiver(&heap, &b)) {
-            (Some(x), Some(y)) => u8::from(x == y),
+            (Some(x), Some(y)) => u8::from(heap.identical_one(x, y)),
             _ => 0,
         }))
     });
@@ -1228,7 +1249,7 @@ pub extern "C" fn dartforge_native_Closure_computeHash(this: i64) -> i64 {
             let h = (dartforge_native_Closure_computeHash(inner) as u64) ^ (tuple as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
             return ((h >> 4) & 0x3FFF_FFFF) as i64;
         }
-        let mut h = (c.code as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        let mut h = (tearoff_key(c.code) as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         if let Some(r) = tearoff_receiver(&heap, &c) {
             h ^= (r as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F);
         }

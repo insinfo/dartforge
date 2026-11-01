@@ -2304,6 +2304,27 @@ pub extern "C" fn dartforge_rti_as_with_context(v: i64, t: i64, context: i64, na
     }
 }
 
+/// `_checkFutureValue(future, value)` of `async_patch.dart`: the value a
+/// user-defined `Future<T>` passes to the continuation of an `await` must be
+/// a `T`, as with the VM's callback instantiated with `T`
+/// (`_awaitUserDefinedFuture`); otherwise a pending `TypeError` ("type 'int' is
+/// not a subtype of type 'String' of 'value'").
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_native_DartForge_check_future_value(future: i64, value: i64) {
+    let t = RTI.with(|u| {
+        let mut u = u.borrow_mut();
+        let s = ref_type(&mut u, future);
+        let Type::Interface(class, args) = u.ty(s).clone() else {
+            return None;
+        };
+        let target = u.rt.future;
+        u.as_supertype(class, &args, target)?.first().copied()
+    });
+    let Some(t) = t else { return };
+    let name = HEAP.with(|h| h.borrow_mut().allocate_str("value"));
+    with_roots(&[name], || dartforge_rti_as_with_context(value, t, 2, name));
+}
+
 /// Heap class id of the `Type` object (the VM's `_Type`): an object with the
 /// type id in field 0, canonical per type (`identical(A, A)`, map
 /// key). The compiler registers the class with its `toString`.

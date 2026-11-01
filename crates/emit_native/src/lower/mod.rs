@@ -664,6 +664,13 @@ pub(crate) fn join_arc_facts(dest: &mut Module, origin: &mut Module) {
     dest.arc_sites.extend(std::mem::take(&mut origin.arc_sites));
     dest.dart_scalar_globals
         .extend(std::mem::take(&mut origin.dart_scalar_globals));
+    // The names of the tear-offs (the closure's `toString`) and the
+    // instantiation entries (their `==`, `hashCode` and `toString`): a module
+    // lowered in parts (the SDK libraries, a large program) registered none.
+    dest.tearoff_names
+        .extend(std::mem::take(&mut origin.tearoff_names));
+    dest.instantiation_entries
+        .extend(std::mem::take(&mut origin.instantiation_entries));
 }
 
 /// Lowers a function (top-level, method, constructor) into the module.

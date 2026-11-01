@@ -224,6 +224,7 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("DartForge_Timer_new"),
     runtime("DartForge_Timer_tick"),
     runtime("DartForge_capability_new"),
+    runtime("DartForge_check_future_value"),
     runtime("DartForge_class_not_sendable"),
     runtime("DartForge_class_transferable"),
     runtime("DartForge_current_message"),

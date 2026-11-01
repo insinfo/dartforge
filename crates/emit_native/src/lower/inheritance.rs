@@ -28,6 +28,10 @@ pub enum SuperMember {
     Field(VariableId),
     /// The lookup reached the SDK.
     Sdk,
+    /// `super.toString()` or `super.index` that reaches the SDK from an enum
+    /// (its own body, or a mixin applied to it): the members of the VM's
+    /// `_Enum` — `Enum.value` (`EnumAll.v1`) and the index.
+    Enum(dartforge_elements::model::ClassId),
     /// `super` inside a `mixin`: the target depends on the application.
     OfMixin,
 }
@@ -85,6 +89,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }) {
                 return SuperMember::Field(v);
             }
+        }
+        if key == Some(name)
+            && matches!(self.ctx.symbol_name(name), "toString" | "index")
+            && super::enums::is_enum(self.ctx, class)
+        {
+            return SuperMember::Enum(class);
         }
         SuperMember::Sdk
     }
@@ -244,7 +254,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     s.call_function_value(x, evaluated)
                 }
                 SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
-                SuperMember::Sdk => match s.ctx.symbol_name(name) {
+                SuperMember::Enum(c) if s.ctx.symbol_name(name) == "toString" => {
+                    s.enum_value_text(c, this)
+                }
+                SuperMember::Sdk | SuperMember::Enum(_) => match s.ctx.symbol_name(name) {
                     "toString" => s.emit(
                         Instruction::CallRuntime {
                             name: "dartforge_to_string_handle".to_string(),
@@ -281,7 +294,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 SuperMember::Field(v) => s.read_field_with_late_direct(this, v, span),
                 SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
-                SuperMember::Sdk => {
+                SuperMember::Enum(c) if s.ctx.symbol_name(name) == "index" => {
+                    let this = s.coerce(this, Type::Ref);
+                    s.enum_member(c, "index", this).expect("enum")
+                }
+                SuperMember::Sdk | SuperMember::Enum(_) => {
                     s.super_beyond_program(this, name, SuperAccess::Read, &[], span)
                 }
             },
@@ -310,7 +327,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     v2.clone()
                 }
                 SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
-                SuperMember::Sdk => {
+                SuperMember::Sdk | SuperMember::Enum(_) => {
                     s.super_beyond_program(
                         this,
                         name,

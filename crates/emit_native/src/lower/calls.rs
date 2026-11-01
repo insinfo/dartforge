@@ -321,6 +321,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let fid = f.0 as usize;
                         let evaluated = self.evaluate_args(ast, &arguments.args);
                         let args = self.match_args(fid, &evaluated);
+                        // The type arguments, written or inferred
+                        // (`prefixed.mk()` with `PGInt p = …`), as unprefixed.
+                        self.arm_tuple(fid, expr_id, arguments);
                         return self.call_direct(fid, None, args);
                     }
                     Element::Class(c)
