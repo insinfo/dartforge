@@ -49,6 +49,14 @@ não no LSP.
        `limitless_ui` com o prefixo congelado é desse tipo e tem de sumir.
    - **Agrupar as ondas:** uma rajada de arquivos gerados é tratada como uma recarga só,
      com espera curta, e não arquivo a arquivo.
+   - **Comportamento de vazamento:** no Dart, a memória não volta sozinha. O proprietário
+     precisa matar o processo do *analysis server* para ela voltar ao normal.
+   - **Critério de aceite:** depois de N ondas e de muitas edições, a memória em repouso
+     do `dartforge-lsp` fica a poucos por cento da de um servidor recém-iniciado no mesmo
+     estado do projeto. Ninguém deve precisar reiniciar nada.
+   - **Rede de segurança:** se a memória passar de um orçamento, o servidor recicla os
+     próprios processos filhos (residente e buscas) de forma transparente, sem perder o
+     estado do editor. Não pode depender disso para passar no critério de aceite.
 
 **Como validar:** cada passo com teste contra uma análise do zero, o oráculo de paridade a
 100% e a medição revezada com o servidor oficial (com a coluna de CPU) nos três projetos.
