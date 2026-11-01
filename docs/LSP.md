@@ -1165,6 +1165,85 @@ recarga total. Com o limite em 64 cargas, a memória em repouso tinha subido 18%
   Dart faz com a assinatura de API por biblioteca.
 * **`references` dos tipos do SDK (passo 5)** continua de 4 a 37× o Dart.
 
+#### Sexta rodada (2026-11-01): passo 4 (grupos em ordem de dependência) e ondas de arquivos gerados
+
+**Passo 4, primeira parte (`f6b18bad`, `d14740ac`).**
+- Depois do prefixo congelado, as bibliotecas do pacote vêm em ordem de dependência
+  (`frozen::lay_out`, Tarjan). Cada grupo de bibliotecas que se importam mutuamente fica
+  junto, com o início de cada grupo em `Program::groups`. A ordem vale na carga inteira e
+  em cada carga sobre um corte.
+- Uma mudança de API corta o programa no início do grupo da primeira biblioteca cujo texto
+  mudou (`Resident::cut`): nos textos, no disco, ou na entrada, quando o lote importa outros
+  arquivos. Antes, o corte era sempre no fim do prefixo congelado.
+- As bibliotecas do pacote antes do corte mantêm elementos, *outline*, hierarquia e
+  diagnósticos de *outline* e de sintaxe.
+- A inferência de *overrides* ainda passa pelas classes do pacote inteiro
+  (`overrides_from` = fim do prefixo congelado), para que as bibliotecas mantidas tenham os
+  mesmos diagnósticos de inicializador de uma análise do zero.
+- No `limitless_ui`, que não carrega o pacote inteiro com cada lote, a troca de lote depois
+  de uma mudança de API recarrega só a entrada.
+- **Ainda não feito:** refazer só o *outline* de quem depende do que mudou dentro de um grupo
+  grande (os *barrels* do frontend formam ciclos com os componentes), e o `simple_bounds`
+  por faixa (continua sobre o programa inteiro).
+- O teste `resident_reloads_only_after_the_frozen_prefix` agora tem uma biblioteca do pacote
+  que não depende da editada. Ela é mantida pelos cortes, e uma edição de corpo nela depois
+  das mudanças de API publica o mesmo que uma análise do zero (diagnósticos de
+  inicializador, de *override* e de corpo). `a_load_onto_the_frozen_prefix_is_a_full_load`
+  ganhou um corte dentro do pacote.
+
+**Ondas de arquivos gerados (`d91c8fbc`).** Uma onda é o `build_runner` ou o `webdev`
+reescrevendo muitos arquivos de uma vez, que o editor manda em vários
+`didChangeWatchedFiles`. O trabalhador da análise tipada agora espera 250 ms de disco quieto
+(sem mudança do editor depois) e analisa a onda uma vez (`DISK_QUIET`). Teste:
+`a_wave_of_disk_changes_is_analyzed_once`, com 12 arquivos `.g.dart` reescritos, cada um na
+sua notificação.
+
+**Validação do passo 4, separada:**
+- testes em *release* de `elements`, `types`, `analysis`, `world`, `emit_js`,
+  `emit_js_production`, `parity`, `lsp` e `dev`: 842, sem falhas;
+- corpus JS 277/277 em desenvolvimento e em `-O2`;
+- harness nativo 164/164;
+- *debounce*: `typed_incremental` e clippy;
+- oráculo de paridade no fim, com o binário final: tabela de recursos idêntica (references, implementation e definition 100%, completion top-5 100%).
+
+**Medição.** Duas sessões revezando o binário desta rodada ("agora"), o da quinta ("r5") e
+o Dart, com carga 29–70 (a máquina voltou a ficar carregada; valem a CPU e as razões). Em
+ms, quando não indicado:
+
+| (mediana) | frontend: r5 → agora × Dart | backend | `limitless_ui` |
+|---|---|---|---|
+| API privada → diagnóstico do arquivo | 460 → **265** × 19 | 127 → 201 × 48 | 223 → 196 × 96 |
+| API exportada → diagnóstico do arquivo | 348 → 298 × 63 | 152 → 266 × 85 | 90 → **85** × 116 |
+| API privada → assentado | 1.200 → 768 × 48 | 3.673 → 4.998 × 602 | 1.689 → 1.490 × 199 |
+| API exportada → assentado | 4.709 → 3.582 × 161 | 4.086 → 5.207 × 576 | 1.298 → 1.345 × 185 |
+| API privada: CPU | 498 → 493 × 45 | 1.323 → 1.317 × 181 | 815 → 784 × 161 |
+| API exportada: CPU | 2.136 → 2.048 × 112 | 1.385 → 1.308 × 187 | 699 → 680 × 148 |
+| memória em repouso (MiB) | 775 → **736** × 870 | 267 → 297 × 477 | 1.032 → 1.047 × 739 |
+
+- **Backend:** o relógio piorou, com a CPU igual. Com duas sessões e carga até 70, isso não
+  distingue efeito de ruído. A memória em repouso subiu 11%: o programa mantém as
+  bibliotecas do pacote anteriores ao corte, e a tabela de tipos continua acumulando os
+  *outlines* das cargas sobre o corte.
+- **`limitless_ui`:** a mudança exportada já fica abaixo do Dart no diagnóstico do arquivo
+  (85 × 116 ms).
+
+**O que não foi feito nesta rodada:**
+- **Reaproveitar a tabela de tipos sem a recarga total a cada 16 cargas.** A tabela é
+  *hash-consed* e só cresce, e os tipos do prefixo ficam misturados aos de cada carga: os
+  inicializadores do prefixo são inferidos sob demanda durante as análises. Reaproveitar
+  pede uma coleta da tabela:
+  - marcar os tipos alcançáveis a partir do que fica: o `OutlineTypes` até o corte, os
+    `CoreTypes`, a hierarquia, os tipos escritos e os limites dos parâmetros de tipo;
+  - copiá-los numa tabela nova e remapear os `TypeId` dessas estruturas;
+  - fazer isso a cada carga sobre um corte.
+
+  É o próximo passo da memória e serve também ao item 3 da prioridade (sessões longas com
+  `build_runner`).
+- **O cenário de sessão longa no `editing_latency.rs`** (horas simuladas, ondas de
+  `build_runner`, curva de RSS dos dois servidores, comparação com um servidor recém-aberto)
+  não foi escrito. Só o *debounce* das ondas ficou pronto.
+- **O passo 5 (índice de referências resolvidas)** não foi começado.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,

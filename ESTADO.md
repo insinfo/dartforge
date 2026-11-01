@@ -65,6 +65,21 @@ a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
+**Andamento (01/11, 18h):**
+- Passo 4, primeira parte: as bibliotecas do pacote em ordem de dependência. Uma mudança de
+  API recarrega a partir do grupo da biblioteca editada, e não do pacote inteiro.
+- Frontend: diagnóstico do arquivo depois de mudança de API privada **265** (era 460) × 19
+  ms; exportada 298 × 63 ms.
+- `limitless_ui`: exportada **85 × 116 ms (ganha)**.
+- Ondas de arquivos gerados: uma análise depois de 250 ms de disco quieto (item 3, parte c).
+- Faltam:
+  - a coleta da tabela de tipos (memória: em repouso no backend +11% e no `limitless_ui`
+    +1,5% nesta rodada);
+  - o cenário de sessão longa (item 3, partes a e b);
+  - o `simple_bounds` por faixa;
+  - o passo 5.
+- Detalhes em `docs/LSP.md`, "Sexta rodada".
+
 **Andamento (01/11, 15h):**
 - **Item 1, primeira parte, feita** (passos 1–3 do projeto em `docs/LSP.md`, "Projeto:
   reanalisar só o que mudou"). O SDK e as dependências ficam num prefixo congelado do
@@ -91,7 +106,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 |---|---|---|---|
 | **JS dev** × DDC/webdev | compilar 1 arquivo: **7,6× mais rápido** (19 × 150 ms). Início do zero, sem `build_runner`: **29,6 × 212,5 s** (`limitless_ui`) e **56,1 × 383,3 s** (`new_sali`). Edição até a página, `limitless_ui`: template **3,3 × 7,6 s**, corpo **2,4 × 8,1 s**, API **8,8 × 51,8 s** (máquina carregada: valem as razões). Código gerado ≈ igual ao DDC (`closures` 1,65×, 13/10) | memória **0,5 × 4,9 GB**; JS em gzip **4,4 × 5,4 MB** (bruto 56 × 49 MB) | 31/10 noite |
 | **JS produção** × `dart2js -O4` | ganha em `collections/set_str` (0,54×), `map` (0,79×), `list_sort` (0,85×) e `map_str_int` (13,4 × 15,6 ms); empata em `async_await` (464 × 466 ms), `collatz` (150 × 150), `Set<int>` (16 × 15), `list_methods` (37 × 36), `map_iterate` e `closures`; **perde** em `jsonEncode` 1,0–1,2×. Compila **2–2,8× mais rápido** (-O2) | projetos grandes **0,90–0,94×** bruto, **0,96×** gzip; 16 programas pequenos **0,915×** bruto e **0,963× gzip** (o `json` de `bench/performance` sozinho, 1,034× gzip) | 01/11 |
-| **LSP** × servidor de análise | mesmos 3 projetos, revezado, com CPU (carga 16–48). **Tecla → diagnósticos**: frontend 82 × 44 ms (CPU 80 × 46), backend 68 × 37 ms (CPU 64 × 41), `limitless_ui` empata ou ganha (CPU 117 × 151 ms). **Mudança de API, diagnóstico do arquivo** (prefixo congelado, 01/11 tarde): frontend **226–236 × 25–50 ms** (era 478–583), backend 97–105 × 30–61 ms, `limitless_ui` **86–161 × 53–85 ms**. **Ganha** em `completion` depois de edição (frontend 28 × 78 ms), *hover* depois de edição e `references` no `limitless_ui` (2,8 × 21 ms). **Perde** nos dependentes de uma mudança de API (CPU frontend 2,0 s × 110 ms, backend 1,3 s × 0,18 s, `limitless_ui` 0,66–0,75 × 0,10–0,14 s), em `references` dos tipos do SDK no frontend (3,3 s × 90 ms sem edição, mesmos resultados) e em `definition`/`prepareRename`/`codeAction` | frontend pico/repouso **1.585/776 × 934/847 MiB** (repouso ganha), `limitless_ui` 1.120/1.105 × 780/773, backend **299/299 × 476/469 (ganha)**. Oráculo de paridade 100% (references, implementation, definition; completion top-5) | 01/11 |
+| **LSP** × servidor de análise | mesmos 3 projetos, revezado, com CPU (carga 29–70). **Tecla → diagnósticos**: CPU frontend 79 × 50 ms, backend 67 × 46 ms, `limitless_ui` **109 × 138 ms (ganha)**. **Mudança de API, diagnóstico do arquivo** (prefixo congelado e grupos em ordem de dependência, 01/11): frontend 265–298 × 19–63 ms, backend 201–266 × 48–85 ms, `limitless_ui` 196 × 96 ms (privada) e **85 × 116 ms (exportada, ganha)**. **Ganha** em `completion` depois de edição, *hover* depois de edição e `references` no `limitless_ui`. **Perde** nos dependentes de uma mudança de API (CPU frontend 2,0 s × 112 ms, backend 1,3 s × 0,19 s, `limitless_ui` 0,68–0,78 × 0,15–0,16 s), em `references` dos tipos do SDK no frontend (mesmos resultados) e em `definition`/`prepareRename`/`codeAction` | frontend pico/repouso **1.552/736 × 952/870 MiB** (repouso ganha), `limitless_ui` 1.065/1.047 × 760/739, backend **297/297 × 478/477 (ganha)**. Oráculo de paridade 100% (references, implementation, definition; completion top-5) | 01/11 |
 | **`analyze`** × `dart analyze` | `new_sali/backend`: ~5 s × 21,7 s frio (2,6 s com cache); `format`: **0,42 × 1,55 s** | — | 13–14/10 |
 | **`test`** / **`pub`** × `dart test` / `dart pub` | **não medido** | — | — |
 | **Wasm** × `dart2wasm` (Node 24) | **perde** 1,2–3× em alocação/árvores, JSON, strings e crivo (ganho de só 10–20% em 31/10 noite; o coletor pesa ~25% no JSON); **ganha** 2–8× em `list.add`, `list[i]` e `sort` | módulo **1,26–1,94 MB × 47–114 KB (17–27× maior**; era 2,2–2,7 MB, −28 a −42%); memória **2,3–3,4× menor**. Exceções nativas do Wasm (`exnref`) são o padrão: −2,6 a −4,5% de tamanho | 31/10 noite |
