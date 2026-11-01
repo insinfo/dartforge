@@ -184,7 +184,7 @@ enum Taken {
 
 /// How many loads over the frozen prefix a world takes before a full reload
 /// (the type table keeps the types of each load's outline).
-const MAX_ONTO_LOADS: usize = 64;
+const MAX_ONTO_LOADS: usize = 16;
 
 /// The program of an analysis with what the analysis builds over it before
 /// the initializers: the type table, the core types, the outline types and
