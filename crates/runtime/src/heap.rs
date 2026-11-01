@@ -11708,7 +11708,7 @@ mod prompt_death_tests {
             "the stale entry seeded the cycle round"
         );
         assert!(
-            heap.objects.live_set <= live_before - 1,
+            heap.objects.live_set < live_before,
             "the dead block was not reclaimed"
         );
         let other = owned(&mut heap, 1);
