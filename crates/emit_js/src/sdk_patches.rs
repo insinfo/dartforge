@@ -943,6 +943,44 @@ int _hash20(Object? o1, Object? o2, Object? o3, Object? o4, Object? o5, Object? 
   }
 "#,
     ),
+    // Every `await` on a `_Future` called `_thenAwait<dynamic>`, which
+    // evaluates `_Future<E>` from `E` and `_FutureListener<T, E>` from the
+    // future's own type and `E` (a `bind` and two `_eval`s, a `Map` lookup
+    // each: ~11% of `async_await`, `docs/JS-PRODUCAO-VELOCIDADE.md` §14).
+    // `await` now makes a `_Future<dynamic>` and, in the root zone, a
+    // `_FutureListener<dynamic, dynamic>`: closed types, evaluated once. The
+    // listener's types are not observed there (the callback is a
+    // `Function`, `S` only types the value that `T` already guarantees, and
+    // only another zone's `runUnary` handler would see them).
+    (
+        Some("DARTFORGE_JSPROD_AWAIT_LISTENERS"),
+        "async/future_impl.dart",
+        "  void _ignore() {\n",
+        "  /// `_thenAwait<dynamic>` for `await` (production): in the root zone the\n  /// listener's types are closed.\n  Future<dynamic> _thenAwaitDynamic(\n      FutureOr<dynamic> f(dynamic value), Function onError) {\n    _Future<dynamic> result = new _Future<dynamic>();\n    _addListener(identical(Zone._current, _rootZone)\n        ? new _FutureListener<dynamic, dynamic>.thenAwait(result, f, onError)\n        : new _FutureListener<T, dynamic>.thenAwait(result, f, onError));\n    return result;\n  }\n\n  void _ignore() {\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_AWAIT_LISTENERS"),
+        "_internal/js_dev_runtime/patch/async_patch.dart",
+        "    object._thenAwait(thenCallback, errorCallback);\n",
+        "    object._thenAwaitDynamic(thenCallback, errorCallback);\n",
+    ),
+    (
+        Some("DARTFORGE_JSPROD_AWAIT_LISTENERS"),
+        "_internal/js_dev_runtime/patch/async_patch.dart",
+        "    future._thenAwait(thenCallback, errorCallback);\n",
+        "    future._thenAwaitDynamic(thenCallback, errorCallback);\n",
+    ),
+    // In the root zone, `registerBinaryCallback` returns its callback: the
+    // body of every `async` invocation was a `dart.fn` closure (with its
+    // rti) around the protected step, made through `Zone.current`'s
+    // getter. There the protected step itself is the body; another zone
+    // still registers the callback.
+    (
+        Some("DARTFORGE_JSPROD_ROOT_ZONE_BODIES"),
+        "_internal/js_dev_runtime/patch/async_patch.dart",
+        "  return Zone.current.registerBinaryCallback((int errorCode, dynamic result) {\n",
+        "  if (identical(Zone._current, _rootZone)) return unsafeCast(protected);\n  return Zone.current.registerBinaryCallback((int errorCode, dynamic result) {\n",
+    ),
     // A lazy static becomes a data property once initialized (or first
     // written), as the comment of `defineLazyField` intends: reading
     // `Zone._current` or `_rootZone` is a property load instead of a call

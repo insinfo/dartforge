@@ -7,7 +7,10 @@
 //! local, the callbacks of `await` made once per invocation; and those of
 //! §13: `List.filled` (a loop when short, the rti set after the fill when
 //! long), `JSArray.join` and the remainder of a never-negative local by a
-//! non-literal `int`. The program gives the
+//! non-literal `int`; and those of §14: the listener of an `await` with
+//! closed types, the root zone's `async` body without its wrapper, and the
+//! dynamic `toJson` of a class that has one. The
+//! program gives the
 //! VM's answers at each level, with the switches and without them.
 
 use std::path::Path;
@@ -28,6 +31,9 @@ const SWITCHES: &[&str] = &[
     "DARTFORGE_JSPROD_SHORT_FILL",
     "DARTFORGE_JSPROD_ARRAY_JOIN",
     "DARTFORGE_JSPROD_NONNEGATIVE_REMAINDER",
+    "DARTFORGE_JSPROD_AWAIT_LISTENERS",
+    "DARTFORGE_JSPROD_ROOT_ZONE_BODIES",
+    "DARTFORGE_JSPROD_UNANSWERED_CALLS",
 ];
 
 #[test]

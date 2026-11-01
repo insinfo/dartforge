@@ -1138,6 +1138,34 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     pub fn emit_dsend(&mut self, recv: &Js, name: &str, arguments: &ast::Arguments) -> (Js, Ty) {
+        // Production: `object.toJson()` (the dynamic call of `jsonEncode`'s
+        // default `toEncodable`) when no class answers `toJson` is the plain
+        // JavaScript call, as dart2js writes it: on a Dart object the missing
+        // method throws the `TypeError` Dart code sees as a
+        // `NoSuchMethodError`, and `dart.dsend` with the whole `noSuchMethod`
+        // path (`InvocationImpl`, the symbols) is no longer needed for it
+        // (`DARTFORGE_JSPROD_UNANSWERED_CALLS=0` keeps it). Only this name:
+        // a name of a built-in prototype (`call`, `push`, `toString`…) or of
+        // a native object would run that method on a function, an array or a
+        // DOM node, where Dart's dynamic call fails; `toJson` is none (the
+        // JavaScript protocol is `toJSON`).
+        if self.ctx.production()
+            && name == "toJson"
+            && arguments.type_args.is_empty()
+            && arguments.args.is_empty()
+            && std::env::var("DARTFORGE_JSPROD_UNANSWERED_CALLS").map_or(true, |v| v != "0")
+            && self.ctx.unanswered_selector(name)
+        {
+            let (args, _, _) = self.emit_args_plain(arguments);
+            return (
+                Js::prim(format!(
+                    "{}.{name}({})",
+                    recv.at(P_PRIMARY),
+                    args.join(", ")
+                )),
+                Ty::Dynamic,
+            );
+        }
         let (args, named, _) = self.emit_args_plain(arguments);
         let named_js = named.map(|n| format!(", {n}")).unwrap_or_default();
         let key = self.dynamic_member_key(name);

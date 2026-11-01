@@ -1128,3 +1128,138 @@ Continua:
   `jsonEncode`, e o `_JsonPrettyPrintMixin`/`_JsonStringStringifierPretty`
   ficam vivos sem nenhum `JsonEncoder.withIndent` (o campo `indent` é
   sempre `null`, mas o mundo só prova parâmetros nulos fora do SDK).
+
+## 14. Sétima rodada: o `await` sem rti, o corpo `async` na zona raiz e o `toJson` sem `noSuchMethod`
+
+Rodada de 2026-10-31, noite (macOS, Node 24.21), sobre o `31f63ea8`
+(§13). Mesmo método; a máquina continuou carregada (carga 47–170), os
+números são medianas de 5 execuções alternadas na mesma sessão, com o
+`uptime` de cada uma.
+
+### 14.1 `async_await`: de 1,25–1,31× para 0,99–1,00×
+
+Perfil do `-O4` (`node --cpu-prof`, as posições do minificado mapeadas
+para o trecho, e os chamadores do `Map.get` das caches de rti):
+
+* ~11% em avaliações de rti dentro do `_thenAwait<dynamic>` de cada
+  `await`: `_Future<E>` avaliado de `E` e `_FutureListener<T, E>` de
+  `instanceType(this).bind(E)` — um `bind` e dois `_eval`, uma busca em
+  `Map` cada;
+* o corpo de cada invocação `async` era um `dart.fn` (com rti) em volta do
+  passo protegido, feito por `Zone.current.registerBinaryCallback`, que na
+  zona raiz devolve o próprio *callback*;
+* o *completer* (`_AsyncAwaitCompleter<T>` e `_Future<T>` avaliados do `T`
+  por chamada, ~5%) ficou como está: o `dart2js` faz as mesmas duas
+  avaliações, e tirá-las pede uma chamada maior em cada função `async` (o
+  `new_sali` tem centenas).
+
+| mudança | onde | chave |
+| --- | --- | --- |
+| o `await` sobre um `_Future` chama `_thenAwaitDynamic`: na zona raiz o resultado é um `_Future<dynamic>` e o ouvinte um `_FutureListener<dynamic, dynamic>`, tipos fechados (avaliados uma vez, no prelúdio). Lá os tipos do ouvinte não são observados: o *callback* é um `Function`, o `S` só tipa o valor que o `T` do futuro já garante, e só o `runUnary` de outra zona (que recebe os tipos) os veria — fora da raiz fica o `_thenAwait` | remendos de `future_impl.dart` e `async_patch.dart` | `DARTFORGE_JSPROD_AWAIT_LISTENERS` |
+| na zona raiz, `_wrapJsFunctionForAsync` devolve o próprio passo protegido (o que `registerBinaryCallback` da raiz faria com o *wrapper*); outra zona continua registrando | remendo de `async_patch.dart` | `DARTFORGE_JSPROD_ROOT_ZONE_BODIES` |
+
+Node, `-O4`, ms, 5 execuções alternadas. Primeira sessão (carga 99–117),
+uma chave por vez, com a primeira versão do ouvinte (sem a guarda da zona):
+
+| *kernel* | antes (`31f63ea8`) | `AWAIT_LISTENERS` | as duas | `dart2js -O4` |
+| --- | ---: | ---: | ---: | ---: |
+| `async_await/async` | 571,0 | 475,5 | 438,0 | 436,5 |
+
+Com a versão final (o ouvinte de tipos fechados só na zona raiz), sessão de
+00:13 (carga 35–55):
+
+| *kernel* | antes (`31f63ea8`) | agora | `dart2js -O4` | agora/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| `async_await/async` | 580,5 | **463,5** | 466,0 | **0,99** |
+
+Teste: `production_forms.dart` ganhou `zonedAsyncs` (`await` de
+`Future<int>`, de valor, de uma conclusão posterior e de `Future<List>`,
+numa zona com `zoneValues` e na raiz, e um erro lançado dentro da zona).
+
+### 14.2 O `toJson` dinâmico fora do caminho do `noSuchMethod`
+
+O gzip dos programas pequenos perdia no JSON (§13.4). Dois pedaços que o
+`dart2js` não tem estavam vivos em todo programa com `jsonEncode`:
+
+* o `toEncodable` padrão, `_defaultToEncodable(o) => o.toJson()`, é uma
+  chamada dinâmica: `dart.dsend` e com ele o caminho inteiro do
+  `noSuchMethod` (`callMethod`, `_checkAndCall`, `InvocationImpl`,
+  `NoSuchMethodError`, os símbolos, `_argumentErrors`). O `dart2js` escreve
+  `object.toJson$0()` e deixa o `TypeError` do JavaScript virar o erro;
+* o `_JsonStringStringifierPretty` com o `_JsonPrettyPrintMixin`:
+  `printOn` o cria quando `indent` não é `null`, e nada prova o campo
+  sempre `null`.
+
+| mudança | onde | chave |
+| --- | --- | --- |
+| `object.toJson()` dinâmico (sem argumentos) num programa em que **nenhuma** classe, SDK incluído, declara um membro de instância `toJson` e só `Object` (e o `JSNull` dos *tear-offs* de `null`, que lança igual) declara `noSuchMethod` é a chamada JavaScript `o.toJson()`: num objeto Dart o método falta e o `TypeError` é, para o código Dart, um `JSNoSuchMethodError` (um `NoSuchMethodError`); um objeto JavaScript com o método o executa, como o `dsend` faria. Só esse nome: a primeira versão valia para qualquer nome sem membro e o corpus pegou `f.call(3)` (91, `-O1`) — `call`, `push`, `toString`… existem nos protótipos do JavaScript e rodariam numa função, num *array* ou num nó do DOM, onde a chamada dinâmica do Dart falha; `toJson` não existe em nenhum (o protocolo é `toJSON`). O nome não é de membro Dart, então o renomeador de propriedades não o toca | `emit_js/src/call.rs` (`emit_dsend`), `ctx.rs` (`unanswered_selector`) | `DARTFORGE_JSPROD_UNANSWERED_CALLS` |
+
+Medido e descartado: a fábrica do *stringifier* com recuo como *tear-off*
+constante que só `JsonEncoder.withIndent` guardaria (num campo novo,
+repassado ao *sink* em pedaços), para que um programa sem `withIndent` não
+alcançasse a classe: −2.035 bytes (gz −464) no `json_encode`, mas +230 no
+`limitless_ui`, que usa `withIndent` (`person_registration_page.dart`) e
+pagaria o campo e os parâmetros a mais. Fora; voltaria com uma prova do
+mundo de que o construtor não é alcançado.
+
+Testes: `json_closed_world.dart` (programa sem `toJson`: `jsonEncode` de
+valores, de objeto sem `toJson` — o erro, a causa `NoSuchMethodError` e o
+resultado parcial —, `toEncodable` próprio, o `JsonEncoder` constante),
+contra a VM em `-O1` a `-O4` com a chave ligada e desligada, conferindo no
+`-O1` que `.toJson()` aparece e `InvocationImpl` some só com a chave
+(`emit_js_production/tests/json_closed_world.rs`); `production_forms.dart`
+ganhou `jsonForms` (classe com `toJson`, `withIndent` constante e não
+constante, `startChunkedConversion`, `fuse(utf8.encoder)`).
+
+Tamanho, `-O4`, `gzip -9`:
+
+| alvo | antes (§13) | agora | `dart2js -O4` | agora/`dart2js` |
+| --- | ---: | ---: | ---: | ---: |
+| `json_encode` | 58.182 (gz 20.299) | 48.377 (gz 17.087) | 52.069 (gz 17.365) | 0,929× (gz 0,984×) |
+| `bench` | 60.182 (gz 20.364) | 49.360 (gz 16.921) | 52.318 (gz 17.213) | 0,943× (gz 0,983×) |
+| `json` | 91.763 (gz 30.109) | 83.780 (gz 27.664) | 83.398 (gz 26.761) | 1,005× (gz 1,034×) |
+| 16 programas de `bench/` | 697.384 (gz 239.191) | **668.824 (gz 230.107)** | 730.866 (gz 238.979) | **0,915× (gz 0,963×)** |
+| os 15 de antes | 654.804 (gz 224.129) | 626.194 (gz 215.029) | 679.062 (gz 222.025) | 0,922× (gz 0,968×) |
+
+### 14.3 JSON a codificar: medido e descartado
+
+O `writeString` do `_JsonStringStringifier` vai ao `StringBuffer` por
+`StringSink.write` (chamada de interface, `dart.str` do argumento,
+`_writeString`); sem *inlining* (`node --no-turbo-inlining`) isso é ~33%
+do `json_encode`. A forma do `dart2js` (`t1._contents += s`) não é
+alcançável do `dart:convert` (o campo é privado do `dart:core`); a
+alternativa — o *stringifier* sem recuo acumular numa *string* própria
+quando não há *sink* (`jsonEncode`) — ficou no ruído (`ascii_json` 30,5 ×
+32,8 µs/op com e sem; `encode_large` 98,6 × 107,2 ms, `dart2js` 95,0) e
+custava +245 bytes por programa com JSON. Fora. Com o V8 juntando as
+chamadas, o que sobra do `jsonEncode` (1,0–1,2× do `dart2js`, mesma sessão)
+não se concentra num ponto do perfil.
+
+### 14.4 Projetos, validação e o que continua
+
+Projetos, `-O4` (`gzip -9`): `limitless_ui` 3.350.051 → 3.350.108 (gz
+947.491 → 947.526); `new_sali` 7.147.069 → 7.147.126 (gz 1.939.532 →
+1.939.506). **+57 bytes em cada** (0,002%): o `_thenAwaitDynamic` (o
+`_thenAwait` genérico continua vivo nos dois, pelo `async*`) e a guarda da
+zona no `_wrapJsFunctionForAsync`. Sem a guarda da zona no ouvinte (tipos
+fechados em qualquer zona) os projetos encolhiam, mas o `runUnary` de uma
+zona própria passaria a ver `dynamic` no lugar do tipo do futuro; ficou a
+guarda. O `toJson` não muda nada nos dois (ambos têm classes com
+`toJson`).
+
+Validação: corpus JS (`dartforge-differential --production --level N
+--jobs 2`) 277/277 em desenvolvimento e em `-O1` e `-O2`, 260/260 em
+`-O3`, 256/256 em `-O4`; `production_forms` e `json_closed_world` contra a
+VM em `-O1` a `-O4`, com as chaves ligadas e desligadas; testes de
+`emit_js`, `emit_js_production` e `world` com os ignorados (191, 0 falhas);
+`clippy -D warnings`; `rustfmt`.
+
+Continua:
+
+* **JSON a codificar (1,0–1,2×)** — §14.3.
+* **O `json` de `bench/performance` (gz 1,034×)**: usa `withIndent` e o
+  `JsonUtf8Encoder`; o *pretty printer* só sai com uma prova do mundo de
+  que `JsonEncoder.withIndent` não é alcançado (a fábrica da §14.2, medida,
+  custava nos projetos que o usam).
+* **O *completer* de cada `async`** (`_AsyncAwaitCompleter<T>` e
+  `_Future<T>` avaliados do `T`, ~5%): o `dart2js` paga o mesmo.

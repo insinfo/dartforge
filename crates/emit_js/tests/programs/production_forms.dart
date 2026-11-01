@@ -4,6 +4,7 @@
 // int` and `identical(x, literal)` without the runtime, and the native sort;
 // and those of §12: `Set<int>`/`Set<String>` in cells, `==` of an `E` and
 // the shift of a never-negative local. Every answer is the VM's.
+import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 
@@ -678,6 +679,60 @@ void stringsAndLists() {
   }));
 }
 
+/// `await` in a custom zone (the body is registered there) and in the root
+/// zone, on futures of several types, plain values and a later completion.
+Future<String> zonedStep(Completer<int> later) async {
+  final a = await Future<int>.value(1);
+  final b = await 'two';
+  final c = await later.future;
+  final d = await Future<List<int>>.value([4]);
+  return '$a $b $c ${d.first} ${Zone.current[#tag]}';
+}
+
+Future<void> zonedAsyncs() async {
+  final later = Completer<int>();
+  final inZone = runZoned(() => zonedStep(later), zoneValues: {#tag: 'zoned'});
+  final inRoot = zonedStep(later);
+  later.complete(3);
+  print('${await inZone} | ${await inRoot}');
+  try {
+    await runZoned(() async {
+      await null;
+      throw StateError('in zone ${Zone.current[#tag]}');
+    }, zoneValues: {#tag: 'z2'});
+  } on StateError catch (e) {
+    print(e.message);
+  }
+}
+
+class WithJson {
+  final int v;
+  WithJson(this.v);
+  Object toJson() => {'v': v};
+}
+
+/// `jsonEncode` with a `toJson` class (the dynamic call that a class
+/// answers) and the indenting encoders, whose stringifier only
+/// `JsonEncoder.withIndent` reaches.
+void jsonForms() {
+  print(jsonEncode([WithJson(1), 2]));
+  const pretty = JsonEncoder.withIndent('  ');
+  print(pretty.convert({'a': [1, WithJson(2)], 'b': {}}));
+  print(JsonEncoder.withIndent('\t').convert([1, [2]]));
+  final chunks = <String>[];
+  final sink = pretty.startChunkedConversion(ChunkedConversionSink<String>.withCallback(chunks.addAll));
+  sink.add({'x': null});
+  sink.close();
+  print(chunks.join());
+  print(utf8.decode(pretty.fuse(utf8.encoder).convert(['é'])));
+  print(const JsonEncoder().convert({'plain': true}));
+  try {
+    jsonEncode(Object());
+  } on JsonUnsupportedObjectError catch (e) {
+    print('unsupported ${e.cause is NoSuchMethodError}');
+  }
+}
+
 void main() {
   asyncs();
   filled();
@@ -692,4 +747,6 @@ void main() {
   nonnegativeMore();
   identitySetsMore();
   stringsAndLists();
+  zonedAsyncs();
+  jsonForms();
 }

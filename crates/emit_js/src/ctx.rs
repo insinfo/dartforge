@@ -146,6 +146,9 @@ pub struct Ctx<'a> {
     /// The classes in the prototype chain of a native peer (the peer, its
     /// superclasses and their mixins), computed on first use.
     native_chain: std::cell::OnceCell<HashSet<ClassId>>,
+    /// The instance member names of every class, and whether a class other
+    /// than `Object` declares `noSuchMethod` ([`Ctx::unanswered_selector`]).
+    member_names: std::cell::OnceCell<(HashSet<SymbolId>, bool)>,
     /// [`Ctx::positional_type_variables`], computed on first use.
     positional_type_variables: std::cell::OnceCell<bool>,
     /// `DARTFORGE_JSPROD_SHORT_RECIPE=0` keeps the library in every recipe.
@@ -274,6 +277,7 @@ impl<'a> Ctx<'a> {
             mixed_in: std::cell::OnceCell::new(),
             implemented: std::cell::OnceCell::new(),
             native_chain: std::cell::OnceCell::new(),
+            member_names: std::cell::OnceCell::new(),
             positional_type_variables: std::cell::OnceCell::new(),
             short_recipe: std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0"),
             write_targets: RefCell::new(HashMap::new()),
@@ -629,6 +633,56 @@ impl<'a> Ctx<'a> {
         } else {
             name
         }
+    }
+
+    /// Production: no class of the program (SDK included) has an instance
+    /// member `name` (method, getter, setter or field) and none but `Object`
+    /// declares `noSuchMethod`. A dynamic call of `name` then always ends in
+    /// `noSuchMethod`'s error on a Dart object, which is what the JavaScript
+    /// `TypeError` of calling the missing property is to Dart code
+    /// (`JSNoSuchMethodError`, a `NoSuchMethodError`); a JavaScript object
+    /// with that method runs it, as `dart.dsend` does.
+    pub fn unanswered_selector(&self, name: &str) -> bool {
+        let (names, nsm) = self.member_names.get_or_init(|| {
+            let mut names = HashSet::new();
+            let mut nsm = false;
+            let object = self.object;
+            for c in &self.program.classes {
+                for n in c
+                    .instance_members
+                    .keys()
+                    .chain(c.shadowed_instance_members.iter().map(|(n, _)| n))
+                {
+                    names.insert(*n);
+                }
+            }
+            // `JSNull` (the receiver of `null` tear-offs) declares the
+            // default `noSuchMethod`, which throws like `Object`'s.
+            let js_null = self
+                .program
+                .libraries
+                .iter()
+                .find(|l| l.uri == "dart:_interceptors")
+                .and_then(|l| l.declared.get(&self.sym("JSNull")?)?.getter)
+                .and_then(|e| match e {
+                    Element::Class(c) => Some(c),
+                    _ => None,
+                });
+            if let Some(sym) = self.sym("noSuchMethod") {
+                for (i, c) in self.program.classes.iter().enumerate() {
+                    let id = Some(ClassId(i as u32));
+                    if id != object && id != js_null && c.instance_members.contains_key(&sym) {
+                        nsm = true;
+                    }
+                }
+            }
+            (names, nsm)
+        });
+        if *nsm {
+            return false;
+        }
+        let lookup = |n: &str| self.sym(n).is_some_and(|s| names.contains(&s));
+        !lookup(name) && !lookup(&format!("{name}=")) && !lookup(&format!("{name}_="))
     }
 
     /// The production profile's emission choices that are not pruning
