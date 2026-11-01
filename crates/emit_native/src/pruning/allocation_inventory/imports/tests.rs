@@ -610,11 +610,14 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
     // `dart:mirrors` is no longer among them: since c29dfd3c its registration
     // also hands the runtime the addresses of its method tear-offs
     // (`dartforge_register_tearoff`, for the VM's closure `toString`), an
-    // obligation this inventory does not certify.
+    // obligation this inventory does not certify. `dart:async` joined them in
+    // 7f35a02f: its `_dartforge*` helpers are registered through
+    // `RUNTIME_HELPERS` now, so its body no longer keeps `Future`/`Timer` live.
     let expected: Vec<_> = [
         "collection",
         "math",
         "convert",
+        "async",
         "typed_data",
         "developer",
         "nativewrappers",
