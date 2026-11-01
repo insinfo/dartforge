@@ -117,7 +117,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 
 | Ferramenta | Resultado | Lacunas abertas |
 |---|---|---|
-| **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT** (`dartforge aot --optimize`): primeira medição 31/10, 2721 iguais à VM, 2775 (96,9%) contando os 54 que os dois recusam; depois de três rodadas de correções do backend (31/10 e 01/11, medidas nas falhas e nos programas das áreas tocadas): **2774 iguais, 2828 (98,8%)** na projeção, wasm **2834 (99,0%)**. JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos). Nativo: 88 → 57 → 48 → **35 falhas** (wasm: 80 → 51 → 42 → 29): pilhas simbólicas e *hashes* (11: o AOT sai com `--stack-trace none`), 10 programas que a VM recusa e nós aceitamos, *mixin* aplicado duas vezes (precisa de uma cópia por aplicação), o programa de 300 s de compilação (agora o LLVM, não a análise de raízes), avulsos |
+| **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT** (`dartforge aot --optimize`): primeira medição 31/10, 2721 iguais à VM, 2775 (96,9%) contando os 54 que os dois recusam; depois de quatro rodadas de correções do backend (31/10 e 01/11, medidas nas falhas e nos programas das áreas tocadas): **2778 iguais, 2832 (98,9%)** na projeção, wasm **2836 (99,1%)**. JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos). Nativo: 88 → 57 → 48 → 35 → **31 falhas** (wasm: 80 → 51 → 42 → 29 → 27): pilhas simbólicas e *hashes* (11: o AOT sai com `--stack-trace none`), 10 programas que a VM recusa e nós aceitamos, *mixin* aplicado duas vezes (precisa de uma cópia por aplicação), `void` que devolve valor (ABI), avulsos |
 | **`analyze`** | corpus do analisador **99,95%** (23.001/23.012), 14/10 e de novo em 31/10. Erros a mais em `tests/language`: **231 → 107 → 20** (de 70 para 7 arquivos), 31/10, sem novos falsos negativos (os erros dos 1.460 programas de erro ficaram idênticos) | 12 são do *parser*: declarações `augment` sem o experimento `macros`. 6 são *wildcards* fora do modo *wildcard*: com `_` duplicado, o analisador liga à primeira declaração e nós à última. 2 vêm de `X1 extends FutureOr<X1>`, em que o próprio 3.6.2 não diagnostica |
 | **`pub`** | solucionador **PubGrub** portado do Pub 3.6.2. `pub get` idêntico ao oficial em **51/51** projetos reais (lockfile byte a byte, `package_config.json`, saída e código), com e sem lockfile. `add`, `remove`, `upgrade`, `downgrade`, `deps` e `outdated` idênticos em 42 cenários (31/10) | sugestões depois de falha de resolução; avisos de segurança no `outdated`; `cache`, `global`, `publish`, `token`, `login`; `--precompile`; SDKs Flutter e Fuchsia. Matriz em `docs/PUB-E-TEST.md` |
 | **`test`** | igual ao `dart test` em **22/22** execuções diferenciais; aceita `dart_test.yaml` e as anotações; relator `expanded` no formato do `dart test` (31/10) | `-r json` com eventos próprios; só a plataforma `vm`; sem *coverage*, *watch*, `--fail-fast`, `compact` e `github` |
@@ -133,10 +133,70 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | JS dev: subir de um checkout limpo sem `build_runner`; edição de template | concluído em 31/10 (29,6 × 212,5 s; template 3,3 × 7,6 s) |
 | JS produção: `jsonEncode` no máximo igual ao `dart2js -O4` (`async_await` e o gzip dos programas pequenos resolvidos em 01/11) | pausado em 01/11: perfil do `jsonEncode` sem ponto concentrado (1,0–1,2×); falta provar no mundo fechado que `withIndent` não é alcançado |
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
-| Backend nativo (AOT e wasm): as 35 falhas restantes da suíte `tests/language` (de 88) | agente backend nativo (terceira rodada concluída em 01/11) |
+| Backend nativo (AOT e wasm): as 31 falhas restantes da suíte `tests/language` (de 88) | agente backend nativo (quarta rodada concluída em 01/11) |
 | AOT nativo: tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`) e tamanho (1,37×); próximo: mapa de campo, `$c`/`$g`/`$tc`, `$async` | em rodízio: agentes de desempenho um por vez desde 01/11 (ordem LSP → ARC → AOT); seção de 31/10 abaixo |
 | ARC real: 2,5× os ciclos do tracing no HTTP `dart:io` e 1,7× no cru (eram 3× e 2,2×); próximos passos na seção de 01/11 | em rodízio: agentes de desempenho um por vez (fila: LSP prioridade → AOT → ARC) |
 | LSP: *outline* incremental (passos 1–3 feitos em 01/11: prefixo congelado; falta o passo 4, as bibliotecas do pacote que não dependem da editada), corpos dos dependentes, índice de referências resolvidas (passo 5), memória do residente e da busca | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
+
+## 01/11/2026 (noite): backend nativo — quarta rodada: inventário do SDK selecionado e mais 4 da suíte
+
+**O teste ignorado do inventário** (`actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup`,
+`--features embedded-llvm`) certificava só `dart:nativewrappers` em vez dos 8 corpos de partida
+esperados. Causa: `863d4159` (terceira rodada) passou a manter, no `join_arc_facts`, os nomes dos
+*tear-offs* das funções do SDK baixadas em módulos temporários — a correção do `toString` sem nome —,
+e com isso o registro de cada biblioteca com *tear-offs* ganhou `dartforge_register_tearoff`,
+`dartforge_register_tearoff_key` e `dartforge_register_instantiation` (endereços de código
+entregues ao runtime), uma obrigação que o inventário não certifica; era exatamente o que já tirava
+o `dart:mirrors` desde `c29dfd3c`. Os commits do ARC (`86a58081`, `6e26cb65`, `eccb3651`) não têm
+relação. Correção na raiz: uma biblioteca do SDK entrega esses registros numa função própria,
+`df.register.<lib>.tearoffs` (`sdk_module::tearoff_registration_symbol`), chamada na partida depois
+dos registros; o registro volta a ser só metadado nominal e textual. Resultado: os 8 certificados de
+novo e **também o `dart:mirrors`** (o teste agora espera os 9, com o motivo no comentário).
+
+**Medida da suíte.** `run-language-suite.py native --jobs 3` em 708 programas: as 35 falhas e todos
+os que passavam em `async/`, `const/`, `regress/`, `list/`, `map/`, `set/`, `deferred/`,
+`closure/`, `null/`, `enum/`, `constructor/`, `patterns/` e afins (as áreas tocadas: a ordem de
+erro do `async`, os mapas constantes, a cascata). No wasm, 157: as 35 e `async/`, `const/`, `list/`.
+
+| | antes | depois |
+|---|---:|---:|
+| nativo: as 35 falhas | 35 | **31** (4 passam) |
+| nativo: os 673 que passavam nas áreas tocadas | 673 | 673 (nenhuma regressão) |
+| wasm: as mesmas 35 (6 já saíam como a VM ou o dart2wasm) | 6 | **8**; os 122 de fora, nenhuma regressão |
+| nativo, projeção | 2 774 iguais, 2 828 (98,8%) | **2 778 iguais, 2 832 (98,9%)** |
+| wasm, projeção | 2 834 (99,0%) | **2 836 (99,1%)** |
+
+Harness nativo no binário final: dev, `--optimize`, `--optimize --gc-stress` e `--wasm` **164/164**
+cada (`--jobs 3`; no wasm, 40 iguais ao dart2wasm). `cargo test --release` de `emit-native`, `runtime` e `world`, o teste do inventário
+com `embedded-llvm` e clippy `-D warnings` limpos. Manifesto revisado do SDK selecionado
+regenerado (mudaram só a unidade de `dart:_compact_hash` e a de *patch* do `dart:async`).
+
+Corrigido:
+- **`Future` do usuário que entrega valor de tipo errado ao `await`**: a partir do primeiro `await`,
+  uma exceção não capturada do corpo `async` completa o futuro na hora, como o `_handleException`
+  da VM faz quando a ativação já tem `_SuspendState`; antes do primeiro `await` continua
+  assíncrona. O erro que sai do `then` de um futuro do usuário chega à zona de forma síncrona quando
+  ninguém escuta ainda (`async_patch.dart`, `isSync` no `_await`). Três casos medidos contra a VM
+  (erro do próprio `then`, `TypeError` do valor, erro depois de uma suspensão): saída idêntica;
+- **mapa `const` com `hashCode` sobrescrito**: a fonte de um `const {…}` (mapa ou conjunto) com
+  elementos simples recebe os elementos nos dados sem *hash* (`_HashVMBase._dfConstAdd`), e o
+  `_ConstMap`/`_ConstSet` indexa com o *hash* canônico, como a constante do front end na VM;
+- **campo `external` sem implementação** (fora de FFI e interop): ler e escrever lançam
+  `NoSuchMethodError`, e o despacho o trata como membro ausente;
+- **`regress41983`**: numa cascata sobre um literal de lista novo, cada `..add(x)` com `x`
+  estaticamente do tipo do elemento é o *append* do literal (`dartforge_list_append`), sem os
+  testes de classe e de forma, o caminho de crescimento e o despacho de reserva do `add` inlinado.
+  As 20 000 `..add` compilam em **134 s** (objeto 1,8 s; antes não terminava em 2 400 s).
+
+Ficou, com o motivo:
+- `void/void_check` (sobrescrita de `void` que devolve valor): na ABI, um método `void` de corpo em
+  bloco não devolve nada, e a chamada estática do `bar()` dentro dele já descarta o valor da
+  sobrescrita; igualar a VM exige que todo `void` cujo corpo faz `return e` (e as chamadas de
+  métodos `void` sobrescritos) devolvam `Ref`, uma mudança de ABI que vale um desenho próprio;
+- ***mixin* aplicado duas vezes** (3): continua o desenho da rodada anterior (uma cópia dos métodos
+  com `super` por aplicação, com entradas, tabelas e desvirtualização por cópia) — não feito;
+- pilhas simbólicas e *hashes* (11), os 10 que a VM recusa e nós aceitamos, construções recusadas e
+  inferência, como antes.
 
 ## 01/11/2026 (tarde, 15h): LSP — prefixo congelado: só o pacote é recarregado numa mudança de API
 
