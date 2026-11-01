@@ -68,6 +68,14 @@ pub struct Resident {
     world: Option<World>,
     /// Analyses that started from the kept [`World`] (tests and measurement).
     pub reused_worlds: usize,
+    /// The files of the package the batches belong to ([`Resident::set_context`]):
+    /// the program of every analysis imports them all, so that the batches of
+    /// one package share one program and the [`World`] serves them all.
+    context: Vec<PathBuf>,
+    /// The list as given to the last [`Resident::set_context`].
+    context_given: Vec<PathBuf>,
+    /// Whether each context file is a part, with the stamp it had when read.
+    context_parts: HashMap<PathBuf, (dartforge_elements::unit_cache::FileStamp, bool)>,
 }
 
 /// The program of an analysis with what the analysis builds over it before
@@ -88,10 +96,15 @@ struct World {
     /// has no unit (its place could not be followed through a swap).
     init: Option<(Vec<Diagnostic>, Vec<Option<UnitId>>)>,
     /// What the program was loaded for: the package root, the package
-    /// configuration and the synthetic entry's text (the batch's imports).
+    /// configuration and the libraries the synthetic entry imports (the
+    /// batch's and the context's).
     root: PathBuf,
     packages: Option<PathBuf>,
-    imports: String,
+    imports: BTreeSet<String>,
+    /// The units whose syntax diagnostics are in `load_diags` (those the load
+    /// parsed for the batch, and the swapped ones); a batch unit outside it is
+    /// parsed again for them when the world serves another batch.
+    syntax_known: HashSet<PathBuf>,
 }
 
 /// Where an old offset of a text goes in a new one that differs from it in
@@ -161,7 +174,7 @@ impl Resident {
         &mut self,
         root: &Path,
         packages: Option<&Path>,
-        imports: &str,
+        imports: &BTreeSet<String>,
         files: &[PathBuf],
         texts: &HashMap<PathBuf, String>,
     ) -> Option<World> {
@@ -180,12 +193,12 @@ impl Resident {
         w: &mut World,
         root: &Path,
         packages: Option<&Path>,
-        imports: &str,
+        imports: &BTreeSet<String>,
         files: &[PathBuf],
         texts: &HashMap<PathBuf, String>,
     ) -> bool {
         use std::hash::{Hash, Hasher};
-        if w.root != root || w.packages.as_deref() != packages || w.imports != imports {
+        if w.root != root || w.packages.as_deref() != packages || w.imports != *imports {
             return false;
         }
         // Nothing read from the disk changed.
@@ -340,6 +353,30 @@ impl Resident {
                 return false;
             }
         }
+        // The batch's other units: their syntax diagnostics, if the load that
+        // built the world served them from the unit cache.
+        for (i, u) in w.program.units.iter().enumerate() {
+            let Some(p) = &u.path else { continue };
+            let k = key(p);
+            if !batch.contains(&k) || w.syntax_known.contains(&k) {
+                continue;
+            }
+            if changes.iter().any(|(c, _)| c.0 as usize == i) {
+                continue;
+            }
+            let parsed =
+                dartforge_frontend::parser::parse_with(&u.source, &mut self.interner, u.features);
+            load_diags.extend(parsed.diagnostics.into_iter().map(|mut d| {
+                d.message = format!("{}:{}: {}", p.display(), d.span.start, d.message);
+                d
+            }));
+            w.syntax_known.insert(k);
+        }
+        for (u, _) in &changes {
+            if let Some(p) = &w.program.unit(*u).path {
+                w.syntax_known.insert(key(p));
+            }
+        }
         w.load_diags = load_diags;
         w.outline_diags = outline_diags;
         self.texts = now;
@@ -349,7 +386,41 @@ impl Resident {
 
     /// Forgets everything: the next analysis starts from the files.
     pub fn clear(&mut self) {
+        let context = std::mem::take(&mut self.context);
         *self = Resident::default();
+        self.context = context;
+    }
+
+    /// The files of the package whose batches the next analyses are of: the
+    /// program of each one also imports them (only the batch is reported).
+    /// Then any batch of the package finds the kept program, and the analysis
+    /// of the dependents after an API edit starts from the program the edited
+    /// file's analysis just built. Empty: only the batch.
+    pub fn set_context(&mut self, files: Vec<PathBuf>) {
+        // The same list as the last one (every keystroke): nothing to redo.
+        if self.context_given == files {
+            return;
+        }
+        let mut canonical_files: Vec<PathBuf> = files.iter().map(|f| canonical(f)).collect();
+        canonical_files.sort();
+        canonical_files.dedup();
+        self.context = canonical_files;
+        self.context_given = files;
+    }
+
+    /// Whether the context file `c` (not in memory) is a part, from what was
+    /// read last when its date and size did not change since.
+    fn context_is_part(&mut self, c: &Path) -> Option<bool> {
+        use dartforge_elements::unit_cache::FileStamp;
+        let stamp = FileStamp::read(c)?;
+        if let Some((s, part)) = self.context_parts.get(c)
+            && *s == stamp
+        {
+            return Some(*part);
+        }
+        let part = is_part(&std::fs::read_to_string(c).ok()?);
+        self.context_parts.insert(c.to_path_buf(), (stamp, part));
+        Some(part)
     }
 
     /// Drops the units that cannot be served as they are to an analysis with
@@ -980,6 +1051,8 @@ impl Engine {
         let mut times = PhaseTimes::from_env();
         let mut own: BTreeMap<PathBuf, String> = BTreeMap::new();
         let mut imports = String::new();
+        // The libraries the entry imports, for the kept world's key.
+        let mut import_set: BTreeSet<String> = BTreeSet::new();
         let read: Vec<(usize, &PathBuf, String)> = files
             .iter()
             .enumerate()
@@ -1017,6 +1090,7 @@ impl Engine {
                     .replace('\\', "/")
                     .replace(' ', "%20");
                 imports.push_str(&format!("import '{rel}' as _dfb{i};\n"));
+                import_set.insert(rel);
                 own.insert(key(a), text);
                 continue;
             }
@@ -1037,8 +1111,40 @@ impl Engine {
                     })
                     .collect();
                 imports.push_str(&format!("import '{rel}' as _dfp{i};\n"));
+                import_set.insert(rel);
             }
             own.insert(key(a), text);
+        }
+        // The resident's context: the package's other libraries come in too
+        // (reported on nothing), so that every batch of the package loads the
+        // same program.
+        let context: Vec<PathBuf> = resident
+            .as_ref()
+            .map_or_else(Vec::new, |r| r.context.clone());
+        for (i, c) in context.iter().enumerate() {
+            let k = key(c);
+            if own.contains_key(&k) {
+                continue;
+            }
+            let part = match texts.get(&k) {
+                Some(t) => is_part(t),
+                None => match resident.as_deref_mut().and_then(|r| r.context_is_part(c)) {
+                    Some(part) => part,
+                    None => continue,
+                },
+            };
+            if part {
+                continue;
+            }
+            let rel = c
+                .strip_prefix(root)
+                .unwrap_or(c)
+                .to_string_lossy()
+                .replace('\\', "/")
+                .replace(' ', "%20");
+            if import_set.insert(rel.clone()) {
+                imports.push_str(&format!("import '{rel}' as _dfc{i};\n"));
+            }
         }
         // The texts move into the result: one copy of each file for the whole
         // analysis (the program keeps its own), not three.
@@ -1075,7 +1181,7 @@ impl Engine {
         let mut fresh = dartforge_intern::Interner::new();
         let reused = resident
             .as_deref_mut()
-            .and_then(|r| r.take_world(root, packages, &imports, files, texts));
+            .and_then(|r| r.take_world(root, packages, &import_set, files, texts));
         let (interner, mut units, slot) = match resident {
             Some(r) => {
                 if reused.is_none() {
@@ -1128,7 +1234,8 @@ impl Engine {
                     init: None,
                     root: root.to_path_buf(),
                     packages: packages.map(Path::to_path_buf),
-                    imports: imports.clone(),
+                    imports: import_set.clone(),
+                    syntax_known: own.iter().cloned().collect(),
                 }
             }
         };
@@ -3102,6 +3209,90 @@ mod tests {
             .unwrap();
         assert_eq!(shown(&kept), shown(&fresh));
         assert_eq!(resident.reused_worlds, before);
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// With the package as the resident's context, the batches of the package
+    /// share one program: after an API edit of `b.dart`, the analysis of its
+    /// dependents starts from the program that `b.dart`'s analysis built, and
+    /// publishes what a fresh analysis publishes (a dependent's syntax error,
+    /// which that load did not parse, included).
+    #[test]
+    fn resident_context_shares_the_program_between_batches() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-agent/engine-context-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sdk/lib/core")).unwrap();
+        std::fs::write(
+            root.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("sdk/lib/core/core.dart"),
+            "class Object {} class bool {} class num {} class int extends num {} class Null {}",
+        )
+        .unwrap();
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        let c = root.join("c.dart");
+        std::fs::write(&b, "bool x = true;\n").unwrap();
+        std::fs::write(&a, "import 'b.dart';\nvoid f() { if (x) {} }\n").unwrap();
+        std::fs::write(&c, "import 'b.dart';\nvoid g() { if (x) {} int y = }\n").unwrap();
+        let engine = Engine::new(&root.join("sdk/lib")).unwrap();
+        let mut resident = Resident::new();
+        resident.set_context(vec![a.clone(), b.clone(), c.clone()]);
+        let shown = |r: &AnalysisResult, f: &Path| {
+            let mut v: Vec<(usize, usize, String)> = r.files[&key(f)]
+                .diags
+                .iter()
+                .map(|d| (d.span.start, d.span.end, d.message.clone()))
+                .collect();
+            v.sort();
+            v
+        };
+        let none = HashMap::new();
+        engine
+            .analyze_resident(
+                &mut resident,
+                &root,
+                std::slice::from_ref(&a),
+                None,
+                &none,
+                &|| false,
+            )
+            .unwrap();
+        // The API of `b.dart` changes: its own batch reloads.
+        let texts = HashMap::from([(key(&b), "int x = 0;\n".to_string())]);
+        let before = resident.reused_worlds;
+        engine
+            .analyze_resident(
+                &mut resident,
+                &root,
+                std::slice::from_ref(&b),
+                None,
+                &texts,
+                &|| false,
+            )
+            .unwrap();
+        assert_eq!(resident.reused_worlds, before);
+        // Its dependents start from that program.
+        let dependents = vec![a.clone(), c.clone()];
+        let kept = engine
+            .analyze_resident(&mut resident, &root, &dependents, None, &texts, &|| false)
+            .unwrap();
+        assert_eq!(resident.reused_worlds, before + 1);
+        let fresh = engine
+            .analyze_with(&root, &dependents, None, &texts, &|| false)
+            .unwrap();
+        for f in [&a, &c] {
+            assert_eq!(shown(&kept, f), shown(&fresh, f), "{}", f.display());
+            assert!(!shown(&kept, f).is_empty(), "{}", f.display());
+        }
         let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&root).unwrap();

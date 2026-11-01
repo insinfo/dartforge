@@ -559,6 +559,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             in_workspace,
             all,
             changed,
+            context: plan.package,
         });
         let mut run = |job: &Arc<Job>| -> Vec<Result> {
             match process.as_deref().and_then(|exe| {
@@ -696,6 +697,12 @@ struct Job {
     all: bool,
     /// The files changed since the package's last analysis.
     changed: BTreeSet<PathBuf>,
+    /// The package's `.dart` files when it is in a workspace folder (empty
+    /// otherwise): the resident process loads them all with every batch, so
+    /// that the batches of the package share its kept program
+    /// (`Resident::set_context`).
+    #[serde(default)]
+    context: Vec<PathBuf>,
 }
 
 /// The hidden argument that makes the `dartforge-lsp` binary a child analysis
@@ -1254,6 +1261,9 @@ struct Plan {
     /// its owner): analyzed and published first when the batch has more
     /// ([`split`]).
     priority: BTreeSet<PathBuf>,
+    /// The package's `.dart` files `dart analyze` would see, in a workspace
+    /// folder (the job's context).
+    package: Vec<PathBuf>,
 }
 
 /// Decides what to analyze and what to publish (Dart's driver republishes the
@@ -1324,6 +1334,7 @@ fn plan(
             order,
             excluded,
             priority: BTreeSet::new(),
+            package: of_package,
         };
     };
     // The changed files as they are now: their signatures and directives.
@@ -1435,6 +1446,7 @@ fn plan(
         order,
         excluded,
         priority,
+        package: of_package,
     }
 }
 
@@ -1470,6 +1482,7 @@ fn split(job: &Job, priority: &BTreeSet<PathBuf>) -> Option<(Job, Job)> {
         in_workspace: job.in_workspace,
         all: false,
         changed: job.changed.clone(),
+        context: job.context.clone(),
     };
     Some((half(open_first, others_first), half(open_rest, others_rest)))
 }
@@ -1629,7 +1642,10 @@ fn analyze_package(
         .collect();
     let packages_path = package_config.as_deref();
     let analysis = match resident {
-        Some(r) => engine.analyze_resident(r, root, &files, packages_path, &texts, cancelled),
+        Some(r) => {
+            r.set_context(job.context.clone());
+            engine.analyze_resident(r, root, &files, packages_path, &texts, cancelled)
+        }
         None => engine.analyze_with(root, &files, packages_path, &texts, cancelled),
     };
     let Some(analysis) = analysis else {
