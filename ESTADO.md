@@ -1,5 +1,39 @@
 # Estado do DartForge — 2026-10-31
 
+## Prioridade: LSP mais rápido e mais leve que o servidor oficial
+
+**Meta (decisão do proprietário, 01/11/2026):** o `dartforge-lsp` precisa ser melhor que
+o `dart language-server` em todos os pedidos: mais rápido, com menos CPU e menos memória,
+com a mesma resposta. Hoje ganha em `completion` depois de uma edição e na memória em
+repouso. Perde em duas frentes que pedem mudança de arquitetura no núcleo do analisador,
+não no LSP.
+
+1. **Reanalisar só as bibliotecas afetadas por uma mudança de API.** No `new_sali/frontend`,
+   o diagnóstico do arquivo editado depois de uma mudança de API leva **1,3–1,4 s contra
+   84–89 ms do Dart**. Os dependentes levam de 7 a 22× o tempo do Dart.
+   - **Causa:** `ClassId`, `FunctionElementId` e os demais identificadores são índices
+     densos, renumerados a cada carga. Por isso nada do modelo de elementos e do de tipos
+     sobrevive a uma mudança de assinatura.
+   - **O que pede:**
+     - identidade estável de elementos em `crates/elements`;
+     - um `OutlineTypes` por biblioteca em `crates/types`;
+     - refazer só as bibliotecas cujo *outline* depende do que mudou.
+2. **Índice de referências resolvidas.** `references` dos tipos do SDK no frontend leva
+   **9,6 s × 344 ms**, com o mesmo resultado (cerca de 15 s de CPU por busca de `String`
+   ou `bool`), porque cada busca infere os corpos de todos os arquivos que citam o nome.
+   - **O que pede:**
+     - o verificador registrar o alvo de cada resolução, com uma identidade comum à de
+       `crates/lsp/src/project.rs`;
+     - o residente manter esse índice.
+   - **Restrição:** um índice parcial não serve, porque quebraria a paridade de 100% do
+     `references` no oráculo.
+
+**Como validar:** cada passo com teste contra uma análise do zero, o oráculo de paridade a
+100% e a medição revezada com o servidor oficial (com a coluna de CPU) nos três projetos.
+Nenhum projeto pode piorar.
+
+**Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
+
 ## Painel: DartForge × Dart oficial (atualizado em 01/11/2026)
 
 Resumo de cada ferramenta contra a oficial correspondente (SDK 3.6.2), com a medição mais
@@ -42,7 +76,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | Backend nativo (AOT e wasm): as 48 falhas restantes da suíte `tests/language` (de 88) | agente backend nativo |
 | AOT nativo: tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`) e tamanho (1,37×); próximo: mapa de campo, `$c`/`$g`/`$tc`, `$async` | em rodízio: agentes de desempenho um por vez desde 01/11 (ordem LSP → ARC → AOT); seção de 31/10 abaixo |
 | ARC real: 2,6× os ciclos do tracing no HTTP `dart:io` (era 3×); próximos passos na seção de 01/11 | agente ARC (desde 31/10, 19h) |
-| LSP: *outline* incremental (pede identidade estável de elementos em `crates/elements` e `OutlineTypes` por biblioteca), índice de referências resolvidas para `references` (pede registrar o alvo de cada resolução do verificador), memória do residente e da busca | em rodízio: próximo agente de desempenho quando o ARC terminar (rodada de 01/11, noite: pacote inteiro só onde paga, respostas grandes como texto) |
+| LSP: *outline* incremental (pede identidade estável de elementos em `crates/elements` e `OutlineTypes` por biblioteca), índice de referências resolvidas para `references` (pede registrar o alvo de cada resolução do verificador), memória do residente e da busca | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
 
 ## 01/11/2026 (noite): LSP — o pacote inteiro só onde paga, respostas grandes como texto
 
