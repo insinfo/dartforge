@@ -21,11 +21,51 @@ const CHUNK_THRESHOLD: usize = 256;
 const LITERAL_CHUNK: usize = 128;
 
 /// Which collection the literal builds.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Collection {
     List,
     Set,
     Map,
+}
+
+/// Appends the `int` item `v` to a literal table in its shortest form: `b`, `h`
+/// or `w` with 1, 2 or 4 signed bytes, otherwise `i` with 8
+/// (`dartforge_list_from_table`); the tables of `unorm_dart` are mostly small
+/// code points and counts.
+fn push_table_int(data: &mut Vec<u8>, v: i64) {
+    if let Ok(x) = i8::try_from(v) {
+        data.push(b'b');
+        data.push(x as u8);
+    } else if let Ok(x) = i16::try_from(v) {
+        data.push(b'h');
+        data.extend_from_slice(&x.to_le_bytes());
+    } else if let Ok(x) = i32::try_from(v) {
+        data.push(b'w');
+        data.extend_from_slice(&x.to_le_bytes());
+    } else {
+        data.push(b'i');
+        data.extend_from_slice(&v.to_le_bytes());
+    }
+}
+
+/// A function a literal table cites (`g` + index): the canonical getter of a
+/// constant, or the creation of the empty collection of a nested literal.
+enum TableGetter {
+    Constant(ExprId),
+    Empty(Collection, TypeId),
+}
+
+/// A literal as data ([`FnBuilder::fill_from_table`]).
+#[derive(Default)]
+struct TableEncoding {
+    /// The items, in order (the format of `dartforge_list_from_table_g`).
+    data: Vec<u8>,
+    getters: Vec<TableGetter>,
+    /// The getter of each nested literal type, shared by its literals.
+    makers: std::collections::HashMap<(Collection, TypeId), u32>,
+    /// One word per item: `-1` for a leaf, the number of elements (entries) of
+    /// a nested literal.
+    shape: Vec<i64>,
 }
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
@@ -153,7 +193,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         expected: &[TypeId],
     ) -> Operand {
         let target = self.empty_collection(typ);
-        if self.fill_from_table(ast, target.clone(), typ, elements) {
+        if self.fill_from_table(ast, target.clone(), typ, elements, span) {
             return target;
         }
         if self.fill_in_chunks(ast, target.clone(), typ, elements, span) {
@@ -193,96 +233,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         target: Operand,
         typ: Collection,
         elements: &[CollectionElement],
+        span: Span,
     ) -> bool {
         const MINIMUM: usize = 8;
         if elements.len() < MINIMUM {
             return false;
         }
-        let mut table: Vec<u8> = Vec::new();
-        let mut by_getter: Vec<ast::ExprId> = Vec::new();
-        let in_const = self.in_const_context;
-        let scalar = |e: ast::ExprId,
-                      table: &mut Vec<u8>,
-                      by_getter: &mut Vec<ast::ExprId>|
-         -> bool {
-            // Number literal (or `-literal`): by the STATIC TYPE of the expression,
-            // which already says whether the context made an integer literal a `double`
-            // (the `Map<int, int>` tables of `enough_convert`, 30 thousand
-            // entries).
-            let number = matches!(
-                ast.expr(e).kind,
-                ast::ExprKind::Int(_) | ast::ExprKind::Double(_)
-            ) || matches!(&ast.expr(e).kind, ast::ExprKind::Unary { op: ast::UnaryOp::Neg, operand }
-                    if matches!(ast.expr(*operand).kind, ast::ExprKind::Int(_) | ast::ExprKind::Double(_)));
-            if number {
-                let Some(map_key) = self.constant_key(ast, e, true) else {
-                    return false;
-                };
-                let typ = self.ctx.get_type(self.unit_id, e);
-                let (int, double) = (Some(self.ctx.core.int), Some(self.ctx.core.double));
-                let val_ref = match map_key.as_str() {
-                    k if k.starts_with("i:") => k[2..].parse::<i64>().ok().map(|v| (v, false)),
-                    k if k.starts_with("d:") => {
-                        k[2..].parse::<u64>().ok().map(|b| (b as i64, true))
-                    }
-                    k if k.starts_with("neg(i:") && k.ends_with(')') => k[6..k.len() - 1]
-                        .parse::<i64>()
-                        .ok()
-                        .map(|v| (v.wrapping_neg(), false)),
-                    k if k.starts_with("neg(d:") && k.ends_with(')') => k[6..k.len() - 1]
-                        .parse::<u64>()
-                        .ok()
-                        .map(|b| ((-f64::from_bits(b)).to_bits() as i64, true)),
-                    _ => None,
-                };
-                let Some((v, is_double)) = val_ref else {
-                    return false;
-                };
-                if typ == int && !is_double {
-                    table.push(b'i');
-                    table.extend_from_slice(&v.to_le_bytes());
-                } else if typ == double {
-                    let bits = if is_double {
-                        v as u64
-                    } else {
-                        (v as f64).to_bits()
-                    };
-                    table.push(b'd');
-                    table.extend_from_slice(&bits.to_le_bytes());
-                } else {
-                    return false;
-                }
-                return true;
-            }
-            let other_constant = |table: &mut Vec<u8>, by_getter: &mut Vec<ast::ExprId>| -> bool {
-                if !in_const || self.constant_key(ast, e, true).is_none() {
-                    return false;
-                }
-                table.push(b'g');
-                table.extend_from_slice(&(by_getter.len() as u32).to_le_bytes());
-                by_getter.push(e);
-                true
-            };
-            match &ast.expr(e).kind {
-                ast::ExprKind::Null => table.push(b'n'),
-                ast::ExprKind::Bool(b) => table.push(if *b { b't' } else { b'f' }),
-                ast::ExprKind::String(s) => {
-                    let Some(text) = s.constant_value() else {
-                        return false;
-                    };
-                    let bytes = text.as_bytes();
-                    table.push(b's');
-                    table.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-                    table.extend_from_slice(bytes);
-                }
-                _ => return other_constant(table, by_getter),
-            }
-            true
-        };
+        let mut table = TableEncoding::default();
         for el in elements {
             let ok = match (el, typ) {
                 (CollectionElement::Expression(e), Collection::List | Collection::Set) => {
-                    scalar(*e, &mut table, &mut by_getter)
+                    self.encode_table_item(ast, *e, true, &mut table)
                 }
                 (
                     CollectionElement::MapEntry {
@@ -293,8 +254,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     },
                     Collection::Map,
                 ) => {
-                    scalar(*key, &mut table, &mut by_getter)
-                        && scalar(*value, &mut table, &mut by_getter)
+                    self.encode_table_item(ast, *key, false, &mut table)
+                        && self.encode_table_item(ast, *value, true, &mut table)
                 }
                 _ => false,
             };
@@ -302,14 +263,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 return false;
             }
         }
-        let mut getters: Vec<String> = Vec::with_capacity(by_getter.len());
-        for e in by_getter {
-            let Some(g) = self.constant_getter(ast, e) else {
+        let nested = table.shape.iter().any(|n| *n >= 0);
+        let mut getters: Vec<String> = Vec::with_capacity(table.getters.len());
+        for (index, getter) in table.getters.iter().enumerate() {
+            let symbol = match *getter {
+                TableGetter::Constant(e) => self.constant_getter(ast, e),
+                TableGetter::Empty(kind, t) => {
+                    Some(self.empty_collection_maker(kind, t, span, index))
+                }
+            };
+            let Some(symbol) = symbol else {
                 return false;
             };
-            getters.push(g);
+            getters.push(symbol);
         }
         let support = match typ {
+            _ if nested => "_dartforgeFillNested",
             Collection::List => "_dartforgeFillList",
             Collection::Set => "_dartforgeFillSet",
             Collection::Map => "_dartforgeFillMap",
@@ -317,17 +286,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(fid) = self.top_level_function("dart:_compact_hash", support) else {
             return false;
         };
-        let words: Vec<i64> = table
-            .chunks(8)
-            .map(|c| {
-                let mut w = [0u8; 8];
-                w[..c.len()].copy_from_slice(c);
-                i64::from_le_bytes(w)
-            })
-            .collect();
-        let data = self.emit(Instruction::ConstArray(words), Type::Ptr);
+        let data = self.table_words(&table.data);
         let size = (
-            Operand::Constant(Constant::Int(table.len() as i64)),
+            Operand::Constant(Constant::Int(table.data.len() as i64)),
             Type::I64,
         );
         let values = if getters.is_empty() {
@@ -350,10 +311,230 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             )
         };
-        let evaluated: Vec<super::members::Evaluated> = vec![(None, target), (None, values)];
+        let mut evaluated: Vec<super::members::Evaluated> = vec![(None, target), (None, values)];
+        if nested {
+            // The shape of the tree, in the order of the values: the number of
+            // elements (entries, for a map) of each nested literal, `-1` for a
+            // leaf; the first word is the literal itself.
+            let mut shape = Vec::with_capacity(9 * (table.shape.len() + 1));
+            for n in std::iter::once(elements.len() as i64).chain(table.shape.iter().copied()) {
+                push_table_int(&mut shape, n);
+            }
+            let shape_data = self.table_words(&shape);
+            let shape_list = self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_list_from_table".to_string(),
+                    args: vec![
+                        (shape_data, Type::Ptr),
+                        (
+                            Operand::Constant(Constant::Int(shape.len() as i64)),
+                            Type::I64,
+                        ),
+                    ],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
+            evaluated.push((None, shape_list));
+        }
         let args = self.match_args(fid, &evaluated);
         self.call_direct(fid, None, args);
         true
+    }
+
+    /// The bytes of a literal table as a constant vector of words.
+    fn table_words(&mut self, bytes: &[u8]) -> Operand {
+        let words: Vec<i64> = bytes
+            .chunks(8)
+            .map(|c| {
+                let mut w = [0u8; 8];
+                w[..c.len()].copy_from_slice(c);
+                i64::from_le_bytes(w)
+            })
+            .collect();
+        self.emit(Instruction::ConstArray(words), Type::Ptr)
+    }
+
+    /// Appends element `e` of a literal to `table` ([`FnBuilder::fill_from_table`]);
+    /// `false` when it cannot be data.
+    ///
+    /// A leaf is a number literal (by its STATIC TYPE, which already says whether
+    /// the context made an integer literal a `double` — the `Map<int, int>`
+    /// tables of `enough_convert`, 30 thousand entries), a string, a bool,
+    /// `null` or, in a constant context, another constant (`g` + the index of
+    /// its canonical getter).
+    ///
+    /// Outside a constant context, with `nested`, a nested literal without the
+    /// `const` keyword whose elements are themselves table items (the Unicode
+    /// tables of `unorm_dart`, `{0: {60: [null, null, {824: 8814}], …}, …}`:
+    /// 22 MB of IR in one function of new_sali/backend) is a `g` too, whose
+    /// getter creates the empty collection of the literal's type, and the shape
+    /// says how many of the following values go into it. Such a literal reads
+    /// no local, `this` nor type parameter (its type is closed), and its leaves
+    /// run no Dart code: building it from the table produces the same fresh
+    /// collections, with the same contents and types, in the same order. A map
+    /// key is never a nested literal.
+    fn encode_table_item(
+        &self,
+        ast: &ast::Ast,
+        e: ExprId,
+        nested: bool,
+        table: &mut TableEncoding,
+    ) -> bool {
+        let number = matches!(
+            ast.expr(e).kind,
+            ast::ExprKind::Int(_) | ast::ExprKind::Double(_)
+        ) || matches!(&ast.expr(e).kind, ast::ExprKind::Unary { op: ast::UnaryOp::Neg, operand }
+                if matches!(ast.expr(*operand).kind, ast::ExprKind::Int(_) | ast::ExprKind::Double(_)));
+        if number {
+            let Some(map_key) = self.constant_key(ast, e, true) else {
+                return false;
+            };
+            let typ = self.ctx.get_type(self.unit_id, e);
+            let (int, double) = (Some(self.ctx.core.int), Some(self.ctx.core.double));
+            let val_ref = match map_key.as_str() {
+                k if k.starts_with("i:") => k[2..].parse::<i64>().ok().map(|v| (v, false)),
+                k if k.starts_with("d:") => k[2..].parse::<u64>().ok().map(|b| (b as i64, true)),
+                k if k.starts_with("neg(i:") && k.ends_with(')') => k[6..k.len() - 1]
+                    .parse::<i64>()
+                    .ok()
+                    .map(|v| (v.wrapping_neg(), false)),
+                k if k.starts_with("neg(d:") && k.ends_with(')') => k[6..k.len() - 1]
+                    .parse::<u64>()
+                    .ok()
+                    .map(|b| ((-f64::from_bits(b)).to_bits() as i64, true)),
+                _ => None,
+            };
+            let Some((v, is_double)) = val_ref else {
+                return false;
+            };
+            if typ == int && !is_double {
+                push_table_int(&mut table.data, v);
+            } else if typ == double {
+                let bits = if is_double {
+                    v as u64
+                } else {
+                    (v as f64).to_bits()
+                };
+                table.data.push(b'd');
+                table.data.extend_from_slice(&bits.to_le_bytes());
+            } else {
+                return false;
+            }
+            table.shape.push(-1);
+            return true;
+        }
+        match &ast.expr(e).kind {
+            ast::ExprKind::Null => table.data.push(b'n'),
+            ast::ExprKind::Bool(b) => table.data.push(if *b { b't' } else { b'f' }),
+            ast::ExprKind::String(s) => {
+                let Some(text) = s.constant_value() else {
+                    return false;
+                };
+                let bytes = text.as_bytes();
+                table.data.push(b's');
+                table
+                    .data
+                    .extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                table.data.extend_from_slice(bytes);
+            }
+            ast::ExprKind::List {
+                const_: false,
+                elements,
+                ..
+            }
+            | ast::ExprKind::SetOrMap {
+                const_: false,
+                elements,
+                ..
+            } if nested && !self.in_const_context && !self.ctx.arc_memory => {
+                let Some(t) = self.ctx.get_type(self.unit_id, e) else {
+                    return false;
+                };
+                if super::ffi::contains_type_parameter(self.ctx, t) {
+                    return false;
+                }
+                let kind = match &ast.expr(e).kind {
+                    ast::ExprKind::List { .. } => Collection::List,
+                    _ if self.literal_is_set(e, elements) => Collection::Set,
+                    _ => Collection::Map,
+                };
+                let index = match table.makers.get(&(kind, t)) {
+                    Some(i) => *i,
+                    None => {
+                        let i = table.getters.len() as u32;
+                        table.getters.push(TableGetter::Empty(kind, t));
+                        table.makers.insert((kind, t), i);
+                        i
+                    }
+                };
+                table.data.push(b'g');
+                table.data.extend_from_slice(&index.to_le_bytes());
+                table.shape.push(elements.len() as i64);
+                for el in elements.iter() {
+                    let ok = match (el, kind) {
+                        (CollectionElement::Expression(x), Collection::List | Collection::Set) => {
+                            self.encode_table_item(ast, *x, true, table)
+                        }
+                        (
+                            CollectionElement::MapEntry {
+                                key,
+                                value,
+                                null_aware_key: false,
+                                null_aware_value: false,
+                            },
+                            Collection::Map,
+                        ) => {
+                            self.encode_table_item(ast, *key, false, table)
+                                && self.encode_table_item(ast, *value, true, table)
+                        }
+                        _ => false,
+                    };
+                    if !ok {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            _ => {
+                if !self.in_const_context || self.constant_key(ast, e, true).is_none() {
+                    return false;
+                }
+                let index = table.getters.len() as u32;
+                table.data.push(b'g');
+                table.data.extend_from_slice(&index.to_le_bytes());
+                table.getters.push(TableGetter::Constant(e));
+            }
+        }
+        table.shape.push(-1);
+        true
+    }
+
+    /// The function that creates the empty collection of a nested literal of
+    /// type `t` ([`FnBuilder::encode_table_item`]), with its type arguments.
+    fn empty_collection_maker(
+        &mut self,
+        kind: Collection,
+        t: TypeId,
+        span: Span,
+        index: usize,
+    ) -> String {
+        let symbol = format!("{}$nlit{}_{index}", self.func.symbol, span.start);
+        let mut g = FnBuilder::new(
+            self.ctx,
+            self.unit_id,
+            symbol.clone(),
+            "literal".to_string(),
+            Type::Ref,
+        );
+        let l = g.empty_collection(kind);
+        if !g.is_terminated() {
+            let l = g.coerce(l, Type::Ref);
+            g.define_rti_if_generic(l.clone(), t);
+            g.terminate(Terminator::Return(Some(l)));
+        }
+        self.absorb(g);
+        symbol
     }
 
     /// The map literal with only entries (`{k: v, …}`, without control

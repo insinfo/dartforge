@@ -1106,9 +1106,16 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
         if merge {
             cmd.arg("-mllvm").arg("-enable-merge-functions");
         }
+        // Safe ICF needs the address-significance table of the LTO objects
+        // (`icf_mode`); a code generation option the cache key does not see.
+        let addrsig = icf_mode().is_some_and(|m| m != "all" && m != "none");
+        if addrsig {
+            cmd.arg("-mllvm").arg("-addrsig");
+        }
         if let Some(d) = crate::driver::thinlto_cache() {
             let d = if outliner { d.join("outliner") } else { d };
             let d = if merge { d.join("mergefunc") } else { d };
+            let d = if addrsig { d.join("addrsig") } else { d };
             if std::fs::create_dir_all(&d).is_ok() {
                 cmd.arg("-cache_path_lto").arg(d);
             }
@@ -1124,21 +1131,32 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
                 cmd.arg("-mllvm").arg(o);
             }
         }
+        // Measurement: the time profile of the LTO (module by module, pass by
+        // pass), `DARTFORGE_LTO_PROFILE=<file.json>`, as on Windows.
+        if let Some(f) = std::env::var_os("DARTFORGE_LTO_PROFILE") {
+            let mut o = std::ffi::OsString::from("--time-trace=");
+            o.push(&f);
+            cmd.arg(o).arg("--time-trace-granularity=20000");
+        }
     }
     if l.prune {
         cmd.arg("-dead_strip");
-        // No `--icf=safe` (which `ld64.lld` has, like `ld.lld` and `lld-link`).
-        // Measured on the File Explorer (18 October 2026, relinks of the same
-        // inputs): `--icf=safe` and `--icf=all` produce the same executable byte
-        // for byte (−1,020,268 B of `__text`), because neither the objects the
-        // Mach-O LTO generates nor the Rust ones carry `__llvm_addrsig` — so
-        // nothing counts as address-significant and `safe` degenerates into
-        // `all`. corpus/native/80_tearoffs_de_corpo_identico then diverges from
-        // the VM (`ext mais/maisb: true` instead of `false`, `conjunto: 9`
-        // instead of 10): tear-offs of identical bodies fold into one address.
-        // `-mllvm -enable-merge-functions` in the LTO (above) recovers part of
-        // it (−293 KB there) keeping the identity through thunks. ICF comes
-        // back only when the LTO emits `addrsig` (`lld/MachO/LTO.cpp`).
+        // Only where this link's LTO writes the address-significance table: a
+        // link of native objects without it would fold tear-offs by address.
+        if l.lto
+            && let Some(m) = icf_mode()
+        {
+            cmd.arg(format!("--icf={m}"));
+        }
+        // `--icf=safe_thunks` (`icf_mode`), with the LTO objects carrying
+        // `__llvm_addrsig` (`-mllvm -addrsig` above): identical machine code is
+        // folded, and a function whose address is taken (a tear-off, compared
+        // by identity) becomes a thunk to the kept body instead of sharing its
+        // address. Without the table (18 October 2026, File Explorer), `safe`
+        // degenerated into `all`, and corpus/native/80_tearoffs_de_corpo_identico
+        // diverged from the VM. Measured on new_sali/backend (31 October 2026):
+        // 38.93 → 37.92 MB with the same ThinLTO CPU time; corpus 80 equal to
+        // the VM.
         // `-S` strips the debug map (J05); `-x`, the local symbols;
         // `-no_function_starts`, the `LC_FUNCTION_STARTS` table that only serves
         // the symbolization of a binary that keeps its symbols (−145,728 B of
@@ -1166,6 +1184,10 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
     }
     cmd.args(&l.entries);
     cmd.args(LIBRARIES);
+    // Measurement: the link command, to repeat it by hand with other options.
+    if std::env::var_os("DARTFORGE_PRINT_LINK").is_some() {
+        eprintln!("link: {cmd:?}");
+    }
     let exit = cmd
         .output()
         .map_err(|e| format!("failed to run {}: {e}", ld.display()))?;
@@ -1241,6 +1263,27 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
         );
     }
     Ok(())
+}
+
+/// The identical code folding of the production link (`--icf=`): `safe_thunks`
+/// for the program in parts (the large program, where size comes first, like
+/// the outliner); none for a small one, whose executable is already below
+/// `dart compile exe` and gained only 0.5% (16 KB of 3.3 MB). `DARTFORGE_ICF`
+/// chooses (`none`, `safe`, `safe_thunks`, `all`; measurement). `safe` and
+/// `safe_thunks` make the LTO emit `__llvm_addrsig`, so that a function whose
+/// address is taken (a tear-off, compared by identity) keeps an address of its
+/// own (`safe_thunks`: a thunk to the folded body); `all` folds those too.
+pub fn icf_mode() -> Option<&'static str> {
+    match std::env::var("DARTFORGE_ICF") {
+        Err(_) => crate::driver::linking_in_parts().then_some("safe_thunks"),
+        Ok(v) => match v.trim() {
+            "none" => Some("none"),
+            "safe" => Some("safe"),
+            "safe_thunks" => Some("safe_thunks"),
+            "all" => Some("all"),
+            _ => None,
+        },
+    }
 }
 
 /// LLVM bitcode, either the raw stream or the Mach-O wrapper. Flags and

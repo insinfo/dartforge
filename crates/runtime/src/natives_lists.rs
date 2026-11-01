@@ -578,10 +578,23 @@ mod tests_runtime_type {
     }
 }
 
+/// The `int` of a short table item (`b`, `h`, `w`: 1, 2 or 4 bytes, signed,
+/// little-endian) at `b[i..]`, and how many bytes it took.
+fn table_small_int(b: &[u8], i: usize, tag: u8) -> (i64, usize) {
+    match tag {
+        b'b' => (i64::from(b[i] as i8), 1),
+        b'h' => (i64::from(i16::from_le_bytes([b[i], b[i + 1]])), 2),
+        _ => (
+            i64::from(i32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]])),
+            4,
+        ),
+    }
+}
+
 /// A `_List` with the elements of the table `data` (`lower/literais.rs`): large
 /// collection literals of constant scalars arrive as data, and not as one
 /// instruction per element. Each element: `n` (null), `t`/`f` (bool), `i` + 8 bytes
-/// (int, little-endian), `s` + 4 size bytes + the WTF-8 bytes (a string, canonical
+/// (int, little-endian; `b`, `h` and `w` + 1, 2 or 4 bytes for a small one), `s` + 4 size bytes + the WTF-8 bytes (a string, canonical
 /// like a literal's). The Dart support (`_dartforgeFillList`…) walks it and
 /// discards it.
 ///
@@ -620,6 +633,11 @@ pub unsafe extern "C" fn dartforge_list_from_table_g(
             b'i' => {
                 i += 8;
                 Item::Value(crate::heap::Value::Int(word(b, i - 8, 8) as i64))
+            }
+            b'b' | b'h' | b'w' => {
+                let (v, n) = table_small_int(b, i, tag);
+                i += n;
+                Item::Value(crate::heap::Value::Int(v))
             }
             b'd' => {
                 i += 8;
@@ -704,6 +722,11 @@ pub unsafe extern "C" fn dartforge_list_from_table(data: *const u8, len: i64) ->
                 b'i' => {
                     let x = word(b, i, 8) as i64;
                     i += 8;
+                    crate::heap::Value::Int(x)
+                }
+                b'b' | b'h' | b'w' => {
+                    let (x, n) = table_small_int(b, i, tag);
+                    i += n;
                     crate::heap::Value::Int(x)
                 }
                 b'd' => {

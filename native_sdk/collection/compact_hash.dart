@@ -352,6 +352,45 @@ void _dartforgeFillSet(Set setArg, List vals) {
   }
 }
 
+// DartForge: a large literal with nested literals of constant scalars
+// (`{0: {60: [null, null, {824: 8814}]}}`) arrives as the values in order, each
+// nested literal as its fresh empty collection, and the shape: one word per
+// value, `-1` for a leaf or the number of elements (entries) that follow into
+// the collection; `shape[0]` is the count of `target` itself.
+@pragma("vm:entry-point")
+void _dartforgeFillNested(Object target, List vals, List shape) {
+  final cursor = <int>[0, 1];
+  _dartforgeFillNode(target, shape[0] as int, vals, shape, cursor);
+}
+
+void _dartforgeFillNode(
+    Object collection, int n, List vals, List shape, List<int> cursor) {
+  if (collection is Map) {
+    for (int i = 0; i < n; i++) {
+      final key = _dartforgeNextNode(vals, shape, cursor);
+      collection[key] = _dartforgeNextNode(vals, shape, cursor);
+    }
+  } else if (collection is Set) {
+    for (int i = 0; i < n; i++) {
+      collection.add(_dartforgeNextNode(vals, shape, cursor));
+    }
+  } else {
+    final list = collection as List;
+    for (int i = 0; i < n; i++) {
+      list.add(_dartforgeNextNode(vals, shape, cursor));
+    }
+  }
+}
+
+Object? _dartforgeNextNode(List vals, List shape, List<int> cursor) {
+  final value = vals[cursor[0]++];
+  final n = shape[cursor[1]++] as int;
+  if (n >= 0) {
+    _dartforgeFillNode(value as Object, n, vals, shape, cursor);
+  }
+  return value;
+}
+
 mixin _OperatorEqualsAndCanonicalHashCode implements _EqualsAndHashCode {
   static final int cidSymbol = ClassID.getID(#a);
 

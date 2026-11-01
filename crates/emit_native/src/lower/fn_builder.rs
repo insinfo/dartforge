@@ -1041,6 +1041,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.current_block = block;
     }
 
+    /// The index of the current block in `func.blocks`. Blocks are appended in
+    /// the order of their ids, so the id is the index unless a pass removed or
+    /// moved blocks; only then is the vector searched (each lookup was a scan of
+    /// every block: quadratic in a function with thousands of them, the
+    /// lowering of a large literal).
+    fn current_block_index(&self) -> usize {
+        let at = self.current_block.0 as usize;
+        if self
+            .func
+            .blocks
+            .get(at)
+            .is_some_and(|b| b.id == self.current_block)
+        {
+            return at;
+        }
+        self.func
+            .blocks
+            .iter()
+            .position(|b| b.id == self.current_block)
+            .unwrap()
+    }
+
     pub fn is_terminated(&self) -> bool {
         self.terminated_blocks.contains(&self.current_block)
     }
@@ -1053,12 +1075,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let vid = ValueId(self.next_value);
         self.next_value += 1;
         self.value_types.insert(vid, ty);
-        let idx = self
-            .func
-            .blocks
-            .iter()
-            .position(|b| b.id == self.current_block)
-            .unwrap();
+        let idx = self.current_block_index();
         self.func.blocks[idx].instructions.push((vid, inst, ty));
         if let Some((pos, d)) = self.function_debug_info() {
             d.positions.insert(vid, pos);
@@ -1125,12 +1142,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some((pos, d)) = self.function_debug_info() {
             d.exits.insert(block, pos);
         }
-        let idx = self
-            .func
-            .blocks
-            .iter()
-            .position(|b| b.id == self.current_block)
-            .unwrap();
+        let idx = self.current_block_index();
         self.func.blocks[idx].terminator = term;
     }
 

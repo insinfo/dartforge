@@ -76,6 +76,9 @@ pub struct TimingsReport {
 pub struct LinkTimes {
     pub clang: Duration,
     pub link: Duration,
+    /// CPU time of each phase: this process and the Clang/linker processes.
+    pub clang_cpu: Duration,
+    pub link_cpu: Duration,
     pub cache_object: bool,
 }
 
@@ -192,6 +195,7 @@ pub fn compile_and_link(
     // Phase 1': the large module goes in parts (C9, `partition.rs`): each one
     // an object, with its own key in the cache, compiled a few at a time.
     let t_clang = Instant::now();
+    let cpu_clang = dartforge_instrument::cpu_time();
     let cache = ObjectCache::from_env();
     // Also in production: each part becomes a bitcode, and the linker's ThinLTO
     // optimizes them together (the IR already assembled with the pruned tables).
@@ -214,6 +218,7 @@ pub fn compile_and_link(
         drop(plan);
         let clang_duration = t_clang.elapsed();
         let t_link = Instant::now();
+        let cpu_link = dartforge_instrument::cpu_time();
         let mut extras: Vec<PathBuf> = objects[1..].to_vec();
         extras.extend(sdk_objects.iter().cloned());
         LINK_IN_PARTS.set(true);
@@ -269,6 +274,8 @@ pub fn compile_and_link(
         return Ok(LinkTimes {
             clang: clang_duration,
             link: t_link.elapsed(),
+            clang_cpu: cpu_link.since(cpu_clang),
+            link_cpu: dartforge_instrument::cpu_time().since(cpu_link),
             cache_object: false,
         });
     }
@@ -320,6 +327,7 @@ pub fn compile_and_link(
 
     // Phase 2: link the object with the static runtime
     let t_link = Instant::now();
+    let cpu_link = dartforge_instrument::cpu_time();
     let link_object = |obj: &Path| {
         if single_distributed {
             link_distributed(
@@ -380,6 +388,8 @@ pub fn compile_and_link(
     Ok(LinkTimes {
         clang: clang_duration,
         link: link_duration,
+        clang_cpu: cpu_link.since(cpu_clang),
+        link_cpu: dartforge_instrument::cpu_time().since(cpu_link),
         cache_object: matches!(from_cache, Some((_, _, true))),
     })
 }
@@ -468,6 +478,12 @@ thread_local! {
     static NO_LTO_AT_LINK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// Whether the link in progress on this thread is that of a program in parts
+/// (the large program, ThinLTO between the parts).
+pub fn linking_in_parts() -> bool {
+    LINK_IN_PARTS.get()
+}
+
 /// The optimization level of the production LTO (`DARTFORGE_LTO_LEVEL`, 0–3):
 /// `-O1` for the program in parts (ThinLTO; docs/NATIVO-PRODUCAO-GRANDE.md
 /// §6.2: optimization falls from 275 to 150 s of CPU on new_sali/backend,
@@ -551,16 +567,44 @@ pub fn thinlto_cache() -> Option<PathBuf> {
 }
 
 /// How many code generations (parts, or ThinLTO modules in the linker) at
-/// the same time: `DARTFORGE_PARALLEL_PARTS`, otherwise half the threads of the
-/// machine, at most 3.
+/// the same time: `DARTFORGE_PARALLEL_PARTS`, otherwise [`default_generation_tasks`]
+/// of this machine.
 pub fn generation_tasks() -> usize {
     std::env::var("DARTFORGE_PARALLEL_PARTS")
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
         .unwrap_or_else(|| {
-            std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).clamp(1, 3))
+            default_generation_tasks(
+                std::thread::available_parallelism().map_or(1, |n| n.get()),
+                crate::target::host_has_smt(),
+                dartforge_instrument::physical_memory(),
+            )
         })
         .max(1)
+}
+
+/// The default number of generation tasks: one per physical core (`threads`
+/// halved on a host with SMT, where a second task per core only adds CPU
+/// time: 6 instead of 3 tasks on 4 cores and 8 threads took the ThinLTO of
+/// new_sali/backend from 591 to 915 s of CPU), one per GiB of memory beyond
+/// a 4 GiB reserve (a generator holds ~44 bytes per byte of IR at `-O0`, and
+/// a ThinLTO module of a 16 MB part a few hundred MB), at most 8. Without the
+/// memory size, 3, as on the 7.7 GB machine where 3 was measured.
+///
+/// ```
+/// use dartforge_emit_native::driver::default_generation_tasks;
+/// const GIB: u64 = 1 << 30;
+/// assert_eq!(default_generation_tasks(10, false, Some(16 * GIB)), 8);
+/// assert_eq!(default_generation_tasks(8, true, Some(7 * GIB + GIB / 2)), 3);
+/// assert_eq!(default_generation_tasks(8, true, None), 3);
+/// assert_eq!(default_generation_tasks(1, false, Some(2 * GIB)), 1);
+/// ```
+pub fn default_generation_tasks(threads: usize, smt: bool, memory: Option<u64>) -> usize {
+    let cores = if smt { threads / 2 } else { threads }.max(1);
+    let by_memory = memory.map_or(3, |m| {
+        usize::try_from((m >> 30).saturating_sub(4)).unwrap_or(usize::MAX)
+    });
+    cores.min(by_memory).clamp(1, 8)
 }
 
 /// The objects of the parts of a large module (C9), in order: each part

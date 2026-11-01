@@ -22,6 +22,72 @@ use dartforge_elements::model::{
 use dartforge_frontend::ast::{self, BinaryOp, CollectionElement, ExprId, ExprKind, UnaryOp};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
+
+/// The keys of a constant map being built ([`Engine::build_map`]), by
+/// position. Two primitive constants are equal when their types and values
+/// are, so their lookup is a hash; comparing each new key with every previous
+/// one was quadratic (constant maps with thousands of entries in real
+/// packages: `Engine::equal_states` took most of the front end of
+/// new_sali/backend).
+#[derive(Default)]
+pub(super) struct KeyIndex {
+    primitive: HashMap<(TypeId, PrimitiveKey), usize>,
+    /// The keys that are not primitive (nor unknown, which equal nothing).
+    other: Vec<usize>,
+}
+
+impl KeyIndex {
+    /// The position of the value equal to `k` ([`Engine::equal`]) among those
+    /// indexed, `at(p)` being the value at `p`: a primitive by hash, any other
+    /// by comparison with the other non-primitive values only (a primitive is
+    /// never equal to them).
+    pub(super) fn find<'v>(
+        &self,
+        engine: &mut Engine<'_>,
+        k: &Value,
+        at: impl Fn(usize) -> &'v Value,
+    ) -> Option<usize> {
+        if let Some(key) = primitive_key(k) {
+            return self.primitive.get(&key).copied();
+        }
+        if k.state.unknown() {
+            return None;
+        }
+        self.other.iter().copied().find(|&p| engine.equal(at(p), k))
+    }
+
+    pub(super) fn add(&mut self, k: &Value, position: usize) {
+        match primitive_key(k) {
+            Some(key) => {
+                self.primitive.insert(key, position);
+            }
+            None if !k.state.unknown() => self.other.push(position),
+            None => {}
+        }
+    }
+}
+
+/// The value of a known primitive constant, as [`Engine::equal`] compares it.
+#[derive(PartialEq, Eq, Hash)]
+enum PrimitiveKey {
+    Bool(bool),
+    Int(i64),
+    Double(u64),
+    Str(super::value::Text),
+    Null,
+}
+
+fn primitive_key(v: &Value) -> Option<(TypeId, PrimitiveKey)> {
+    let key = match &v.state {
+        InstanceState::Bool(Some(b)) => PrimitiveKey::Bool(*b),
+        InstanceState::Int(Some(i)) => PrimitiveKey::Int(*i),
+        InstanceState::Double(Some(d)) => PrimitiveKey::Double(d.to_bits()),
+        InstanceState::Str(Some(t)) => PrimitiveKey::Str(t.clone()),
+        InstanceState::Null { .. } => PrimitiveKey::Null,
+        _ => return None,
+    };
+    Some((v.ty, key))
+}
 use std::rc::Rc;
 
 /// `InvalidConstant`.
@@ -607,7 +673,7 @@ impl<'a> Engine<'a> {
                     };
                     let map_type = self.interface(self.core.map_class, vec![k, v]);
                     let mut map = Vec::new();
-                    return match self.build_map(cx, &mut map, elements) {
+                    return match self.build_map(cx, &mut map, &mut KeyIndex::default(), elements) {
                         Some(Ok(())) => Constant::Value(self.unknown(map_type)),
                         Some(Err(mut i)) => {
                             if !is_map {
@@ -630,7 +696,7 @@ impl<'a> Engine<'a> {
                 let el = args.first().copied().unwrap_or(self.core.dynamic_);
                 let set_type = self.interface(self.core.set_class, vec![el]);
                 let mut set = Vec::new();
-                match self.build_set(cx, &mut set, elements) {
+                match self.build_set(cx, &mut set, &mut KeyIndex::default(), elements) {
                     Some(Ok(())) => Constant::Value(self.unknown(set_type)),
                     Some(Err(i)) => Constant::Invalid(i),
                     None => Constant::Value(self.value(
@@ -1244,6 +1310,7 @@ impl<'a> Engine<'a> {
         &mut self,
         cx: &Ctx,
         set: &mut Vec<Value>,
+        index: &mut KeyIndex,
         elems: &[CollectionElement],
     ) -> Option<Result<(), Box<Invalid>>> {
         let u = cx.unit;
@@ -1257,7 +1324,7 @@ impl<'a> Engine<'a> {
                             {
                                 continue;
                             }
-                            self.insert_into_set(set, v);
+                            self.insert_into_set(set, index, v);
                         }
                         Constant::Invalid(i) => return Some(Err(i)),
                     }
@@ -1302,7 +1369,8 @@ impl<'a> Engine<'a> {
                         Some(false) => else_.as_deref(),
                     };
                     if let Some(r) = branch
-                        && let Some(Err(i)) = self.build_set(cx, set, std::slice::from_ref(r))
+                        && let Some(Err(i)) =
+                            self.build_set(cx, set, index, std::slice::from_ref(r))
                     {
                         return Some(Err(i));
                     }
@@ -1325,7 +1393,7 @@ impl<'a> Engine<'a> {
                     match v.as_set().or_else(|| v.as_list()) {
                         Some(xs) => {
                             for x in xs.iter() {
-                                self.insert_into_set(set, x.clone());
+                                self.insert_into_set(set, index, x.clone());
                             }
                         }
                         None => {
@@ -1342,8 +1410,21 @@ impl<'a> Engine<'a> {
         None
     }
 
-    fn insert_into_set(&mut self, set: &mut Vec<Value>, v: Value) {
-        if !set.iter().any(|x| self.equal(x, &v)) {
+    /// The position in `map` of the key equal to `k` ([`Engine::equal`]), through
+    /// `index`: a primitive key by hash, any other by comparison with the
+    /// other non-primitive keys only (a primitive is never equal to them).
+    fn key_position(
+        &mut self,
+        index: &KeyIndex,
+        map: &[(Value, Value)],
+        k: &Value,
+    ) -> Option<usize> {
+        index.find(self, k, |p| &map[p].0)
+    }
+
+    fn insert_into_set(&mut self, set: &mut Vec<Value>, index: &mut KeyIndex, v: Value) {
+        if index.find(self, &v, |p| &set[p]).is_none() {
+            index.add(&v, set.len());
             set.push(v);
         }
     }
@@ -1352,6 +1433,7 @@ impl<'a> Engine<'a> {
         &mut self,
         cx: &Ctx,
         map: &mut Vec<(Value, Value)>,
+        index: &mut KeyIndex,
         elems: &[CollectionElement],
     ) -> Option<Result<(), Box<Invalid>>> {
         let u = cx.unit;
@@ -1404,7 +1486,8 @@ impl<'a> Engine<'a> {
                         Some(false) => else_.as_deref(),
                     };
                     if let Some(r) = branch
-                        && let Some(Err(i)) = self.build_map(cx, map, std::slice::from_ref(r))
+                        && let Some(Err(i)) =
+                            self.build_map(cx, map, index, std::slice::from_ref(r))
                     {
                         return Some(Err(i));
                     }
@@ -1430,10 +1513,12 @@ impl<'a> Engine<'a> {
                     {
                         continue;
                     }
-                    if let Some(p) = map.iter().position(|(x, _)| self.equal(x, &k)) {
-                        map[p].1 = v;
-                    } else {
-                        map.push((k, v));
+                    match self.key_position(index, map, &k) {
+                        Some(p) => map[p].1 = v,
+                        None => {
+                            index.add(&k, map.len());
+                            map.push((k, v));
+                        }
                     }
                 }
                 CollectionElement::Spread { value, null_aware } => {
@@ -1447,10 +1532,12 @@ impl<'a> Engine<'a> {
                     match v.as_map() {
                         Some(xs) => {
                             for (k, x) in xs.iter() {
-                                if let Some(p) = map.iter().position(|(y, _)| self.equal(y, k)) {
-                                    map[p].1 = x.clone();
-                                } else {
-                                    map.push((k.clone(), x.clone()));
+                                match self.key_position(index, map, k) {
+                                    Some(p) => map[p].1 = x.clone(),
+                                    None => {
+                                        index.add(k, map.len());
+                                        map.push((k.clone(), x.clone()));
+                                    }
                                 }
                             }
                         }

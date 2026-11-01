@@ -141,6 +141,9 @@ pub struct EmissionTimes {
     pub live_functions: (usize, usize),
     pub hir: Duration,
     pub llvm_ir: Duration,
+    /// CPU time (all threads) of the front end (world included), the HIR and the
+    /// LLVM IR emission, in that order.
+    pub cpu: [Duration; 3],
 }
 
 /// The LLVM IR of a program, ready for Clang.
@@ -160,14 +163,15 @@ pub struct EmittedIr {
 impl EmittedIr {
     /// The `--timings` lines of the emission, in the format of [`compile`].
     pub fn print_times(&self) {
-        eprintln!("  Front-end: {:?}", self.times.frontend);
+        let [cpu_front, cpu_hir, cpu_llvm] = self.times.cpu;
+        eprintln!("  Front-end: {:?} (CPU {cpu_front:?})", self.times.frontend);
         let (live_set, all) = self.times.live_functions;
         eprintln!(
             "  World:     {:?} ({live_set} of {all} program functions live)",
             self.times.world
         );
-        eprintln!("  HIR:       {:?}", self.times.hir);
-        eprintln!("  LLVM IR:   {:?}", self.times.llvm_ir);
+        eprintln!("  HIR:       {:?} (CPU {cpu_hir:?})", self.times.hir);
+        eprintln!("  LLVM IR:   {:?} (CPU {cpu_llvm:?})", self.times.llvm_ir);
         let pct = if self.text.is_empty() {
             0.0
         } else {
@@ -474,6 +478,7 @@ fn emit_ir_internal(
     let stack_trace_in_jit = symbolic_stack_trace && !prune;
     // 1. Loading and inference (front end)
     let t_front = Instant::now();
+    let cpu_front = dartforge_instrument::cpu_time();
     let sdk_dir = match options.sdk {
         Some(p) => p.to_path_buf(),
         None => dart_sdk()?,
@@ -657,6 +662,7 @@ fn emit_ir_internal(
         None => ctx,
     };
     let front_duration = t_front.elapsed();
+    let cpu_hir = dartforge_instrument::cpu_time();
 
     // 2. Lowering to HIR
     let t_hir = Instant::now();
@@ -757,6 +763,7 @@ fn emit_ir_internal(
         );
     }
     let hir_duration = t_hir.elapsed();
+    let cpu_llvm = dartforge_instrument::cpu_time();
 
     // 3. LLVM IR emission
     let t_llvm = Instant::now();
@@ -773,7 +780,13 @@ fn emit_ir_internal(
     // `DARTFORGE_OUTLINED_HELPERS=` (empty) and `DARTFORGE_FIELDS_BY_CALL=0`
     // the large program goes back fully inline. A small program stays
     // inline (LTO removes what is left).
-    let large_size = hir_module.functions.len() >= LARGE_PROGRAM_FUNCTIONS;
+    // `DARTFORGE_LARGE_PROGRAM_FUNCTIONS` moves the threshold (measurement:
+    // `0` treats every program as large).
+    let large_threshold = std::env::var("DARTFORGE_LARGE_PROGRAM_FUNCTIONS")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(LARGE_PROGRAM_FUNCTIONS);
+    let large_size = hir_module.functions.len() >= large_threshold;
     let large = options.optimize && large_size;
     if large && options.timings {
         eprintln!(
@@ -871,6 +884,7 @@ fn emit_ir_internal(
             llvm_ir
         };
     let llvm_duration = t_llvm.elapsed();
+    let cpu_end = dartforge_instrument::cpu_time();
 
     let sdk_byte_count = sdk_bytes(&llvm_ir, &program);
     Ok(EmittedIr {
@@ -886,6 +900,11 @@ fn emit_ir_internal(
             live_functions: world_stat,
             hir: hir_duration,
             llvm_ir: llvm_duration,
+            cpu: [
+                cpu_hir.since(cpu_front),
+                cpu_llvm.since(cpu_hir),
+                cpu_end.since(cpu_llvm),
+            ],
         },
         sdk_byte_count,
     })
@@ -941,6 +960,7 @@ pub fn compile_with_flags(
     flags: DartFlags,
 ) -> Result<PathBuf, String> {
     let t_total = Instant::now();
+    let cpu_start = dartforge_instrument::cpu_time();
 
     let ir = emit_ir_with_flags(entry, options, flags)?;
 
@@ -990,9 +1010,19 @@ pub fn compile_with_flags(
         eprintln!("--- Native Compilation Timings ---");
         ir.print_times();
         let origin = if linkage.cache_object { " (cache)" } else { "" };
-        eprintln!("  Objeto:    {:?}{origin}", linkage.clang);
-        eprintln!("  Link:      {:?}", linkage.link);
-        eprintln!("  Total:     {:?}", total_duration);
+        eprintln!(
+            "  Objeto:    {:?} (CPU {:?}){origin}",
+            linkage.clang, linkage.clang_cpu
+        );
+        eprintln!(
+            "  Link:      {:?} (CPU {:?})",
+            linkage.link, linkage.link_cpu
+        );
+        eprintln!(
+            "  Total:     {:?} (CPU {:?})",
+            total_duration,
+            dartforge_instrument::cpu_time().since(cpu_start)
+        );
         eprintln!("  Pico Mem:  {} KB", peak_memory / 1024);
     }
 

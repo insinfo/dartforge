@@ -309,7 +309,7 @@ impl NativeTypes {
 }
 
 /// Whether the type mentions a type parameter (it is not a concrete signature).
-fn contains_type_parameter(ctx: &Context, t: TypeId) -> bool {
+pub(super) fn contains_type_parameter(ctx: &Context, t: TypeId) -> bool {
     match ctx.table.get(t) {
         T::TypeParameter { .. } => true,
         T::Interface { args, .. } => args.iter().any(|a| contains_type_parameter(ctx, *a)),

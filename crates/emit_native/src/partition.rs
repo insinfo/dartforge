@@ -18,6 +18,12 @@
 //!   vectors, the `@df.*` `alwaysinline` helpers): copied into each part
 //!   that cites them, with what they cite (transitive closure). They are immutable, and
 //!   two private copies do not see each other;
+//! * a large `private`/`internal` constant (at least
+//!   [`SHARED_CONSTANT_BYTES`]: the `@df.area` descriptor that every copy of the
+//!   area helper cites, 76 KB in new_sali/backend, was in each of its 33
+//!   objects): defined once, in part 0, as a `hidden` global with the
+//!   `.program` suffix (no SDK module defines that name), and declared in the
+//!   others, whose references take the new name;
 //! * a mutable `internal global` (the `@df.area_id`, the index of the module's
 //!   global area, and the thread-local variable of the context,
 //!   `sdk_module::with_context_in_tls`): one copy per part would break the
@@ -38,6 +44,9 @@ use std::collections::{HashMap, HashSet};
 pub const DEFAULT_THRESHOLD: usize = 48 << 20;
 /// Size of each part.
 pub const DEFAULT_TARGET: usize = 16 << 20;
+/// From how many bytes of text a local constant is defined once and shared by
+/// the parts instead of being copied into each one that cites it.
+pub const SHARED_CONSTANT_BYTES: usize = 4096;
 
 /// The threshold and the target, adjustable (`DARTFORGE_PART_MB`, in MiB; `0` turns
 /// splitting off).
@@ -66,6 +75,8 @@ struct Item<'a> {
     local: bool,
     /// `internal global` (not `constant`): state, it cannot be copied.
     mutable: bool,
+    /// A large local constant, defined once ([`SHARED_CONSTANT_BYTES`]).
+    shared: bool,
     comdat: Option<&'a str>,
 }
 
@@ -212,6 +223,7 @@ fn read(ir: &str) -> Module<'_> {
                 text: &ir[pos..end],
                 local,
                 mutable: false,
+                shared: false,
                 comdat,
             });
             pos = end;
@@ -228,6 +240,12 @@ fn read(ir: &str) -> Module<'_> {
             let local = after.starts_with("private ") || after.starts_with("internal ");
             let mutable = local && global_head(after).0 == "global";
             let comdat = line_comdat(line, name);
+            let shared = local
+                && !mutable
+                && comdat.is_none()
+                && line.len() >= SHARED_CONSTANT_BYTES
+                && r.as_bytes().first().is_some_and(|c| is_ident(*c))
+                && !after.contains("thread_local");
             m.index.insert(name, m.items.len());
             m.items.push(Item {
                 name,
@@ -235,6 +253,7 @@ fn read(ir: &str) -> Module<'_> {
                 text: line,
                 local,
                 mutable,
+                shared,
                 comdat,
             });
         } else if line.starts_with("declare ") {
@@ -390,6 +409,33 @@ fn declaration(item: &Item) -> String {
     }
 }
 
+/// The definition or declaration `text` of a shared constant under its own
+/// name (`@name` → `@name.program`).
+fn shared_text(text: &str) -> String {
+    let width = name_and_width(&text[1..]).1;
+    format!("{}.program{}", &text[..1 + width], &text[1 + width..])
+}
+
+/// `text` with every reference to one of the `shared` constants renamed
+/// (`@df.area` → `@df.area.program`; `@df.area_id` is another name).
+fn rename_shared(text: &str, shared: &HashSet<&str>) -> String {
+    let b = text.as_bytes();
+    let mut out = String::with_capacity(text.len() + 64);
+    let mut from = 0;
+    let mut i = 0;
+    while let Some(p) = memchr_at(b, b'@', i) {
+        let (n, width) = name_and_width(&text[p + 1..]);
+        i = p + 1 + width;
+        if width > 0 && b[p + 1] != b'"' && shared.contains(n) {
+            out.push_str(&text[from..i]);
+            out.push_str(".program");
+            from = i;
+        }
+    }
+    out.push_str(&text[from..]);
+    out
+}
+
 /// The grouping key of a symbol: its library, when the name
 /// has it (`df.<library>.…`, `df.mt.<library>.…`, `df.rti.<h>.<library>`).
 fn group(name: &str) -> &str {
@@ -409,6 +455,8 @@ pub struct Plan<'a> {
     parts: Vec<Vec<usize>>,
     declared_set: HashMap<&'a str, &'a str>,
     target: usize,
+    /// The names of the shared constants (`Item::shared`).
+    shared_names: HashSet<&'a str>,
 }
 
 impl<'a> Plan<'a> {
@@ -437,16 +485,25 @@ impl<'a> Plan<'a> {
         let mut decls: Vec<&str> = Vec::new();
         let mut seen_decl: HashSet<&str> = HashSet::new();
         let mut refs = Vec::new();
+        // The items whose text cites a shared constant (renamed references).
+        let mut citing_shared: HashSet<usize> = HashSet::new();
         while let Some(i) = queue.pop() {
             refs.clear();
             references(m.items[i].text, &mut refs);
             for r in refs.iter() {
                 if let Some(&j) = m.index.get(r) {
-                    if j == i || included.contains(&j) {
+                    // A definition cites its own name: not a reference.
+                    if j == i {
+                        continue;
+                    }
+                    if m.items[j].shared {
+                        citing_shared.insert(i);
+                    }
+                    if included.contains(&j) {
                         continue;
                     }
                     let it = &m.items[j];
-                    if it.local && !it.mutable {
+                    if it.local && !it.mutable && !it.shared {
                         included.insert(j);
                         queue.push(j);
                     } else if seen_ext.insert(j) {
@@ -476,7 +533,16 @@ impl<'a> Plan<'a> {
         }
         externals.sort_unstable();
         for j in externals {
-            text.push_str(&declaration(&m.items[j]));
+            let it = &m.items[j];
+            if it.shared && !items.contains(&j) {
+                text.push_str(&shared_text(&declaration(it)).replacen(
+                    " = external ",
+                    " = external hidden ",
+                    1,
+                ));
+            } else if !it.shared {
+                text.push_str(&declaration(it));
+            }
         }
         let mut list: Vec<usize> = included.into_iter().collect();
         list.sort_unstable();
@@ -487,24 +553,47 @@ impl<'a> Plan<'a> {
             {
                 text.push_str(l);
             }
-            if it.mutable {
+            let renamed;
+            let item_text = if citing_shared.contains(&i) {
+                renamed = rename_shared(it.text, &self.shared_names);
+                renamed.as_str()
+            } else {
+                it.text
+            };
+            if it.shared {
+                // `@df.area = private … constant …` → `@df.area.program = hidden …`;
+                // only the initializer's references to other shared constants
+                // are renamed (the own name already is).
+                let mut definition = shared_text(it.text);
+                if citing_shared.contains(&i) {
+                    let head = 1 + name_and_width(&it.text[1..]).1 + ".program".len();
+                    let initializer = rename_shared(&definition[head..], &self.shared_names);
+                    definition.truncate(head);
+                    definition.push_str(&initializer);
+                }
+                text.push_str(
+                    &definition
+                        .replacen(" = internal ", " = hidden ", 1)
+                        .replacen(" = private ", " = hidden ", 1),
+                );
+            } else if it.mutable {
                 // `@df.area_id = internal global …` → external linkage.
-                text.push_str(&it.text.replacen(" = internal ", " = ", 1).replacen(
+                text.push_str(&item_text.replacen(" = internal ", " = ", 1).replacen(
                     " = private ",
                     " = ",
                     1,
                 ));
-            } else if !it.local && first_line(it.text).contains(" linkonce_odr ") {
+            } else if !it.local && first_line(item_text).contains(" linkonce_odr ") {
                 // `linkonce_odr` → `weak_odr`: the definition has to stay in the
                 // object of its part. With ThinLTO (production) a
                 // `linkonce_odr` that only other parts cited was discarded and
                 // the link gave "undefined symbol: dfc.….get" (the
                 // canonical constants of new_sali/backend).
-                let first = first_line(it.text);
+                let first = first_line(item_text);
                 text.push_str(&first.replacen(" linkonce_odr ", " weak_odr ", 1));
-                text.push_str(&it.text[first.len()..]);
+                text.push_str(&item_text[first.len()..]);
             } else {
-                text.push_str(it.text);
+                text.push_str(item_text);
             }
         }
         text
@@ -544,18 +633,26 @@ pub fn make_plan(ir: &str, target: usize) -> Plan<'_> {
             size += t;
         }
     }
-    // The local mutable state goes to part 0, with external linkage.
+    // The local mutable state and the shared constants go to part 0, with
+    // external linkage.
     for (i, it) in m.items.iter().enumerate() {
-        if it.mutable {
+        if it.mutable || it.shared {
             parts[0].push(i);
         }
     }
     let declared_set: HashMap<&str, &str> = m.declarations.iter().copied().collect();
+    let shared_names = m
+        .items
+        .iter()
+        .filter(|it| it.shared)
+        .map(|it| it.name)
+        .collect();
     Plan {
         m,
         parts,
         declared_set,
         target,
+        shared_names,
     }
 }
 
@@ -760,6 +857,50 @@ define i64 @caller() {
                 String::from_utf8_lossy(&result.stderr)
             );
             assert!(output.is_file());
+        }
+    }
+
+    #[test]
+    fn large_local_constant_is_defined_once() {
+        let big: Vec<String> = (0..1024).map(|i| format!("i64 {i}")).collect();
+        let ir = format!(
+            "@df.area = private unnamed_addr constant [1024 x i64] [{}]\n\
+@df.area_id = internal global i64 0, align 8\n\
+define internal ptr @df.get_area() alwaysinline {{\n\
+  %q = call ptr @g(ptr @df.area, ptr @df.area_id)\n\
+  ret ptr %q\n\
+}}\n\
+declare ptr @g(ptr, ptr)\n\
+define ptr @df.a.f() {{\n\
+  %p = call ptr @df.get_area()\n\
+  ret ptr %p\n\
+}}\n\
+define ptr @df.b.f() {{\n\
+  %p = call ptr @df.get_area()\n\
+  ret ptr %p\n\
+}}\n",
+            big.join(", ")
+        );
+        let parts = split(&ir, 1);
+        assert!(parts.len() > 1);
+        let defined = parts
+            .iter()
+            .filter(|p| p.contains("@df.area.program = hidden unnamed_addr constant [1024 x i64]"))
+            .count();
+        assert_eq!(defined, 1);
+        for p in &parts {
+            assert!(!p.contains("@df.area = "), "{p}");
+            if p.contains("define internal ptr @df.get_area()") {
+                assert!(
+                    p.contains("call ptr @g(ptr @df.area.program, ptr @df.area_id)"),
+                    "{p}"
+                );
+                assert!(
+                    p.contains("@df.area.program = external hidden constant [1024 x i64]")
+                        || p.contains("@df.area.program = hidden unnamed_addr constant"),
+                    "{p}"
+                );
+            }
         }
     }
 }

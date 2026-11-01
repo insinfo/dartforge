@@ -443,7 +443,17 @@ impl LlvmEmitter<'_> {
             )
             .unwrap();
         }
-        writeln!(self.out, "define void @{record}() {{\nb0:").unwrap();
+        // `nooutline`: the machine outliner spent 124 s of CPU on the 28
+        // thousand registrations of new_sali/backend (a straight line of calls
+        // that differ only in their constants) without extracting anything from
+        // it; it was the critical path of the ThinLTO link (295 of 371 s). The
+        // SDK libraries keep their (small) registrations as they were.
+        let attributes = if record == "df.register.program" {
+            " \"nooutline\""
+        } else {
+            ""
+        };
+        writeln!(self.out, "define void @{record}(){attributes} {{\nb0:").unwrap();
         self.out.push_str(&body);
         self.out.push_str("  ret void\n}\n\n");
     }

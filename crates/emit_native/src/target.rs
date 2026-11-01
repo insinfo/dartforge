@@ -157,6 +157,13 @@ pub fn is_cross() -> bool {
 pub fn is_aarch64() -> bool {
     current().is_arm64()
 }
+/// Whether the machine running the compiler likely has two hardware threads per
+/// core: x86-64 hosts usually do; ARM64 hosts (Apple silicon, the common
+/// server cores) do not.
+pub fn host_has_smt() -> bool {
+    cfg!(target_arch = "x86_64")
+}
+
 /// Whether the generated code uses a supported Unix ABI.
 pub fn is_unix() -> bool {
     matches!(target_os(), Os::Linux | Os::MacOs)

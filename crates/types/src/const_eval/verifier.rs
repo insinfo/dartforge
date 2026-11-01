@@ -1822,6 +1822,7 @@ impl Verifier<'_, '_> {
                     let mut lv = Literal {
                         ty: LiteralType::List(element),
                         the_unique: Vec::new(),
+                        unique_index: Default::default(),
                         duplicates: Vec::new(),
                     };
                     for el in elements.iter() {
@@ -1869,6 +1870,7 @@ impl Verifier<'_, '_> {
                         let mut lv = Literal {
                             ty: tl,
                             the_unique: Vec::new(),
+                            unique_index: Default::default(),
                             duplicates: Vec::new(),
                         };
                         for el in elements.iter() {
@@ -2655,6 +2657,7 @@ impl Verifier<'_, '_> {
             })
             .collect();
         let mut seen: Vec<Value> = Vec::new();
+        let mut index = super::evaluation::KeyIndex::default();
         for x in expressions {
             let cx = self.cx();
             let Constant::Value(v) = self.m.evaluate(&cx, x, false) else {
@@ -2663,11 +2666,12 @@ impl Verifier<'_, '_> {
             if v.actually_unknown() {
                 continue;
             }
-            let repeated = seen.iter().any(|y| self.m.equal(y, &v));
+            let repeated = index.find(self.m, &v, |p| &seen[p]).is_some();
             if repeated {
                 let sp = self.m.span(u, x);
                 self.report(code, sp, Vec::new());
             } else {
+                index.add(&v, seen.len());
                 seen.push(v);
             }
         }
@@ -2677,15 +2681,15 @@ impl Verifier<'_, '_> {
         if v.actually_unknown() || matches!(v.state, InstanceState::Null { invalid: true }) {
             return;
         }
-        for (x, s) in lv.the_unique.iter() {
-            if self.m.equal(x, &v) {
-                let original = *s;
-                if !lv.duplicates.iter().any(|(d, _)| *d == span) {
-                    lv.duplicates.push((span, original));
-                }
-                return;
+        let unique = &lv.the_unique;
+        if let Some(p) = lv.unique_index.find(self.m, &v, |p| &unique[p].0) {
+            let original = lv.the_unique[p].1;
+            if !lv.duplicates.iter().any(|(d, _)| *d == span) {
+                lv.duplicates.push((span, original));
             }
+            return;
         }
+        lv.unique_index.add(&v, lv.the_unique.len());
         lv.the_unique.push((v, span));
     }
 
@@ -2759,6 +2763,9 @@ enum LiteralType {
 struct Literal {
     ty: LiteralType,
     the_unique: Vec<(Value, Span)>,
+    /// `the_unique` by value: a duplicate is found without comparing each new
+    /// element with every previous one (`super::evaluation::KeyIndex`).
+    unique_index: super::evaluation::KeyIndex,
     duplicates: Vec<(Span, Span)>,
 }
 
