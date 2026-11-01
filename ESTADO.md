@@ -22,7 +22,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 
 | Ferramenta | Resultado | Lacunas abertas |
 |---|---|---|
-| **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT** (primeira medição, 31/10, `dartforge aot --optimize`, 40 min): **2721 iguais à VM, 2775 (96,9%)** contando os 54 que os dois recusam. JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos). Nativo: 88 falhas, **87 iguais às do wasm** (mesmo backend): 63 exceções em tempo de execução (*tear-offs* e sua igualdade, RTI de tipos de função genéricos, checagens que não lançam), 9 programas que a VM recusa e nós aceitamos, 8 construções recusadas pelo backend, 6 saídas diferentes. A única exclusiva do nativo era o `dart.isVM` (corrigido em `cd23f5a5`) |
+| **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT** (`dartforge aot --optimize`): primeira medição 31/10, 2721 iguais à VM, 2775 (96,9%) contando os 54 que os dois recusam; depois das correções do backend (31/10, noite, medidas nas 88 falhas e em 148 programas das áreas tocadas): **2752 iguais, 2806 (98,0%)** na projeção, wasm **2812 (98,2%)**. JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos). Nativo: 88 → **57 falhas** (wasm: 80 → 51): *mixin* aplicado duas vezes, aplicação de mixin sobre classe abstrata sem construtor, construções recusadas (`external`, `loadLibrary` como valor), pilhas simbólicas e *hashes*, 10 programas que a VM recusa e nós aceitamos, `late` em *closure*, avulsos |
 | **`analyze`** | corpus do analisador **99,95%** (23.001/23.012), 14/10 e de novo em 31/10. Erros a mais em `tests/language`: **231 → 107 → 20** (de 70 para 7 arquivos), 31/10, sem novos falsos negativos (os erros dos 1.460 programas de erro ficaram idênticos) | 12 são do *parser*: declarações `augment` sem o experimento `macros`. 6 são *wildcards* fora do modo *wildcard*: com `_` duplicado, o analisador liga à primeira declaração e nós à última. 2 vêm de `X1 extends FutureOr<X1>`, em que o próprio 3.6.2 não diagnostica |
 | **`pub`** | solucionador **PubGrub** portado do Pub 3.6.2. `pub get` idêntico ao oficial em **51/51** projetos reais (lockfile byte a byte, `package_config.json`, saída e código), com e sem lockfile. `add`, `remove`, `upgrade`, `downgrade`, `deps` e `outdated` idênticos em 42 cenários (31/10) | sugestões depois de falha de resolução; avisos de segurança no `outdated`; `cache`, `global`, `publish`, `token`, `login`; `--precompile`; SDKs Flutter e Fuchsia. Matriz em `docs/PUB-E-TEST.md` |
 | **`test`** | igual ao `dart test` em **22/22** execuções diferenciais; aceita `dart_test.yaml` e as anotações; relator `expanded` no formato do `dart test` (31/10) | `-r json` com eventos próprios; só a plataforma `vm`; sem *coverage*, *watch*, `--fail-fast`, `compact` e `github` |
@@ -38,10 +38,85 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | JS dev: subir de um checkout limpo sem `build_runner`; edição de template | concluído em 31/10 (29,6 × 212,5 s; template 3,3 × 7,6 s) |
 | JS produção: `jsonEncode` e `async_await` no máximo iguais ao `dart2js -O4`; gzip dos programas pequenos abaixo dele (`map_str_int` resolvido em 31/10, noite; faltam o caminho do `noSuchMethod` do `toJson` e o *pretty printer* do JSON, cortes de mundo) | agente JS produção (desde 31/10, 16h) |
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
-| Backend nativo (AOT e wasm): as 87 falhas da suíte `tests/language` | agente backend nativo |
+| Backend nativo (AOT e wasm): as 57 falhas restantes da suíte `tests/language` (de 88) | agente backend nativo |
 | AOT nativo: tempo de compilação (6× o `dart compile exe`) e tamanho de programa grande (1,4×) | agente AOT (desde 31/10, 17h) |
 | ARC real: 3× os ciclos do tracing no HTTP (205 × 66 mil por pedido no `dart:io`; Swift cru 26 mil) | agente ARC real (desde 31/10, noite) |
 | LSP: motor residente incremental (tecla e API), índice para `references`, `completion` fora de corpo, memória das buscas | agente LSP (medição e consultas concluídas em 31/10; próxima rodada) |
+
+## 31/10/2026: backend nativo — falhas da suíte `tests/language` (AOT e wasm)
+
+**Medida.** `scripts/run-language-suite.py native` (`dartforge aot --optimize`) e `wasm`
+(`compile-wasm` + `dartforge-wasm-run`), contra o `vm.json` da VM 3.6.2. Com a máquina em
+carga ~60–130 (seis agentes), a suíte inteira não coube: rodei, com `--jobs 2`, as 88 falhas
+do `native-31-10` e mais os 148 programas que passavam em `closure/`, `function_subtype/`,
+`covariant/`, `covariant_override/` e `generic_methods/` (as áreas que as mudanças tocam);
+no wasm, as mesmas 88.
+
+| | antes | depois |
+|---|---:|---:|
+| nativo: as 88 falhas do `native-31-10` | 0 passam | **31 passam**, 57 falham |
+| nativo: 148 programas que passavam (áreas tocadas) | 148 | 148 (nenhuma regressão) |
+| wasm: as mesmas 88 (contra `wasm-final`) | — | **29 passam a sair certos**, nenhuma regressão |
+| nativo, projeção para a suíte inteira | 2 721 iguais, 2 775 (96,9%) com paridade | **2 752 iguais, 2 806 (98,0%)** |
+| wasm, projeção | 2 783 (97,2%) | **2 812 (98,2%)** |
+
+As projeções somam as correções ao resultado anterior e supõem que os ~2 600 programas fora
+do recorte não regrediram; o harness nativo cobre o resto (abaixo). A suíte inteira deve ser
+remedida com a máquina livre.
+
+Corrigido em `crates/emit_native` e `crates/runtime` (`fb98e615`):
+- ***tear-off* com o tipo do que o receptor roda**: o *forwarding stub* que torna um
+  parâmetro covariante (`class D extends C implements I`, `C.f(B)` e `I.f(covariant A)`) e a
+  sobrescrita com outros tipos dão o tipo reificado pela classe dinâmica, escolhido pelo id
+  da classe do receptor (`typed_entry::tearoff_variants`, `rti.rs`). `super.m` continua
+  exato;
+- **RTI de tipos de função genéricos**: limite `dynamic`/`void` escrito é outro tipo que o
+  `Object?` implícito (`void Function<X extends dynamic>()` ≠ `void Function<X>()`), e o
+  runtime normaliza a lista de limites toda `Object?`; uma variável é subtipo do seu limite
+  (`Y1 extends Y0`, ambiente de limites no `sub`); substituir um parâmetro de classe sob
+  *binders* desloca os níveis (`B<i>`); typedef sem argumentos instancia nos limites, com os
+  níveis deslocados; variável com limite `Never` vira `Never` (até o ponto fixo); nomes
+  aninhados como a VM (`<Y0 extends <F1Y0>(F1Y0) => F1Y0>`);
+- **checagens que faltavam**: parâmetro de tipo função, record ou `FutureOr` na entrada
+  dinâmica (os que citam parâmetros de tipo da função ficam com a checagem que recebe a
+  tupla); limites na instanciação de um valor de função genérico
+  (`dartforge_rti_instantiation_bounds`); o *tear-off* de método genérico cujo limite cita o
+  parâmetro da classe (`C<Object>.f2` de um `C<A>`), também antes de uma instanciação
+  implícita; argumentos de tipo passados a uma instanciação (`NoSuchMethodError`); limites e
+  parâmetros no encaminhador de `noSuchMethod` e no *tear-off* instanciado; casts implícitos
+  no construtor de uma aplicação de mixin nomeada (`C<T> = B<T> with M`); parâmetro
+  covariante de `super ==`;
+- **igualdade e identidade**: `super == null` não chama o operador; `C<int>.new` e
+  `E.staticMethod<int>` (estático de extensão) canônicos;
+- `Invocation` com listas e mapas imutáveis, como a VM (`native_sdk/core/identical_patch.dart`;
+  manifesto revisado do SDK selecionado regenerado em `9ca484f9`, só a unidade de *patch*
+  do `dart:core` e a impressão digital do núcleo);
+- `switch` com corpo de vários casos: as variáveis do corpo são outras que as de cada caso
+  (a *closure* da guarda guarda a do caso); campo de record em padrão de objeto
+  (`R3<…>(:var $1)`); `d < e` com `d` dinâmico devolve o resultado do operador; `o<T>` em objeto com `call`
+  genérico (`EnumAll.v1<String>`); parâmetro de tipo do membro sombreia o da extensão.
+
+Harness nativo (`dartforge-differential --corpus corpus/native`, `--jobs 2–3`, com o binário
+anterior às duas últimas correções — parâmetro covariante de `super ==` e o ponto fixo do
+NORM de `Never`, que só a suíte mediu): dev 163/163,
+`--optimize` 163/163, `--optimize --gc-stress` 163/163 e `--wasm` 163/163 (15 iguais ao
+dart2wasm). Com a carga, o limite de execução de 5 s estourou em 6 programas do
+`--gc-stress` e em 126 do `--wasm`; repetidos com `--exec-limit 120`, todos passaram.
+
+Continuam abertos no nativo (57; no wasm, 51 das mesmas 88):
+*mixin* aplicado duas vezes na mesma cadeia — o código do mixin é um só e o `super` resolve pela
+classe dinâmica (`mixin/super_2` ×2, `identity_equality_tearoff`) (3); aplicação de mixin nomeada
+sobre classe abstrata sem construtor (3); construções recusadas ou incompletas (`external` sem
+implementação ×2, `loadLibrary` como valor, fábrica redirecionante de extension type, *tear-off*
+de construtor por typedef genérico, construtor nomeado de `enum`) e um que estoura os 300 s (7);
+pilhas simbólicas e *hashes* (11); programas que a VM recusa e o DartForge aceita
+(experimentos `wildcard-variables` e `value-class`, limites F inferidos, `super` sem *setter*;
+um deles o CFE quebra com 252) (10); `late` com inicializador em *closure* (2); avulsos (21):
+`toString` do *tear-off* de `Object.toString` e de estático de classe em constante, inferência
+da extensão pelo UP (`Pair<int, double>` em `on Pair<T, T>`), membro combinado de extension
+type que implementa duas classes, mapa `const` com `hashCode` sobrescrito, valor `void`
+sobrescrito que retorna, *getter* de extensão em padrão de record, `noSuchMethod` com
+`inference-update-2`, entre outros.
 
 ## 31/10/2026: LSP contra o servidor oficial do Dart nos mesmos projetos
 
