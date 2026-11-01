@@ -1811,11 +1811,20 @@ impl<A: Analyzer> Server<A> {
                         ))
                     });
                     let declaration = declaration.filter(|_| include_declaration);
-                    let locals: Vec<Value> = uses
-                        .iter()
-                        .chain(declaration.iter())
+                    let locations = uses.iter().chain(declaration.iter());
+                    let count = uses.len() + usize::from(declaration.is_some());
+                    if count >= RAW_LOCATIONS {
+                        // Written as JSON text: a tree of values takes ~2.7 KB per
+                        // location (~145 MiB for the 53,624 references of `String`
+                        // in `new_sali/frontend`), the text ~130 bytes.
+                        let text = locations_json(locations.filter_map(|(target, s)| {
+                            Some((target.as_str(), self.positions(target, *s)?))
+                        }));
+                        return Some(crate::transport::raw_result(text));
+                    }
+                    let locals: Vec<Value> = locations
                         .filter_map(|(target, s)| {
-                            Some(json!({"uri": target, "range": self.range(target, *s)?}))
+                            Some(location_value(target, self.positions(target, *s)?))
                         })
                         .collect();
                     Some(json!(locals))
@@ -4290,8 +4299,13 @@ impl<A: Analyzer> Server<A> {
     /// LSP range of `span` (bytes) in `uri`: through the open text, otherwise
     /// through the file on disk (rename touches closed files of the project).
     fn range(&self, uri: &str, span: dartforge_diagnostics::Span) -> Option<Value> {
+        self.positions(uri, span).map(positions_value)
+    }
+
+    /// [`Server::range`]'s positions.
+    fn positions(&self, uri: &str, span: dartforge_diagnostics::Span) -> Option<Positions> {
         if let (Some(text), Some(table)) = (self.documents.get(uri), self.documents.lines(uri)) {
-            return Some(lsp_range(text, table, span.start, span.end));
+            return Some(lsp_positions(text, table, span.start, span.end));
         }
         // Only the last file stays: the results come grouped by file (the
         // references of `String` in a large Angular package touch hundreds of
@@ -4310,7 +4324,7 @@ impl<A: Analyzer> Server<A> {
                 Some(std::sync::Arc::new((source, table)))
             })
             .clone()?;
-        Some(lsp_range(&read.0, &read.1, span.start, span.end))
+        Some(lsp_positions(&read.0, &read.1, span.start, span.end))
     }
 
     /// Diagnoses the document and builds `textDocument/publishDiagnostics`.
@@ -4741,11 +4755,63 @@ fn read_position(value: &Value) -> Option<Position> {
 
 /// LSP range (UTF-16) of `start..end` in bytes, saturated to the text.
 fn lsp_range(text: &str, table: &crate::utf16::LineTable, start: usize, end: usize) -> Value {
+    positions_value(lsp_positions(text, table, start, end))
+}
+
+/// An LSP range's positions (UTF-16): start line and character, end line and
+/// character.
+type Positions = (u32, u32, u32, u32);
+
+/// [`lsp_range`]'s positions.
+fn lsp_positions(
+    text: &str,
+    table: &crate::utf16::LineTable,
+    start: usize,
+    end: usize,
+) -> Positions {
     let start = start.min(text.len());
     let end = end.clamp(start, text.len());
     let (l0, c0) = table.offset_position(text, start);
     let (l1, c1) = table.offset_position(text, end);
+    (l0, c0, l1, c1)
+}
+
+/// The LSP range of `positions`.
+fn positions_value((l0, c0, l1, c1): Positions) -> Value {
     json!({"start": {"line": l0, "character": c0}, "end": {"line": l1, "character": c1}})
+}
+
+/// An LSP `Location`.
+fn location_value(uri: &str, positions: Positions) -> Value {
+    json!({"uri": uri, "range": positions_value(positions)})
+}
+
+/// From how many locations a `textDocument/references` answer is written as
+/// JSON text ([`locations_json`]) instead of as JSON values.
+const RAW_LOCATIONS: usize = 2048;
+
+/// The JSON array of [`location_value`]s, as `serde_json` writes it (keys
+/// sorted), without building the values: each URI is escaped once per run of
+/// locations in its file.
+fn locations_json<'a>(locations: impl Iterator<Item = (&'a str, Positions)>) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::from("[");
+    let mut last: Option<(&str, String)> = None;
+    for (uri, (l0, c0, l1, c1)) in locations {
+        if out.len() > 1 {
+            out.push(',');
+        }
+        if last.as_ref().is_none_or(|(u, _)| *u != uri) {
+            last = Some((uri, Value::String(uri.to_string()).to_string()));
+        }
+        let escaped = &last.as_ref().expect("set above").1;
+        let _ = write!(
+            out,
+            r#"{{"range":{{"end":{{"character":{c1},"line":{l1}}},"start":{{"character":{c0},"line":{l0}}}}},"uri":{escaped}}}"#
+        );
+    }
+    out.push(']');
+    out
 }
 
 /// Converts a diagnostic (span in UTF-8 bytes) into an LSP diagnostic.
@@ -4887,5 +4953,29 @@ fn adjust_kinds(symbol: &mut Value, supported: Option<&[u64]>) {
         for f in children {
             adjust_kinds(f, supported);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The text of a large `references` answer is what `serde_json` writes for
+    /// the same locations as values.
+    #[test]
+    fn locations_json_matches_the_values() {
+        let locations = [
+            ("file:///a/b.dart", (0, 1, 0, 4)),
+            ("file:///a/b.dart", (12, 0, 13, 2)),
+            ("file:///a/c%20d\"\u{e9}.dart", (3, 7, 3, 9)),
+            ("file:///a/b.dart", (1, 1, 1, 1)),
+        ];
+        let values: Vec<Value> = locations
+            .iter()
+            .map(|(u, p)| location_value(u, *p))
+            .collect();
+        let text = locations_json(locations.iter().map(|(u, p)| (*u, *p)));
+        assert_eq!(text, Value::Array(values).to_string());
+        assert_eq!(locations_json(std::iter::empty()), "[]");
     }
 }

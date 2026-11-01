@@ -76,6 +76,94 @@ pub struct Resident {
     context_given: Vec<PathBuf>,
     /// Whether each context file is a part, with the stamp it had when read.
     context_parts: HashMap<PathBuf, (dartforge_elements::unit_cache::FileStamp, bool)>,
+    /// Per package root, the sizes of its programs that decide whether the
+    /// whole package pays ([`Resident::context_pays`]).
+    program_bytes: HashMap<PathBuf, ProgramBytes>,
+}
+
+/// The source bytes (outside the SDK) of a package's programs: the largest
+/// one a small batch (edited files, [`EDITED_FILES`]) imports, and the
+/// largest program loaded (the whole package's, once a batch covered it).
+#[derive(Default, Clone, Copy)]
+struct ProgramBytes {
+    edited: Option<usize>,
+    package: usize,
+}
+
+/// A batch of at most this many files is the edited files' (a document and
+/// its parts, Dart's priority files): its own program decides whether the
+/// whole package pays ([`Resident::context_pays`]).
+const EDITED_FILES: usize = 4;
+
+/// How much larger than the edited files' own program the whole package's may
+/// be for the resident to load the whole package with every batch: the extra
+/// cost of each load stays small, and the dependents of an API edit start from
+/// the program the edited file's analysis built. On `new_sali/frontend` and
+/// `new_sali/backend` the package's program is ~1.3× the edited file's; on
+/// `limitless_ui` (tests that pull `package:test` in) ~2.2×, and there the
+/// whole package made the edited file's own diagnostic ~2× slower.
+const CONTEXT_RATIO: f64 = 1.5;
+
+impl Resident {
+    /// Whether the next analysis of the package at `root` loads the whole
+    /// package (the context): not until an edited file's own program is
+    /// known; then when the largest program loaded is at most
+    /// [`CONTEXT_RATIO`] times the largest edited file's. The decision is the
+    /// package's, not the batch's, so that the batches of one job share the
+    /// program. `DARTFORGE_RESIDENT_CONTEXT=always` or `never` forces it.
+    fn context_pays(&self, root: &Path) -> bool {
+        if self.context.is_empty() {
+            return false;
+        }
+        match std::env::var("DARTFORGE_RESIDENT_CONTEXT").as_deref() {
+            Ok("always") => return true,
+            Ok("never") => return false,
+            _ => {}
+        }
+        let bytes = self.program_bytes.get(root).copied().unwrap_or_default();
+        let Some(edited) = bytes.edited else {
+            return false;
+        };
+        bytes.package as f64 <= edited as f64 * CONTEXT_RATIO
+    }
+}
+
+/// The source bytes outside the SDK of the libraries `files` import and
+/// export in `program`, transitively (their own program, even when `program`
+/// has the whole package), and of the whole `program`.
+fn program_bytes(program: &Program, files: &[PathBuf]) -> (usize, usize) {
+    let bytes = |l: LibraryId| -> usize {
+        program
+            .library(l)
+            .units
+            .iter()
+            .map(|u| program.unit(*u).source.len())
+            .sum()
+    };
+    let batch: HashSet<PathBuf> = files.iter().map(|f| key(f)).collect();
+    let mut seen: HashSet<LibraryId> = HashSet::new();
+    let mut stack: Vec<LibraryId> = program
+        .units
+        .iter()
+        .filter(|u| u.path.as_deref().is_some_and(|p| batch.contains(&key(p))))
+        .map(|u| u.library)
+        .collect();
+    let mut own = 0;
+    while let Some(l) = stack.pop() {
+        let library = program.library(l);
+        if library.is_sdk || !seen.insert(l) {
+            continue;
+        }
+        own += bytes(l);
+        stack.extend(library.imports.iter().map(|i| i.library));
+        stack.extend(library.exports.iter().map(|e| e.library));
+    }
+    let all = (0..program.libraries.len())
+        .map(|i| LibraryId(i as u32))
+        .filter(|l| !program.library(*l).is_sdk)
+        .map(bytes)
+        .sum();
+    (own, all)
 }
 
 /// The program of an analysis with what the analysis builds over it before
@@ -387,8 +475,10 @@ impl Resident {
     /// Forgets everything: the next analysis starts from the files.
     pub fn clear(&mut self) {
         let context = std::mem::take(&mut self.context);
+        let program_bytes = std::mem::take(&mut self.program_bytes);
         *self = Resident::default();
         self.context = context;
+        self.program_bytes = program_bytes;
     }
 
     /// The files of the package whose batches the next analyses are of: the
@@ -1118,9 +1208,12 @@ impl Engine {
         // The resident's context: the package's other libraries come in too
         // (reported on nothing), so that every batch of the package loads the
         // same program.
-        let context: Vec<PathBuf> = resident
-            .as_ref()
-            .map_or_else(Vec::new, |r| r.context.clone());
+        // The whole package only where it pays (`Resident::context_pays`).
+        let with_context = resident.as_ref().is_some_and(|r| r.context_pays(root));
+        let context: Vec<PathBuf> = match resident.as_ref() {
+            Some(r) if with_context => r.context.clone(),
+            _ => Vec::new(),
+        };
         for (i, c) in context.iter().enumerate() {
             let k = key(c);
             if own.contains_key(&k) {
@@ -1182,14 +1275,19 @@ impl Engine {
         let reused = resident
             .as_deref_mut()
             .and_then(|r| r.take_world(root, packages, &import_set, files, texts));
-        let (interner, mut units, slot) = match resident {
+        let (interner, mut units, slot, program_bytes) = match resident {
             Some(r) => {
                 if reused.is_none() {
                     r.prepare(files, texts, &entry);
                 }
-                (&mut r.interner, Some(&mut r.units), Some(&mut r.world))
+                (
+                    &mut r.interner,
+                    Some(&mut r.units),
+                    Some(&mut r.world),
+                    Some(&mut r.program_bytes),
+                )
             }
-            None => (&mut fresh, None, None),
+            None => (&mut fresh, None, None, None),
         };
         let from_world = reused.is_some();
         let world = match reused {
@@ -1210,7 +1308,19 @@ impl Engine {
                     }
                     return None;
                 }
-                times.mark("load");
+                times.mark(if with_context {
+                    "load (with the whole package)"
+                } else {
+                    "load"
+                });
+                if let Some(bytes) = program_bytes {
+                    let (own, all) = self::program_bytes(&program, files);
+                    let entry = bytes.entry(root.to_path_buf()).or_default();
+                    entry.package = entry.package.max(all);
+                    if files.len() <= EDITED_FILES {
+                        entry.edited = Some(entry.edited.unwrap_or(0).max(own));
+                    }
+                }
                 let interner: &dartforge_intern::Interner = interner;
                 let mut table = dartforge_types::TypeTable::new();
                 // Messages with the `typedef` alias and the `Never?` as written (C9).
@@ -3240,8 +3350,14 @@ mod tests {
         let a = root.join("a.dart");
         let b = root.join("b.dart");
         let c = root.join("c.dart");
+        // `a.dart`'s program is most of the package: the whole package pays.
+        let padding = format!("// {}\n", "x".repeat(2000));
         std::fs::write(&b, "bool x = true;\n").unwrap();
-        std::fs::write(&a, "import 'b.dart';\nvoid f() { if (x) {} }\n").unwrap();
+        std::fs::write(
+            &a,
+            format!("import 'b.dart';\n{padding}void f() {{ if (x) {{}} }}\n"),
+        )
+        .unwrap();
         std::fs::write(&c, "import 'b.dart';\nvoid g() { if (x) {} int y = }\n").unwrap();
         let engine = Engine::new(&root.join("sdk/lib")).unwrap();
         let mut resident = Resident::new();
@@ -3293,6 +3409,78 @@ mod tests {
             assert_eq!(shown(&kept, f), shown(&fresh, f), "{}", f.display());
             assert!(!shown(&kept, f).is_empty(), "{}", f.display());
         }
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A package whose whole program is much larger than a batch's (here a
+    /// large file nobody imports) is not loaded with every batch: the batches
+    /// keep their own programs, and still publish what a fresh analysis does.
+    #[test]
+    fn resident_skips_the_context_when_the_package_is_much_larger() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-agent/engine-large-context-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("sdk/lib/core")).unwrap();
+        std::fs::write(
+            root.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("sdk/lib/core/core.dart"),
+            "class Object {} class bool {} class num {} class int extends num {} class Null {}",
+        )
+        .unwrap();
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        let big = root.join("big.dart");
+        std::fs::write(&b, "bool x = true;\n").unwrap();
+        std::fs::write(&a, "import 'b.dart';\nvoid f() { if (x) {} }\n").unwrap();
+        std::fs::write(&big, format!("// {}\nint unused = 0;\n", "x".repeat(5000))).unwrap();
+        let mut package = vec![a.clone(), b.clone(), big.clone()];
+        for i in 0..3 {
+            let other = root.join(format!("other{i}.dart"));
+            std::fs::write(&other, format!("int other{i} = {i};\n")).unwrap();
+            package.push(other);
+        }
+        let engine = Engine::new(&root.join("sdk/lib")).unwrap();
+        let mut resident = Resident::new();
+        resident.set_context(package.clone());
+        let none = HashMap::new();
+        // The whole package's analysis (at startup) gives its program's size.
+        engine
+            .analyze_resident(&mut resident, &root, &package, None, &none, &|| false)
+            .unwrap();
+        for _ in 0..2 {
+            let kept = engine
+                .analyze_resident(
+                    &mut resident,
+                    &root,
+                    std::slice::from_ref(&a),
+                    None,
+                    &none,
+                    &|| false,
+                )
+                .unwrap();
+            let fresh = engine
+                .analyze_with(&root, std::slice::from_ref(&a), None, &none, &|| false)
+                .unwrap();
+            assert_eq!(kept.files[&key(&a)].diags, fresh.files[&key(&a)].diags);
+        }
+        // The large file never came in.
+        let loaded = resident
+            .world
+            .as_ref()
+            .unwrap()
+            .program
+            .units
+            .iter()
+            .any(|u| u.path.as_deref().is_some_and(|p| p.ends_with("big.dart")));
+        assert!(!loaded);
         let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&root).unwrap();
