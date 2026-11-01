@@ -216,7 +216,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Operand {
         let f = ast.function(fid);
         // Free variables that are locals visible here.
-        let (free_set, _) = capture::free_set(self.ctx, self.unit_id, ast, fid);
+        let (mut free_set, _) = capture::free_set(self.ctx, self.unit_id, ast, fid);
+        // A captured `late` local with an initializer: the closure may run the
+        // initializer, so it also captures what the initializer reads.
+        let mut k = 0;
+        while k < free_set.len() {
+            if let Some(local) = self.lookup_local(free_set[k])
+                && let Some(late) = &local.late
+                && let Some((unit, init)) = late.initializer
+            {
+                let init_ast = &self.ctx.program.unit(unit).ast;
+                for s in capture::expression_free_set(self.ctx, unit, init_ast, init) {
+                    if !free_set.contains(&s) {
+                        free_set.push(s);
+                    }
+                }
+            }
+            k += 1;
+        }
         let captures: Vec<(SymbolId, super::locals::Local)> = free_set
             .into_iter()
             .filter_map(|s| self.lookup_local(s).map(|l| (s, l)))
@@ -1790,6 +1807,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 e.enclosing_class = self.ctx.program.functions[checked].class;
                 e.check_entry_arguments(checked, &vals);
                 (e.this_param, e.enclosing_class) = saved;
+                // A generic method: the call's type arguments (the slot after
+                // the arguments; the bounds without them), against the bounds,
+                // and the parameters that mention them.
+                if e.generic_function(fid) {
+                    let own = e.slot_tuple(&args_for_tuple, &desc_for_tuple);
+                    let t = e.tuple_or_bounds_of(fid, own.clone(), &receiver);
+                    let params = self.ctx.outline.functions[checked].type_params.to_vec();
+                    e.with_member_type_context(
+                        checked,
+                        Some(receiver.clone()),
+                        Some(t.clone()),
+                        |e| {
+                            e.check_passed_type_argument_bounds(own, &params);
+                        },
+                    );
+                    e.check_method_type_arguments(
+                        checked,
+                        &vals,
+                        Some(receiver.clone()),
+                        t.clone(),
+                    );
+                    e.armed_tuple = Some(t);
+                }
                 let evaluated: Vec<Evaluated> = self.ctx.outline.functions[fid]
                     .parameters
                     .iter()
@@ -1805,13 +1845,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         )
                     })
                     .collect();
-                // A generic method: the call's type arguments (the slot after
-                // the arguments; the bounds without them).
-                if e.generic_function(fid) {
-                    let own = e.slot_tuple(&args_for_tuple, &desc_for_tuple);
-                    let t = e.tuple_or_bounds(fid, own);
-                    e.armed_tuple = Some(t);
-                }
                 let r = if exact {
                     let args = e.match_args(fid, &evaluated);
                     e.call_direct(fid, Some(receiver), args)

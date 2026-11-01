@@ -1259,22 +1259,44 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// (`own`), or, when it passed none, the instantiation to bounds of `fid`'s
     /// own type parameters (`dynamic` without a bound), as the VM's dynamic
     /// call does.
+    /// [`Self::tuple_or_bounds`] in the type of the receiver `recv` of the
+    /// method `fid` (the bounds that use the class's type parameters).
+    pub fn tuple_or_bounds_of(&mut self, fid: usize, own: Operand, recv: &Operand) -> Operand {
+        if self.ctx.program.functions[fid]
+            .class
+            .is_none_or(|c| self.ctx.is_extension_type(c))
+        {
+            return self.tuple_or_bounds(fid, own);
+        }
+        let saved = (self.this_param.replace(recv.clone()), self.enclosing_class);
+        self.enclosing_class = self.ctx.program.functions[fid].class;
+        let t = self.tuple_or_bounds(fid, own);
+        (self.this_param, self.enclosing_class) = saved;
+        t
+    }
+
     pub fn tuple_or_bounds(&mut self, fid: usize, own: Operand) -> Operand {
         let mut text = String::from("L<");
-        for (k, p) in self.ctx.outline.functions[fid]
-            .type_params
-            .iter()
-            .enumerate()
-        {
+        let mut variables = false;
+        let params = self.ctx.outline.functions[fid].type_params.to_vec();
+        // The instantiation to bounds, as the VM's dynamic call without type
+        // arguments (`Q2 extends Q1` takes `Q1`'s). A bound that uses the
+        // class's type parameters (`Q1 extends P`) is read in the receiver's
+        // type when there is one (`this_param`): `A<int>().foo()` gives `Q1`
+        // = `int`; without a receiver it stays `dynamic`.
+        let receiver = self.this_param.is_some() && !self.class_by_tuple;
+        for (k, r) in self.bounds_instantiation(&params).into_iter().enumerate() {
             if k > 0 {
                 text.push(',');
             }
-            let d = self.ctx.table.param(*p);
-            let bound = d
-                .explicit
-                .then(|| self.type_recipe(d.bound))
-                .filter(|r| !r.variables);
-            text.push_str(bound.as_ref().map_or("D", |r| r.text.as_str()));
+            // Only the class's variables (`P<i>`) are read here; one of an
+            // enclosing function (`M<i>`) has no tuple at this entry.
+            if r.variables && (!receiver || r.text.contains('M')) {
+                text.push('D');
+            } else {
+                variables |= r.variables;
+                text.push_str(&r.text);
+            }
         }
         text.push('>');
         // A passed tuple is already an interned tuple of the method's arity
@@ -1298,10 +1320,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             else_block: b_bounds,
         });
         self.set_block(b_bounds);
-        let pattern = self.recipe_rti(&Recipe {
-            text,
-            variables: false,
-        });
+        let pattern = self.recipe_rti(&Recipe { text, variables });
         let b_bounds_end = self.current_block;
         self.terminate(Terminator::Branch(b_join));
         self.set_block(b_join);

@@ -2401,7 +2401,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                     // The typed entry's caller passed the type arguments the
                     // static type of the call requires (or none).
                     if typed {
-                        return b.tuple_or_bounds(fid, own);
+                        return b.tuple_or_bounds_of(fid, own, &recv);
                     }
                     // Type arguments of another arity: the receiver's
                     // `noSuchMethod`, as in the VM.
@@ -2457,7 +2457,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                         b.terminate(Terminator::Return(Some(r)));
                     }
                     b.set_block(b_ok);
-                    b.tuple_or_bounds(fid, own)
+                    b.tuple_or_bounds_of(fid, own, &recv)
                 });
                 b.check_entry_arguments_with(fid, &vals, typed);
                 if let Some(t) = &tuple
@@ -2470,6 +2470,46 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                         });
                     }
                     b.check_method_type_arguments(fid, &vals, Some(recv.clone()), t.clone());
+                }
+                // A method without type parameters called with type arguments
+                // (`(c as dynamic).m2<int>(…)`): the receiver's
+                // `noSuchMethod`, as in the VM.
+                if tuple.is_none() && !typed {
+                    let own = b.slot_tuple(&args, &desc);
+                    let passed = b.emit(
+                        Instruction::ICmp(ICmpOp::Ne, own, Operand::Constant(Constant::Int(0))),
+                        Type::I1,
+                    );
+                    let b_nsm = b.new_block();
+                    let b_ok = b.new_block();
+                    b.terminate(Terminator::CondBranch {
+                        cond: passed,
+                        then_block: b_nsm,
+                        else_block: b_ok,
+                    });
+                    b.set_block(b_nsm);
+                    let name = b.emit(
+                        Instruction::Const(Constant::String(ctx.symbol_name(f.name).to_string())),
+                        Type::Ref,
+                    );
+                    let r = b.emit_call_with_check(
+                        Instruction::CallRuntime {
+                            name: "dartforge_nsm_mismatch".to_string(),
+                            args: vec![
+                                (recv.clone(), Type::Ref),
+                                (name, Type::Ref),
+                                (Operand::Constant(Constant::Int(0)), Type::I64),
+                                (args.clone(), Type::Ptr),
+                                (desc.clone(), Type::Ptr),
+                            ],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    );
+                    if !b.is_terminated() {
+                        b.terminate(Terminator::Return(Some(r)));
+                    }
+                    b.set_block(b_ok);
                 }
                 let reprs: Vec<Type> = ctx.outline.functions[fid]
                     .parameters

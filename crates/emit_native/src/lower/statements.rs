@@ -173,9 +173,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         // A `late` keeps the state next to the value: the box.
                         ty = Type::Ref;
                     }
-                    let late_local = var_list.late
-                        && (var.initializer.is_none()
-                            || !self.cells.contains(&var.name.span.start));
+                    // A captured one keeps its state in the cell, and the
+                    // initializer runs on the first read, wherever it is.
+                    let late_local = var_list.late;
                     if var_list.const_
                         && let Some(init_id) = var.initializer
                         && let Some(k) = self.constant_key(ast, init_id, true)
@@ -367,9 +367,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             for var in &var_list.variables {
                                 let sym = var.name.sym;
                                 let ty = self.local_repr_of(var.name.span.start);
-                                let late_local = var_list.late
-                                    && (var.initializer.is_none()
-                                        || !self.cells.contains(&var.name.span.start));
+                                let late_local = var_list.late;
                                 let init_op = if late_local {
                                     Self::zero_value(ty)
                                 } else if let Some(init_id) = var.initializer {

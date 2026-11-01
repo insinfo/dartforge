@@ -78,6 +78,13 @@ struct Walk<'x, 'a> {
     discarded_set: HashSet<FunctionId>,
     /// Offsets of the `late` declarations.
     lates: HashSet<usize>,
+    /// The initializer of each `late` declaration that has one: a closure
+    /// that reads the variable may run it (the lazy initialization), so what
+    /// it reads is captured too.
+    late_inits: HashMap<usize, ExprId>,
+    /// The `late` initializers being walked from a closure (a recursive one
+    /// is walked once).
+    walking_late_inits: HashSet<usize>,
     /// Names from outside the root that are `late`.
     outside_lates: HashSet<SymbolId>,
     /// The identifier that is the target of the call being walked.
@@ -107,6 +114,8 @@ impl<'x, 'a> Walk<'x, 'a> {
             refs: Vec::new(),
             discarded_set: HashSet::new(),
             lates: HashSet::new(),
+            late_inits: HashMap::new(),
+            walking_late_inits: HashSet::new(),
             outside_lates: HashSet::new(),
             call_target: None,
             directs: None,
@@ -154,6 +163,15 @@ impl<'x, 'a> Walk<'x, 'a> {
                     self.discarded_set.extend(crossed.iter().flatten().copied());
                 }
                 self.use_declaration(d, writes, &crossed);
+                // A `late` read from a nested function may run its initializer
+                // there: what the initializer reads is captured as well.
+                if self.prof > d.prof
+                    && let Some(&init) = self.late_inits.get(&d.offset)
+                    && self.walking_late_inits.insert(d.offset)
+                {
+                    self.expr(init);
+                    self.walking_late_inits.remove(&d.offset);
+                }
             }
             None => {
                 if self.outside_lates.contains(&sym) {
@@ -241,10 +259,14 @@ impl<'x, 'a> Walk<'x, 'a> {
             self.declare(v.name);
             if list.late {
                 self.lates.insert(v.name.span.start);
+                if let Some(i) = v.initializer {
+                    self.late_inits.insert(v.name.span.start, i);
+                }
             }
             // Even without an explicit write, the initialization mark of a
-            // `late` without an initializer must be shared with the closure.
-            if list.late && v.initializer.is_none() {
+            // `late` must be shared with the closure (with an initializer, the
+            // closure may be the one that runs it).
+            if list.late {
                 self.assigned.insert(v.name.span.start);
             }
         }
@@ -799,6 +821,19 @@ pub fn free_set(
     }
     p.body(&f.body);
     (p.free_set, p.uses_this)
+}
+
+/// The free variables of the expression `e` (the initializer of a `late`
+/// local that a closure may run), in order of first reference.
+pub fn expression_free_set(
+    ctx: &Context,
+    unit: UnitId,
+    ast: &ast::Ast,
+    e: ExprId,
+) -> Vec<SymbolId> {
+    let mut p = Walk::new(ctx, unit, ast);
+    p.expr(e);
+    p.free_set
 }
 
 /// The names declared outside `body` and `exprs` that they write

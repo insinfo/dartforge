@@ -296,7 +296,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
                 (state, false)
             }
-            Mode::Cell(_) if init.is_none() => (self.local_cell(&local).expect("late cell"), true),
+            Mode::Cell(_) => (self.local_cell(&local).expect("late cell"), true),
             _ => return false,
         };
         let name = self.ctx.symbol_name(sym).to_string();
@@ -338,7 +338,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     fn define_late_state(&mut self, late: &LateLocal, state: i64) {
         if late.cell {
-            assert_eq!(state, 1, "captured late cell has no lazy initializer");
+            assert_eq!(
+                state, 1,
+                "a captured late local only records its initialization"
+            );
             self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_late_field_mark_initialized".to_string(),
@@ -384,7 +387,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 cell: true,
                 final_: l.final_,
                 name: l.name.clone(),
-                initializer: None,
+                // The closure may be the first to read it: it runs the
+                // initializer (its free variables are captured too).
+                initializer: l.initializer,
             }
         });
         self.insert_local(
@@ -479,11 +484,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Reads an already found local, in its representation.
     pub fn read_local(&mut self, local: &Local) -> Operand {
         if let Some(late) = &local.late {
+            // The initializer being lowered (a read of the variable inside its
+            // own initializer, also from a closure, is the recursive read):
+            // keyed by the initializer's position.
+            let guard = late.initializer.map(|(unit, init)| {
+                ((unit.0 as usize) << 40) | self.ctx.program.unit(unit).ast.expr(init).span.start
+            });
             if let Some((unit, init)) = late.initializer
-                && !local
-                    .offset
-                    .is_some_and(|off| self.late_initializers_in_lowering.contains(&off))
+                && !guard.is_some_and(|g| self.late_initializers_in_lowering.contains(&g))
             {
+                // As the VM: the initializer runs on every read before a value
+                // exists, also a reentrant one; whoever finishes first stores,
+                // and a `late final` that finds a value when its initializer
+                // returns throws ("has been assigned during initialization").
                 let state = self.read_late_state(late);
                 let empty = self.emit(
                     Instruction::ICmp(ICmpOp::Eq, state, Operand::Constant(Constant::Int(0))),
@@ -497,43 +510,47 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     else_block: b_verify,
                 });
                 self.set_block(b_init);
-                self.define_late_state(late, 2);
-                let b_fail = self.new_block();
-                self.exception_targets.push(b_fail);
-                if let Some(off) = local.offset {
-                    self.late_initializers_in_lowering.insert(off);
+                if let Some(g) = guard {
+                    self.late_initializers_in_lowering.insert(g);
                 }
                 let value = self.lower_expr_of(unit, init);
-                if let Some(off) = local.offset {
-                    self.late_initializers_in_lowering.remove(&off);
+                if let Some(g) = guard {
+                    self.late_initializers_in_lowering.remove(&g);
                 }
-                self.exception_targets.pop();
                 let value = self.coerce(value, local.ty);
-                let Mode::Memory(ptr) = &local.mode else {
-                    unreachable!("captured late rejected")
-                };
-                self.emit(
-                    Instruction::Store {
-                        ptr: ptr.clone(),
-                        val: value,
-                    },
-                    Type::Void,
-                );
+                if late.final_ && !self.is_terminated() {
+                    let now = self.read_late_state(late);
+                    let twice = self.emit(
+                        Instruction::ICmp(ICmpOp::Ne, now, Operand::Constant(Constant::Int(0))),
+                        Type::I1,
+                    );
+                    let b_twice = self.new_block();
+                    let b_store = self.new_block();
+                    self.terminate(Terminator::CondBranch {
+                        cond: twice,
+                        then_block: b_twice,
+                        else_block: b_store,
+                    });
+                    self.set_block(b_twice);
+                    self.throw_late_error(&late.name, 5);
+                    self.set_block(b_store);
+                }
+                if let Some(c) = self.local_cell(local) {
+                    self.emit(Instruction::CellSet { cell: c, value }, Type::Void);
+                } else {
+                    let Mode::Memory(ptr) = &local.mode else {
+                        unreachable!("late local without storage")
+                    };
+                    self.emit(
+                        Instruction::Store {
+                            ptr: ptr.clone(),
+                            val: value,
+                        },
+                        Type::Void,
+                    );
+                }
                 self.define_late_state(late, 1);
                 self.terminate(Terminator::Branch(b_verify));
-                self.set_block(b_fail);
-                self.define_late_state(late, 0);
-                // Forwards the exception to the outer `catch`/`finally` after
-                // restoring the cell to allow a new read attempt.
-                self.emit_call_with_check(
-                    Instruction::CallRuntime {
-                        name: "dartforge_exception_pending".to_string(),
-                        args: Vec::new(),
-                        ret_ty: Type::I8,
-                    },
-                    Type::I8,
-                );
-                self.terminate(Terminator::Unreachable);
                 self.set_block(b_verify);
             }
             let state = self.read_late_state(late);

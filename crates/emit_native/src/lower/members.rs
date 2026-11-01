@@ -2209,6 +2209,42 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         obj
     }
 
+    /// `A()` of a concrete class `cid` that no class of its chain gives a
+    /// constructor (`implicit_mixin_application`): the object, then what the
+    /// implicit default constructors run — the fields of the applied mixins
+    /// and of each superclass, from `cid` down (`call_super`).
+    pub fn instantiate_with_implicit_constructor(&mut self, cid: ClassId, span: Span) -> Operand {
+        let ty = self.creation_type.take();
+        let fields = layout(self.ctx, cid).len() + super::enums::layout_base(self.ctx, cid);
+        let obj = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_object_new".to_string(),
+                args: vec![
+                    (
+                        Operand::Constant(Constant::Int(i64::from(
+                            self.ctx.class_id_of(cid).unwrap_or(0),
+                        ))),
+                        Type::I64,
+                    ),
+                    (Operand::Constant(Constant::Int(fields as i64)), Type::I64),
+                ],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        );
+        if self.generic_class(cid)
+            && let Some(t) = ty
+        {
+            let r = self.type_rti(t);
+            self.define_rti(obj.clone(), r);
+        }
+        let saved = (self.this_param.replace(obj.clone()), self.finalizable_this);
+        self.finalizable_this = self.ctx.classify_finalizable_class(cid);
+        self.call_super(cid, None, Vec::new(), span);
+        (self.this_param, self.finalizable_this) = saved;
+        obj
+    }
+
     /// The forwarding constructors of the mixin applications from `of` to
     /// `until` (exclusive): each one initializes the fields of its mixins, from the
     /// last to the first, before the superclass constructor.

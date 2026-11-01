@@ -278,6 +278,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.creation_type = self.ctx.get_type_raw(self.unit_id, expr_id);
             return self.instantiate(ast, fid, &arguments.args, expr.span);
         }
+        // `A()` of a named mixin application whose superclasses declare no
+        // constructor (`class A = B with C;` over an `abstract class B`
+        // without one): the implicit default constructors.
+        if arguments.args.is_empty()
+            && let Some(c) = self.implicit_mixin_application(ast, *target)
+        {
+            self.creation_type = self.ctx.get_type_raw(self.unit_id, expr_id);
+            return self.instantiate_with_implicit_constructor(c, expr.span);
+        }
 
         // Method calls on an object / collection
         if let ExprKind::Property {
@@ -771,6 +780,45 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         };
         self.constructor_of(c, name)
+    }
+
+    /// The named mixin application `A` that `A()` creates when neither it nor
+    /// the classes it forwards to declare a constructor: the chain of
+    /// applications ends in a class without constructors (an abstract class,
+    /// which the element gives no synthetic one).
+    fn implicit_mixin_application(
+        &self,
+        ast: &ast::Ast,
+        target: ExprId,
+    ) -> Option<dartforge_elements::model::ClassId> {
+        use dartforge_elements::model::{ClassKind, Element};
+        let lib = self.ctx.program.unit(self.unit_id).library;
+        let binding = match &ast.expr(target).kind {
+            ExprKind::Identifier(n) => self.ctx.program.lookup(lib, n.sym),
+            ExprKind::Property { target, name, .. } => match &ast.expr(*target).kind {
+                ExprKind::Identifier(p) => self.ctx.program.lookup_prefixed(lib, p.sym, name.sym),
+                _ => None,
+            },
+            _ => None,
+        };
+        let Some(Element::Class(c)) = binding.and_then(|b| b.getter) else {
+            return None;
+        };
+        let class = &self.ctx.program.classes[c.0 as usize];
+        if class.kind != ClassKind::MixinApplication || class.modifiers.abstract_ {
+            return None;
+        }
+        let mut k = c;
+        loop {
+            let class = &self.ctx.program.classes[k.0 as usize];
+            if !class.constructors.is_empty() || !self.ctx.compiled_library(class.library) {
+                return None;
+            }
+            if class.kind != ClassKind::MixinApplication {
+                return Some(c);
+            }
+            k = class.supertype_class?;
+        }
     }
 
     /// The expression has a function type (or Function), or is a tear-off.

@@ -1898,6 +1898,32 @@ impl<'a> Engine<'a> {
                 },
                 _ => t,
             }
+        } else if self.e.program.class(t).kind == ClassKind::ExtensionType {
+            // Without the SDK (the native world): the representation's program
+            // class is the cone (a member of a class the extension type
+            // implements, `implements A, B`); an SDK representation is outside
+            // the world, so the selector stays unrestricted.
+            match self
+                .e
+                .program
+                .class(t)
+                .representation
+                .and_then(|v| self.e.outline.variables.get(v.0 as usize))
+                .and_then(|vt| vt.declared_type.or(vt.inferred))
+                .and_then(|ty| self.class_of_type(ty))
+                .filter(|&r| {
+                    !self
+                        .e
+                        .program
+                        .library(self.e.program.class(r).library)
+                        .is_sdk
+                }) {
+                Some(r) => r,
+                None => {
+                    self.new_selector(name);
+                    return;
+                }
+            }
         } else {
             t
         };
