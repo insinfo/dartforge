@@ -51,6 +51,9 @@ pub(crate) struct Query {
     pub bodies: BodyTypes,
     /// Scope captured by the probe, when requested and reached.
     pub scope: Option<ProbedScope>,
+    /// Why the last [`Query::swap_unit`] was refused by the elements (`None`
+    /// after a swap, or a refusal of this layer).
+    pub refused: Option<dartforge_elements::incremental::Refusal>,
 }
 
 impl Query {
@@ -88,6 +91,7 @@ impl Query {
             outline,
             bodies,
             scope,
+            refused: None,
         }
     }
 
@@ -99,7 +103,14 @@ impl Query {
     pub fn swap_unit(&mut self, u: UnitId, text: &str, mode: SwapMode) -> Option<Swap> {
         use dartforge_elements::incremental::{restore_unit, swap_unit};
         let speculative = matches!(mode, SwapMode::Speculative { .. });
-        let previous = swap_unit(&mut self.program, &mut self.names, u, text, speculative).ok()?;
+        self.refused = None;
+        let previous = match swap_unit(&mut self.program, &mut self.names, u, text, speculative) {
+            Ok(p) => p,
+            Err(refusal) => {
+                self.refused = Some(refusal);
+                return None;
+            }
+        };
         if !self.outline.remap_written_types(u, previous.type_map()) {
             restore_unit(&mut self.program, previous);
             return None;

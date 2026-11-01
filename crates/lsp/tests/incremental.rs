@@ -179,6 +179,13 @@ fn samples(text: &str) -> Vec<(u32, u32)> {
     if text.contains("lista.length") {
         v.push(position(text, "lista.length", 0, 6));
     }
+    // In signatures (a field's type and name, a method's name): the sentinel
+    // cannot be swapped in, and the retained analysis of the real text answers.
+    for (needle, delta) in [("String nome", 2), ("nome =", 2), ("int dobro", 6)] {
+        if text.contains(needle) {
+            v.push(position(text, needle, 0, delta));
+        }
+    }
     v
 }
 
