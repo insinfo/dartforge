@@ -852,6 +852,94 @@ que só a rodada de ciclos libera.
 * A função de descarte por classe só existe para as classes do programa alocadas Owned
   em linha; as do SDK seguem o mapa do cabeçalho.
 
+### 9.3 Caminho rápido para candidatos, corpos crus e escopos nativos (2026-11-01)
+
+Contadores temporários no runtime (por motivo de recusa da última liberação, por ponto de
+assentamento e por entrada da ABI) mediram o servidor `dart:io` no ARC real, por pedido:
+
+| | antes | depois |
+|---|---:|---:|
+| liberações que chegam ao runtime | 92 | 92 |
+| mortes no caminho rápido (`prompt_release_last`) | 35% | 100% |
+| recusadas por `CANDIDATE` | 62% | 0% |
+| recusadas por foto de escrita crua pendente | 3% | 0% |
+| fotos de escrita crua | ~66 | ~14 |
+| pontos de assentamento (completos) | 385 (96) | ~32 (13) |
+| escopos nativos | 300 | 250 |
+| `typed_target` com o *mutex* do registro | 45 | 0 (cache por thread) |
+
+**Por que o candidato era recusado.** Toda liberação que deixa um objeto acima de zero o põe no
+buffer de candidatos (Bacon–Rajan), e quase todo objeto de um pedido passa por isso antes de
+morrer. O caminho rápido recusava a palavra com `CANDIDATE`, mas o descarte geral já reusava a
+célula de um candidato de página de classe na hora (§9.1): a recusa só custava o caminho geral.
+Agora a morte é a mesma nos dois caminhos; só o candidato de região grande, cuja memória volta
+ao sistema, espera o buffer. A rodada de ciclos passou a semear só entradas cuja palavra ainda
+tem `CANDIDATE`: uma célula reusada (outro objeto, vivo) ou a segunda entrada do mesmo
+candidato não é semente, e a rodada não percorre o fecho de um objeto que ninguém decrementou.
+
+**Por que havia fotos.** `words_mut`, `bytes_mut` e `fresh_body` fotografavam também os blocos
+`RAW` (bytes de *typed data*, unidades de string), que não têm referência. A foto vazia ligava
+`SNAPSHOT` e deixava `arc.snapshots` não vazio: toda última liberação ia para o caminho geral e
+todo ponto de assentamento fazia o trabalho completo até o próximo. Um corpo `RAW` não tira
+mais foto; o `set_flags`, única troca de forma que transforma palavras cruas em referências,
+continua fotografando antes.
+
+**Escopos nativos.** O escopo existe para guardar os donos que as portas Dart devolvem durante um
+nativo. Fechar um escopo sem dono não precisa do heap (o próximo ponto de assentamento trata
+qualquer zero que o nativo deixou), e os ids vêm de blocos por thread. O *thunk* Owned de um
+nativo que nunca roda Dart (`effects.tsv`) não abre escopo nenhum. Sobram 250 escopos por
+pedido: nativos marcados `runs_dart` que só rodam Dart para construir um erro (leituras de
+*typed data*, `DartForge_list_get`, `DartForge_string_codeUnitAt`).
+
+**Outros:** o retain em linha registra o objeto novo do runtime (palavra zerada) sem chamar o
+runtime, `CYCLE_FREE` para corpo `RAW`, como `register_live_with`; o ponto de assentamento
+com só zeros a drenar e nada pendente drena e sai; os quadros observacionais são contados em
+vez de percorridos.
+
+**Medido e descartado:** `CYCLE_FREE` na alocação em linha de classes sem campo `Ref` e a
+eliminação de pares retain/release na mesma linha reta sem decremento no meio (Swift, "known
+safe"): nenhuma diferença mensurável no servidor.
+
+**Medidas** (contadores da thread do isolate, `load_keepalive` 4×8 por 4 s, máquina com carga
+48–60; mediana de 3 rodadas alternadas):
+
+| servidor | tracing | ARC real antes (`5dd38a71`) | ARC real agora (`cb4fef8e`) |
+|---|---:|---:|---:|
+| `dart:io`, instruções/pedido | 194 mil | 813 mil | 697 mil (−14%) |
+| `dart:io`, ciclos/pedido | 118 mil | 343 mil | 305 mil (−11%) |
+| cru, instruções/pedido | 123 mil | 361 mil | 277 mil (−23%) |
+| cru, ciclos/pedido | 56,5 mil | 121,6 mil | 107,5 mil (−12%) |
+| RSS (`dart:io` / cru) | 17,9 / 16,2 MB | 25,7 / 21,9 MB | 25,9 / 22,0 MB |
+
+Referências no mesmo servidor e rodada: modo rápido sem contagem (`DARTFORGE_ARC_TOKENS=virtual`)
+530 mil instruções por pedido; ARC simples 316 mil; com `DARTFORGE_ARC_CYCLES=never` o ARC
+real gasta ~25 mil instruções a menos (a rodada de ciclos), mas a amostragem põe ~20% do tempo do
+isolate na drenagem e na rodada: são faltas de cache, não instruções.
+
+**O lixo cíclico de um pedido** (classes dos mortos pela rodada, por pedido): 11 `_Closure`, 11
+contextos, 6 `_Future`, 6 `_HashMapEntry`, 5 `_List`, 4 `_AsyncCompleter`, 4 `_OneByteString`,
+3 `_SyncStreamController`, 3 `_GrowableList`, 2 `_HashMap`, 2 `_HttpHeaders` e um de cada
+`_HttpRequest`, `_HttpResponse`, `_HttpIncoming`, `_HttpOutgoing`, `_ControllerStream`,
+`_ControllerSubscription`, `_PendingEvents` e `_SimpleUri`. O grafo de um pedido do `dart:io` é
+um ciclo (pedido ↔ resposta, *streams* ↔ assinaturas, *futures* ↔ *closures*); no Swift isso
+seria um vazamento, aqui só a rodada o libera.
+
+**Testes novos:** `last_release_of_a_cycle_candidate_dies_on_the_fast_path` e
+`raw_writes_of_a_body_without_references_take_no_snapshot` (`heap::prompt_death_tests`),
+`typed_target_cache_forgets_a_removed_registration` (`arc_port_tests`) e
+`owned_thunk_of_a_native_that_never_runs_dart_opens_no_scope` (`optimize::arc::functions`).
+Validação: corpus nativo nos três modos ARC (normal, estresse, auditoria), harness do tracing
+nos três modos e testes de runtime e emit-native (seção de 01/11 do `ESTADO.md`).
+
+**Próximos passos, pela medida:**
+1. O código preparado sem contagem já custa 2,7× o tracing: quadros donos, ABI de listas e
+   campos, os 250 escopos que sobram. Separar no `effects.tsv` os nativos que só rodam Dart no
+   erro e abrir o escopo só nesse caminho.
+2. A rodada de ciclos sobre a palavra no objeto (marcas e contagem de *trial* no lugar, como no
+   algoritmo síncrono de Bacon–Rajan), sem o mapa handle→índice e o vetor de arestas: menos
+   memória tocada por objeto examinado.
+3. As escritas de globais (`set_global_root`: mapa e dois swaps por escrita).
+
 ## 5. Pendências
 
 O lowering registra nominalmente os retornos Ref de corpos tipados Dart

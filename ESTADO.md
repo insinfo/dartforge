@@ -17,6 +17,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | **`test`** / **`pub`** × `dart test` / `dart pub` | **não medido** | — | — |
 | **Wasm** × `dart2wasm` (Node 24) | **perde** 1,2–3× em alocação/árvores, JSON, strings e crivo (ganho de só 10–20% em 31/10 noite; o coletor pesa ~25% no JSON); **ganha** 2–8× em `list.add`, `list[i]` e `sort` | módulo **1,26–1,94 MB × 47–114 KB (17–27× maior**; era 2,2–2,7 MB, −28 a −42%); memória **2,3–3,4× menor**. Exceções nativas do Wasm (`exnref`) são o padrão: −2,6 a −4,5% de tamanho | 31/10 noite |
 | **AOT nativo** × `dart compile exe` | HTTP `dart:io`: **68–69,5 × 70,2 mil pedidos/s (97–99%)**; ciclos por pedido: tracing 66 mil × 70 mil (melhor), ARC real 205 mil (pior). Trees 12,4 × 11,9 ms; JSON 77,5 × 78 ms; strings 43 × 47 ms. Swift cru: 26 mil ciclos × nosso 38 mil. Compilar `new_sali/backend` com `--optimize` (macOS, objetos frios): **575 × 41 s de CPU (13,9×)**, relógio 589 × 78 s (~7,5×, máquina carregada); era ~1 410 s de CPU. Desenvolvimento frio: 177 s de CPU | servidor **4,7 × 5,6 MB**; hello 0,56×; `new_sali/backend` **37,0 × 26,5 MB (1,40× maior**; era 43,5 MB); File Explorer 19,9 × 12,3 MB (1,62×); RSS do servidor 17,5 × 17,2 MB (ARC real 23,8 MB) | 30–31/10 (compilação e tamanho do grande: 31/10) |
+| **ARC real** × tracing (mesmo servidor, `DARTFORGE_ARC_PREPARED=1 --memory arc`) | instruções por pedido: `dart:io` **697 × 194 mil (3,6×)**, cru **277 × 123 mil (2,3×)**; ciclos por pedido (carga ~50): `dart:io` 305 × 118 mil (2,6×), cru 107 × 56 mil (1,9×). Antes desta rodada: 813 e 361 mil instruções, 343 e 122 mil ciclos | RSS 25 MB × 18 MB (`dart:io`), 22 × 16 MB (cru) | 01/11 |
 
 ### Corretude
 
@@ -40,8 +41,97 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
 | Backend nativo (AOT e wasm): as 48 falhas restantes da suíte `tests/language` (de 88) | agente backend nativo |
 | AOT nativo: tempo de compilação de programa grande (13,9× a CPU do `dart compile exe`) e tamanho (1,40×) | agente AOT nativo (tempo e tamanho; seção de 31/10 abaixo) |
-| ARC real: 3× os ciclos do tracing no HTTP (205 × 66 mil por pedido no `dart:io`; Swift cru 26 mil) | agente ARC real (desde 31/10, noite) |
+| ARC real: 2,6× os ciclos do tracing no HTTP `dart:io` (era 3×); próximos passos na seção de 01/11 | agente ARC (desde 31/10, 19h) |
 | LSP: *outline* incremental (mudança de API), índice de nomes referenciados para `references`, `completion` dentro de corpo sem recarregar, memória das recargas da biblioteca | agente LSP (residente incremental por tecla concluído em 01/11) |
+
+## 01/11/2026: ARC real — candidatos morrem no caminho rápido, corpos crus sem foto, escopos nativos baratos
+
+Rodada sobre o ARC real (`DARTFORGE_ARC_PREPARED=1 --memory arc`), guiada por contadores
+temporários no runtime (removidos antes dos commits) e por `sample`. Detalhes em
+`docs/ARC-IMPLEMENTACAO.md` §9.3. Commits `062faf70`, `ca8dda78`, `fbd9ef19` e `cb4fef8e`.
+
+**O que os contadores mostraram no servidor `dart:io`** (por pedido): 92 liberações chegam
+ao runtime, e só 35% morriam no caminho rápido — 62% eram recusadas por serem candidatas a
+ciclo e 3% por uma foto de escrita crua pendente. Os pontos de assentamento eram 385 (96
+completos), e 285 escopos nativos abriam e fechavam. Cada pedido deixa uns 66 objetos de
+lixo cíclico (11 `_Closure` e 11 contextos, 6 `_Future`, 6 `_HashMapEntry`, 5 `_List`, 4
+`_AsyncCompleter`, 3 `_SyncStreamController`, 2 `_HttpHeaders`, e o `_HttpRequest`, o
+`_HttpResponse` e o `_HttpIncoming` do pedido): a rodada de ciclos é necessária.
+
+**O que mudou:**
+- **Candidato a ciclo morre no caminho rápido.** O `prompt_release_last` aceita a palavra com
+  `CANDIDATE` numa página de classe; a célula é reusada na hora e a entrada que sobra no
+  buffer não nomeia ninguém. A rodada de ciclos só usa como semente a entrada cuja palavra
+  ainda tem `CANDIDATE` (antes, a célula reusada virava semente e a rodada percorria o fecho
+  de um objeto vivo). Candidato de região grande continua no caminho geral. Recusas: 62% → 0%.
+- **Corpo `RAW` sem foto.** Bytes e unidades de código escritos crus (`words_mut`,
+  `bytes_mut`, `fresh_body`) não mudam contagem nenhuma, e a foto deixava toda liberação e
+  todo assentamento no caminho geral até o próximo assentamento. O `set_flags` continua
+  fotografando, porque a troca de forma transforma palavras cruas em referências. Fotos por
+  pedido: ~66 → ~14; assentamentos completos: 96 → 13.
+- **Escopo nativo vazio barato.** O fechamento sem dono (o caso comum) não toca o heap; os ids
+  saem de blocos por thread, sem atômico por escopo. O *thunk* Owned de um nativo que nunca
+  roda Dart (`effects.tsv`) não abre escopo nenhum, e sem o teste de exceção pendente quando
+  ele não lança.
+- **Alvo de closure tipada** checado no registro uma vez por thread e época, sem o *mutex* do
+  registro a cada chamada (45 por pedido).
+- **Registro em linha do objeto novo:** o retain em linha registra a palavra zerada (objeto
+  novo do runtime) com a primeira ocorrência, `CYCLE_FREE` quando o corpo é `RAW`.
+- **Assentamento simples:** só zeros a drenar e nada pendente drena direto e sai.
+- Quadros observacionais contados em vez de percorridos a cada última liberação.
+
+**Medido e descartado:** `CYCLE_FREE` na alocação em linha de classes sem campo `Ref`
+(nenhuma diferença: quase não há tais objetos no servidor) e a eliminação de pares
+retain/release na mesma linha reta sem decremento no meio (nenhuma diferença: a preparação já
+não deixa esses pares).
+
+**Medidas** (Mac mini M4, contadores da thread do isolate, `load_keepalive` 4×8 por 4 s,
+carga da máquina 48–60 com outros agentes; mediana de 3 rodadas alternadas tracing, ARC real
+antes e depois; o binário tracing não muda nesta rodada):
+
+| servidor | tracing | ARC real antes (`5dd38a71`) | ARC real agora (`cb4fef8e`) |
+|---|---:|---:|---:|
+| `dart:io`, instruções/pedido | 194 mil | 813 mil | **697 mil (−14%)** |
+| `dart:io`, ciclos/pedido | 118 mil | 343 mil | **305 mil (−11%)** |
+| `dart:io`, RSS | 17,9 MB | 25,7 MB | 25,9 MB |
+| cru, instruções/pedido | 123 mil | 361 mil | **277 mil (−23%)** |
+| cru, ciclos/pedido | 56,5 mil | 121,6 mil | **107,5 mil (−12%)** |
+| cru, RSS | 16,2 MB | 21,9 MB | 22,0 MB |
+
+Os ciclos absolutos estão inflados pela carga (a medida de 30/10, com a máquina quieta, dava
+66 mil no tracing e 205 mil no ARC real); a razão vale. Para comparar: o modo rápido sem
+contagem (`DARTFORGE_ARC_TOKENS=virtual`) gasta 530 mil instruções por pedido e o ARC simples
+316 mil, no mesmo servidor e na mesma rodada.
+
+**Onde está o resto** (o ARC real ainda gasta 3,6× as instruções do tracing no `dart:io`):
+- **O código preparado em si:** o modo rápido, sem contagem nenhuma, já custa 2,7× o tracing:
+  quadros donos, chamadas da ABI de listas e campos e os 250 escopos nativos por pedido que
+  sobram (nativos que podem rodar Dart, quase todos só no caminho de erro: leituras de
+  *typed data*, `list_get`, `codeUnitAt`). Passo seguinte: marcar no `effects.tsv` os que só
+  rodam Dart para construir o erro e abrir o escopo só nesse caminho.
+- **A drenagem e a rodada de ciclos** dominam o tempo de amostragem (~20% do isolate, faltas de
+  cache) mais do que as instruções (~25 mil por pedido medidas com `DARTFORGE_ARC_CYCLES=never`).
+  Passo seguinte: a rodada sobre a palavra no objeto (*trial deletion* no lugar, sem o mapa
+  handle→índice).
+- **Escritas de globais** (`dartforge_gc_global_root`: mapa e dois swaps por escrita, ~2,5%).
+
+**Validação** (worktree do agente, carga 40–100):
+- corpus `corpus/native` (`arcmodes.sh`), cada programa normal, com estresse
+  (`DARTFORGE_GC_STRESS=1`) e com auditoria (`DARTFORGE_ARC_CHECK=1`): ARC real 154/154 em
+  `fbd9ef19` e em `cb4fef8e`; ARC simples e modo rápido 154/154 em `cb4fef8e`. O
+  `168_uso_de_valor_void_erro` é um teste de erro de compilação, igual ao `dart run`;
+- harness `dartforge-differential --native` (tracing, o padrão): dev, `--optimize` e
+  `--optimize --gc-stress`, **163/163** cada (`fbd9ef19`; o `cb4fef8e` só muda o assentamento
+  do ARC real);
+- os passos ARC do job macOS do CI: as 8 provas `prove-arc-aot.py` (`arc_native_port_owned`,
+  `arc_source_return`, `arc_zeroed_instance`, `arc_local_fields`, `arc_field_allocation`,
+  `arc_field_keepalive`, `arc_keepalive_pending`, `arc_loop_cleanup`), os campos tipados,
+  o *resume* Itanium e o desenrolar estrangeiro com heap real: 11/11;
+- `cargo test --release -p dartforge-runtime`: 339 + integração + 93 doc-tests, sem falha;
+  `-p dartforge-emit-native --features embedded-llvm`: 1048 + integração, sem falha;
+- clippy `-D warnings` em `dartforge-runtime` e `dartforge-emit-native` (`--all-targets`) e
+  `cargo fmt` limpos (o único diff do `cargo fmt --check` é de outro agente, em
+  `crates/emit_js_production/tests/shared_rule_bodies.rs`).
 
 ## 01/11/2026: backend nativo — segunda rodada nas falhas da suíte `tests/language`
 
