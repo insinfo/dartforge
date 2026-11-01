@@ -207,6 +207,17 @@ pendente (A0) não depende do motor; o modelo por tabelas (A1, `invoke`/`landing
 vira EH Wasm com `exnref`, que o LLVM 22 já gera (W0). Medir as duas no W3 e ficar
 com a mais rápida, sem `setjmp/longjmp`. `throw`, `catch`, `rethrow` e `finally`
 preservam ordem de efeitos e limpeza.
+
+**Feito (31/10/2026):** `--exceptions tables` no wasm é EH Wasm nativo com `exnref` e é o
+padrão do `compile-wasm` (`--exceptions check` mantém o A0). Cada pouso é um funclet
+catch-all (`catchswitch`/`catchpad [ptr null]`/`catchret`) que o `WasmEHPrepare` baixa sem
+personalidade; o handler roda depois do `catchret` e restaura o topo da pilha-sombra e o
+orçamento da pilha do motor. O `throw` é `llvm.wasm.throw` com a tag `__cpp_exception`,
+definida num objeto de 99 bytes passado ao `wasm-ld` (`linker_wasm::EXCEPTION_TAG_OBJECT`);
+a exceção em si continua sendo a pendente do runtime, e os portos (`df.port.*`) a devolvem
+pendente ao Rust. O LTO usa `-wasm-use-legacy-eh=false`: só `try_table`/`throw`/`throw_ref`.
+Medição em ESTADO.md (31/10/2026, noite) e no §6.1.
+
 Panic do runtime, trap Wasm, erro retornado pelo host e exceção Dart têm caminhos
 distintos. Não declarar um trap irrecuperável como exceção Dart capturável.
 
@@ -678,6 +689,33 @@ um engine com throughput aquecido de outro.
 Não prometer ganho de velocidade ou tamanho antes dessas medições. Otimizações
 de layout/GC, LTO, inlining, tabelas e RTI só entram após W3–W5, com ablação,
 correção sob GC e inspeção de features da saída final.
+
+### 6.1 Tamanho e velocidade contra o dart2wasm (31/10/2026)
+
+Medidos com `compile-wasm` (produção) nos programas de `bench/performance` e nas árvores
+binárias de `bench/comparison`; detalhes, passo a passo e método em ESTADO.md (31/10/2026,
+noite).
+
+| programa | antes (`91aa751d`) | depois (`tables`) | dart2wasm |
+|---|---:|---:|---:|
+| hello | 2 188 280 | 1 258 409 | 47 001 |
+| árvores | 2 211 639 | 1 307 255 | 48 482 |
+| JSON | 2 703 407 | 1 942 692 | 113 505 |
+| strings | 2 279 570 | 1 353 205 | 61 453 |
+| objetos temporários | 2 216 369 | 1 311 415 | 48 597 |
+| coleções | 2 543 236 | 1 603 143 | 67 496 |
+
+O que tirou os bytes: só os ajudantes `_dartforge*` que o runtime procura pelo nome são
+registrados; as tabelas das listas tipadas e SIMD do `df.prepare_isolate` só ficam com um
+produtor vivo (`; df.ref-when`, na poda da ligação); o runtime wasm32 entra como bitcode no
+LTO; o `Error._stringToSafeString` do overlay wasm não usa o `json.encode`; e as exceções Wasm
+nativas tiram a verificação após cada chamada. Na velocidade (contexto por global, área fixa,
+sem verificação de pilha nas folhas), o ganho foi de 10–20% (mediana do tempo de CPU, com a
+máquina carregada) em árvores, JSON pequeno, crivo e mapas; o dart2wasm segue 1,2–3× à frente
+em alocação, árvores, JSON e strings. Próximos passos: o
+`noSuchMethod` raiz (mantém `NoSuchMethodError`, `_InvocationMirror` e o `LinkedHashMap` em
+todo módulo), a desvirtualização de fábricas do SDK (`List.filled`), o custo de marcação do
+coletor no JSON e uma medição de velocidade com a máquina livre.
 
 ## 7. Riscos e decisões que bloqueiam os marcos
 

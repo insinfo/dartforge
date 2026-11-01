@@ -15,7 +15,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | **LSP** × servidor de análise | por tecla em projeto grande: 175–383 ms. *Hover*/*completion* ~0,9 s no `new_sali/frontend`. O servidor oficial **não foi medido** nos mesmos projetos. Pedido a pedido (13/10): *references* 2,5 × 3,1 ms, *completion* 8,8 × 6,0 ms | **27–664 MiB × 737–1.402 MiB** (`new_sali`) | 31/10 e 13/10 |
 | **`analyze`** × `dart analyze` | `new_sali/backend`: ~5 s × 21,7 s frio (2,6 s com cache); `format`: **0,42 × 1,55 s** | — | 13–14/10 |
 | **`test`** / **`pub`** × `dart test` / `dart pub` | **não medido** | — | — |
-| **Wasm** × `dart2wasm` (Node 24) | **perde** em alocação/árvores (26 × 15 ms), JSON (95 × 51 ms), strings (39 × 24 ms) e crivo (20 × 7 ms); **ganha** em `list.add` (2 × 18 ms) e `sort` (71 × 113 ms) | módulo **2,2–2,7 MB × 49–113 KB (20–50× maior)**; memória **2,3–3,4× menor** | 31/10 |
+| **Wasm** × `dart2wasm` (Node 24) | **perde** 1,2–3× em alocação/árvores, JSON, strings e crivo (ganho de só 10–20% em 31/10 noite; o coletor pesa ~25% no JSON); **ganha** 2–8× em `list.add`, `list[i]` e `sort` | módulo **1,26–1,94 MB × 47–114 KB (17–27× maior**; era 2,2–2,7 MB, −28 a −42%); memória **2,3–3,4× menor**. Exceções nativas do Wasm (`exnref`) são o padrão: −2,6 a −4,5% de tamanho | 31/10 noite |
 | **AOT nativo** × `dart compile exe` | HTTP `dart:io`: **68–69,5 × 70,2 mil pedidos/s (97–99%)**; ciclos por pedido: tracing 66 mil × 70 mil (melhor), ARC real 205 mil (pior). Trees 12,4 × 11,9 ms; JSON 77,5 × 78 ms; strings 43 × 47 ms. Swift cru: 26 mil ciclos × nosso 38 mil. Compilar programa grande com `--optimize`: **5,7–6,8× mais lento** (340–405 × 58–60 s) | servidor **4,7 × 5,6 MB**; hello 0,56×; `new_sali/backend` **37,8 × 26,5 MB (1,4× maior)**; RSS do servidor 17,5 × 17,2 MB (ARC real 23,8 MB) | 30–31/10 (compilação: ~06/10) |
 
 ### Corretude
@@ -33,7 +33,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 
 | Frente | Agente |
 |---|---|
-| Wasm: tamanho do módulo e velocidade em alocação, JSON e strings | agente wasm |
+| Wasm: tamanho (ainda 17–27×) e velocidade (coletor, `List<bool>.filled` não desvirtualizado) | rodada de 31/10 concluída; a próxima fica para quando a máquina estiver mais livre (a suíte wasm completa também precisa rodar) |
 | `analyze`: falsos positivos do verificador de tipos (107 → 20) | concluído em 31/10; os 12 do *parser* (`augment`) ficam para o *parser* |
 | JS dev: subir de um checkout limpo sem `build_runner`; edição de template | concluído em 31/10 (29,6 × 212,5 s; template 3,3 × 7,6 s) |
 | JS produção: `jsonEncode`, `async_await` e `map_str_int` no máximo iguais ao `dart2js -O4`; gzip dos programas pequenos abaixo dele (`collatz`, `Set<int>` e `list_methods` já resolvidos) | agente JS produção (desde 31/10, 16h) |
@@ -174,6 +174,161 @@ estágio e a recarga das unidades geradas (0,1–0,3 s numa edição de
 template); a edição de corpo do `new_sali`, que regenera o fecho de quem
 importa o *barrel* (216 arquivos, ~1 s), poderia cortar pelo hash de API
 mais o texto inteiro das anotações.
+
+## 31/10/2026, noite: wasm — módulos 28–42% menores e exceções Wasm nativas por padrão
+
+Continuação da seção "wasm — suíte de linguagem, modos do runtime e desempenho" (abaixo):
+a meta é o tamanho e a velocidade do dart2wasm sem WasmGC. "Antes" é o compilador de
+`91aa751d` (compilado de novo para medir); os módulos são os de `compile-wasm` (produção,
+sem a seção de nomes).
+
+**Para onde iam os bytes.** O hello world tinha 2,19 MB: 2 783 funções, 2,22 MB de código e
+228 KB de dados. Com `DARTFORGE_KEEP_SYMBOLS=1` (agora também no wasm: fica a seção de
+nomes, sem o DWARF) e o `DARTFORGE_WHY`, quase tudo vinha de três raízes que nenhum programa
+pedia:
+- o `df.register.<biblioteca>` registrava **todo** `_dartforge*` do SDK como ajudante do
+  runtime, inclusive os que só o código gerado chama direto (`_dartforgeLoadLibrary` puxava
+  `Future`, `Timer` e `Duration`; `_dartforgeRebuildCopiedIndex`, os conjuntos);
+- o `df.prepare_isolate` registrava as tabelas de todas as classes de valores do runtime
+  (as 14 listas tipadas e os 3 SIMD), com os `setRange`/`_slowSetRange`/`skip`… de cada uma;
+- o `Error.safeToString` de uma string é `json.encode` (VM e dart2wasm): o
+  `NoSuchMethodError` e os erros de argumento — vivos em todo programa pelo `noSuchMethod`
+  do runtime — mantinham o codificador JSON inteiro (e, por ele, o `Uint8List` e o
+  `double.toString`).
+
+O que mudou, medido passo a passo no hello (bytes do módulo):
+
+| passo | hello |
+|---|---:|
+| antes (`91aa751d`) | 2 188 280 |
+| só os ajudantes que o runtime procura pelo nome (`RUNTIME_HELPERS`; um teste compara com os nomes nas fontes do runtime) | 1 801 302 |
+| tabelas das listas tipadas e SIMD só com um produtor vivo (`; df.ref-when` na poda da ligação) | 1 553 927 |
+| contexto por global, área fixa, sem verificação de pilha nas folhas (velocidade) | 1 550 474 |
+| runtime wasm32 como bitcode no LTO do módulo (`-Clinker-plugin-lto`) | 1 491 136 |
+| exceções Wasm nativas (`--exceptions tables`) | 1 443 479 |
+| `Error._stringToSafeString` escrito à mão no overlay wasm (mesmo texto do `json.encode`) | 1 258 284 |
+| porto do `Function.apply` (correção, abaixo) | **1 258 409** |
+
+Medido e descartado: `--lto-O3` (o mesmo binário que `-O2`), `-enable-merge-functions`
+(−0,6%), `-O2` do `wasm-ld` (nada); `opt-level="s"` no runtime tira mais 60 KB (−3,9%), mas
+otimiza para tamanho também o coletor e os nativos dos kernels; não medi a velocidade com a
+máquina carregada e não entrou (o nativo já o tinha recusado, docs/PLANO-TAMANHO-DESEMPENHO.md). O `wasm-opt -Oz` do binaryen (o do SDK do
+Dart) tiraria ~19%, mas inlina e muda os quadros que o orçamento da pilha do motor
+(`wasm_frames.rs`) mede depois da ligação; não entrou no pipeline.
+
+Tamanho de cada programa (bytes, e com `gzip -9`):
+
+| programa | antes | depois, `check` | depois, padrão (`tables`) | dart2wasm |
+|---|---:|---:|---:|---:|
+| hello | 2 188 280 (554 229) | 1 292 425 (385 546) | **1 258 409** (378 291) | 47 001 (15 338) |
+| árvores | 2 211 639 (560 277) | 1 344 610 (398 314) | **1 307 255** (391 125) | 48 482 (15 878) |
+| JSON | 2 703 407 (689 232) | 2 033 074 (571 349) | **1 942 692** (555 802) | 113 505 (38 499) |
+| strings | 2 279 570 (572 674) | 1 394 538 (408 198) | **1 353 205** (401 357) | 61 453 (19 861) |
+| objetos temporários | 2 216 369 (561 258) | 1 349 315 (399 561) | **1 311 415** (392 405) | 48 597 (15 917) |
+| coleções | 2 543 236 (619 271) | 1 663 858 (457 698) | **1 603 143** (445 967) | 67 496 (21 318) |
+
+De 28% (JSON) a 42% (hello) menores; o dart2wasm continua 17–27× menor. O que sobra no
+hello (1,26 MB): ~560 KB do SDK (o `noSuchMethod` raiz mantém `NoSuchMethodError`,
+`_InvocationMirror` e o `LinkedHashMap`: `dart:core` 246 KB e `_compact_hash` 150 KB), ~400 KB
+do runtime Rust (coletor, RTI, nativos, `hashbrown`, formatação de `double`, a tabela RTI
+comprimida e o `miniz_oxide` que a lê) e 194 KB de dados.
+
+**Velocidade.** Três mudanças no código gerado do wasm:
+- o prólogo lia o contexto chamando `dartforge_context` em toda função; agora lê o endereço
+  que o runtime publica em `dartforge_wasm_context` (`sdk_module::context_in_wasm_global`,
+  uma carga invariante);
+- a área de globais usa a tabela fixa da produção nativa (`GET_AREA_FIXED`), que o wasm não
+  usava;
+- só as funções que podem chamar Dart (`deepens_stack`) verificam a pilha e o orçamento da
+  pilha do motor; as folhas cabem na reserva de 160 KB (`ENGINE_RESERVE`).
+
+Mais o runtime no LTO e as exceções nativas (abaixo). Medida: Node 24, três rodadas
+alternadas dos quatro módulos (o "antes" compilado de novo de `91aa751d`, o `check`, o padrão
+e o dart2wasm), **tempo de CPU da thread principal** (`performance.now` trocado por
+`process.threadCpuUsage`, `--import` de um módulo de 10 linhas), em ms: a **mediana** das
+iterações quentes e, entre parênteses, o mínimo. `uptime` ao fim: carga 117 / 114 / 83 (seis
+agentes na máquina de 10 núcleos); mesmo em CPU, diferenças abaixo de ~10–15% são ruído.
+
+| kernel | antes | `check` | padrão (`tables`) | dart2wasm |
+|---|---:|---:|---:|---:|
+| árvores binárias | 42,5 (30,0) | 40,1 (26,5) | 37,0 (27,9) | 31,7 (15,7) |
+| JSON decode pequeno | 48,3 (38,9) | 45,7 (31,4) | 43,0 (34,4) | 24,5 (16,3) |
+| JSON encode pequeno | 51,6 (43,3) | 44,6 (34,3) | 46,9 (39,0) | 30,0 (21,0) |
+| JSON decode grande | 165,9 (157,7) | 174,5 (144,1) | 167,4 (146,4) | 90,9 (73,8) |
+| JSON encode grande | 176,6 (154,5) | 155,0 (151,8) | 162,7 (148,5) | 118,2 (104,1) |
+| JSON `utf8` | 113,2 (102,8) | 107,0 (85,8) | 106,1 (92,4) | 52,8 (38,5) |
+| strings build | 64,3 (51,5) | 60,0 (49,4) | 63,6 (45,8) | 37,5 (27,4) |
+| strings hashes | 26,0 (16,5) | 23,6 (16,6) | 21,9 (16,8) | 19,7 (15,4) |
+| objetos temporários (`points`) | 13,1 (9,8) | 15,4 (10,7) | 14,8 (10,0) | 4,8 (4,2) |
+| crivo | 31,3 (22,3) | 20,8 (16,2) | 24,6 (17,7) | 14,0 (8,1) |
+| `list.add` | 3,6 (2,3) | 4,2 (2,4) | 2,5 (2,3) | 21,0 (7,5) |
+| `list[i]` | 3,7 (2,6) | 3,1 (2,6) | 2,7 (2,5) | 13,0 (7,8) |
+| `sort` | 110,1 (91,2) | 108,8 (91,8) | 111,7 (95,7) | 234,1 (213,0) |
+| mapa `int` | 74,7 (32,1) | 60,9 (38,7) | 61,5 (38,1) | 60,5 (34,7) |
+| conjunto de strings | 25,4 (15,6) | 20,8 (14,7) | 21,2 (16,6) | 19,7 (11,4) |
+
+Pela mediana, o padrão ganha 10–20% em árvores, JSON pequeno, crivo, mapa e conjunto de
+strings; o resto fica dentro do ruído (os objetos temporários, 13% pior pela mediana, empatam
+pelo mínimo). O dart2wasm continua 1,2–3× mais rápido em alocação, árvores, JSON e strings
+(e o DartForge 2–8× em `list.add`, `list[i]` e `sort`). O perfil (`node --cpu-prof` com a seção de
+nomes) mostra onde está o resto: nas árvores, 74% no código gerado de `tree`/`count` e 17% no
+coletor; no JSON, ~25% no coletor (`mark_pending` sozinho 14%); no crivo, o
+`List<bool>.filled` não é desvirtualizado (o dart2wasm sabe pelo TFA que é um `_List` e
+lê/grava direto). Ajustar o coletor pelas opções (`DARTFORGE_GC_GROWTH`,
+`DARTFORGE_GC_YOUNG_KB`) não mudou nada acima do ruído.
+
+**`--exceptions tables` no wasm: exceções Wasm nativas (`exnref`).** O modo por tabelas do
+nativo (`invoke`/`landingpad`, `optimize/tables.rs`) agora existe no wasm e é o padrão do
+`compile-wasm` (`target::WASM_TABLES_BY_DEFAULT`; `--exceptions check` volta ao outro):
+- cada pouso é um funclet catch-all (`catchswitch`/`catchpad [ptr null]`/`catchret`,
+  `llvm/mod.rs`, `wasm_catch_all`), que o `WasmEHPrepare` do LLVM baixa sem chamar a
+  personalidade; o código do handler fica depois do `catchret`, fora do funclet. O pouso
+  restaura o topo da pilha-sombra (como no nativo) e também o orçamento da pilha do motor,
+  que os quadros atravessados não devolveram;
+- `@df.throw` é `llvm.wasm.throw(0, null)` com a tag C++: a exceção continua sendo a
+  pendente do runtime. A tag `__cpp_exception` vem de um objeto de 99 bytes que o
+  `wasm-ld` recebe (`linker_wasm::EXCEPTION_TAG_OBJECT`; um teste confere que é o que o
+  Clang monta): definida num `asm` de bitcode, o LTO a tomava por função;
+- objetos com `-fwasm-exceptions -mllvm -wasm-use-legacy-eh=false` e o LTO do `wasm-ld` com
+  `+exception-handling`, `-wasm-enable-eh`, `-exception-model=wasm` e
+  `-wasm-use-legacy-eh=false`: só `try_table`/`throw`/`throw_ref`, que o
+  `dartforge-wasm-gate` aceita (ele recusa o EH legado);
+- os portos (`df.port.*`) e a entrada de callback FFI pousam do mesmo jeito; o `resume` de
+  uma limpeza vira um novo `throw`. O `Function.apply` do wasm chamava a entrada uniforme
+  da closure direto (a chamada indireta do wasm confere o tipo exato, e o porto de aridade 3
+  não serve); com exceções nativas, uma closure que lança desenrolava os quadros do runtime
+  (`corpus/wasm_interop/05`: o `with_roots` do `dartforge_js_call` achava o topo errado).
+  Agora há um porto próprio, `@df.port.apply` (índice 16 de `DART_PORTS`).
+- Defeito achado e corrigido no caminho: no modo por tabelas o prólogo não debitava o quadro
+  do orçamento do motor (o `return` antecipado de `emit_stack_check`), e uma recursão estourava
+  a pilha do V8/wasmtime em vez de lançar `StackOverflowError`.
+- Também no nativo: o passo de tabelas troca por 0 a verificação de pendência onde nada pode
+  estar pendente (depois de uma chamada Dart que só desenrola, quando o `?.` juntou o
+  resultado antes da verificação) — no `Node.count` das árvores sobravam duas por chamada.
+
+O Node 24 (V8 13.6) roda `exnref` sem flag; o `dartforge-wasm-run` (wasmtime 50) também.
+`tables` contra `check`: o módulo fica 2,6–4,5% menor; a velocidade empata dentro do ruído
+desta medição (pelo mínimo, `check` à frente em árvores e JSON pequeno, `tables` em strings
+e JSON grande; pela mediana, o contrário em árvores). Fica o `tables`, pelo tamanho e
+porque o caminho normal de toda chamada Dart deixa de ler o estado pendente; a comparação
+de velocidade precisa ser refeita com a máquina livre.
+
+**Correção.** Harness `--wasm` (corpus/native, hoje 163 programas): **163/163** no padrão
+(`tables`) e **163/163** com `DARTFORGE_EXCEPTIONS=check` (com `--exec-limit 60`: com o limite
+de 5 s, 27 programas estouravam o tempo pela carga da máquina, não por erro). Os 13 de
+`corpus/wasm_interop` saem iguais nos dois modos no Node. Como os ajudantes e o passo de
+tabelas também mudaram no nativo: harness `--native --optimize` **163/163** e, com
+`DARTFORGE_EXCEPTIONS=tables`, **163/163**. Testes do `emit_native` tocados (poda, ajudantes,
+tag, verificação limpa, ligação wasm) e `clippy -D warnings` de `emit_native`, `runtime` e `cli`
+passam. Suíte
+`tests/language` no wasm: com a carga da máquina (50–130) e 2 jobs, a suíte inteira levaria
+~11 h (4 programas por minuto), então rodei os **555 programas de maior risco** para estas
+mudanças — `exception/`, `async*/`, `await/`, `no_such_method/`, `function/`, `call/`,
+`closure/`, `deferred/`, `string/`, `unsorted/` e todo nome com `throw`, `rethrow`, `finally`,
+`try`, `catch`, `stack`, `apply` ou `error` (resultado `wasm-ae98-risk`). Contra o
+`wasm-final` de 31/10 nos mesmos programas: **537/555 com paridade antes e depois, nenhuma
+regressão** (e nenhuma correção nova). A suíte inteira fica para uma janela com a máquina
+livre.
 
 ## 31/10/2026: verificador de tipos contra o `dart analyze`, `compareTo` do SDK e CI do macOS
 
