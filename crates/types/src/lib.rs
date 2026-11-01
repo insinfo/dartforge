@@ -128,6 +128,20 @@ pub fn resolve_outline_with_units(
     OutlineResolver::new(program, interner, table, core).resolve_all_with_units()
 }
 
+/// Drops from `table` every type that neither `outline` nor `core` reaches
+/// (nor the type parameters' bounds), and renumbers what they hold: the
+/// resident's table, kept across loads over a cut, would otherwise keep the
+/// outlines of every earlier load. `outline` is what stays (cut with
+/// `OutlineTypes::truncate`).
+pub fn collect_types(table: &mut TypeTable, outline: &mut OutlineTypes, core: &mut CoreTypes) {
+    let mut roots: Vec<TypeId> = Vec::new();
+    outline.for_each_type(&mut |t| roots.push(*t));
+    core.for_each_type(&mut |t| roots.push(*t));
+    let remap = table.collect(roots);
+    outline.for_each_type(&mut |t| *t = remap.get(*t));
+    core.for_each_type(&mut |t| *t = remap.get(*t));
+}
+
 /// Like [`resolve_outline_with_units`], resolving only the elements after
 /// `at` over `prefix`, the outline an earlier resolution with the same `table`
 /// gave a program with the same libraries before `at` (which depend on

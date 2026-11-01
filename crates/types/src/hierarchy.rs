@@ -45,6 +45,18 @@ impl ClassHierarchy {
         }
     }
 
+    /// Every type the hierarchy holds ([`crate::TypeTable::collect`]).
+    pub fn for_each_type(&mut self, f: &mut dyn FnMut(&mut TypeId)) {
+        for d in self.classes.iter_mut().flatten() {
+            for t in d.supertypes.values_mut() {
+                f(t);
+            }
+            for t in &mut d.all_supertypes {
+                f(t);
+            }
+        }
+    }
+
     /// Keeps the first `classes` classes (a frozen prefix, which depends on
     /// nothing after it) and makes room for `total`.
     pub fn truncate(&mut self, classes: usize, total: usize) {

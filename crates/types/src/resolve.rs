@@ -139,6 +139,53 @@ pub struct OutlineTypes {
 }
 
 impl OutlineTypes {
+    /// Every type the outline holds ([`crate::TypeTable::collect`]).
+    pub fn for_each_type(&mut self, f: &mut dyn FnMut(&mut TypeId)) {
+        for d in &mut self.functions {
+            f(&mut d.signature);
+            f(&mut d.return_type);
+            for p in d.parameters.iter_mut() {
+                f(&mut p.ty);
+            }
+        }
+        for d in &mut self.variables {
+            if let Some(t) = &mut d.declared_type {
+                f(t);
+            }
+            if let Some(t) = &mut d.inferred {
+                f(t);
+            }
+        }
+        for d in &mut self.classes {
+            if let Some(t) = &mut d.supertype {
+                f(t);
+            }
+            for t in d
+                .mixins
+                .iter_mut()
+                .chain(d.interfaces.iter_mut())
+                .chain(d.on.iter_mut())
+            {
+                f(t);
+            }
+        }
+        for d in &mut self.extensions {
+            f(&mut d.on);
+        }
+        for d in &mut self.typedefs {
+            f(&mut d.target_type);
+        }
+        self.hierarchy.for_each_type(f);
+        for o in &mut self.field_overrides {
+            for (_, t) in &mut o.subst {
+                f(t);
+            }
+        }
+        for t in self.written_types.values_mut() {
+            f(t);
+        }
+    }
+
     /// Keeps what belongs to the frozen prefix that ends at `at` (whose types
     /// depend on nothing after it), to resolve the rest again over it
     /// ([`OutlineResolver::onto`]).

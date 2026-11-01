@@ -161,6 +161,145 @@ pub struct TypeTable {
     pub without_default_type: std::collections::HashSet<TypeParamId>,
 }
 
+impl CoreTypes {
+    /// Every type the core types hold ([`TypeTable::collect`]).
+    pub fn for_each_type(&mut self, f: &mut dyn FnMut(&mut TypeId)) {
+        for t in [
+            &mut self.dynamic_,
+            &mut self.void_,
+            &mut self.never,
+            &mut self.null,
+            &mut self.object,
+            &mut self.object_nullable,
+            &mut self.int,
+            &mut self.num,
+            &mut self.string,
+            &mut self.bool_,
+            &mut self.function,
+            &mut self.record,
+            &mut self.double,
+            &mut self.type_,
+            &mut self.symbol,
+            &mut self.unknown,
+        ] {
+            f(t);
+        }
+    }
+}
+
+/// Where each type of a table went in [`TypeTable::collect`].
+#[derive(Debug)]
+pub struct TypeRemap(Vec<u32>);
+
+impl TypeRemap {
+    /// The new id of a kept type.
+    ///
+    /// # Panics
+    ///
+    /// When `t` was not kept (a root was missing).
+    pub fn get(&self, t: TypeId) -> TypeId {
+        let n = self.0[t.0 as usize];
+        assert!(n != u32::MAX, "type {t:?} was collected");
+        TypeId(n)
+    }
+}
+
+/// The types `t` is made of.
+fn type_children(t: &Type, out: &mut Vec<TypeId>) {
+    match t {
+        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => out.extend(args.iter()),
+        Type::Function {
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
+            out.push(*ret);
+            out.extend(positional.iter());
+            out.extend(optional.iter());
+            out.extend(named.iter().map(|(_, t, _)| *t));
+        }
+        Type::Record {
+            positional, named, ..
+        } => {
+            out.extend(positional.iter());
+            out.extend(named.iter().map(|(_, t)| *t));
+        }
+        Type::FutureOr { arg, .. } => out.push(*arg),
+        Type::Intersection { bound, .. } => out.push(*bound),
+        Type::Dynamic | Type::Void | Type::Never | Type::Null | Type::TypeParameter { .. } => {}
+    }
+}
+
+/// `t` with its types mapped through `f`.
+fn remap_type(t: &Type, f: &dyn Fn(TypeId) -> TypeId) -> Type {
+    let all = |ts: &[TypeId]| ts.iter().map(|t| f(*t)).collect();
+    match t {
+        Type::Interface {
+            class,
+            args,
+            nullable,
+        } => Type::Interface {
+            class: *class,
+            args: all(args),
+            nullable: *nullable,
+        },
+        Type::ExtensionType {
+            decl,
+            args,
+            nullable,
+        } => Type::ExtensionType {
+            decl: *decl,
+            args: all(args),
+            nullable: *nullable,
+        },
+        Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            nullable,
+        } => Type::Function {
+            type_params: type_params.clone(),
+            ret: f(*ret),
+            positional: all(positional),
+            optional: all(optional),
+            named: named.iter().map(|(s, t, r)| (*s, f(*t), *r)).collect(),
+            nullable: *nullable,
+        },
+        Type::Record {
+            positional,
+            named,
+            nullable,
+        } => Type::Record {
+            positional: all(positional),
+            named: named.iter().map(|(s, t)| (*s, f(*t))).collect(),
+            nullable: *nullable,
+        },
+        Type::FutureOr { arg, nullable } => Type::FutureOr {
+            arg: f(*arg),
+            nullable: *nullable,
+        },
+        Type::Intersection { param, bound } => Type::Intersection {
+            param: *param,
+            bound: f(*bound),
+        },
+        other => other.clone(),
+    }
+}
+
+fn remap_decoration(d: &DisplayDecoration, f: &dyn Fn(TypeId) -> TypeId) -> DisplayDecoration {
+    match d {
+        DisplayDecoration::Alias { typedef, args } => DisplayDecoration::Alias {
+            typedef: *typedef,
+            args: args.iter().map(|t| f(*t)).collect(),
+        },
+        other => other.clone(),
+    }
+}
+
 /// The display decoration of a type (see [`TypeTable`]).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DisplayDecoration {
@@ -408,6 +547,98 @@ impl TypeTable {
         self.lookup.insert(ty.clone(), id);
         self.types.push(ty);
         id
+    }
+
+    /// Keeps only the types reachable from `roots`, from the bounds of the
+    /// type parameters and from the decorations of what is kept, renumbered
+    /// in their old order; returns where each kept type went. Whoever holds a
+    /// `TypeId` of this table maps it through the result (a type that is not
+    /// kept has no place: [`TypeRemap::get`] panics). For a table that
+    /// outlives many loads over a kept prefix (the LSP's resident): the
+    /// outlines of the earlier loads go away.
+    pub fn collect(&mut self, roots: impl IntoIterator<Item = TypeId>) -> TypeRemap {
+        let n = self.types.len();
+        let mut live = vec![false; n];
+        let mut stack: Vec<TypeId> = roots.into_iter().collect();
+        stack.extend(self.type_params.iter().map(|p| p.bound));
+        let mut children: Vec<TypeId> = Vec::new();
+        while let Some(t) = stack.pop() {
+            let i = t.0 as usize;
+            if i >= n || live[i] {
+                continue;
+            }
+            live[i] = true;
+            children.clear();
+            type_children(&self.types[i], &mut children);
+            stack.extend(children.iter().copied());
+            if let Some(c) = self.canonical.get(&t) {
+                stack.push(*c);
+            }
+            if let Some(DisplayDecoration::Alias { args, .. }) = self.display.get(&t) {
+                stack.extend(args.iter().copied());
+            }
+        }
+        let mut map = vec![u32::MAX; n];
+        let mut next = 0u32;
+        for (i, l) in live.iter().enumerate() {
+            if *l {
+                map[i] = next;
+                next += 1;
+            }
+        }
+        let remap = TypeRemap(map);
+        let f = |t: TypeId| remap.get(t);
+        let old = std::mem::take(&mut self.types);
+        self.types = old
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| live[*i])
+            .map(|(_, t)| remap_type(&t, &f))
+            .collect();
+        let kept = |t: &TypeId| live.get(t.0 as usize).copied().unwrap_or(false);
+        self.display = std::mem::take(&mut self.display)
+            .into_iter()
+            .filter(|(t, _)| kept(t))
+            .map(|(t, d)| (f(t), remap_decoration(&d, &f)))
+            .collect();
+        self.canonical = std::mem::take(&mut self.canonical)
+            .into_iter()
+            .filter(|(t, c)| kept(t) && kept(c))
+            .map(|(t, c)| (f(t), f(c)))
+            .collect();
+        self.decorated = std::mem::take(&mut self.decorated)
+            .into_iter()
+            .filter(|((c, d), t)| {
+                kept(c)
+                    && kept(t)
+                    && match d {
+                        DisplayDecoration::Alias { args, .. } => args.iter().all(kept),
+                        _ => true,
+                    }
+            })
+            .map(|((c, d), t)| ((f(c), remap_decoration(&d, &f)), f(t)))
+            .collect();
+        self.fresh_formals = std::mem::take(&mut self.fresh_formals)
+            .into_iter()
+            .filter(|((_, bounds), _)| bounds.iter().all(kept))
+            .map(|((params, bounds), fresh)| {
+                ((params, bounds.iter().map(|b| f(*b)).collect()), fresh)
+            })
+            .collect();
+        for p in &mut self.type_params {
+            p.bound = f(p.bound);
+        }
+        self.lookup = self
+            .types
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !self.display.contains_key(&TypeId(*i as u32)))
+            .map(|(i, t)| (t.clone(), TypeId(i as u32)))
+            .collect();
+        self.payload_bytes = self.types.len()
+            * (2 * std::mem::size_of::<Type>() + std::mem::size_of::<TypeId>() + 8)
+            + self.type_params.len() * std::mem::size_of::<TypeParameterData>();
+        remap
     }
 
     /// The `TypeId` of an already interned type, without interning.

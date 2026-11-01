@@ -184,9 +184,17 @@ enum Taken {
     Onto(World, dartforge_elements::frozen::Checkpoint),
 }
 
-/// How many loads over the frozen prefix a world takes before a full reload
-/// (the type table keeps the types of each load's outline).
-const MAX_ONTO_LOADS: usize = 16;
+/// How many loads over a cut a world takes before a full reload: none by
+/// default, since each load collects the type table
+/// (`dartforge_types::collect_types`); `DARTFORGE_LSP_ONTO_LIMIT=N` brings
+/// the full reload back every N loads (a safety net, to measure).
+fn max_onto_loads() -> usize {
+    std::env::var("DARTFORGE_LSP_ONTO_LIMIT")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(usize::MAX)
+}
 
 /// The program of an analysis with what the analysis builds over it before
 /// the initializers: the type table, the core types, the outline types and
@@ -305,7 +313,7 @@ impl Resident {
         // loaded again over them. A full reload now and then drops what the
         // type table kept of the earlier loads.
         if let Some(frozen) = world.program.frozen
-            && world.onto_loads < MAX_ONTO_LOADS
+            && world.onto_loads < max_onto_loads()
             && self.same_prefix(&world, root, packages, texts)
         {
             let at = self.cut(&world, imports, texts, frozen);
@@ -1518,9 +1526,15 @@ impl Engine {
                     // libraries' diagnostics stay too.
                     Some((w, at)) => {
                         let mut table = w.table;
-                        let core = w.core;
+                        let mut core = w.core;
+                        // What stays of the outline, with only the types it
+                        // reaches left in the table: the earlier loads'
+                        // outlines and bodies go away.
+                        let mut kept = w.outline;
+                        kept.truncate(&at);
+                        dartforge_types::collect_types(&mut table, &mut kept, &mut core);
                         let (outline, diags, units) = dartforge_types::resolve_outline_onto(
-                            &program, interner, &mut table, &core, w.outline, at,
+                            &program, interner, &mut table, &core, kept, at,
                         );
                         if let Some(r) = &mut resident_counter {
                             **r += 1;
@@ -3789,6 +3803,26 @@ mod tests {
             assert!(!shown(&fresh, &d).is_empty());
             assert_eq!(shown(&kept, &d), shown(&fresh, &d), "{version} d");
         }
+        // The same API changes over and over: the type table does not grow
+        // with the number of loads (each load collects it).
+        let mut sizes = Vec::new();
+        for round in 0..6 {
+            let version = versions[round % 2];
+            let texts = HashMap::from([(key(&b), version.to_string())]);
+            engine
+                .analyze_resident(
+                    &mut resident,
+                    &root,
+                    std::slice::from_ref(&b),
+                    None,
+                    &texts,
+                    &|| false,
+                )
+                .unwrap();
+            sizes.push(resident.world.as_ref().unwrap().table.len());
+        }
+        assert_eq!(sizes[2], sizes[4], "{sizes:?}");
+        assert_eq!(sizes[3], sizes[5], "{sizes:?}");
         let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&base).unwrap();
