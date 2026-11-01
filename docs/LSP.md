@@ -842,6 +842,152 @@ exportada 5,9 → 4,6 s; CPU 3,1 → 2,2 s). A memória do frontend em repouso c
   `limitless_ui` empatamos (197 × 218 ms; CPU 122 × 152).
 * `definition`, `prepareRename` e `codeAction` continuam em 3–55 ms contra 0,4–4,7 ms.
 
+#### Quarta rodada (2026-11-01): o pacote inteiro só onde paga, respostas grandes como texto
+
+Mesmo driver, projetos e arquivos; 3 rodadas revezando três servidores: o desta rodada
+("agora"), o da terceira rodada ("r3", `ddf83232`) e o Dart. A máquina estava muito carregada
+por outros agentes (carga 33–87 nas sessões, 37–149 no `uptime` durante a rodada): os tempos
+de relógio de pedidos longos variam muito entre sessões; as colunas de CPU e as razões entre
+servidores medidos na mesma rodada são o que vale. O oráculo de paridade nos quatro projetos
+de sempre continua com a tabela de recursos idêntica (references, implementation e definition
+100%, completion top-5 100%).
+
+O que mudou:
+
+* **O programa do pacote inteiro só onde paga** (`Resident::context_pays`,
+  `crates/parity/src/analysis.rs`). A terceira rodada carregava o pacote inteiro em toda
+  análise do residente; no `limitless_ui` (os testes puxam o `package:test`) isso deixou o
+  diagnóstico do próprio arquivo depois de uma mudança de API 2–3× mais lento. Agora o
+  residente guarda, por pacote, o tamanho do maior programa carregado (o do pacote inteiro,
+  quando algum lote o cobre) e o do maior programa próprio de um lote pequeno (até 4
+  arquivos: o documento editado e suas partes), medido nas importações e exportações
+  transitivas desse lote mesmo quando o programa tem o pacote inteiro. O pacote inteiro entra
+  quando é no máximo 1,5× o do arquivo editado. Pelas importações, frontend 21,5/17,0 MB
+  (1,26×) e backend 5,5/4,3 MB (1,28×) ficam com o pacote inteiro; `limitless_ui` 10,4/4,8 MB
+  (2,2×) não. A decisão é do pacote, não do lote, para que os lotes de um mesmo trabalho
+  compartilhem o programa. `DARTFORGE_RESIDENT_CONTEXT=always|never` força um lado (para
+  medir); `DARTFORGE_ENGINE_TIMES=1` marca a carga com o pacote inteiro.
+* **Respostas de `references` com milhares de localizações saem como texto JSON**
+  (`locations_json` em `crates/lsp/src/server.rs`, `transport::raw_result`). A partir de
+  2.048 localizações, o servidor escreve o vetor direto num `String` (cada URI escapado uma vez
+  por arquivo), em vez de montar uma árvore de valores JSON (~2,7 KB por localização: ~145 MiB
+  vivos para as 53.624 de `String` no frontend; o texto tem ~130 bytes por localização). O
+  quadro sai com as mesmas chaves, na mesma ordem e com os mesmos bytes que o `serde_json`
+  escreveria para os valores. No frontend, o pico do processo do servidor caiu de 743 para
+  357 MiB, e o pico somando todos os processos de 1.988 para 1.623 MiB.
+
+Medido à parte (2 rodadas revezadas, `--positions 0`, mesmo binário com o contexto
+forçado):
+
+| ms (mediana) | `limitless_ui`: automático | nunca | sempre | backend: automático | nunca | sempre |
+|---|---:|---:|---:|---:|---:|---:|
+| API privada → diagnóstico do arquivo | 448 | 524 | 984 | 214 | 249 | 277 |
+| API privada → assentado | 2.452 | 2.943 | 3.176 | 4.051 | 5.573 | 4.488 |
+| API privada: CPU | 1.002 | 907 | 903 | 1.451 | 1.632 | 1.451 |
+| API exportada → diagnóstico do arquivo | 249 | 306 | 708 | 258 | 92 | 305 |
+| API exportada → assentado | 2.194 | 2.775 | 2.652 | 3.974 | 4.953 | 4.194 |
+| API exportada: CPU | 900 | 816 | 786 | 1.405 | 1.588 | 1.437 |
+| cargas com o pacote inteiro na sessão | 1 (a da partida) | 0 | 13 | 13 | 0 | 13 |
+
+##### frontend (3 sessões de cada servidor; carga 37–86)
+
+| ms (mediana) | r3 | agora | Dart | agora/Dart | CPU r3 | CPU agora | CPU Dart |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| tecla num corpo → assentado | 236 | 219 | 83 | 2,63× | 85 | 83 | 47 |
+| edição de corpo → diagnóstico | 257 | 177 | 55 | 3,21× | 80 | 79 | 42 |
+| API privada → diagnóstico do arquivo | 1.935 | 1.413 | 89 | 15,8× | | | |
+| API privada → assentado | 3.161 | 2.375 | 139 | 17,1× | 766 | 735 | 44 |
+| API exportada → diagnóstico do arquivo | 1.689 | 1.334 | 84 | 15,8× | | | |
+| API exportada → assentado | 8.731 | 7.409 | 338 | 21,9× | 2.199 | 2.299 | 111 |
+| `completion`, 1º depois de edição | 27 | 24 | 191 | 0,13× | 26 | 24 | 54 |
+| `references`, 1º depois de edição | 27.642 | 48.758 | 10.113 | 4,82× | 14.598 | 15.534 | 2.457 |
+| `references`, sem edição | 9.626 | 9.553 | 344 | 27,8× | 2.102 | 2.157 | 174 |
+| partida → primeira análise assentada | 12.540 | 9.976 | 11.003 | 0,91× | 3.379 | 3.453 | 4.436 |
+| memória, todos os processos: pico (MiB) | 1.988 | **1.623** | 867 | 1,87× | | | |
+| memória: média da sessão (MiB) | 1.165 | 1.038 | 622 | 1,67× | | | |
+| memória: em repouso no fim (MiB) | 1.024 | **736** | 781 | **0,94×** | | | |
+| memória: pico de RSS (MiB) | 1.359 | **775** | 735 | 1,05× | | | |
+
+`references` depois de edição: a mediana das três primeiras posições (`bool`, `String` e um
+campo) é a de `bool` ou `String`, cujo relógio depende da carga do minuto; a CPU ficou igual
+(14,6 × 15,5 s).
+
+##### backend (3 sessões de cada servidor; carga 34–87)
+
+| ms (mediana) | r3 | agora | Dart | agora/Dart | CPU r3 | CPU agora | CPU Dart |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| tecla num corpo → assentado | 72 | 72 | 84 | 0,85× | 64 | 66 | 42 |
+| API privada → diagnóstico do arquivo | 454 | 336 | 75 | 4,49× | | | |
+| API privada → assentado | 6.686 | 4.932 | 606 | 8,13× | 1.405 | 1.396 | 158 |
+| API exportada → diagnóstico do arquivo | 346 | 469 | 122 | 3,86× | | | |
+| API exportada → assentado | 6.052 | 6.940 | 598 | 11,6× | 1.405 | 1.466 | 178 |
+| `references`, sem edição | 4,5 | 2,1 | 1,3 | 1,65× | 4,3 | 2,0 | 1,4 |
+| memória, todos os processos: pico (MiB) | 284 | 281 | 485 | 0,58× | | | |
+| memória: em repouso no fim (MiB) | 284 | 281 | 483 | 0,58× | | | |
+
+Diagnósticos finais 99,6% iguais aos do Dart (os mesmos 48 a mais e 24 a menos de antes).
+
+##### limitless_ui (3 sessões de cada servidor; carga 33–87)
+
+| ms (mediana) | r3 | agora | Dart | agora/Dart | CPU r3 | CPU agora | CPU Dart |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| tecla num corpo → assentado | 456 | 344 | 370 | 0,93× | 129 | 126 | 155 |
+| API privada → diagnóstico do arquivo | 998 | **646** | 263 | 2,45× | | | |
+| API privada → assentado | 3.062 | 3.638 | 453 | 8,0× | 902 | 951 | 158 |
+| API exportada → diagnóstico do arquivo | 746 | **327** | 247 | 1,33× | | | |
+| API exportada → assentado | 2.905 | 3.177 | 425 | 7,5× | 799 | 852 | 143 |
+| `references`, 1º depois de edição | 5,5 | 5,3 | 14 | 0,37× | 2,8 | 2,8 | 8,0 |
+| partida → primeira análise assentada | 14.930 | 17.458 | 7.481 | 2,33× | 4.407 | 4.509 | 4.000 |
+| memória, todos os processos: pico (MiB) | 1.194 | 1.027 | 771 | 1,33× | | | |
+| memória: em repouso no fim (MiB) | 1.065 | 995 | 754 | 1,32× | | | |
+| memória: pico de RSS (MiB) | 805 | 616 | 660 | 0,93× | | | |
+
+No `limitless_ui`, o diagnóstico do próprio arquivo depois de uma mudança de API voltou a
+ficar perto do Dart (exportada 327 × 247 ms, era 746; privada 646, era 998). O assentado dos
+dependentes ficou dentro do ruído desta máquina (3,2–3,6 × 2,9–3,1 s nesta rodada; 2,2–2,5 ×
+2,7–3,2 s na medição à parte), com ~5% a mais de CPU: sem o pacote inteiro, os dependentes
+recarregam o programa deles.
+
+**O que não foi feito nesta rodada, e por quê:**
+
+* **(1) *Outline* incremental.** Com o pacote inteiro só onde paga, o diagnóstico do próprio
+  arquivo depois de uma mudança de API no `limitless_ui` caiu para 0,3–0,6 s sem ele. O que
+  sobra na primeira fase é a carga (no `limitless_ui`, mediana 0,31 s: o modelo de elementos
+  do programa a partir do cache de unidades) e o *outline* de tipos (0,15 s), medidos com
+  `DARTFORGE_ENGINE_TIMES=1`. No frontend é ~0,7 s de CPU. Refazer só as bibliotecas
+  afetadas pede identidade estável de elementos em `crates/elements` (hoje `ClassId`,
+  `FunctionElementId` e os demais são índices densos nos vetores do `Program`, refeitos a cada
+  carga) e um `OutlineTypes` por biblioteca em
+  `crates/types`, com as bibliotecas que dependem da editada (por importação ou
+  exportação, transitivamente) invalidadas juntas. É uma mudança nos dois modelos, não no
+  residente.
+* **(2) Índice de referências resolvidas no residente.** O que custa no frontend são as
+  referências de `bool` e `String` (22.978 e 53.624 localizações, as mesmas do Dart): cada
+  busca infere os corpos de todos os arquivos que citam o nome (~15 s de CPU no processo de
+  busca). O residente infere esses corpos ao analisar o pacote, mas usa o motor de
+  `crates/parity`, enquanto `references` usa a identidade de `crates/lsp/src/project.rs`.
+  Guardar as referências resolvidas pede registrar o alvo de cada identificador em todos os
+  pontos de resolução do verificador (nomes simples e prefixados, acessos a membro,
+  construtores, argumentos nomeados, tipos, padrões, combinadores) com uma identidade de
+  declaração comum aos dois motores. Um índice parcial quebraria o oráculo (references 100%).
+* **(3) Memória do residente e do processo de busca.** O pico dos descendentes no frontend
+  continua em ~870 MiB (o programa do pacote inteiro e o processo de busca das referências de
+  `String`).
+
+**O que ainda perdemos:** mudança de API (frontend 16–22×, backend 4–12×, `limitless_ui`
+1,3–8×), `references` dos tipos do SDK no frontend (5–28×), tecla no frontend (2,6×; CPU 83 ×
+47 ms), partida no backend e no `limitless_ui` (2,3×), `definition`/`prepareRename`/
+`codeAction` (2–55 ms contra 0,6–4 ms) e o pico de memória do frontend (1,87×; em repouso
+ganhamos, 736 × 781 MiB).
+
+Testes novos: `resident_skips_the_context_when_the_package_is_much_larger` (`crates/parity`:
+depois de uma análise do pacote inteiro, o lote de um arquivo cujo programa é bem menor não
+carrega o arquivo grande que ninguém importa e publica o mesmo que uma análise do zero);
+`locations_json_matches_the_values` (`crates/lsp/src/server.rs`: o texto é o que o
+`serde_json` escreve para os mesmos valores, inclusive URI com aspas e não ASCII) e
+`raw_result_is_written_as_the_result` (`crates/lsp/src/transport.rs`: o quadro é byte a byte
+o dos valores).
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
