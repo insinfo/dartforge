@@ -45,8 +45,8 @@ package:test 1.25.7 / test_core 0.6.x. O código está em `crates/cli/src/pub_ge
 | `remove` | suportado | inclusive `override:`; seção esvaziada removida |
 | `deps` | suportado | `-s tree/compact/list`, `--[no-]dev`, `--json`, `--executables`, `-C` |
 | `outdated` | parcial | tabela, `--json`, `--[no-]dev-dependencies`, `--[no-]dependency-overrides`, `--[no-]transitive`, `--[no-]prereleases`, `--show-all`/`--up-to-date`, `-C`. Avisos de segurança (advisories) não são buscados |
-| `cache` (`add`, `clean`, `list`, `preload`, `repair`) | ausente | |
-| `global` (`activate`, `deactivate`, `list`, `run`) | ausente | |
+| `cache` (`add`, `clean`, `list`, `preload`, `repair`) | suportado | `add` (`--version`, `--all`, "Already cached"), `clean` (`-f` e a pergunta), `list` (JSON do servidor padrão), `preload` (hash do arquivo, servidor padrão), `repair` (hosted reinstalado do servidor, Git com `clean`/`reset`, pacotes globais reativados, código 69 nas falhas). Mesmos textos de ajuda e erros de uso. O `pub get` e o `cache add` agora também gravam o `README.md` do cache e as listagens `hosted/<servidor>/.cache/<pacote>-versions.json` com `_fetchedAt`, como o Pub |
+| `global` (`activate`, `deactivate`, `list`, `run`) | suportado | `activate` hosted (restrição, `-u`), Git (`--git-ref`, `--git-path`, repositório relativo) e path; `-x`, `--no-executables`, `--overwrite`; pacote raiz `pub global activate`, `pubspec.lock` e `package_config.json` em `global_packages/<pacote>` iguais aos do Pub; *bin stubs* com o mesmo cabeçalho (`Package`, `Version`, `Executable`, `Script`), aviso de PATH, colisões, executáveis desconhecidos. `run` resolve de novo os pacotes path a cada execução e os do cache só quando falta o executável, como o Pub. Diferença do que fica no cache: onde o Pub grava o *snapshot* `bin/<script>.dart-3.6.2.snapshot` o DartForge grava o executável nativo `bin/<script>` (e `.dart_tool/pub/bin/<pacote>/<script>` para path); o *stub* executa esse binário ou `dartforge pub global run`. A ordem das linhas `Built pkg:exe.` é a de término das compilações no Pub (paralelas) e alfabética no DartForge |
 | `run` | ausente | use `dartforge run` |
 | `publish`/`lish`, `uploader`, `token`, `login`, `logout` | ausente | |
 | `bump`, `unpack`, `workspace list`, `dependency_services` | ausente | |
@@ -58,23 +58,108 @@ package:test 1.25.7 / test_core 0.6.x. O código está em `crates/cli/src/pub_ge
 Opções próprias do DartForge em todos os subcomandos: `--sdk <lib>` (exceto no `add`,
 onde `--sdk` é a fonte SDK do Pub) e `--sdk-version <versão>`.
 
+## Como o `test` funciona agora
+
+O `dartforge test` é o `dart test` com uma plataforma trocada. Um programa anfitrião
+(`crates/cli/src/test_runner/host.dart`), compilado pelo DartForge uma vez por
+configuração de pacotes e guardado em `.dart_tool/dartforge/test-host/<chave>/`, roda o
+código do próprio test_core: `Configuration` (linha de comando, `dart_test.yaml`,
+predefinições), um porte do `Runner` (`_loadSuites`, filtros, *sharding*, aviso de tags
+desconhecidas, `NoTestsFoundException`, códigos de saída do `executable.dart`) e do
+`Loader` (`loadDir`/`loadFile`, suíte pulada sem carregar, novas tentativas de carga), o
+`Engine` com `stopOnFirstFailure` e **os relatores do próprio pacote**
+(`allReporters[config.reporter]` e os `--file-reporter` por um `MultiplexReporter`).
+Cada suíte vira um executável nativo em volta do *bootstrap* nativo do test_core
+(`internalBootstrapNativeTest`, o mesmo do `dart test -c exe`) e conversa com o anfitrião
+pelo protocolo de soquete do `VMPlatform` (`MultiChannel` sobre `jsonSocketStreamChannel`,
+`deserializeSuite`). Por isso ids, `groupIDs`, `hidden`, `skipReason`, `testCount`,
+`allSuites`, a ordem dos eventos e os textos de todos os relatores são os do package:test.
+
+O DartForge só fornece duas coisas: as anotações de biblioteca (o `parseMetadata` do
+test_core usa o analisador; o anfitrião pede a leitura do DartForge com
+`dartforge test --dartforge-library-metadata`, agora também com o comentário
+`// @dart=`) e a compilação nativa (`compile-native`, por padrão no máximo
+`cpus/4` suítes ao mesmo tempo, `DARTFORGE_TEST_COMPILE_JOBS` muda). O anfitrião é
+iniciado com `argv[0]` igual ao executável do DartForge, então o "To run this test again"
+do relator `compact` mostra `<dartforge> test ...` onde o `dart test` mostra `<dart> test ...`.
+
+**Rastros de pilha.** O executável nativo ainda não tem quadros de pilha
+(`StackTrace.current` é `#0 main (dart:native)`; ver
+`docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` §13.14). O package:test usa o rastro da
+declaração para `line`, `column`, `url` (e `root_*`) do JSON; com um rastro vazio o
+`JsonReporter` quebraria (`frames.first`). O anfitrião detecta isso na partida e, só
+nesse caso, pede às suítes que não coletem rastros de declaração: o relator recebe
+rastro nulo e emite `line`/`column`/`url` nulos, como o próprio package:test faz quando
+não há rastro. Quando o backend ganhar quadros, a coleta volta sozinha. Os
+`stackTrace` dos eventos `error` e os rastros impressos pelos relatores de texto são os
+do executável nativo (`dart:native  main`).
+
 ## Matriz das opções do `dart test`
 
 | Opção | Estado | Observações |
 |---|---|---|
 | `--platform vm` (`-p`) | suportado | é a única plataforma; reportada com o compilador `exe` |
-| `-p chrome/firefox/node/...` | ausente | recusado explicitamente |
-| `-r expanded` | suportado | formato do `ExpandedReporter` (linhas `MM:SS +n ~n -n: ...`, `loading`, `[E]`, `Skip:`, resumo, aviso de `--chain-stack-traces`, cores pela configuração). Diferem o tempo decorrido e os quadros dos rastros de pilha nativos; em execução paralela os eventos de cada suíte saem juntos |
-| `-r json` | parcial | eventos próprios (`testStart`, `testDone`, `error`, `print`, `done`) por suíte, não o protocolo JSON do package:test |
-| `-r compact/github/failures-only/silent` | ausente | recusados |
-| `--file-reporter` | ausente | recusado |
+| `-p chrome/firefox/node/...`, `-c` que não seja `exe` | ausente | recusado explicitamente |
+| `-r expanded` | suportado | o `ExpandedReporter` do pacote; diferem o tempo e os quadros de pilha |
+| `-r json` | suportado | o `JsonReporter` do pacote: `start`, `suite`, `group`, `testStart`, `print`, `error`, `testDone`, `allSuites`, `done` com os mesmos ids e campos. `line`/`column`/`url` saem nulos (ver acima); `debug` só existe com `--debug`, que é recusado |
+| `-r compact` | suportado | o `CompactReporter`; difere o tempo (e quantas vezes a linha `loading` é redesenhada enquanto a suíte compila) e o executável do "To run this test again" |
+| `-r github`, `-r failures-only`, `-r silent` | suportado | os relatores do pacote; diferem tempos e quadros de pilha |
+| `--file-reporter <relator>:<arquivo>` | suportado | qualquer relator, como no `Runner` |
+| `--fail-fast` | suportado | `Engine(stopOnFirstFailure:)` |
 | `-n/--name`, `-N/--plain-name`, `path?name=` | suportado | |
 | `-t/--tags`, `-x/--exclude-tags`, tags do `dart_test.yaml` | suportado | |
-| `-j/--concurrency`, `--total-shards`, `--shard-index` | suportado | |
-| `--timeout`, `--ignore-timeouts`, `--run-skipped`, `--no-retry`, `-P/--preset` | suportado | |
-| `dart_test.yaml` e anotações (`@TestOn`, `@Timeout`, `@Skip`, `@OnPlatform`, `@Tags`, `@Retry`) | suportado | via `Configuration`/`Loader` do próprio test_core |
-| seleção por linha/coluna (`path:linha:coluna`) | ausente | recusado |
-| `--coverage`, `--pause-after-load`, `--debug`, `--fail-fast` | ausente | recusados |
-| watch | ausente | recusado |
+| `-j/--concurrency`, `--total-shards`, `--shard-index` | suportado | a concorrência de execução é a do `Engine`; a compilação nativa tem limite próprio |
+| `--timeout`, `--ignore-timeouts`, `--run-skipped`, `--no-retry`, `-P/--preset`, `--test-randomize-ordering-seed` | suportado | |
+| `dart_test.yaml` e anotações (`@TestOn`, `@Timeout`, `@Skip`, `@OnPlatform`, `@Tags`, `@Retry`) | suportado | |
+| `--help`, `--version` | suportado | o uso do package:test; o DartForge acrescenta as opções dele depois |
+| seleção por linha/coluna (`path:linha:coluna`) | ausente | recusado: depende dos quadros de pilha da declaração |
+| `--coverage` | ausente | recusado; ver a análise abaixo |
+| `--pause-after-load`, `--debug` | ausente | recusados (não há serviço de VM) |
+| watch | ausente | não é opção do package:test 1.25 (erro de uso do próprio `Configuration`) |
 
-Evidências: `bench/results/2026-10-31-pub-test/README.md`.
+Opções próprias do DartForge: `--sdk <lib>`, `--packages <config>`,
+`--process-timeout <s>` (mata o executável de uma suíte depois de N segundos; sem limite
+por padrão, como o `dart test`) e `--keep-artifacts`.
+
+## `--coverage`: por que não há implementação
+
+Desenho avaliado antes de escrever código (02/11). O `dart test --coverage <dir>` grava,
+por suíte, `<dir>/<caminho>.vm.json` com o que o `package:coverage` coleta pelo serviço da
+VM (`collect(..., isolateIds)`, `SourceReport` com `Coverage` e `forceCompile`):
+
+```
+{"type":"CodeCoverage","coverage":[{"source":"package:tst/tst.dart",
+  "script":{"type":"@Script","fixedId":true,"id":"libraries/1/scripts/package%3Atst%2Ftst.dart",
+            "uri":"package:tst/tst.dart","_kind":"library"},
+  "hits":[1,1,2,1,5,1,3,0,8,0]}, ...]}
+```
+
+Medido no SDK 3.6.2 (`pt/cov` da sessão): o arquivo de uma suíte de 2 testes traz **223
+scripts** — todas as bibliotecas carregadas no isolado, `package:test_api`,
+`package:matcher`, `package:stack_trace`, o próprio *bootstrap* —, cada um com as linhas
+"cobríveis" e uma contagem. As contagens não são execuções: `add` foi chamado 4 vezes e
+as linhas dele valem 1; uma linha de `add_test.dart` vale 4. Cada linha conta quantos
+intervalos do relatório (funções e *closures* compiladas) a tocaram.
+
+Para reproduzir esse arquivo seria preciso, para todo o programa e não só para o código
+do usuário:
+
+1. o conjunto de linhas cobríveis da VM, que vem das posições de *token* que o compilador
+   não otimizado da VM grava nos descritores de PC de cada função (chamadas, retornos,
+   checagens), inclusive das funções nunca chamadas (`forceCompile`);
+2. os intervalos (`ranges`) em que o `SourceReport` corta cada script, que definem a
+   contagem de cada linha;
+3. a lista de bibliotecas que a VM carrega no isolado de teste, com os ids
+   `libraries/1/scripts/...`.
+
+Nenhum dos três existe fora da VM: não são propriedade do código-fonte, e sim do
+`kernel_to_il`/`flow_graph_builder` da VM e do carregamento do isolado. O backend nativo do
+DartForge tem outra redução (outro conjunto de pontos de chamada e de funções) e não tem
+serviço de VM. Instrumentar o nosso AOT ou JIT daria um mapa de linhas plausível que o
+`format_coverage --lcov` leria, mas com linhas e contagens diferentes do `dart test` em
+praticamente todo arquivo — um subconjunto disfarçado, que o pedido proíbe. Fidelidade
+completa exigiria portar a atribuição de posições do compilador da VM inteira; fica
+registrado como impossível nesta arquitetura, e `--coverage` continua recusado com
+mensagem explícita.
+
+Evidências: `bench/results/2026-10-31-pub-test/README.md` e `bench/results/2026-11-02-pub-test-2/README.md`.

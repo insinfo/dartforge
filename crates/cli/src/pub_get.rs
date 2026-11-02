@@ -41,6 +41,7 @@ pub(crate) const USAGE: &str = "Usage: dartforge pub <subcommand> [arguments...]
 Available subcommands:
   add         Add dependencies to `pubspec.yaml`.
   cache       Work with the system cache.
+  global      Work with global packages.
   deps        Print package dependencies.
   downgrade   Downgrade packages in a project.
   get         Get the current package's dependencies.
@@ -231,6 +232,11 @@ impl Arguments {
         self.flag(name).unwrap_or(false)
     }
 
+    /// Every value of a repeated option, in order.
+    pub fn options(&self, name: &str) -> &[String] {
+        self.options.get(name).map_or(&[], Vec::as_slice)
+    }
+
     pub fn option(&self, name: &str) -> Option<&str> {
         self.options
             .get(name)
@@ -354,6 +360,7 @@ pub(crate) fn run(args: &[OsString]) -> Result<u8, Failure> {
         "deps" => commands::deps(rest),
         "outdated" => commands::outdated(rest),
         "cache" => cache::run(rest),
+        "global" => global::run(rest),
         other => Err(usage(format!(
             "Could not find a subcommand named \"{other}\" for \"dart pub\".\n\n{USAGE}"
         ))),

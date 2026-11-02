@@ -297,8 +297,8 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 |---|---|---|
 | **Suíte `tests/language`** (2.863 programas) | Medição de 02/11 com os experimentos de cada teste (`SharedOptions`), os pacotes `meta`/`collection` e "recusados pelos dois" à parte em toda ferramenta (referência `vm-r5`, conferida com a VM oficial no Windows): **JS dev 2780 iguais, 13 recusados pelos dois, 70 falhas**; **nativo AOT** (`dartforge aot --optimize`, projeção) **2810 iguais, 13 recusados, 40 falhas (98,6%)**; **wasm 2815 iguais (5 só ao dart2wasm), 13 recusados, 35 falhas (98,8%)**. Com a referência antiga (v19, sem experimentos) eram JS 2756/47/60, nativo 2778/54/31, wasm 2782/54/27: 46 dos "recusados pelos dois" eram testes de experimento que a VM recusava sem a flag. JS produção: não medido | Dos 40 do nativo, 23 são de experimento (22 de `variance`, que não implementamos e recusamos com o nome; `augmentation_libraries`, em que o CFE quebra) e 17 reais: 9 de pilha simbólica (o AOT sai com `--stack-trace none`), 2 de *hash*, 5 que a VM recusa ou em que falha e nós rodamos, `typedef/aliased_constructor_tear_off`. Wasm: os mesmos menos 4 de pilha. JS dev: 47 fora dos experimentos (divergências da web e `mixin/super_2` ×2) |
 | **`analyze`** | corpus do analisador **99,95%** (23.001/23.012), 14/10 e de novo em 31/10. Erros a mais em `tests/language`: **231 → 107 → 20** (de 70 para 7 arquivos), 31/10, sem novos falsos negativos (os erros dos 1.460 programas de erro ficaram idênticos) | 12 são do *parser*: declarações `augment` sem o experimento `macros`. 6 são *wildcards* fora do modo *wildcard*: com `_` duplicado, o analisador liga à primeira declaração e nós à última. 2 vêm de `X1 extends FutureOr<X1>`, em que o próprio 3.6.2 não diagnostica |
-| **`pub`** | solucionador **PubGrub** portado do Pub 3.6.2. `pub get` idêntico ao oficial em **51/51** projetos reais (lockfile byte a byte, `package_config.json`, saída e código), com e sem lockfile. `add`, `remove`, `upgrade`, `downgrade`, `deps` e `outdated` idênticos em 42 cenários (31/10) | sugestões depois de falha de resolução; avisos de segurança no `outdated`; `cache`, `global`, `publish`, `token`, `login`; `--precompile`; SDKs Flutter e Fuchsia. Matriz em `docs/PUB-E-TEST.md` |
-| **`test`** | igual ao `dart test` em **22/22** execuções diferenciais; aceita `dart_test.yaml` e as anotações; relator `expanded` no formato do `dart test` (31/10) | `-r json` com eventos próprios; só a plataforma `vm`; sem *coverage*, *watch*, `--fail-fast`, `compact` e `github` |
+| **`pub`** | solucionador **PubGrub** portado do Pub 3.6.2. `pub get` idêntico ao oficial em **51/51** projetos reais (lockfile byte a byte, `package_config.json`, saída e código), com e sem lockfile. `add`, `remove`, `upgrade`, `downgrade`, `deps` e `outdated` idênticos em 42 cenários (31/10). **`cache`** (`add`/`clean`/`list`/`preload`/`repair`) e **`global`** (`activate` hosted/Git/path, `deactivate`, `list`, `run`, *bin stubs*) em 02/11: 32 comandos de `cache` com transcrição e árvore do cache idênticas; 35 de `global` com a árvore idêntica e a transcrição diferindo só na ordem das linhas `Built` (paralela no Pub) | `publish` (`--dry-run`, validadores, envio), `token`, `login`, `logout`, `uploader`; sugestões depois de falha de resolução; avisos de segurança no `outdated`; `--precompile`; SDKs Flutter e Fuchsia. No `global`, o DartForge guarda executáveis nativos onde o Pub guarda *snapshots*. Matriz em `docs/PUB-E-TEST.md` |
+| **`test`** | desde 02/11 roda o próprio runner do package:test (`Configuration`, `Runner`/`Loader` portados, `Engine` e todos os relatores) com as suítes compiladas pelo DartForge em volta do *bootstrap* nativo do test_core. `-r json` com o protocolo do package:test: fluxo de eventos idêntico ao do `dart test` (59 eventos, 4 suítes) fora `time` e quadros de pilha; `compact`, `github`, `failures-only`, `silent`, `--file-reporter` e `--fail-fast` iguais fora tempo e quadros | `line`/`column`/`url` do JSON saem nulos (o executável nativo ainda não tem quadros de pilha); `--coverage` recusado (fidelidade impossível sem o compilador da VM, análise em `docs/PUB-E-TEST.md`); só a plataforma `vm`; seleção por linha/coluna |
 | **JS produção** | corpus 277/277 (-O1/-O2), 260/260 (-O3), 256/256 (-O4) | — |
 | **Modos do runtime no wasm** | só tracing + pilha-sombra | ARC desligado no wasm32 (medido: mais lento e +6,8% de tamanho); `--exceptions tables` não implementado; mapas de raízes impossíveis (o wasm não expõe a pilha) |
 
@@ -311,11 +311,38 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | JS dev: subir de um checkout limpo sem `build_runner`; edição de template | concluído em 31/10 (29,6 × 212,5 s; template 3,3 × 7,6 s) |
 | JS produção: `jsonEncode` no máximo igual ao `dart2js -O4` (`async_await` e o gzip dos programas pequenos resolvidos em 01/11) | pausado em 01/11: perfil do `jsonEncode` sem ponto concentrado (1,0–1,2×); falta provar no mundo fechado que `withIndent` não é alcançado |
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
+| `test` com o runner do package:test (JSON, `compact`, `github`, `--fail-fast`, `--file-reporter`); `pub cache` e `pub global`; `--coverage` analisado e recusado | concluído em 02/11 (seção abaixo); `pub publish`/`token`/`login`/`uploader` ficam abertos |
 | Backend nativo (AOT e wasm): as 17 falhas reais restantes da suíte `tests/language` (de 88; mais os 23 de experimento) | agente backend nativo (quinta rodada concluída em 02/11, com a medição nova e os caminhos do Windows) |
 | Régua da suíte `tests/language`: Dart oficial medido em 01/11 no notebook Windows (i3-1215U, SDK 3.6.2, `upstream_suite.py` em `/Volumes/ssd_dock/tmp/language-suite`, resultados `vm-win*.json` e `aot-win-flags.json`). **JIT sem opções**: igual ao `vm.json` do Mac em 2857/2863 (os 6 diferem só em caminhos de pilha e *hashes*). **JIT com os `--enable-experiment` de cada teste**: **2821/2863 (98,5%)** saem com 0; 40 recusados viram aprovados; sobram 42 (8 `macros`, 5 `test_runner` feitos para falhar, avulsos). **AOT** (`dart compile exe`, mesmas opções): **2822/2863 (98,6%)**; difere do JIT oficial em 32, dos quais 22 são recusados pelos dois, 6 só caminho/*hash*/tempo e **4 diferenças reais** (2 de pilha em `stack_trace/`, 2 de `static_weak_reference`, que só o AOT implementa). Achado: o `package_config` da suíte não tem `meta` nem `collection`, e 4 programas são recusados por isso em todas as ferramentas. Falta: o modo `dartaot` dentro do `scripts/run-language-suite.py`, um modo para o nosso JIT e comparar nosso AOT/JIT com o oficial com as mesmas opções (depende da leitura de `SharedOptions` em andamento no agente do backend nativo) | medição do oficial feita em 01/11; modo `dartaot` e leitura de `SharedOptions` integrados ao script em 02/11 (quinta rodada do agente backend nativo); falta o modo do nosso JIT |
 | AOT nativo: tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`) e tamanho (1,37×); próximo: mapa de campo, `$c`/`$g`/`$tc`, `$async` | em rodízio: agentes de desempenho um por vez desde 01/11 (ordem LSP → ARC → AOT); seção de 31/10 abaixo |
 | ARC real: 2,5× os ciclos do tracing no HTTP `dart:io` e 1,7× no cru (eram 3× e 2,2×); próximos passos na seção de 01/11 | em rodízio: agentes de desempenho um por vez (fila: LSP prioridade → AOT → ARC) |
 | LSP: *outline* incremental (passos 1–3 feitos em 01/11: prefixo congelado; falta o passo 4, as bibliotecas do pacote que não dependem da editada), corpos dos dependentes, índice de referências resolvidas (passo 5), memória do residente e da busca | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
+
+## 02/11/2026: `dartforge test` com o runner do package:test; `pub cache` e `pub global`
+
+**`dartforge test`.** O planejador mais os *workers* com eventos próprios deram lugar a um
+anfitrião que é o `dart test` com uma plataforma trocada (`test_runner/host.dart`): o
+`Configuration`, o `Runner` e o `Loader` portados, o `Engine` e os relatores do próprio
+package:test. Cada suíte é compilada pelo DartForge em volta do
+`internalBootstrapNativeTest` do test_core e fala com o anfitrião pelo protocolo de
+soquete do `dart test -c exe`. Com isso `-r json` passou a emitir o protocolo do
+package:test (ids, `groupIDs`, `hidden`, `skipReason`, `testCount`, `allSuites`) e
+`compact`, `github`, `failures-only`, `silent`, `--file-reporter` e `--fail-fast`
+passaram a existir, todos iguais ao `dart test` fora tempo e quadros de pilha. O
+executável nativo ainda não tem quadros de pilha; o anfitrião detecta isso e as
+suítes deixam de coletar rastros de declaração, então `line`/`column`/`url` saem nulos
+em vez de quebrar o relator. `--coverage` foi analisado antes de qualquer código e
+continua recusado: as linhas e contagens do JSON vêm dos descritores de PC do compilador
+da VM para todas as bibliotecas do isolado (223 scripts numa suíte de 2 testes), o que
+não se reproduz fora da VM (`docs/PUB-E-TEST.md`).
+
+**`pub cache` e `pub global`.** Portes do Pub 3.6.2 (`cache.rs`, `global.rs`), com os
+mesmos textos de ajuda e de erro e o mesmo layout do `PUB_CACHE`; `pub get` passou a
+gravar o `README.md` do cache e as listagens `.cache/<pacote>-versions.json`. No
+`global`, onde o Pub compila *snapshots* o DartForge compila executáveis nativos e os
+*bin stubs* chamam esse binário (ou `dartforge pub global run`).
+
+Evidências em `bench/results/2026-11-02-pub-test-2/README.md`.
 
 ## 02/11/2026 (madrugada): backend nativo — quinta rodada; medição da suíte com experimentos, pacotes e "recusados pelos dois"
 

@@ -17,7 +17,8 @@ use std::{
 };
 use url::Url;
 static NEXT: AtomicU64 = AtomicU64::new(0);
-static README_WRITTEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The caches whose `README.md` this process already wrote.
+static README_WRITTEN: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
 const DOWNLOAD_LIMIT: u64 = 256 * 1024 * 1024;
 
 /// One version of a registry listing.
@@ -380,8 +381,12 @@ impl Hosted {
 /// `SystemCache.maintainCache`: the cache's `README.md`, written once per run
 /// when the run changed the cache.
 pub(crate) fn ensure_readme(root: &Path) {
-    if README_WRITTEN.swap(true, Ordering::Relaxed) {
-        return;
+    {
+        let mut written = README_WRITTEN.lock().unwrap_or_else(|e| e.into_inner());
+        if written.iter().any(|r| r == root) {
+            return;
+        }
+        written.push(root.to_path_buf());
     }
     let _ = std::fs::create_dir_all(root);
     let _ = std::fs::write(root.join("README.md"), CACHE_README);

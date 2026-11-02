@@ -115,7 +115,12 @@ fn parse(
 }
 
 /// `takesArguments => false`.
-fn no_arguments(arguments: &Arguments, command: &str, usage_text: &str, docs: bool) -> Result<(), Failure> {
+fn no_arguments(
+    arguments: &Arguments,
+    command: &str,
+    usage_text: &str,
+    docs: bool,
+) -> Result<(), Failure> {
     if arguments.rest.is_empty() {
         return Ok(());
     }
@@ -138,7 +143,10 @@ pub(crate) fn run(args: &[String]) -> Result<u8, Failure> {
     let rest = &args[1..];
     match first.as_str() {
         "-h" | "--help" => {
-            println!("Work with the system cache.\n\n{}", full_usage(CACHE_USAGE, true));
+            println!(
+                "Work with the system cache.\n\n{}",
+                full_usage(CACHE_USAGE, true)
+            );
             Ok(0)
         }
         "add" => add(rest),
@@ -205,6 +213,18 @@ fn add(args: &[String]) -> Result<u8, Failure> {
         }
         None => VersionSet::any(),
     };
+    add_package(&settings, package, &constraint, arguments.is("all"))?;
+    Ok(0)
+}
+
+/// Downloads the best version of `package` allowed by `constraint`, or all
+/// of them in ascending order.
+pub(crate) fn add_package(
+    settings: &Settings,
+    package: &str,
+    constraint: &VersionSet,
+    all: bool,
+) -> Result<(), Failure> {
     let mut cache = settings.cache(false);
     let description = Description::Hosted(settings.host.clone());
     let mut ids: Vec<PackageId> = cache
@@ -224,7 +244,7 @@ fn add(args: &[String]) -> Result<u8, Failure> {
         }
         Ok(())
     };
-    if arguments.is("all") {
+    if all {
         ids.sort_by(|a, b| a.version.cmp(&b.version));
         for id in &ids {
             download(id)?;
@@ -234,7 +254,7 @@ fn add(args: &[String]) -> Result<u8, Failure> {
         let best = ids.last().expect("not empty").clone();
         download(&best)?;
     }
-    Ok(0)
+    Ok(())
 }
 
 /// `Version.prioritize`: stable versions before prereleases, then by version.
@@ -318,7 +338,10 @@ fn load_package(directory: &Path, settings: &Settings) -> Result<(String, Versio
 
 /// `_looksLikePackageDir`: `<name>-<version>` directories.
 fn looks_like_package_dir(path: &Path) -> bool {
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     match name.split_once('-') {
         Some((_, version)) => Version::parse(version).is_ok() && path.is_dir(),
         None => false,
@@ -339,6 +362,12 @@ fn list(args: &[String]) -> Result<u8, Failure> {
         return Ok(0);
     };
     no_arguments(&arguments, "list", LIST_USAGE, false)?;
+    println!("{}", cached_packages_json(&settings));
+    Ok(0)
+}
+
+/// The JSON of `pub cache list`: the packages of the default server.
+pub(crate) fn cached_packages_json(settings: &Settings) -> String {
     let directory = settings
         .cache_root
         .join("hosted")
@@ -348,7 +377,7 @@ fn list(args: &[String]) -> Result<u8, Failure> {
         .into_iter()
         .filter(|e| looks_like_package_dir(e))
     {
-        let Ok((name, version)) = load_package(&entry, &settings) else {
+        let Ok((name, version)) = load_package(&entry, settings) else {
             continue;
         };
         let location = entry.to_string_lossy().into_owned();
@@ -374,8 +403,7 @@ fn list(args: &[String]) -> Result<u8, Failure> {
             format!("{}:{{{}}}", json(name), versions.join(","))
         })
         .collect();
-    println!("{{\"packages\":{{{}}}}}", body.join(","));
-    Ok(0)
+    format!("{{\"packages\":{{{}}}}}", body.join(","))
 }
 
 /// `pub cache preload`.
@@ -392,7 +420,11 @@ fn preload(args: &[String]) -> Result<u8, Failure> {
         return Ok(0);
     };
     if arguments.rest.is_empty() {
-        return Err(usage_error("No package to preload given.", PRELOAD_USAGE, true));
+        return Err(usage_error(
+            "No package to preload given.",
+            PRELOAD_USAGE,
+            true,
+        ));
     }
     for path in &arguments.rest {
         if !Path::new(path).is_file() {
@@ -415,11 +447,25 @@ fn preload(args: &[String]) -> Result<u8, Failure> {
 
 /// `HostedSource.preloadPackage`: extracts the archive into a temporary
 /// directory, reads its pubspec and moves it into the cache with its hash.
-fn preload_one(path: &str, cache: &Cache, settings: &Settings) -> Result<(String, Version), Failure> {
+pub(crate) fn preload_one(
+    path: &str,
+    cache: &Cache,
+    settings: &Settings,
+) -> Result<(String, Version), Failure> {
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
     let digest = format!("{:x}", Sha256::digest(&bytes));
     let temporary = temp_dir(&cache.root)?;
     let result = (|| -> Result<(String, Version), Failure> {
+        // Dart's `GZipCodec` reports any undecodable stream with zlib's text.
+        let mut decoded = Vec::new();
+        if std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(&bytes[..]), &mut decoded)
+            .is_err()
+        {
+            return Err(Failure {
+                code: exit::DATA,
+                message: format!("Failed to extract `{path}`: Filter error, bad data."),
+            });
+        }
         unpack(&bytes, &temporary).map_err(|e| Failure {
             code: exit::DATA,
             message: format!("Failed to extract `{path}`: {e}."),
@@ -471,12 +517,12 @@ fn temp_dir(root: &Path) -> Result<PathBuf, String> {
 }
 
 /// The result of reinstalling one cached package.
-struct Repair {
-    name: String,
-    version: Version,
+pub(crate) struct Repair {
+    pub name: String,
+    pub version: Version,
     /// `None` for hosted packages, the source name otherwise.
-    source: Option<&'static str>,
-    success: bool,
+    pub source: Option<&'static str>,
+    pub success: bool,
 }
 
 /// `pub cache repair`.
@@ -513,7 +559,11 @@ fn repair(args: &[String]) -> Result<u8, Failure> {
             plural("package", failures.len())
         );
         for failure in &failures {
-            text.push_str(&format!("- {} {}", ansi("1", &failure.name), failure.version));
+            text.push_str(&format!(
+                "- {} {}",
+                ansi("1", &failure.name),
+                failure.version
+            ));
             if let Some(source) = failure.source {
                 text.push_str(&format!(" from {source}"));
             }
@@ -551,7 +601,7 @@ fn repair(args: &[String]) -> Result<u8, Failure> {
 }
 
 /// `_directoryToUrl`, the inverse of `_urlToDirectory`.
-fn directory_to_url(directory: &str) -> Option<String> {
+pub(crate) fn directory_to_url(directory: &str) -> Option<String> {
     let mut decoded = String::new();
     let bytes = directory.as_bytes();
     let mut index = 0;
@@ -581,7 +631,7 @@ fn directory_to_url(directory: &str) -> Option<String> {
 }
 
 /// `HostedSource.repairCachedPackages`.
-fn repair_hosted(cache: &mut Cache, settings: &Settings) -> Vec<Repair> {
+pub(crate) fn repair_hosted(cache: &mut Cache, settings: &Settings) -> Vec<Repair> {
     let root = cache.root.join("hosted");
     let mut results = Vec::new();
     for server in list_dir(&root) {
@@ -604,9 +654,10 @@ fn repair_hosted(cache: &mut Cache, settings: &Settings) -> Vec<Repair> {
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
                     let (name, version) = match base.split_once('-') {
-                        Some((name, version)) => {
-                            (name.to_owned(), Version::parse(version).unwrap_or_else(|_| Version::new(0, 0, 0)))
-                        }
+                        Some((name, version)) => (
+                            name.to_owned(),
+                            Version::parse(version).unwrap_or_else(|_| Version::new(0, 0, 0)),
+                        ),
                         None => (base.clone(), Version::new(0, 0, 0)),
                     };
                     results.push(Repair {
@@ -706,7 +757,10 @@ fn repair_git(cache: &Cache, settings: &Settings) -> Vec<Repair> {
         if !directory.is_dir() {
             continue;
         }
-        println!("Resetting Git repository for {} {version}...", ansi("1", &name));
+        println!(
+            "Resetting Git repository for {} {version}...",
+            ansi("1", &name)
+        );
         let reset = git(&["clean", "-d", "--force", "-x"], &directory)
             .and_then(|_| git(&["reset", "--hard", "HEAD"], &directory));
         match reset {
@@ -717,7 +771,10 @@ fn repair_git(cache: &Cache, settings: &Settings) -> Vec<Repair> {
                 success: true,
             }),
             Err(error) => {
-                eprintln!("Failed to reset {} {version}. Error:\n{error}", ansi("1", &name));
+                eprintln!(
+                    "Failed to reset {} {version}. Error:\n{error}",
+                    ansi("1", &name)
+                );
                 let _ = std::fs::remove_dir_all(&revision);
                 results.push(Repair {
                     name,

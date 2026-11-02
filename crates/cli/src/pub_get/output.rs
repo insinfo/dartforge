@@ -274,6 +274,31 @@ pub(crate) fn write_package_config(
     cache: &mut Cache,
 ) -> Result<(), String> {
     let root = &workspace[0].directory;
+    write_config_file(root, workspace, lock, cache)?;
+    if workspace[0].children.is_empty() {
+        return Ok(());
+    }
+    let string = |s: &str| serde_json::to_string(s).expect("string serialization");
+    for package in workspace {
+        let reference = relative_path(root, &package.directory.join(".dart_tool/pub"));
+        let text = format!("{{\n  \"workspaceRoot\": {}\n}}\n", string(&reference));
+        atomic_write(
+            &package.directory.join(".dart_tool/pub/workspace_ref.json"),
+            text.as_bytes(),
+        )?;
+    }
+    Ok(())
+}
+
+/// `.dart_tool/package_config.json` in `root`: the locked packages, then
+/// the workspace packages `members` (none for a global package, whose
+/// root is Pub's `pub global activate` placeholder).
+pub(crate) fn write_config_file(
+    root: &Path,
+    members: &[WorkspacePackage],
+    lock: &NewLock,
+    cache: &mut Cache,
+) -> Result<(), String> {
     let tool = root.join(".dart_tool");
     let mut entries: Vec<(String, String, String)> = Vec::new();
     for (name, id) in &lock.packages {
@@ -296,7 +321,7 @@ pub(crate) fn write_package_config(
         })?;
         entries.push((name.clone(), uri, language(&manifest)));
     }
-    for package in workspace {
+    for package in members {
         entries.push((
             package.manifest.name.clone(),
             relative_uri(&relative_path(&package.directory, &tool)),
@@ -324,19 +349,7 @@ pub(crate) fn write_package_config(
     if entries.is_empty() {
         config = config.replace("\"packages\": [\n  ]", "\"packages\": []");
     }
-    atomic_write(&tool.join("package_config.json"), config.as_bytes())?;
-    if workspace[0].children.is_empty() {
-        return Ok(());
-    }
-    for package in workspace {
-        let reference = relative_path(root, &package.directory.join(".dart_tool/pub"));
-        let text = format!("{{\n  \"workspaceRoot\": {}\n}}\n", string(&reference));
-        atomic_write(
-            &package.directory.join(".dart_tool/pub/workspace_ref.json"),
-            text.as_bytes(),
-        )?;
-    }
-    Ok(())
+    atomic_write(&tool.join("package_config.json"), config.as_bytes())
 }
 
 /// Pub's `_removeStrayLockAndConfigFiles`: workspace members keep no

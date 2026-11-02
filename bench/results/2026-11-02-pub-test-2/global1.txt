@@ -1,0 +1,35 @@
+global list
+global activate --source path ../../pt/gp
+global list
+global run gp:gp x y
+global run gp:other
+global run gp
+global run gp:missing
+global activate --source path ../../pt/gp -x gp
+global activate --source path ../../pt/gp --no-executables
+global deactivate gp
+global deactivate gp
+global activate --source git ../../pt/gp
+global list
+global run gp a
+global activate --source git ../../pt/gp
+global deactivate gp
+global activate markdown 7.2.2
+global list
+global activate markdown 7.2.2
+global run markdown:markdown --version
+global activate markdown '>=7.0.0 <7.2.0'
+global deactivate markdown
+global activate
+global activate a b c
+global activate 'Bad-Name'
+global activate nonexistent_pkg_zzzq
+global activate markdown 99.0.0
+global run
+global run nothing:here
+global deactivate
+global
+global --help
+global activate --help
+global run --help
+global list x

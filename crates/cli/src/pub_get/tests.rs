@@ -581,3 +581,219 @@ fn pub_add_and_remove_edit_the_pubspec() {
         )
     );
 }
+
+const TOOL: &str = "name: tool\nversion: 1.0.0\nenvironment:\n  sdk: ^3.0.0\ndependencies:\n  a: ^1.0.0\nexecutables:\n  tool:\n  t2: other\n";
+
+#[test]
+fn cache_add_list_repair_and_preload_follow_pub_layout() {
+    let fixture = Fixture::new();
+    let registry = registry(&[(
+        "a",
+        &[
+            (
+                "1.0.0",
+                "name: a\nversion: 1.0.0\nenvironment:\n  sdk: ^3.0.0\n",
+            ),
+            (
+                "1.1.0",
+                "name: a\nversion: 1.1.0\nenvironment:\n  sdk: ^3.0.0\n",
+            ),
+        ],
+    )]);
+    let cache = fixture.0.join("cache");
+    let settings = settings(&cache, &registry.url);
+    let server = hosted::url_to_directory(&registry.url);
+    let hosted = cache.join("hosted").join(&server);
+
+    // The best version only, with its hash, the listing and the README.
+    cache::add_package(&settings, "a", &VersionSet::any(), false).unwrap();
+    assert!(hosted.join("a-1.1.0/pubspec.yaml").is_file());
+    assert!(!hosted.join("a-1.0.0").exists());
+    assert!(
+        cache
+            .join("hosted-hashes")
+            .join(&server)
+            .join("a-1.1.0.sha256")
+            .is_file()
+    );
+    let listing = std::fs::read_to_string(hosted.join(".cache/a-versions.json")).unwrap();
+    assert!(
+        listing.starts_with("{\"name\":\"a\",\"versions\":["),
+        "{listing}"
+    );
+    assert!(listing.contains(",\"_fetchedAt\":\""), "{listing}");
+    assert!(
+        std::fs::read_to_string(cache.join("README.md"))
+            .unwrap()
+            .starts_with("Pub Package Cache\n")
+    );
+
+    // `--all` with a constraint, then the listing of `cache list`.
+    cache::add_package(&settings, "a", &VersionSet::parse("<1.1.0").unwrap(), true).unwrap();
+    assert!(hosted.join("a-1.0.0/lib/a.dart").is_file());
+    let json: serde_json::Value =
+        serde_json::from_str(&cache::cached_packages_json(&settings)).unwrap();
+    let versions = json["packages"]["a"].as_object().unwrap();
+    assert_eq!(versions.len(), 2);
+    assert_eq!(
+        versions["1.0.0"]["location"],
+        hosted.join("a-1.0.0").to_string_lossy().as_ref()
+    );
+
+    // Repair reinstalls every package from the server.
+    std::fs::write(hosted.join("a-1.0.0/lib/a.dart"), "corrupted").unwrap();
+    let mut source = settings.cache(false);
+    let results = cache::repair_hosted(&mut source, &settings);
+    assert_eq!(results.iter().filter(|r| r.success).count(), 2);
+    assert_eq!(
+        std::fs::read_to_string(hosted.join("a-1.0.0/lib/a.dart")).unwrap(),
+        ""
+    );
+    assert_eq!(
+        cache::directory_to_url(&server).unwrap(),
+        registry.url.replace("127.0.0.1", "localhost")
+    );
+
+    // Preload installs an archive under the default server with its hash.
+    let bytes = archive(
+        &[(
+            "pubspec.yaml",
+            "name: b\nversion: 2.0.0\nenvironment:\n  sdk: ^3.0.0\n",
+        )],
+        &[],
+    );
+    let file = fixture.0.join("b.tar.gz");
+    std::fs::write(&file, &bytes).unwrap();
+    let (name, version) = cache::preload_one(
+        &file.display().to_string(),
+        &settings.cache(false),
+        &settings,
+    )
+    .unwrap();
+    assert_eq!(
+        (name.as_str(), version.to_string().as_str()),
+        ("b", "2.0.0")
+    );
+    assert!(hosted.join("b-2.0.0/pubspec.yaml").is_file());
+    let hash = std::fs::read_to_string(
+        cache
+            .join("hosted-hashes")
+            .join(&server)
+            .join("b-2.0.0.sha256"),
+    )
+    .unwrap();
+    assert_eq!(
+        hash,
+        format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&bytes))
+    );
+    let broken = fixture.0.join("broken.tar.gz");
+    std::fs::write(&broken, "not gzip").unwrap();
+    let error = cache::preload_one(
+        &broken.display().to_string(),
+        &settings.cache(false),
+        &settings,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, exit::DATA);
+    assert!(
+        error.message.ends_with("Filter error, bad data."),
+        "{}",
+        error.message
+    );
+}
+
+#[test]
+fn global_activation_writes_pub_lockfile_config_and_bin_stubs() {
+    let fixture = Fixture::new();
+    let registry = registry(&[
+        (
+            "a",
+            &[(
+                "1.0.0",
+                "name: a\nversion: 1.0.0\nenvironment:\n  sdk: ^3.0.0\n",
+            )],
+        ),
+        ("tool", &[("1.0.0", TOOL)]),
+    ]);
+    let cache = fixture.0.join("cache");
+    let settings = settings(&cache, &registry.url);
+    let dependency = manifest::Dependency {
+        name: "tool".into(),
+        description: Description::Hosted(registry.url.clone()),
+        constraint: VersionSet::any(),
+    };
+    global::install_in_cache(&settings, dependency, None, false, false).unwrap();
+    let directory = cache.join("global_packages/tool");
+    let lock = std::fs::read_to_string(directory.join("pubspec.lock")).unwrap();
+    assert!(
+        lock.contains("  a:\n    dependency: transitive\n"),
+        "{lock}"
+    );
+    assert!(
+        lock.contains("  tool:\n    dependency: \"direct main\"\n"),
+        "{lock}"
+    );
+    assert!(
+        lock.ends_with("sdks:\n  dart: \">=3.0.0 <4.0.0\"\n"),
+        "{lock}"
+    );
+    // The placeholder root package is not part of the configuration.
+    let config = std::fs::read_to_string(directory.join(".dart_tool/package_config.json")).unwrap();
+    assert!(config.contains("\"name\": \"tool\""), "{config}");
+    assert!(!config.contains("pub global activate"), "{config}");
+    let stub = std::fs::read_to_string(cache.join("bin/t2")).unwrap();
+    assert!(stub.starts_with("#!/usr/bin/env sh\n# This file was created by pub v3.6.2.\n# Package: tool\n# Version: 1.0.0\n# Executable: t2\n# Script: other\n"), "{stub}");
+    assert_eq!(
+        global::stub_property(&stub, "Script").as_deref(),
+        Some("other")
+    );
+    assert!(cache.join("bin/tool").is_file());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(cache.join("bin/tool"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111);
+    }
+
+    // A path package with --no-executables: an absolute path in the lockfile.
+    let local = fixture.package(
+        "local",
+        "name: local\nversion: 0.1.0\nenvironment:\n  sdk: ^3.5.0\nexecutables:\n  loc:\n",
+    );
+    global::activate_path(
+        &settings,
+        &local.display().to_string(),
+        Some(Vec::new()),
+        false,
+    )
+    .unwrap();
+    let lock = std::fs::read_to_string(cache.join("global_packages/local/pubspec.lock")).unwrap();
+    assert!(
+        lock.contains(&format!(
+            "      path: {}\n      relative: false\n",
+            output::quote(&local.display().to_string())
+        )),
+        "{lock}"
+    );
+    assert!(lock.ends_with("sdks:\n  dart: any\n"), "{lock}");
+    assert!(!cache.join("bin/loc").exists());
+    let names: Vec<String> = global::active_packages(&settings)
+        .unwrap()
+        .into_iter()
+        .map(|id| format!("{} {}", id.name, id.version))
+        .collect();
+    assert_eq!(names, ["local 0.1.0", "tool 1.0.0"]);
+
+    global::deactivate_package(&settings, "tool").unwrap();
+    assert!(!directory.exists());
+    assert!(!cache.join("bin/tool").exists() && !cache.join("bin/t2").exists());
+    assert_eq!(
+        global::deactivate_package(&settings, "tool")
+            .unwrap_err()
+            .code,
+        exit::DATA
+    );
+}

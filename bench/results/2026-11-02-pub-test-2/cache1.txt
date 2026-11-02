@@ -1,0 +1,20 @@
+cache add path --version 1.9.0
+cache add path --version 1.9.0
+cache add path --version '<1.8.1 >=1.8.0' --all
+cache list
+cache add nonexistent_pkg_zzzq
+cache add
+cache add a b
+cache add path --version foo
+cache add path --version '>9.0.0'
+cache repair
+cache preload nofile.tar.gz
+cache clean
+cache clean -f
+cache list
+cache repair
+cache
+cache --help
+cache add --help
+cache clean --help
+cache repair x

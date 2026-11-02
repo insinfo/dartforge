@@ -104,14 +104,20 @@ pub(crate) fn format_id_description(id: &PackageId) -> String {
 
 /// `p.prettyUri`: a `file:` URL is shown as a path relative to the
 /// working directory when it is inside it.
-fn pretty_url(url: &str) -> String {
+/// `GitDescription.prettyUri`: a `file:` URL becomes `p.prettyUri`'s path,
+/// relative to the working directory unless that has more components than
+/// the absolute path.
+pub(crate) fn pretty_url(url: &str) -> String {
     if let Ok(parsed) = url::Url::parse(url)
         && parsed.scheme() == "file"
         && let Ok(path) = parsed.to_file_path()
     {
         let cwd = std::env::current_dir().unwrap_or_default();
         let relative = super::output::relative_path(&path, &cwd);
-        return if relative.starts_with("..") {
+        let relative_parts = relative.split('/').filter(|p| !p.is_empty()).count();
+        // `p.split` counts the root of an absolute path as a component.
+        let absolute_parts = path.components().count();
+        return if relative_parts > absolute_parts {
             path.display().to_string()
         } else {
             relative
@@ -281,6 +287,14 @@ impl Report<'_> {
 
     /// `SolveReport.show(summary: true)`; returns the number of changes.
     pub fn show(&self, cache: &Cache) -> usize {
+        let changes = self.show_changes(cache);
+        self.summarize(cache, changes);
+        changes
+    }
+
+    /// `SolveReport.show(summary: false)`: the changed packages and the
+    /// content-hash check, without the summary.
+    pub fn show_changes(&self, cache: &Cache) -> usize {
         let mut output = String::new();
         let mut names: Vec<&String> = self
             .new
@@ -312,7 +326,6 @@ impl Report<'_> {
             message(&output);
         }
         self.check_content_hashes();
-        self.summarize(cache, changes);
         changes
     }
 

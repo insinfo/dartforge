@@ -1,0 +1,12 @@
+cache add path --version 1.9.0
+cache add args --version 2.5.0
+cache add args --version '>=2.4.1 <2.5.0' --all
+cache list
+cache repair
+cache preload /private/tmp/claude-501/-Volumes-ssd-dock-MyRustProjects-dartforge/ac169d57-450d-4d30-a335-fc76af999313/scratchpad/archives/meta-1.15.0.tar.gz
+cache preload /private/tmp/claude-501/-Volumes-ssd-dock-MyRustProjects-dartforge/ac169d57-450d-4d30-a335-fc76af999313/scratchpad/pc/cache2.txt
+cache list
+cache repair
+cache bogus
+cache list --help
+cache preload

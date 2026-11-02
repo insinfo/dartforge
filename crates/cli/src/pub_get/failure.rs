@@ -807,6 +807,21 @@ pub(super) fn package_not_found(all: &[Incompatibility], root: usize) -> bool {
     walk(all, root)
 }
 
+/// Whether the failure comes from `name` having no version that matches
+/// (Pub's `NoVersionsIncompatibilityCause` on that package alone).
+pub(super) fn no_versions_of(all: &[Incompatibility], root: usize, name: &str) -> bool {
+    fn walk(all: &[Incompatibility], id: usize, name: &str) -> bool {
+        match &all[id].cause {
+            Cause::Conflict(a, b) => walk(all, *a, name) || walk(all, *b, name),
+            Cause::NoVersions => {
+                matches!(all[id].terms.as_slice(), [term] if term.package.name == name)
+            }
+            _ => false,
+        }
+    }
+    walk(all, root, name)
+}
+
 /// The text Pub prints for a failed resolution.
 pub(super) fn explain(all: &[Incompatibility], root: usize, sdk: &Version) -> String {
     let mut writer = Writer {
