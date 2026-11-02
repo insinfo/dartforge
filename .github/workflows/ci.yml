@@ -596,6 +596,11 @@ jobs:
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test reload_state --test jit_program -- --include-ignored
       - name: Native dart:io regressions (shared listening, signal burst)
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test io_regression -- --include-ignored
+      # The hello world's wasm module and executable stay within budget, and
+      # the module does not import the JavaScript interop (863d4159 took both
+      # to ~12.8 MB by keeping every SDK tear-off alive).
+      - name: Hello world size budget (wasm and native)
+        run: cargo test --locked --release -p dartforge-cli --features native,jit --test size_budget -- --include-ignored
       - name: gdb (native debugging, J05)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y -qq gdb

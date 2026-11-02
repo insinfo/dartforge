@@ -70,6 +70,11 @@ Counting, for every tool other than `vm`, each program is exactly one of:
   - rejected by both: the VM refuses to compile it (exit 254) and DartForge
     refuses it too (compile failure, -1000) — a program with a static error
     the runner did not filter out; it is not a failure;
+  - passes where the VM fails: the VM fails one of the test's `Expect` checks
+    (255, `Unhandled exception:` then `Expect…`) and DartForge runs the whole
+    test (exit 0, empty stderr, the VM's stdout up to its failure) — the 3.6.2
+    VM does not implement what the test checks (the subtyping of the
+    `variance` experiment); it is not a failure, and the list is printed;
   - failure: anything else (`<name>.fail.txt`), including a program the VM
     refuses and DartForge accepts.
 The summary prints the numbers separately.
@@ -337,13 +342,26 @@ def same_divergence(vm_r, ddc_r, r):
     return first_difference(vm_r["out"], r["out"]) == first_difference(vm_r["out"], ddc_r["out"])
 
 
+def vm_fails_expectation(vm_r, r):
+    """The VM fails one of the test's `Expect` checks (255, the expectation's
+    message) and `r` runs the whole test: exit 0, nothing on stderr, and the
+    VM's stdout up to its failure."""
+    lines = vm_r["err"].splitlines()
+    return (vm_r["code"] == 255 and len(lines) > 1 and lines[0].startswith("Unhandled exception:")
+            and lines[1].startswith("Expect") and r["code"] == 0 and not r["err"].strip()
+            and r["out"].startswith(vm_r["out"]))
+
+
 def matches(tool, test, r, ref, alt):
     """`vm`, `dart2wasm` (`wasm`: only the web reference), `ddc` (`forge`: the
     same divergence from the VM as DDC's), `rejected` (a program the VM refuses
     to compile, 254, that the tool refuses too: `forge`, `wasm`, `native` and
-    `dartaot`), or None (a failure)."""
+    `dartaot`), `passes` (the test passes where the VM fails one of its
+    expectations), or None (a failure)."""
     if test in ref and same(r, ref[test]):
         return "vm"
+    if test in ref and vm_fails_expectation(ref[test], r):
+        return "passes"
     if tool in ("forge", "wasm", "native", "dartaot") and test in ref and ref[test]["code"] == 254 and r["code"] == -1000:
         return "rejected"
     # `jit` compiles and runs in one process: a refusal exits like a compile
@@ -489,7 +507,7 @@ def kind(tool, test, results, ref, alt):
     m = matches(tool, test, results[test], ref, alt)
     if m is None:
         return "failure"
-    return m if m in ("rejected", "ddc") else "equal"
+    return m if m in ("rejected", "ddc", "passes") else "equal"
 
 
 def compare(old, new, tool="forge", ref_name="vm", alt_name=None):
@@ -509,11 +527,11 @@ def compare(old, new, tool="forge", ref_name="vm", alt_name=None):
             continue
         moves.setdefault((ka, kb), []).append(t)
     print("regressions:", sorted(moves.get(("equal", "failure"), []) + moves.get(("rejected", "failure"), [])
-                                 + moves.get(("ddc", "failure"), [])))
+                                 + moves.get(("ddc", "failure"), []) + moves.get(("passes", "failure"), [])))
     n = lambda k: len(moves.get(("failure", k), []))
-    print("fixed:", n("equal") + n("rejected") + n("ddc"),
-          "(%d now equal, %d now rejected by both, %d now DDC's divergence)" % (
-              n("equal"), n("rejected"), n("ddc")))
+    print("fixed:", n("equal") + n("rejected") + n("ddc") + n("passes"),
+          "(%d now equal, %d now rejected by both, %d now DDC's divergence, %d now passing where the VM fails)" % (
+              n("equal"), n("rejected"), n("ddc"), n("passes")))
     for (ka, kb), ts in sorted(moves.items()):
         if "failure" not in (ka, kb):
             print("%s -> %s: %s" % (ka, kb, sorted(ts)))
@@ -584,6 +602,10 @@ def main():
             print("%s: %d with DDC's own divergence from the VM" % (tool, count("ddc")))
         if tool in ("forge", "wasm", "native", "dartaot", "jit"):
             print("%s: %d rejected by both (the VM refuses them too)" % (tool, count("rejected")))
+        print("%s: %d passing where the VM fails an expectation" % (tool, count("passes")))
+        for t in tests:
+            if kinds[t] == "passes":
+                print("  passes:", t)
         print("%s: %d failures" % (tool, len(bad)))
         with open(os.path.join(RES, out + ".fail.txt"), "w") as f:
             for t in bad:

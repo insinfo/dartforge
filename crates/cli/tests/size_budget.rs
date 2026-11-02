@@ -1,7 +1,8 @@
 //! A hello world stays small: the closed world of the production compilers
 //! must not keep the whole SDK alive. 863d4159 registered every SDK tear-off
 //! at startup, which kept 20 thousand symbols of a hello world (JavaScript
-//! interop included) and took its WebAssembly module from 1.29 to 12.75 MB.
+//! interop included) and took its WebAssembly module from 1.29 to 12.75 MB
+//! and its Windows executable from 3.5 to 12.9 MB.
 #![cfg(feature = "native")]
 
 use std::path::{Path, PathBuf};
@@ -9,6 +10,10 @@ use std::process::Command;
 
 /// The budget of the hello world's module: 1.29 MB on 31/10/2026.
 const HELLO_WASM_BUDGET: u64 = 1_400_000;
+
+/// The budget of the hello world's executable: 3.49 MB on Windows on
+/// 02/11/2026, under the ~5.8 MB of `dart compile exe` on every host.
+const HELLO_NATIVE_BUDGET: u64 = 5_000_000;
 
 fn scratch(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -59,6 +64,32 @@ fn hello_world_wasm_stays_small_and_without_javascript_interop() {
     assert!(
         !dir.join("hello.mjs").exists() && !dir.join("main.mjs").exists(),
         "hello world: the module has a JavaScript companion"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+#[ignore = "builds an executable with the source-built SDK and LLVM; run in CI"]
+fn hello_world_executable_stays_small() {
+    let dir = scratch("native");
+    let source = hello(&dir);
+    let executable = dir.join(if cfg!(windows) { "hello.exe" } else { "hello" });
+    let output = Command::new(env!("CARGO_BIN_EXE_dartforge"))
+        .arg("aot")
+        .arg(&source)
+        .arg(&executable)
+        .arg("--optimize")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let size = std::fs::metadata(&executable).unwrap().len();
+    assert!(
+        size <= HELLO_NATIVE_BUDGET,
+        "hello world: a {size}-byte executable, over the budget of {HELLO_NATIVE_BUDGET}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
