@@ -1,0 +1,31 @@
+simple publish --dry-run
+bare publish --dry-run
+fields publish --dry-run
+namesUpper publish --dry-run
+docs publish --dry-run
+sdkold publish --dry-run
+sdkpre publish --dry-run
+deps publish --dry-run
+deps2 publish --dry-run
+deps3 publish --dry-run
+strict publish --dry-run
+leaks publish --dry-run
+leaks4 publish --dry-run
+ignore publish --dry-run
+ignore publish --to-archive ../../out/ignore-@TOOL@.tgz
+devtools publish --dry-run
+private publish --dry-run
+private publish
+private publish --to-archive ../../out/private-@TOOL@.tgz
+publishto publish --dry-run
+badpublishto publish --dry-run
+relver publish --dry-run
+relmajor publish --dry-run
+analyze publish --dry-run
+linkdir publish --dry-run
+linkbroken publish --dry-run
+linkfile publish --dry-run
+linkfile publish --to-archive ../../out/linkfile-@TOOL@.tgz
+repo/pkgs/inrepo publish --dry-run
+repo/pkgs/inrepo publish --to-archive ../../../../out/inrepo-@TOOL@.tgz
+repo publish -C pkgs/inrepo --dry-run

@@ -52,7 +52,7 @@ package:test 1.25.7 / test_core 0.6.x. O código está em `crates/cli/src/pub_ge
 | `logout` | suportado | apaga `pub-credentials.json` ou diz que não existe |
 | `uploader` | suportado | como no Pub 3.6.2: só aponta para `https://pub.dev/packages/<pacote>/admin` (código 1) |
 | `login` | ausente | fluxo OAuth2 com navegador e servidor do Google; não há como testá-lo sem rede nem igualá-lo offline |
-| `publish`/`lish` | ausente | ver "`pub publish`: o que falta" abaixo |
+| `publish`/`lish` | suportado | `-n/--dry-run`, `-f/--force`, `--skip-validation`, `-C` e as ocultas `--server`, `--to-archive`, `--from-archive`; os 25 validadores; o arquivo `.tar.gz` sai byte a byte igual ao do Pub; envio com token (`pub-tokens.json`). Envio ao pub.dev sem token (OAuth2 do `login`) recusado com mensagem explícita. Ver "Como o `pub publish` funciona agora" |
 | `bump`, `unpack`, `workspace list`, `dependency_services` | ausente | |
 | Sugestões após falha ("You can try one of the following suggestions") | ausente | o Pub re-resolve variações; o DartForge imprime só a explicação |
 | SDK Flutter/Fuchsia | parcial | tratados como indisponíveis (o Pub sem `FLUTTER_ROOT` faz o mesmo) |
@@ -110,33 +110,61 @@ não há rastro. Quando o backend ganhar quadros, a coleta volta sozinha. Os
 `stackTrace` dos eventos `error` e os rastros impressos pelos relatores de texto são os
 do executável nativo (`dart:native  main`).
 
-## `pub publish`: o que falta
+## Como o `pub publish` funciona agora
 
-Não foi feito nesta rodada. O `--dry-run` do Pub 3.6.2 só sai idêntico com todas as
-peças abaixo; entregar parte delas daria avisos e erros diferentes nos pacotes que
-acionam as que faltam, e por isso nada foi ligado:
+Porte do `command/lish.dart` do Pub 3.6.2 em `crates/cli/src/pub_get/publish*`:
 
-1. `acquireDependencies` (já existe: o `pub get`) e a lista de arquivos do
-   `Package.listFiles`, com as regras de `.pubignore`/`.gitignore` do `ignore.dart` do
-   Pub (por diretório, `.pubignore` vence `.gitignore`, sempre fora `.git`, `pubspec.lock`
-   só na raiz etc.);
-2. a árvore com tamanhos (`ascii_tree.fromFiles`, `showFileSizes`) e o arquivo
-   `.tar.gz` do `createTarGz` (cabeçalhos do package:tar, ordem, modos); o tamanho
-   comprimido aparece arredondado em KB, então o gzip precisa sair com o mesmo nível e
-   praticamente os mesmos bytes do `GZipCodec` do Dart;
-3. os 25 validadores do `Validator.runAll`, na ordem: `FileCase`, `Analyze` (o
-   `dart analyze` de `lib`, `bin`, `test`... — temos o `dartforge analyze`, 99,95% no
-   corpus, mas as mensagens têm de sair como as do analisador embutido no Pub),
-   `Gitignore` e `GitStatus` (rodam `git`), `Pubspec`, `License`, `Name`, `PubspecField`,
-   `Dependency` (consulta o servidor), `DependencyOverride`, `DeprecatedFields`,
-   `Directory`, `Executable`, `CompiledDartdoc`, `Readme`, `Changelog`, `SdkConstraint`,
-   `StrictDependencies` (lê os `import`/`export` de todo arquivo Dart), `FlutterConstraint`,
-   `FlutterPluginFormat`, `RelativeVersionNumbering` (consulta o servidor), `PubspecTypo`,
-   `LeakDetection` (671 linhas de padrões de segredos), `Size` e `DevtoolsExtension`;
-4. o protocolo de envio (`GET api/packages/versions/new`, `POST` multipart para a URL
-   devolvida, `GET` da `location`) com `--force`, a confirmação e os erros de servidor,
-   testado só contra um servidor falso local; autenticação por `pub-tokens.json` (já
-   implementado) para servidores de terceiros e OAuth2 para o pub.dev.
+* **Lista de arquivos.** `Package.listFiles` com um porte do `ignore.dart`
+  (`publish/ignore.rs`): cada padrão vira a mesma expressão regular que o Pub monta
+  (com o `.` do JavaScript e as classes traduzidas para o crate `regex`); em cada
+  diretório o `.pubignore` vence o `.gitignore`; as regras de base (`.*`, `!.htaccess`,
+  `pubspec.lock`, `!pubspec.lock/`, `/pubspec_overrides.yaml`) valem na raiz do
+  pacote; dentro de um repositório Git a caminhada começa na raiz do repositório
+  (`git rev-parse --show-toplevel`), como no Pub. Sem diferença de maiúsculas no macOS
+  e no Windows. A ordem é a do Pub (a da listagem do sistema de arquivos, em pilha);
+  links simbólicos para diretórios e links quebrados dão os erros do Pub.
+* **Árvore e arquivo.** `ascii_tree.fromFiles` com tamanhos (diretórios vazios
+  aparecem; um diretório só com arquivos ocultos conta como vazio, como no `listDir`
+  do Pub) e o `createTarGz`: tar escrito como o package:tar (`gnuLongName` para nomes
+  com mais de 99 bytes, modo 644 mais os bits de execução, `ctime` dos arquivos,
+  `pub`/`pub` como dono) e comprimido por um porte do zlib do Chromium que a VM usa
+  (`publish/deflate.rs`, revisão `108fa50c` do `DEPS` da 3.6.2: nível 6 e o *hash* de
+  quatro bytes do `insert_string`). O zlib clássico (o do `flate2`/`libz-sys`, o do
+  Python) **não** dá os mesmos bytes que o `gzip.encode` da VM (292929 contra 292819
+  bytes no mesmo tar); o porte dá, e o tamanho em KB e o arquivo enviado saem iguais.
+* **Validadores.** Os 25 do `Validator.runAll`, na ordem do Pub
+  (`publish/validators.rs`, `leaks.rs`, `imports.rs`), com o relatório de erros,
+  avisos e dicas e as mensagens com trecho destacado do package:source_span
+  (`publish/span.rs`). O `Analyze` roda `dartforge analyze` com os argumentos que o Pub
+  passa ao `dart analyze` (o `pubspec.yaml` passado como arquivo agora é analisado
+  como pubspec, não como Dart). O `StrictDependencies` lê as diretivas com o parser do
+  DartForge (arquivos com erro de sintaxe são ignorados; o trecho começa no
+  comentário de documentação ou na anotação). O `LeakDetection` roda os 10 padrões do
+  Pub sobre os bytes com Unicode desligado (um byte acima de 127 vale o U+FFFD da
+  decodificação ASCII tolerante do Pub). `Dependency` e `RelativeVersionNumbering`
+  consultam o servidor (versões retiradas fora).
+* **Envio.** Confirmação (`y/N`), `GET api/packages/versions/new`, `POST` multipart
+  para a URL devolvida (sem seguir redirecionamento), `GET` da `location`, com as
+  repetições do `retryForHttp` (`PUB_MAX_HTTP_RETRIES`), o token de `pub-tokens.json`
+  (só para URLs abaixo do servidor; um 401 apaga o token, como no Pub) e os relatórios
+  de erro do Pub: autenticação (401/403 com a mensagem do `WWW-Authenticate`), erro
+  JSON do servidor, erro XML do armazenamento, resposta inválida e o relatório de
+  "erro inesperado" com código 69. As leituras de listagens e arquivos do `pub get`
+  agora também levam o token do servidor e o *user agent* `Dart pub 3.6.2`.
+
+Diferenças conhecidas:
+
+* envio ao `https://pub.dev` sem token: o Pub abre o fluxo OAuth2 do navegador (o
+  mesmo do `login`, ausente); o DartForge recusa com mensagem explícita e código 1;
+* num terminal interativo, o "Validating package..." do Pub mostra o tempo decorrido
+  depois de um segundo; o DartForge escreve a linha e a apaga, sem o relógio;
+* o `Analyze` herda a cobertura do `dartforge analyze` (as mensagens que ele publica
+  são as do analisador 3.6.2, mas os códigos semânticos não verificados ficam de fora;
+  ver `docs/ANALYZER-ESPECIFICACAO-INFRA.md`);
+* o código de publicação usa caminhos POSIX (`publish/paths.rs`, porte do
+  package:path); no Windows não foi medido.
+
+Evidências: `bench/results/2026-11-02-pub-publish/README.md`.
 
 ## Matriz das opções do `dart test`
 
@@ -206,4 +234,4 @@ completa exigiria portar a atribuição de posições do compilador da VM inteir
 registrado como impossível nesta arquitetura, e `--coverage` continua recusado com
 mensagem explícita.
 
-Evidências: `bench/results/2026-10-31-pub-test/README.md` e `bench/results/2026-11-02-pub-test-2/README.md`.
+Evidências: `bench/results/2026-10-31-pub-test/README.md`, `bench/results/2026-11-02-pub-test-2/README.md` e `bench/results/2026-11-02-pub-publish/README.md`.

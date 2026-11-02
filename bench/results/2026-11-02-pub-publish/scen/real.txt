@@ -1,0 +1,24 @@
+real/path-1.9.1 publish --dry-run
+real/path-1.9.1 publish --to-archive ../../../out/path-1.9.1-@TOOL@.tgz
+real/collection-1.19.1 publish --dry-run
+real/collection-1.19.1 publish --to-archive ../../../out/collection-1.19.1-@TOOL@.tgz
+real/meta-1.16.0 publish --dry-run
+real/meta-1.16.0 publish --to-archive ../../../out/meta-1.16.0-@TOOL@.tgz
+real/args-2.7.0 publish --dry-run
+real/args-2.7.0 publish --to-archive ../../../out/args-2.7.0-@TOOL@.tgz
+real/source_span-1.10.1 publish --dry-run
+real/source_span-1.10.1 publish --to-archive ../../../out/source_span-1.10.1-@TOOL@.tgz
+real/yaml-3.1.3 publish --dry-run
+real/yaml-3.1.3 publish --to-archive ../../../out/yaml-3.1.3-@TOOL@.tgz
+real/pub_semver-2.1.4 publish --dry-run
+real/pub_semver-2.1.4 publish --to-archive ../../../out/pub_semver-2.1.4-@TOOL@.tgz
+real/crypto-3.0.6 publish --dry-run
+real/crypto-3.0.6 publish --to-archive ../../../out/crypto-3.0.6-@TOOL@.tgz
+real/glob-2.1.2 publish --dry-run
+real/glob-2.1.2 publish --to-archive ../../../out/glob-2.1.2-@TOOL@.tgz
+real/logging-1.3.0 publish --dry-run
+real/logging-1.3.0 publish --to-archive ../../../out/logging-1.3.0-@TOOL@.tgz
+real/stack_trace-1.12.1 publish --dry-run
+real/stack_trace-1.12.1 publish --to-archive ../../../out/stack_trace-1.12.1-@TOOL@.tgz
+real/typed_data-1.4.0 publish --dry-run
+real/typed_data-1.4.0 publish --to-archive ../../../out/typed_data-1.4.0-@TOOL@.tgz

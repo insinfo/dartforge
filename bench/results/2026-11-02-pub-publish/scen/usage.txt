@@ -1,0 +1,14 @@
+simple publish --help
+simple lish -h
+simple publish --dry-run --force
+simple publish foo
+simple publish --to-archive a.tgz --force
+simple publish --to-archive a.tgz --from-archive b
+simple publish --from-archive b -n
+simple publish --bogus
+simple publish -x
+simple publish --no-dry-run
+simple publish --dry-run=yes
+simple publish --directory
+simple publish -C nowhere --dry-run
+simple publish --from-archive nonexistent.tgz --force

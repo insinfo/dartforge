@@ -1,0 +1,4 @@
+simple publish --dry-run
+simple publish --skip-validation --to-archive ../../out/simple-skip-@TOOL@.tgz
+simple publish --to-archive ../../out/simple-full-@TOOL@.tgz
+simple publish -n -C .

@@ -1,0 +1,72 @@
+usage: identical (14 commands)
+server requests: identical (0 requests)
+basic: identical (4 commands)
+server requests: identical (3 requests)
+archive simple-full: identical (393 bytes)
+archive simple-skip: identical (393 bytes)
+crafted: identical (31 commands)
+server requests: differ
+8d7
+< 8765 GET /api/packages/bar accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+10,12c9,11
+< 8765 GET /packages/bar/versions/0.3.1.tar.gz accept=None auth=None type= agent=Dart pub 3.6.2
+< 8765 GET /packages/foo/versions/1.0.0.tar.gz accept=None auth=None type= agent=Dart pub 3.6.2
+< 8765 GET /api/packages/deps accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+---
+> 8765 GET /api/packages/bar accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+> 8765 GET /packages/foo/versions/1.0.0.tar.gz accept=*/* auth=None type= agent=Dart pub 3.6.2
+> 8765 GET /packages/bar/versions/0.3.1.tar.gz accept=*/* auth=None type= agent=Dart pub 3.6.2
+14c13
+< 8765 GET /api/packages/foo accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+---
+> 8765 GET /api/packages/deps accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+16,18d14
+< 8765 GET /packages/foo/versions/1.2.0.tar.gz accept=None auth=None type= agent=Dart pub 3.6.2
+< 8765 GET /api/packages/deps2 accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+< 8765 GET /api/packages/other accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+19a16,18
+> 8765 GET /packages/foo/versions/1.2.0.tar.gz accept=*/* auth=None type= agent=Dart pub 3.6.2
+> 8765 GET /api/packages/other accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+> 8765 GET /api/packages/deps2 accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+21,22d19
+< 8765 GET /packages/foo/versions/2.0.0-dev.1.tar.gz accept=None auth=None type= agent=Dart pub 3.6.2
+< 8765 GET /api/packages/deps3 accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+23a21,22
+> 8765 GET /packages/foo/versions/2.0.0-dev.1.tar.gz accept=*/* auth=None type= agent=Dart pub 3.6.2
+> 8765 GET /api/packages/deps3 accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+24a24
+> 8765 GET /api/packages/foo accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+archive ignore: identical (1061 bytes)
+archive inrepo: identical (462 bytes)
+archive linkfile: identical (421 bytes)
+archive private: identical (406 bytes)
+upload: identical (30 commands)
+server requests: identical (69 requests)
+archive upload: identical (393 bytes)
+more: differs
+318c318
+< ClientException with SocketException: Connection refused (OS Error: Connection refused, errno = 61), address = 127.0.0.1, port = 59783, uri=http://127.0.0.1:8799/api/packages/versions/new
+---
+> ClientException with SocketException: Connection refused (OS Error: Connection refused, errno = 61), address = 127.0.0.1, port = 8799, uri=http://127.0.0.1:8799/api/packages/versions/new
+server requests: differ
+2a3
+> 8765 GET /api/packages/foo accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+3a5
+> 8765 GET /api/packages/foo accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+4a7
+> 8765 GET /api/packages/foo accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+archive wsa: identical (474 bytes)
+real: identical (24 commands)
+server requests: identical (0 requests)
+archive args-2.7.0: identical (46691 bytes)
+archive collection-1.19.1: identical (77738 bytes)
+archive crypto-3.0.6: identical (611475 bytes)
+archive glob-2.1.2: identical (22058 bytes)
+archive logging-1.3.0: identical (12142 bytes)
+archive meta-1.16.0: identical (14662 bytes)
+archive path-1.9.1: identical (44952 bytes)
+archive pub_semver-2.1.4: identical (25482 bytes)
+archive source_span-1.10.1: identical (29198 bytes)
+archive stack_trace-1.12.1: identical (34590 bytes)
+archive typed_data-1.4.0: identical (15874 bytes)
+archive yaml-3.1.3: identical (46116 bytes)

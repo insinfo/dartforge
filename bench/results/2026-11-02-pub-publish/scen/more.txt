@@ -1,0 +1,13 @@
+ws/pkgs/a publish --dry-run
+ws publish -C pkgs/a --dry-run
+ws publish --dry-run
+ws/pkgs/a publish --to-archive ../../../../out/wsa-@TOOL@.tgz
+hidden publish --dry-run
+overrides publish --dry-run
+badsecrets publish --dry-run
+badexec publish --dry-run
+badexec2 publish --dry-run
+bigleak publish --dry-run
+samever publish --dry-run
+env=PUB_HOSTED_URL=http://127.0.0.1:8799 simple publish --dry-run
+env=PUB_HOSTED_URL=http://127.0.0.1:8799 simple publish --skip-validation --force

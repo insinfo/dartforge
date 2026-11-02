@@ -1,0 +1,30 @@
+simple publish --force
+stdin=n simple publish
+stdin=y simple publish
+stdin=Yes relver publish
+stdin=n bare publish
+simple publish --skip-validation --force
+simple publish --to-archive ../../out/upload-@TOOL@.tgz
+simple publish --from-archive ../../out/upload-@TOOL@.tgz --force
+stdin=n simple publish --from-archive ../../out/upload-@TOOL@.tgz
+simple publish --server http://127.0.0.1:8765 --force
+simple publish --server ftp://x --force
+publishto publish --force
+badpublishto publish --force
+stdin=secret-token.1 simple token add http://localhost:8765
+simple publish --force
+stdin=other simple token add http://localhost:8766
+env=PUB_HOSTED_URL=http://localhost:8766 simple publish --force
+simple token list
+env=PUB_HOSTED_URL=http://localhost:8767 simple publish --force
+env=PUB_HOSTED_URL=http://127.0.0.1:8767 simple publish --force
+env=PUB_HOSTED_URL=http://127.0.0.1:8768 env=PUB_MAX_HTTP_RETRIES=2 simple publish --force
+env=PUB_HOSTED_URL=http://localhost:8768 env=PUB_MAX_HTTP_RETRIES=1 simple publish --force
+env=PUB_HOSTED_URL=http://localhost:8769 simple publish --force
+env=PUB_HOSTED_URL=http://127.0.0.1:8770 simple publish --force
+env=PUB_HOSTED_URL=http://localhost:8770 simple publish --force
+env=PUB_HOSTED_URL=http://127.0.0.1:8771 simple publish --force
+env=PUB_HOSTED_URL=http://127.0.0.1:8772 simple publish --force
+env=PUB_HOSTED_URL=http://localhost:8772 simple publish --force
+env=PUB_HOSTED_URL=http://localhost:8773 simple publish --force
+env=PUB_HOSTED_URL=http://localhost:8774 simple publish --force
