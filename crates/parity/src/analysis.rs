@@ -2037,17 +2037,25 @@ impl Engine {
                             load_diags = old;
                             // By the keys of the kept units, computed once (a key
                             // asks the file system).
-                            let kept_keys: HashSet<PathBuf> = program.units[..at.units]
-                                .iter()
-                                .filter(|u| {
-                                    u.path.as_deref().is_some_and(|p| {
-                                        w.syntax_known
-                                            .iter()
-                                            .any(|k| k.ends_with(p.file_name().unwrap_or_default()))
+                            // A kept unit whose file name one of them ends with
+                            // (looked up by name: comparing each kept unit with
+                            // each of them was most of a small load's outline).
+                            let kept_keys: HashSet<PathBuf> = {
+                                let names: HashSet<&std::ffi::OsStr> = w
+                                    .syntax_known
+                                    .iter()
+                                    .filter_map(|k| k.file_name())
+                                    .collect();
+                                program.units[..at.units]
+                                    .iter()
+                                    .filter(|u| {
+                                        u.path.as_deref().is_some_and(|p| {
+                                            p.file_name().is_none_or(|n| names.contains(n))
+                                        })
                                     })
-                                })
-                                .filter_map(|u| u.path.as_deref().map(key))
-                                .collect();
+                                    .filter_map(|u| u.path.as_deref().map(key))
+                                    .collect()
+                            };
                             syntax_known.extend(
                                 w.syntax_known.into_iter().filter(|k| kept_keys.contains(k)),
                             );
