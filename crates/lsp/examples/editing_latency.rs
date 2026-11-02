@@ -477,12 +477,15 @@ impl Client {
         line: u32,
         present: bool,
     ) -> (Option<Duration>, Duration, bool) {
+        trace_at(t, "driver edit");
         let published = self
             .published_line(uri, line, present, t + LIMIT)
             .then(|| t.elapsed());
+        trace_at(Instant::now(), "driver edit published");
         if self.analyzing {
             self.settle(t + LIMIT);
         }
+        trace_at(Instant::now(), "driver edit settled");
         (published, t.elapsed(), self.saw_start)
     }
 
@@ -1040,12 +1043,14 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
         let at = body_insertion(&doc.text);
         let statement = "\n    var dfLongSession = 1;";
         c.saw_start = false;
-        let (t, cpu0) = (Instant::now(), cpu_of_all(pid));
+        let cpu0 = cpu_of_all(pid);
+        let t = Instant::now();
         doc.insert(c, at, statement);
         let (line, _) = position(&doc.text, at + 1);
         record(2, cpu0, c.edit_timed(t, &doc.uri, line, true));
         c.saw_start = false;
-        let (t, cpu0) = (Instant::now(), cpu_of_all(pid));
+        let cpu0 = cpu_of_all(pid);
+        let t = Instant::now();
         doc.remove(c, at, at + statement.len());
         record(2, cpu0, c.edit_timed(t, &doc.uri, line, false));
         loads.fetch_add(2, Ordering::Relaxed);
@@ -1056,12 +1061,14 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
             let at = a.text.rfind('}').map_or(a.text.len(), |i| i + 1);
             let declaration = format!("\nint dfLongSessionApi{round}() => '{round}';\n");
             c.saw_start = false;
-            let (t, cpu0) = (Instant::now(), cpu_of_all(pid));
+            let cpu0 = cpu_of_all(pid);
+            let t = Instant::now();
             a.insert(c, at, &declaration);
             let (line, _) = position(&a.text, at + 1);
             record(4, cpu0, c.edit_timed(t, &a.uri, line, true));
             c.saw_start = false;
-            let (t, cpu0) = (Instant::now(), cpu_of_all(pid));
+            let cpu0 = cpu_of_all(pid);
+            let t = Instant::now();
             a.remove(c, at, at + declaration.len());
             record(4, cpu0, c.edit_timed(t, &a.uri, line, false));
             loads.fetch_add(2, Ordering::Relaxed);
