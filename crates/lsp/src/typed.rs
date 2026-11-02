@@ -133,6 +133,13 @@ struct State {
     dirty: BTreeSet<PathBuf>,
     /// Package being analyzed now.
     running: Option<PathBuf>,
+    /// Packages of `dirty` that only `.dart` files changed on the disk made
+    /// dirty: their running analysis goes on (it stays valid for what it
+    /// read, and the next one sees the rest) instead of being cancelled. A
+    /// cancelled load over the kept program loses it, and the next analysis
+    /// loads the whole program again (a wave whose files come with gaps
+    /// started an analysis that the rest of the wave cancelled).
+    soft: BTreeSet<PathBuf>,
     /// Test hook: no analysis starts while true.
     paused: bool,
     shutdown: bool,
@@ -290,6 +297,7 @@ impl Typed {
         let mut e = self.state();
         e.disk_at = None;
         let root = package_root(&path, &e.folders);
+        e.soft.remove(&root);
         e.dirty.insert(root.clone());
         e.changed
             .entry(root.clone())
@@ -317,6 +325,9 @@ impl Typed {
         let roots: Vec<PathBuf> = e.documents.values().map(|d| d.root.clone()).collect();
         e.publish_all.extend(roots.iter().cloned());
         e.stale.extend(roots.iter().cloned());
+        for r in &roots {
+            e.soft.remove(r);
+        }
         e.dirty.extend(roots);
         e.scan = true;
         self.shared.1.notify_all();
@@ -355,6 +366,7 @@ impl Typed {
             e.publish_all.insert(root.clone());
             e.stale.insert(root.clone());
             e.changed.entry(root.clone()).or_default().insert(key(path));
+            e.soft.remove(&root);
             e.dirty.insert(root);
             e.disk_at = Some(Instant::now());
             self.shared.1.notify_all();
@@ -368,6 +380,10 @@ impl Typed {
             return false;
         }
         e.changed.entry(root.clone()).or_default().insert(key(path));
+        // Only the disk: the running analysis of the package is not cancelled.
+        if !e.dirty.contains(&root) {
+            e.soft.insert(root.clone());
+        }
         e.dirty.insert(root);
         e.disk_at = Some(Instant::now());
         self.shared.1.notify_all();
@@ -387,6 +403,7 @@ impl Typed {
                     .entry(d.root.clone())
                     .or_default()
                     .insert(key(&d.path));
+                e.soft.remove(&d.root);
                 e.dirty.insert(d.root);
                 self.shared.1.notify_all();
             }
@@ -541,12 +558,17 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
                 e.scanning = false;
                 if e.folders == folders {
                     e.publish_all.extend(packages.iter().cloned());
+                    for p in &packages {
+                        e.soft.remove(p);
+                    }
                     e.dirty.extend(packages);
                 }
                 sinal.notify_all();
                 continue;
             }
             let root = e.dirty.pop_first().expect("non-empty");
+            e.soft.remove(&root);
+            crate::memory::trace("worker start");
             let open: Vec<(String, i32, PathBuf, Arc<str>)> = e
                 .documents
                 .iter()
@@ -601,6 +623,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
                     let mut e = block();
                     e.running = None;
                     e.dirty.clear();
+                    e.soft.clear();
                     e.scan = false;
                     e.paused = true;
                     sinal.notify_all();
@@ -612,7 +635,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
         crate::memory::log(&format!("before the analysis of {}", root.display()));
         let cancelled = || {
             let e = block();
-            e.shutdown || e.dirty.contains(&root)
+            e.shutdown || (e.dirty.contains(&root) && !e.soft.contains(&root))
         };
         let (in_workspace, all, reset, changed) = changed;
         // Without a memo (the first analysis, or after the configuration changed)
@@ -717,7 +740,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
         };
         let Some(fresh) = fresh else {
             let mut e = block();
-            if e.dirty.contains(&root) {
+            if e.dirty.contains(&root) && !e.soft.contains(&root) {
                 // Cancelled: the next analysis still sees these changes (and the
                 // signatures they are compared with are the memo's, untouched).
                 e.changed
