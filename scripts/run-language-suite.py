@@ -61,12 +61,18 @@ Counting, for every tool other than `vm`, each program is exactly one of:
   - only dart2wasm (`wasm` only): equal to dart2wasm where the web platform
     makes it differ from the VM (cast messages read as the VM's, or the VM's
     output up to an uncaught error with dart2wasm's message);
+  - DDC's divergence (`forge` only): DDC (`ddc.json`, `--alt`) differs from
+    the VM on the program and the JS dev result departs from the VM the same
+    way — DDC's exit code, and DDC's stdout or the first line that differs
+    from the VM's at the same place (the closure's JS source after `from:`,
+    the JS stack frames and the hashes there come from each one's generated
+    code). The web platform, not a bug of ours; it is not a failure;
   - rejected by both: the VM refuses to compile it (exit 254) and DartForge
     refuses it too (compile failure, -1000) — a program with a static error
     the runner did not filter out; it is not a failure;
   - failure: anything else (`<name>.fail.txt`), including a program the VM
     refuses and DartForge accepts.
-The summary prints the four numbers separately.
+The summary prints the numbers separately.
 
 `native` compiles with `dartforge aot --optimize` (as `dart compile exe`: asserts
 off, like the VM run) and runs the executable; a program the VM refuses (254)
@@ -304,10 +310,38 @@ def fails_like(vm_r, d2w, r):
             and msg(r) is not None and msg(r) == msg(d2w) and vm_r["out"].startswith(r["out"]))
 
 
+def default_alt(tool):
+    """The web reference of a tool: dart2wasm for `wasm`, DDC for `forge`."""
+    return {"wasm": "dart2wasm", "forge": "ddc"}.get(tool, "dart2wasm")
+
+
+def first_difference(a, b):
+    """The index of the first stdout line where `a` and `b` differ, or None."""
+    x, y = a.splitlines(), b.splitlines()
+    for k in range(max(len(x), len(y))):
+        if (x[k] if k < len(x) else None) != (y[k] if k < len(y) else None):
+            return k
+    return None
+
+
+def same_divergence(vm_r, ddc_r, r):
+    """`r` departs from the VM where DDC does, the same way: DDC differs from
+    the VM, and `r` has DDC's exit code, the same stdout or the first stdout
+    line that differs from the VM's at the same place (the closure's JS source
+    after `from:`, the JS stack frames and the hashes of that line may
+    differ; DDC prints them from its own generated code)."""
+    if same(ddc_r, vm_r) or r["code"] != ddc_r["code"]:
+        return False
+    if r["out"] == ddc_r["out"]:
+        return True
+    return first_difference(vm_r["out"], r["out"]) == first_difference(vm_r["out"], ddc_r["out"])
+
+
 def matches(tool, test, r, ref, alt):
-    """`vm`, `dart2wasm` (only the web reference), `rejected` (a program the
-    VM refuses to compile, 254, that the tool refuses too: `forge`, `wasm`,
-    `native` and `dartaot`), or None (a failure)."""
+    """`vm`, `dart2wasm` (`wasm`: only the web reference), `ddc` (`forge`: the
+    same divergence from the VM as DDC's), `rejected` (a program the VM refuses
+    to compile, 254, that the tool refuses too: `forge`, `wasm`, `native` and
+    `dartaot`), or None (a failure)."""
     if test in ref and same(r, ref[test]):
         return "vm"
     if tool in ("forge", "wasm", "native", "dartaot") and test in ref and ref[test]["code"] == 254 and r["code"] == -1000:
@@ -320,6 +354,8 @@ def matches(tool, test, r, ref, alt):
         a = alt[test]
         if same(r, a) or same(r, by_policy(a)) or fails_like(ref[test], a, r):
             return "dart2wasm"
+    if tool == "forge" and test in alt and test in ref and same_divergence(ref[test], alt[test], r):
+        return "ddc"
     return None
 
 
@@ -445,17 +481,18 @@ def setup(args):
 
 
 def kind(tool, test, results, ref, alt):
-    """`equal` (the VM, or dart2wasm for `wasm`), `rejected` (by both),
-    `failure`, or None when `results` lacks the program."""
+    """`equal` (the VM, or dart2wasm for `wasm`), `ddc` (`forge`: DDC's
+    divergence), `rejected` (by both), `failure`, or None when `results` lacks
+    the program."""
     if test not in results:
         return None
     m = matches(tool, test, results[test], ref, alt)
     if m is None:
         return "failure"
-    return "rejected" if m == "rejected" else "equal"
+    return m if m in ("rejected", "ddc") else "equal"
 
 
-def compare(old, new, tool="forge", ref_name="vm", alt_name="dart2wasm"):
+def compare(old, new, tool="forge", ref_name="vm", alt_name=None):
     """Each program present in both result files, by its kind in each: a
     regression goes from equal or rejected to a failure, a fix the other way;
     a move between equal and rejected by both (the VM's reference or a
@@ -463,18 +500,20 @@ def compare(old, new, tool="forge", ref_name="vm", alt_name="dart2wasm"):
     vm = json.load(open(os.path.join(RES, ref_name + ".json")))
     a = json.load(open(os.path.join(RES, old + ".json")))
     b = json.load(open(os.path.join(RES, new + ".json")))
-    alt_path = os.path.join(RES, alt_name + ".json")
-    alt = json.load(open(alt_path)) if tool == "wasm" and os.path.exists(alt_path) else {}
+    alt_path = os.path.join(RES, (alt_name or default_alt(tool)) + ".json")
+    alt = json.load(open(alt_path)) if tool in ("wasm", "forge") and os.path.exists(alt_path) else {}
     moves = {}
     for t in vm:
         ka, kb = kind(tool, t, a, vm, alt), kind(tool, t, b, vm, alt)
         if ka is None or kb is None or ka == kb:
             continue
         moves.setdefault((ka, kb), []).append(t)
-    print("regressions:", sorted(moves.get(("equal", "failure"), []) + moves.get(("rejected", "failure"), [])))
-    print("fixed:", len(moves.get(("failure", "equal"), [])) + len(moves.get(("failure", "rejected"), [])),
-          "(%d now equal, %d now rejected by both)" % (
-              len(moves.get(("failure", "equal"), [])), len(moves.get(("failure", "rejected"), []))))
+    print("regressions:", sorted(moves.get(("equal", "failure"), []) + moves.get(("rejected", "failure"), [])
+                                 + moves.get(("ddc", "failure"), [])))
+    n = lambda k: len(moves.get(("failure", k), []))
+    print("fixed:", n("equal") + n("rejected") + n("ddc"),
+          "(%d now equal, %d now rejected by both, %d now DDC's divergence)" % (
+              n("equal"), n("rejected"), n("ddc")))
     for (ka, kb), ts in sorted(moves.items()):
         if "failure" not in (ka, kb):
             print("%s -> %s: %s" % (ka, kb, sorted(ts)))
@@ -484,7 +523,7 @@ def main():
     tool = args.pop(0)
     if tool == "setup":
         return setup(args)
-    ref_name, alt_name = "vm", "dart2wasm"
+    ref_name, alt_name = "vm", None
     rest = []
     while args:
         a = args.pop(0)
@@ -525,8 +564,8 @@ def main():
     path = os.path.join(RES, out + ".json")
     results = json.load(open(path)) if os.path.exists(path) and (filters or listed) else {}
     ref = json.load(open(os.path.join(RES, ref_name + ".json"))) if tool != "vm" else {}
-    alt_path = os.path.join(RES, alt_name + ".json")
-    alt = json.load(open(alt_path)) if tool == "wasm" and os.path.exists(alt_path) else {}
+    alt_path = os.path.join(RES, (alt_name or default_alt(tool)) + ".json")
+    alt = json.load(open(alt_path)) if tool in ("wasm", "forge") and os.path.exists(alt_path) else {}
     with cf.ThreadPoolExecutor(jobs) as ex:
         for t, r in zip(tests, ex.map(fn, tests)):
             results[t] = r
@@ -541,6 +580,8 @@ def main():
         print("%s: %d/%d equal to the VM" % (tool, count("vm"), len(tests)))
         if tool == "wasm":
             print("%s: %d only equal to dart2wasm" % (tool, count("dart2wasm")))
+        if tool == "forge":
+            print("%s: %d with DDC's own divergence from the VM" % (tool, count("ddc")))
         if tool in ("forge", "wasm", "native", "dartaot", "jit"):
             print("%s: %d rejected by both (the VM refuses them too)" % (tool, count("rejected")))
         print("%s: %d failures" % (tool, len(bad)))
