@@ -159,6 +159,10 @@ pub struct TypeTable {
     /// `TypeParameterReplacer` of 3.6.2 throws on one of them
     /// (`exhaustiveness.dart:771`).
     pub without_default_type: std::collections::HashSet<TypeParamId>,
+    /// The slots of type parameters nothing kept refers to any more
+    /// ([`TypeTable::collect_dropping`]): [`TypeTable::alloc_type_param`]
+    /// takes them before growing the arena.
+    free_params: Vec<TypeParamId>,
 }
 
 impl CoreTypes {
@@ -337,6 +341,7 @@ impl TypeTable {
             the_unknown_param: None,
             fresh_formals: HashMap::new(),
             without_default_type: std::collections::HashSet::new(),
+            free_params: Vec::new(),
         }
     }
 
@@ -512,14 +517,19 @@ impl TypeTable {
         bound: TypeId,
         variance: Variance,
     ) -> TypeParamId {
-        let id = TypeParamId(self.type_params.len() as u32);
-        self.type_params.push(TypeParameterData {
+        let data = TypeParameterData {
             name,
             owner,
             bound,
             variance,
             explicit: false,
-        });
+        };
+        if let Some(id) = self.free_params.pop() {
+            self.type_params[id.0 as usize] = data;
+            return id;
+        }
+        let id = TypeParamId(self.type_params.len() as u32);
+        self.type_params.push(data);
         self.payload_bytes += std::mem::size_of::<TypeParameterData>();
         id
     }
@@ -592,10 +602,57 @@ impl TypeTable {
     /// outlives many loads over a kept prefix (the LSP's resident): the
     /// outlines of the earlier loads go away.
     pub fn collect(&mut self, roots: impl IntoIterator<Item = TypeId>) -> TypeRemap {
+        self.collect_params(roots, None)
+    }
+
+    /// [`TypeTable::collect`] that also drops the type parameters nothing
+    /// kept refers to: those whose owner `dropped` says is gone (an element
+    /// after the cut of a load over a kept prefix) and the generic function
+    /// types' that no kept type has. Their slots are reused by the next
+    /// parameters ([`TypeTable::alloc_type_param`]), so the arena stays the
+    /// size of what is alive instead of growing with every load; their bounds
+    /// no longer keep types alive.
+    ///
+    /// The contract is the caller's: no kept structure outside this table may
+    /// hold a [`TypeParamId`] of a dropped owner, nor one of a generic
+    /// function type except inside a kept type.
+    pub fn collect_dropping(
+        &mut self,
+        roots: impl IntoIterator<Item = TypeId>,
+        dropped: &dyn Fn(TypeParamOwner) -> bool,
+    ) -> TypeRemap {
+        self.collect_params(roots, Some(dropped))
+    }
+
+    fn collect_params(
+        &mut self,
+        roots: impl IntoIterator<Item = TypeId>,
+        dropped: Option<&dyn Fn(TypeParamOwner) -> bool>,
+    ) -> TypeRemap {
         let n = self.types.len();
         let mut live = vec![false; n];
         let mut stack: Vec<TypeId> = roots.into_iter().collect();
-        stack.extend(self.type_params.iter().map(|p| p.bound));
+        // Without `dropped`, every parameter stays (and its bound).
+        let mut param_live = vec![dropped.is_none(); self.type_params.len()];
+        if let Some(dropped) = dropped {
+            let free: std::collections::HashSet<TypeParamId> =
+                self.free_params.iter().copied().collect();
+            for (i, p) in self.type_params.iter().enumerate() {
+                param_live[i] = !free.contains(&TypeParamId(i as u32))
+                    && p.owner != TypeParamOwner::GenericFunctionType
+                    && !dropped(p.owner);
+            }
+            if let Some(u) = self.the_unknown_param {
+                param_live[u.0 as usize] = true;
+            }
+        }
+        stack.extend(
+            self.type_params
+                .iter()
+                .zip(&param_live)
+                .filter(|(_, l)| **l)
+                .map(|(p, _)| p.bound),
+        );
         let mut children: Vec<TypeId> = Vec::new();
         while let Some(t) = stack.pop() {
             let i = t.0 as usize;
@@ -606,6 +663,26 @@ impl TypeTable {
             children.clear();
             type_children(&self.types[i], &mut children);
             stack.extend(children.iter().copied());
+            // The parameters a kept type has are kept, with their bounds.
+            let mut keep_param = |p: TypeParamId, stack: &mut Vec<TypeId>| {
+                if let Some(l) = param_live.get_mut(p.0 as usize)
+                    && !*l
+                {
+                    *l = true;
+                    stack.push(self.type_params[p.0 as usize].bound);
+                }
+            };
+            match &self.types[i] {
+                Type::Function { type_params, .. } => {
+                    for p in type_params.iter() {
+                        keep_param(*p, &mut stack);
+                    }
+                }
+                Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => {
+                    keep_param(*param, &mut stack);
+                }
+                _ => {}
+            }
             if let Some(c) = self.canonical.get(&t) {
                 stack.push(*c);
             }
@@ -653,16 +730,31 @@ impl TypeTable {
             })
             .map(|((c, d), t)| ((f(c), remap_decoration(&d, &f)), f(t)))
             .collect();
+        let param_kept = |p: &TypeParamId| param_live.get(p.0 as usize).copied().unwrap_or(false);
         self.fresh_formals = std::mem::take(&mut self.fresh_formals)
             .into_iter()
-            .filter(|((_, bounds), _)| bounds.iter().all(kept))
+            .filter(|((params, bounds), fresh)| {
+                bounds.iter().all(kept)
+                    && params.iter().all(param_kept)
+                    && fresh.iter().all(param_kept)
+            })
             .map(|((params, bounds), fresh)| {
                 ((params, bounds.iter().map(|b| f(*b)).collect()), fresh)
             })
             .collect();
-        for p in &mut self.type_params {
-            p.bound = f(p.bound);
+        self.without_default_type.retain(param_kept);
+        self.free_params.clear();
+        for (i, p) in self.type_params.iter_mut().enumerate() {
+            if param_live[i] {
+                p.bound = f(p.bound);
+            } else {
+                // A free slot: its bound is no longer a type of the table.
+                p.bound = TypeId(0);
+                self.free_params.push(TypeParamId(i as u32));
+            }
         }
+        // The lowest slots first.
+        self.free_params.reverse();
         self.lookup = self
             .types
             .iter()

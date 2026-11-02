@@ -84,6 +84,15 @@ impl AnalyzedUnitCache {
         self.sdk_libraries.clear();
     }
 
+    /// Gives back the room of the cache's maps beyond what they hold: a load
+    /// over a cut puts the units after it back in the cache and takes them out
+    /// again, and the maps keep the capacity of the largest such moment.
+    pub fn shrink(&mut self) {
+        self.units.shrink_to_fit();
+        self.marks.shrink_to_fit();
+        self.sdk_libraries.shrink_to_fit();
+    }
+
     /// Takes every kept unit out of the cache, which ends up empty (the
     /// resident's memory measure drops them group by group).
     pub fn take_all(&mut self) -> Vec<Unit> {

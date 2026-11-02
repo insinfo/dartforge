@@ -142,6 +142,33 @@ pub fn collect_types(table: &mut TypeTable, outline: &mut OutlineTypes, core: &m
     core.for_each_type(&mut |t| *t = remap.get(*t));
 }
 
+/// [`collect_types`] for an `outline` cut at `at` (`OutlineTypes::truncate`):
+/// the type parameters of the elements after `at`, and those of generic
+/// function types no kept type has, leave the table too, and their slots
+/// serve the next ones ([`TypeTable::collect_dropping`]). Without it, the
+/// resident's table grows with every load over the cut by the parameters of
+/// what the load resolves again.
+pub fn collect_types_at(
+    table: &mut TypeTable,
+    outline: &mut OutlineTypes,
+    core: &mut CoreTypes,
+    at: &dartforge_elements::frozen::Checkpoint,
+) {
+    let mut roots: Vec<TypeId> = Vec::new();
+    outline.for_each_type(&mut |t| roots.push(*t));
+    core.for_each_type(&mut |t| roots.push(*t));
+    let dropped = |owner: TypeParamOwner| match owner {
+        TypeParamOwner::Class(c) => c.0 as usize >= at.classes,
+        TypeParamOwner::Extension(e) => e.0 as usize >= at.extensions,
+        TypeParamOwner::Typedef(t) => t.0 as usize >= at.typedefs,
+        TypeParamOwner::Function(f) => f.0 as usize >= at.functions,
+        TypeParamOwner::GenericFunctionType => false,
+    };
+    let remap = table.collect_dropping(roots, &dropped);
+    outline.for_each_type(&mut |t| *t = remap.get(*t));
+    core.for_each_type(&mut |t| *t = remap.get(*t));
+}
+
 /// Like [`resolve_outline_with_units`], resolving only the elements after
 /// `at` over `prefix`, the outline an earlier resolution with the same `table`
 /// gave a program with the same libraries before `at` (which depend on

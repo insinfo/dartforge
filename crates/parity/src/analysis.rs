@@ -264,6 +264,41 @@ fn shift(old: &str, new: &str) -> impl Fn(usize) -> Option<usize> {
     }
 }
 
+/// The first library of `w`'s program after the frozen prefix (from library
+/// `from` on, before the synthetic entry) that the libraries an entry with
+/// `imports` (paths relative to the package root) imports do not reach
+/// through imports and exports; the number of libraries when there is none.
+/// A file the program does not have yet reaches nothing in it.
+fn first_unreached(w: &World, imports: &BTreeSet<String>, from: usize) -> usize {
+    let program = &w.program;
+    let entry = program
+        .entry
+        .map_or(program.libraries.len(), |e| e.0 as usize);
+    let wanted: HashSet<PathBuf> = imports
+        .iter()
+        .map(|rel| key(&w.root.join(rel.replace("%20", " "))))
+        .collect();
+    let mut seen = vec![false; program.libraries.len()];
+    let mut stack: Vec<LibraryId> = program
+        .units
+        .iter()
+        .filter(|u| u.path.as_deref().is_some_and(|p| wanted.contains(&key(p))))
+        .map(|u| u.library)
+        .collect();
+    while let Some(l) = stack.pop() {
+        let i = l.0 as usize;
+        if i >= seen.len() || std::mem::replace(&mut seen[i], true) {
+            continue;
+        }
+        let library = program.library(l);
+        stack.extend(library.imports.iter().map(|i| i.library));
+        stack.extend(library.exports.iter().map(|e| e.library));
+    }
+    (from..entry)
+        .find(|&i| !seen[i])
+        .unwrap_or(program.libraries.len())
+}
+
 /// The `// @dart = x.y` marker of a text (its language version).
 fn version_marker(text: &str) -> Option<&str> {
     text.lines()
@@ -373,7 +408,11 @@ impl Resident {
             .entry
             .map_or(program.libraries.len(), |e| e.0 as usize);
         let mut first = if w.imports != *imports {
-            entry
+            // The package's libraries the new batch does not reach leave the
+            // program too: the cut moves to the first of them, so the kept
+            // program is what a load of this batch alone would have before
+            // the cut, not what every earlier batch imported.
+            entry.min(first_unreached(w, imports, frozen.libraries))
         } else {
             program.libraries.len()
         };
@@ -1682,6 +1721,9 @@ impl Engine {
                     }
                     return None;
                 }
+                if let Some(u) = units.as_mut() {
+                    u.shrink();
+                }
                 times.mark(if with_context {
                     "load (with the whole package)"
                 } else {
@@ -1711,7 +1753,14 @@ impl Engine {
                         // outlines and bodies go away.
                         let mut kept = w.outline;
                         kept.truncate(&at);
-                        dartforge_types::collect_types(&mut table, &mut kept, &mut core);
+                        if std::env::var_os("DARTFORGE_TYPE_PARAMS_KEPT").is_some() {
+                            // Measurement: every type parameter stays.
+                            dartforge_types::collect_types(&mut table, &mut kept, &mut core);
+                        } else {
+                            dartforge_types::collect_types_at(
+                                &mut table, &mut kept, &mut core, &at,
+                            );
+                        }
                         let (outline, diags, units) = dartforge_types::resolve_outline_onto(
                             &program, interner, &mut table, &core, kept, at,
                         );
@@ -3923,13 +3972,18 @@ mod tests {
             v
         };
         let all = vec![d.clone(), a.clone(), b.clone(), c.clone()];
+        // The whole package comes with every batch, as in the LSP on a package
+        // whose program is about the edited file's: without it, a batch that
+        // does not reach `d.dart` drops it
+        // (`resident_drops_what_the_batch_no_longer_reaches`).
+        resident.set_context(all.clone());
         let none = HashMap::new();
         engine
             .analyze_resident(&mut resident, &root, &all, None, &none, &|| false)
             .unwrap();
         let versions = [
-            "import '../ext/e.dart';\nclass B extends E { bool x = true; G<bool> g = G(); }\n",
-            "import '../ext/e.dart';\nclass B extends H { int x = 0; G<int> g = G(); }\nclass C {}\n",
+            "import '../ext/e.dart';\nclass B extends E { bool x = true; G<bool> g = G(); T id<T>(T t) => t; }\n",
+            "import '../ext/e.dart';\nclass B extends H { int x = 0; G<int> g = G(); }\nclass C<X> { X? x; S f<S extends X>(S Function<R>(R) g) => throw 0; }\n",
             "import '../ext/e.dart';\nclass B extends E { int x = 0; G<int> g = G(); int m() => 1; }\n",
             "import '../ext/e.dart';\nclass B extends E { int x = 0; G<int> g = G(); m() => 'a'; }\n",
         ];
@@ -3958,7 +4012,12 @@ mod tests {
             for f in [&a, &c] {
                 assert_eq!(shown(&dependents, f), shown(&fresh, f), "{version} {f:?}");
             }
-            assert!(resident.kept_libraries > 0, "{version}");
+            // `d.dart` stays before the cut while its text does not change: in
+            // the later rounds its edited text below leaves the memory, so it
+            // changed too and is loaded again.
+            if version == versions[0] {
+                assert!(resident.kept_libraries > 0, "{version}");
+            }
             // A body edit in the kept library, then its own batch.
             let mut texts = texts.clone();
             texts.insert(
@@ -3982,8 +4041,9 @@ mod tests {
             assert!(!shown(&fresh, &d).is_empty());
             assert_eq!(shown(&kept, &d), shown(&fresh, &d), "{version} d");
         }
-        // The same API changes over and over: the type table does not grow
-        // with the number of loads (each load collects it).
+        // The same API changes over and over: the type table, and its type
+        // parameters, do not grow with the number of loads (each load
+        // collects it, and reuses the slots of the dropped parameters).
         let mut sizes = Vec::new();
         for round in 0..6 {
             let version = versions[round % 2];
@@ -3998,10 +4058,109 @@ mod tests {
                     &|| false,
                 )
                 .unwrap();
-            sizes.push(resident.world.as_ref().unwrap().table.len());
+            let table = &resident.world.as_ref().unwrap().table;
+            sizes.push((table.len(), table.type_param_count()));
         }
         assert_eq!(sizes[2], sizes[4], "{sizes:?}");
         assert_eq!(sizes[3], sizes[5], "{sizes:?}");
+        let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A batch that no longer reaches a library of the package an earlier
+    /// batch imported: the load over the cut drops it, and the kept program is
+    /// the one a load of the batch alone has (the program does not keep every
+    /// library some batch once imported).
+    #[test]
+    fn resident_drops_what_the_batch_no_longer_reaches() {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-agent/engine-unreached-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(base.join("pkg")).unwrap();
+        std::fs::create_dir_all(base.join("ext")).unwrap();
+        let base = std::fs::canonicalize(&base).unwrap();
+        std::fs::write(
+            base.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            base.join("sdk/lib/core/core.dart"),
+            "class Object {} class bool {} class num {} class int extends num {} class Null {}",
+        )
+        .unwrap();
+        let root = base.join("pkg");
+        std::fs::write(base.join("ext/e.dart"), "class E {}\n").unwrap();
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        let x = root.join("x.dart");
+        let y = root.join("y.dart");
+        std::fs::write(&b, "import '../ext/e.dart';\nclass B extends E {}\n").unwrap();
+        std::fs::write(&a, "import 'b.dart';\nvoid f(B b) { int i = true; }\n").unwrap();
+        // `x.dart` (and `y.dart`, which only it imports) come in with the
+        // first batch only.
+        std::fs::write(&y, "int y = 0;\n").unwrap();
+        std::fs::write(&x, "import 'y.dart';\nimport 'b.dart';\nB? x;\n").unwrap();
+        let engine = Engine::new(&base.join("sdk/lib")).unwrap();
+        let mut resident = Resident::new();
+        let none = HashMap::new();
+        let paths = |r: &Resident| -> BTreeSet<PathBuf> {
+            r.world
+                .as_ref()
+                .unwrap()
+                .program
+                .units
+                .iter()
+                .filter_map(|u| u.path.as_deref().map(key))
+                .collect()
+        };
+        engine
+            .analyze_resident(
+                &mut resident,
+                &root,
+                &[a.clone(), x.clone()],
+                None,
+                &none,
+                &|| false,
+            )
+            .unwrap();
+        assert!(paths(&resident).contains(&key(&y)));
+        let onto = resident.onto_worlds;
+        let alone = engine
+            .analyze_resident(
+                &mut resident,
+                &root,
+                std::slice::from_ref(&a),
+                None,
+                &none,
+                &|| false,
+            )
+            .unwrap();
+        assert_eq!(resident.onto_worlds, onto + 1, "a load over the cut");
+        let kept = paths(&resident);
+        assert!(
+            !kept.contains(&key(&x)) && !kept.contains(&key(&y)),
+            "{kept:?}"
+        );
+        assert!(kept.contains(&key(&b)), "{kept:?}");
+        let fresh = engine
+            .analyze_with(&root, std::slice::from_ref(&a), None, &none, &|| false)
+            .unwrap();
+        let shown = |r: &AnalysisResult| {
+            let mut v: Vec<(usize, usize, String)> = r.files[&key(&a)]
+                .diags
+                .iter()
+                .map(|d| (d.span.start, d.span.end, d.message.clone()))
+                .collect();
+            v.sort();
+            v
+        };
+        assert!(!shown(&fresh).is_empty());
+        assert_eq!(shown(&alone), shown(&fresh));
         let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&base).unwrap();
