@@ -45,6 +45,37 @@ const FILES: &[(&str, &str)] = &[
         "part of 'lib.dart';\n\nvoid partFn() {\n  _helper();\n}\n",
     ),
     ("lib/alone.dart", "void alone() {\n  print(1);\n}\n"),
+    // A sealed family, and a `switch` over it that names only the subtypes.
+    (
+        "lib/shape.dart",
+        "sealed class Shape {}\n\nclass Square extends Shape {}\n\nclass Circle extends Shape {}\n\nShape any() => Square();\n",
+    ),
+    (
+        "lib/area.dart",
+        "import 'shape.dart';\n\nint area() => switch (any()) {\n  Square() => 1,\n  Circle() => 2,\n};\n",
+    ),
+    // A member that a subclass two libraries away must implement, without
+    // naming it or the base.
+    ("lib/base.dart", "abstract class Base {\n  int size();\n}\n"),
+    (
+        "lib/mid.dart",
+        "import 'base.dart';\nexport 'base.dart';\n\nabstract class Mid extends Base {}\n",
+    ),
+    (
+        "lib/leaf.dart",
+        "import 'mid.dart';\n\nclass Leaf extends Mid {\n  int size() => 1;\n}\n",
+    ),
+    // An inferred type that flows through a library that names the changed
+    // function to one that does not.
+    ("lib/conf.dart", "int limit() => 1;\n"),
+    (
+        "lib/derived.dart",
+        "import 'conf.dart';\n\nfinal derived = limit();\n",
+    ),
+    (
+        "lib/reader.dart",
+        "import 'derived.dart';\n\nvoid read() {\n  String s = derived;\n  print(s);\n}\n",
+    ),
 ];
 
 /// What the editor shows: the last publication of each file, by relative path
@@ -194,6 +225,30 @@ fn edit_and_compare(name: &str, in_child: bool) {
             "void partFn() {\n",
             "void partFn() {\n  _helper();\n",
         ),
+        (
+            "API edit that no dependent names",
+            "lib/model.dart",
+            "int total",
+            "int unusedApi() => 0;\n\nint total",
+        ),
+        (
+            "API edit: a new subtype of a sealed class",
+            "lib/shape.dart",
+            "Shape any()",
+            "class Triangle extends Shape {}\n\nShape any()",
+        ),
+        (
+            "API edit: a new abstract member of a base",
+            "lib/base.dart",
+            "  int size();\n",
+            "  int size();\n  int extra();\n",
+        ),
+        (
+            "API edit: an inferred type that changes",
+            "lib/conf.dart",
+            "int limit() => 1;",
+            "String limit() => '1';",
+        ),
     ];
     for (step, (label, relative, from, to)) in steps.iter().enumerate() {
         let before = p.server.typed_analyzed_files();
@@ -234,6 +289,14 @@ fn edit_and_compare(name: &str, in_child: bool) {
             "{label}: {analyzed} files analyzed for the edit ({} with the opening)",
             p.server.typed_analyzed_files() - before
         );
+        // An API edit that no dependent names reanalyzes the file and the
+        // barrel that exports it, not the files that import the barrel.
+        if *label == "API edit that no dependent names" {
+            assert!(
+                analyzed <= 2,
+                "step {label}: {analyzed} files analyzed for an API edit nobody names"
+            );
+        }
         // A body edit reanalyzes only its library: one file, or the owner with
         // its part.
         if label.starts_with("body") {
@@ -299,8 +362,9 @@ fn a_wave_of_disk_changes_is_analyzed_once() {
             }}),
         );
         outputs.extend(p.server.pump());
-        // The editor reports a wave over some time, not at once.
-        std::thread::sleep(Duration::from_millis(40));
+        // The editor reports a wave over some time, not at once (a few
+        // milliseconds apart, within the disk's quiet time).
+        std::thread::sleep(Duration::from_millis(10));
     }
     outputs.extend(p.server.await_diagnostics(LIMIT));
     let analyses = p.server.typed_analyses() - before;

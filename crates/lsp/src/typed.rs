@@ -84,6 +84,16 @@ pub(crate) struct Facts {
     /// The [`key`]s of the files its directives point to, each with whether the
     /// directive is a `part` or a `part of`.
     pub targets: Vec<(PathBuf, bool)>,
+    /// The API declaration by declaration
+    /// ([`dartforge_elements::incremental::api_digest`]): which names an API
+    /// change changed ([`api_affected`]).
+    #[serde(default)]
+    pub api: Option<dartforge_elements::incremental::ApiDigest>,
+    /// The words of the text
+    /// ([`dartforge_elements::incremental::text_words`]): the names it can
+    /// refer to.
+    #[serde(default)]
+    pub words: Vec<u64>,
 }
 
 /// What the last completed analyses of a package left, per file [`key`]: the
@@ -165,9 +175,13 @@ struct State {
 }
 
 /// How long the disk must stay quiet after a change, without an editor change
-/// in between, before the analysis of what changed starts.
+/// in between, before the analysis of what changed starts: a watcher reports
+/// the files of a wave a few milliseconds apart, and a later change cancels an
+/// analysis that started too soon. It was 250 ms; on `new_sali` a wave of 40
+/// `.g.dart` then took ~460 ms from its last notification against Dart's
+/// ~310 ms, and 50 ms brings it to ~340 ms.
 /// `DARTFORGE_LSP_DISK_QUIET_MS` changes it (`0`: no wait, to measure).
-const DISK_QUIET: Duration = Duration::from_millis(250);
+const DISK_QUIET: Duration = Duration::from_millis(50);
 
 fn disk_quiet() -> Duration {
     std::env::var("DARTFORGE_LSP_DISK_QUIET_MS")
@@ -1382,6 +1396,8 @@ fn facts(path: &Path, text: &str, packages: Option<&dartforge_elements::PackageC
         path: path.to_path_buf(),
         signature,
         targets,
+        api: dartforge_elements::incremental::api_digest(text, &parsed.ast, &parsed.unit),
+        words: dartforge_elements::incremental::text_words(text),
     }
 }
 
@@ -1413,6 +1429,184 @@ struct Plan {
     /// The package's `.dart` files `dart analyze` would see, in a workspace
     /// folder (the job's context).
     package: Vec<PathBuf>,
+}
+
+/// The files to analyze again after the API change of the `api` files (their
+/// API signature changed): their libraries, and the dependents (through the
+/// directives, transitively) that can see a changed name; `None` when that
+/// cannot be told, and every dependent is analyzed.
+///
+/// A file's diagnostics depend on its library's text and on the declarations
+/// it sees ([`plan`]); a dependent that names none of the changed
+/// declarations, directly or through a declaration that changes with them,
+/// sees the same ones. The changed names come from comparing the old and the
+/// new [`ApiDigest`](dartforge_elements::incremental::ApiDigest) of each
+/// changed file, declaration by declaration:
+/// - a changed member also changes its owner's name;
+/// - a changed class-like declaration also changes the classes of its library
+///   that share a supertype of the library with it (a sealed family: the
+///   exhaustiveness of a `switch` that names only a sibling);
+/// - a declaration of the library or of an affected dependent whose signature
+///   names a changed name changes too (an inferred type, a supertype), to a
+///   fixpoint.
+///
+/// A dependent is affected when its text has a changed name (as a word,
+/// comments included: an over-approximation), or when it points to an
+/// affected file and has an `export` (a barrel). It cannot be told, and every
+/// dependent is analyzed, when a file's directives changed, when a changed
+/// declaration can be used without its name (an operator, an unnamed
+/// extension, `call`, `iterator`, `toString`…), when a file has no digest,
+/// or with `DARTFORGE_LSP_API_BY_NAME=0`.
+fn api_affected(
+    api: &[&PathBuf],
+    memo: &Memo,
+    now: &HashMap<PathBuf, Option<Facts>>,
+    pointing: &HashMap<&Path, Vec<&Path>>,
+    parts: &HashMap<&Path, Vec<&Path>>,
+) -> Option<BTreeSet<PathBuf>> {
+    use dartforge_elements::incremental::{ApiDeclaration, word_hash};
+    if std::env::var("DARTFORGE_LSP_API_BY_NAME").is_ok_and(|v| v == "0") {
+        return None;
+    }
+    let closure = |from: Vec<&Path>, graph: &HashMap<&Path, Vec<&Path>>| {
+        let mut output: BTreeSet<PathBuf> = from.iter().map(|p| p.to_path_buf()).collect();
+        let mut stack = from;
+        while let Some(x) = stack.pop() {
+            for d in graph.get(x).into_iter().flatten() {
+                if output.insert(d.to_path_buf()) {
+                    stack.push(d);
+                }
+            }
+        }
+        output
+    };
+    // The facts of a file as they are now: the changed ones', else the memo's.
+    let facts_of = |k: &Path| -> Option<&Facts> {
+        match now.get(k) {
+            Some(f) => f.as_ref(),
+            None => memo.files.get(k).map(|r| &r.facts),
+        }
+    };
+    fn add(names: &mut BTreeSet<String>, d: &ApiDeclaration) {
+        names.insert(d.name.clone());
+        if let Some(o) = &d.owner {
+            names.insert(o.clone());
+        }
+    }
+    /// The digests of each name (with its owner) of a digest.
+    fn digests(
+        a: &dartforge_elements::incremental::ApiDigest,
+    ) -> std::collections::BTreeMap<(Option<&str>, &str), Vec<u64>> {
+        let mut m: std::collections::BTreeMap<(Option<&str>, &str), Vec<u64>> =
+            std::collections::BTreeMap::new();
+        for d in &a.declarations {
+            m.entry((d.owner.as_deref(), d.name.as_str()))
+                .or_default()
+                .push(d.digest);
+        }
+        m
+    }
+    let mut names: BTreeSet<String> = BTreeSet::new();
+    let mut changed_classes: Vec<&ApiDeclaration> = Vec::new();
+    for k in api {
+        let old = memo.files.get(*k)?.facts.api.as_ref()?;
+        let new = now.get(*k)?.as_ref()?.api.as_ref()?;
+        if old.directives != new.directives {
+            return None;
+        }
+        let (before, after) = (digests(old), digests(new));
+        for d in old.declarations.iter().chain(&new.declarations) {
+            let key = (d.owner.as_deref(), d.name.as_str());
+            if before.get(&key) == after.get(&key) {
+                continue;
+            }
+            if d.implicit {
+                return None;
+            }
+            add(&mut names, d);
+            if d.class_like {
+                changed_classes.push(d);
+            }
+        }
+    }
+    let library_files = closure(api.iter().map(|p| p.as_path()).collect(), parts);
+    let mut library: Vec<&ApiDeclaration> = Vec::new();
+    for f in &library_files {
+        library.extend(&facts_of(f)?.api.as_ref()?.declarations);
+    }
+    // The sealed families: the library's classes that share a supertype of
+    // the library with a changed class.
+    let class_words: Vec<(u64, &ApiDeclaration)> = library
+        .iter()
+        .filter(|d| d.class_like)
+        .map(|d| (word_hash(&d.name), *d))
+        .collect();
+    for c in &changed_classes {
+        for (h, s) in &class_words {
+            if *h != word_hash(&c.name) && c.words.binary_search(h).is_ok() {
+                add(&mut names, s);
+                for (_, sibling) in &class_words {
+                    if sibling.words.binary_search(h).is_ok() {
+                        add(&mut names, sibling);
+                    }
+                }
+            }
+        }
+    }
+    // The declarations whose signature names a changed name change too.
+    let names_one = |d: &ApiDeclaration, hashes: &[u64]| {
+        hashes.iter().any(|h| d.words.binary_search(h).is_ok())
+    };
+    let grow = |names: &mut BTreeSet<String>, declarations: &[&ApiDeclaration]| loop {
+        let hashes: Vec<u64> = names.iter().map(|n| word_hash(n)).collect();
+        let before = names.len();
+        for d in declarations {
+            if names_one(d, &hashes) {
+                add(names, d);
+            }
+        }
+        if names.len() == before {
+            break;
+        }
+    };
+    grow(&mut names, &library);
+    // The dependents, to a fixpoint: an affected one may change the names it
+    // declares.
+    let candidates = closure(api.iter().map(|p| p.as_path()).collect(), pointing);
+    let mut affected = library_files.clone();
+    let export = word_hash("export");
+    loop {
+        let hashes: Vec<u64> = names.iter().map(|n| word_hash(n)).collect();
+        let mut more: Vec<PathBuf> = Vec::new();
+        for d in candidates.iter().filter(|d| !affected.contains(*d)) {
+            let Some(f) = facts_of(d) else {
+                more.push(d.clone());
+                continue;
+            };
+            let named =
+                f.words.is_empty() || hashes.iter().any(|h| f.words.binary_search(h).is_ok());
+            let barrel = f.words.binary_search(&export).is_ok()
+                && f.targets.iter().any(|(t, _)| affected.contains(t));
+            if named || barrel {
+                more.push(d.clone());
+            }
+        }
+        if more.is_empty() {
+            break;
+        }
+        for d in more {
+            for f in closure(vec![d.as_path()], parts) {
+                if affected.insert(f.clone()) {
+                    let declarations: Vec<&ApiDeclaration> = facts_of(&f)
+                        .and_then(|x| x.api.as_ref())
+                        .map(|a| a.declarations.iter().collect())
+                        .unwrap_or_default();
+                    grow(&mut names, &declarations);
+                }
+            }
+        }
+    }
+    Some(affected)
 }
 
 /// Decides what to analyze and what to publish (Dart's driver republishes the
@@ -1561,7 +1755,12 @@ fn plan(
         .iter()
         .filter(|k| k.extension().is_some_and(|e| e == "dart"))
         .partition(|k| same_api(k));
-    let mut fresh = closure(api.into_iter().map(PathBuf::as_path).collect(), &pointing);
+    // An API change: the dependents that can see a changed name
+    // ([`api_affected`]), else every dependent.
+    let mut fresh = match api_affected(&api, memo, &now, &pointing, &parts) {
+        Some(affected) => affected,
+        None => closure(api.into_iter().map(PathBuf::as_path).collect(), &pointing),
+    };
     fresh.extend(closure(
         body.into_iter().map(PathBuf::as_path).collect(),
         &parts,

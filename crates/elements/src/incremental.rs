@@ -654,3 +654,220 @@ fn member_name(k: &MemberKind) -> Option<dartforge_intern::SymbolId> {
         _ => None,
     }
 }
+
+/// One declaration of a unit, as [`api_digest`] sees it: a top-level
+/// declaration (its name) or a member of one (with its `owner`), with the
+/// digest of its signature tokens (those of [`api_signature`]: bodies left
+/// out) and the identifier words in them.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ApiDeclaration {
+    /// The name a reference elsewhere uses: the declaration's, or the
+    /// member's (empty for an unnamed constructor or extension).
+    pub name: String,
+    /// The top-level declaration that owns a member.
+    pub owner: Option<String>,
+    /// Whether the declaration can be used without its name being written
+    /// (an operator, an unnamed extension, a member that the language calls
+    /// implicitly: `call`, `iterator`, `toString`…).
+    pub implicit: bool,
+    /// Whether it is a class-like declaration (class, mixin, enum, extension
+    /// type), whose subtypes in the same library matter to exhaustiveness.
+    pub class_like: bool,
+    pub digest: u64,
+    /// [`word_hash`]es of the identifiers of its signature, sorted.
+    pub words: Vec<u64>,
+}
+
+/// The API of a unit, declaration by declaration ([`ApiDeclaration`]), and
+/// the digest of its directives: what tells which names an API change of the
+/// unit changed (the LSP reanalyzes only the dependents that use them).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ApiDigest {
+    pub directives: u64,
+    pub declarations: Vec<ApiDeclaration>,
+}
+
+/// The hash of an identifier, as [`api_digest`] and [`text_words`] record it.
+pub fn word_hash(word: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    word.hash(&mut h);
+    h.finish()
+}
+
+/// The [`word_hash`]es of every identifier-like word of `text` (letters,
+/// digits, `_` and `$`), comments and strings included, sorted and without
+/// repetitions: an over-approximation of the names a file can refer to.
+///
+/// ```
+/// use dartforge_elements::incremental::{text_words, word_hash};
+/// let w = text_words("a.b(c); // d");
+/// assert!(w.contains(&word_hash("d")));
+/// ```
+pub fn text_words(text: &str) -> Vec<u64> {
+    let mut words: Vec<u64> = text
+        .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+        .filter(|w| !w.is_empty())
+        .map(word_hash)
+        .collect();
+    words.sort_unstable();
+    words.dedup();
+    words
+}
+
+/// Members the language uses without their name being written: a change to
+/// one of them may reach code that never names it.
+const IMPLICIT_MEMBERS: &[&str] = &[
+    "call",
+    "iterator",
+    "moveNext",
+    "current",
+    "toString",
+    "hashCode",
+    "noSuchMethod",
+    "runtimeType",
+    "then",
+];
+
+/// [`ApiDigest`] of a unit already parsed from `text`; `None` when the text
+/// does not lex.
+pub fn api_digest(text: &str, ast: &Ast, unit: &CompilationUnit) -> Option<ApiDigest> {
+    use std::hash::{Hash, Hasher};
+    let tokens = dartforge_frontend::lexer::lex(text).ok()?;
+    let mut excerpts: Vec<(Span, bool)> = regions(ast, false)
+        .iter()
+        .map(|r| (r.span, r.strict))
+        .collect();
+    excerpts.sort_by_key(|(s, _)| s.start);
+    let directives = directive_spans(unit);
+    let name_of = |n: &ast::Name| text.get(n.span.start..n.span.end).unwrap_or("").to_string();
+    // The signature tokens of a span: their digest and their words.
+    let signature = |span: Span| -> (u64, Vec<u64>) {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let mut words = Vec::new();
+        let first = tokens.partition_point(|t| t.span.start < span.start);
+        for t in &tokens[first..] {
+            if t.span.start >= span.end {
+                break;
+            }
+            if t.span.end > span.end || inside(&excerpts, t.span) {
+                continue;
+            }
+            let lexeme = text.get(t.span.start..t.span.end).unwrap_or("");
+            std::mem::discriminant(&t.kind).hash(&mut h);
+            lexeme.hash(&mut h);
+            (t.glued && matches!(t.kind, Kind::Op(Op::Gt))).hash(&mut h);
+            if t.kind == Kind::Ident {
+                words.push(word_hash(lexeme));
+            }
+        }
+        words.sort_unstable();
+        words.dedup();
+        (h.finish(), words)
+    };
+    let mut d = std::collections::hash_map::DefaultHasher::new();
+    for t in &tokens {
+        if inside(&directives, t.span) {
+            text.get(t.span.start..t.span.end)
+                .unwrap_or("")
+                .hash(&mut d);
+        }
+    }
+    let mut declarations = Vec::new();
+    for decl in &ast.decls {
+        let (members, names, class_like, unnamed): (&[ast::MemberId], Vec<String>, bool, bool) =
+            match &decl.kind {
+                DeclKind::Class(c) => (&c.members, vec![name_of(&c.name)], true, false),
+                DeclKind::Mixin(m) => (&m.members, vec![name_of(&m.name)], true, false),
+                DeclKind::Enum(e) => (&e.members, vec![name_of(&e.name)], true, false),
+                DeclKind::ExtensionType(x) => (&x.members, vec![name_of(&x.name)], true, false),
+                DeclKind::Extension(x) => (
+                    &x.members,
+                    vec![x.name.as_ref().map(name_of).unwrap_or_default()],
+                    false,
+                    x.name.is_none(),
+                ),
+                DeclKind::Typedef(t) => (&[], vec![name_of(&t.name)], false, false),
+                DeclKind::Function(f) => (
+                    &[],
+                    vec![
+                        ast.function(*f)
+                            .name
+                            .as_ref()
+                            .map(name_of)
+                            .unwrap_or_default(),
+                    ],
+                    false,
+                    false,
+                ),
+                DeclKind::Variables(l) => (
+                    &[],
+                    l.variables.iter().map(|v| name_of(&v.name)).collect(),
+                    false,
+                    false,
+                ),
+            };
+        let (digest, words) = signature(decl.span);
+        let owner = names.first().cloned().unwrap_or_default();
+        for name in names {
+            declarations.push(ApiDeclaration {
+                name,
+                owner: None,
+                implicit: unnamed,
+                class_like,
+                digest,
+                words: words.clone(),
+            });
+        }
+        // An enum's constants are members by name.
+        if let DeclKind::Enum(e) = &decl.kind {
+            for c in &e.constants {
+                let (digest, words) = signature(c.span);
+                declarations.push(ApiDeclaration {
+                    name: name_of(&c.name),
+                    owner: Some(owner.clone()),
+                    implicit: false,
+                    class_like: false,
+                    digest,
+                    words,
+                });
+            }
+        }
+        for &m in members {
+            let member = ast.member(m);
+            let (names, implicit): (Vec<String>, bool) = match &member.kind {
+                MemberKind::Method(f) => {
+                    let f = ast.function(*f);
+                    let name = f.name.as_ref().map(name_of).unwrap_or_default();
+                    let implicit = f.kind == ast::FunctionKind::Operator
+                        || IMPLICIT_MEMBERS.contains(&name.as_str());
+                    (vec![name], implicit)
+                }
+                MemberKind::Field(l) => {
+                    let names: Vec<String> = l.variables.iter().map(|v| name_of(&v.name)).collect();
+                    let implicit = names.iter().any(|n| IMPLICIT_MEMBERS.contains(&n.as_str()));
+                    (names, implicit)
+                }
+                MemberKind::Constructor(k) => (
+                    vec![k.name.as_ref().map(name_of).unwrap_or_default()],
+                    false,
+                ),
+            };
+            let (digest, words) = signature(member.span);
+            for name in names {
+                declarations.push(ApiDeclaration {
+                    name,
+                    owner: Some(owner.clone()),
+                    implicit: implicit || unnamed,
+                    class_like: false,
+                    digest,
+                    words: words.clone(),
+                });
+            }
+        }
+    }
+    Some(ApiDigest {
+        directives: d.finish(),
+        declarations,
+    })
+}

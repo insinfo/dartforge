@@ -89,6 +89,10 @@ struct Options {
     generated: usize,
     /// `--csv`: where the long session's samples go.
     csv: Option<PathBuf>,
+    /// `--tail MS`: after each load of the long session settles, the driver
+    /// waits MS more and reports the CPU the servers spend in that wait (work
+    /// left after settled, such as files analyzed in the background).
+    tail: Option<Duration>,
 }
 
 fn options() -> Options {
@@ -108,6 +112,7 @@ fn options() -> Options {
     let mut long = None;
     let mut generated = 40;
     let mut csv = None;
+    let mut tail = None;
     while let Some(a) = args.next() {
         let mut value = || args.next().expect("option value");
         match a.as_str() {
@@ -138,6 +143,7 @@ fn options() -> Options {
             "--long" => long = Some(value().parse().expect("--long")),
             "--generated" => generated = value().parse().expect("--generated"),
             "--csv" => csv = Some(PathBuf::from(value())),
+            "--tail" => tail = Some(Duration::from_millis(value().parse().expect("--tail MS"))),
             other => panic!("unknown option {other}"),
         }
     }
@@ -163,6 +169,7 @@ fn options() -> Options {
         long,
         generated,
         csv,
+        tail,
         json,
     }
 }
@@ -946,9 +953,18 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
     // The CPU time of the server and its descendants from the change to
     // settled, per kind (on a loaded machine the steadier measure).
     let mut cpu: [Vec<Duration>; 3] = Default::default();
+    let mut tail_cpu: [Vec<Duration>; 3] = Default::default();
+    let tail = o.tail;
     let mut record =
         |k: usize, cpu0: u64, (published, settled, seen): (Option<Duration>, Duration, bool)| {
-            cpu[k / 2].push(Duration::from_nanos(cpu_of_all(pid).saturating_sub(cpu0)));
+            let settled_cpu = cpu_of_all(pid);
+            cpu[k / 2].push(Duration::from_nanos(settled_cpu.saturating_sub(cpu0)));
+            if let Some(t) = tail {
+                std::thread::sleep(t);
+                tail_cpu[k / 2].push(Duration::from_nanos(
+                    cpu_of_all(pid).saturating_sub(settled_cpu),
+                ));
+            }
             match published {
                 Some(d) => kinds[k].push(d),
                 None => missing[k] += 1,
@@ -1053,6 +1069,20 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
         "API change to the file's diagnostics",
         "API change to settled",
     ];
+    for (k, kind) in ["wave", "body edit", "API change"].iter().enumerate() {
+        let mut v = tail_cpu[k].clone();
+        if v.is_empty() {
+            continue;
+        }
+        v.sort();
+        println!(
+            "long session {}: {kind}: CPU in the {} ms after settled, median {:.0} ms, p90 {:.0} ms",
+            o.label,
+            ms(tail.unwrap_or_default()),
+            ms(v[v.len() / 2]),
+            ms(v[(v.len() * 9 / 10).min(v.len() - 1)]),
+        );
+    }
     for (k, kind) in ["wave", "body edit", "API change"].iter().enumerate() {
         let mut v = cpu[k].clone();
         if v.is_empty() {

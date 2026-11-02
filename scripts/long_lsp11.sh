@@ -1,6 +1,6 @@
 #!/bin/sh
 # Long LSP session on new_sali for one server (round 11 of docs/LSP.md).
-# usage: [DRIVER=<editing_latency>] [JSON=1] long_lsp11.sh <dartforge|dart> <rounds> <label> [out-dir] [server binary]
+# usage: [DRIVER=<editing_latency>] [JSON=1] [TAIL=MS] long_lsp11.sh <dartforge|dart> <rounds> <label> [out-dir] [server binary]
 set -eu
 which="$1"
 rounds="$2"
@@ -20,6 +20,8 @@ esac
 # JSON=1: the last publication of every file in <out-dir>/<label>.json.
 json=""
 if [ -n "${JSON:-}" ]; then json="--json $out/$label.json"; fi
+# TAIL=MS: the CPU spent in MS after each load settles.
+if [ -n "${TAIL:-}" ]; then json="$json --tail $TAIL"; fi
 echo "load before: $(uptime)"
 # shellcheck disable=SC2086
 "$driver" $target $json --label "$label" --root "$root" \
