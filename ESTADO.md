@@ -287,7 +287,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | **LSP** × servidor de análise | mesmos 3 projetos, revezado, com CPU (carga 29–70). **Tecla → diagnósticos**: CPU frontend 79 × 50 ms, backend 67 × 46 ms, `limitless_ui` **109 × 138 ms (ganha)**. **Mudança de API, diagnóstico do arquivo** (prefixo congelado e grupos em ordem de dependência, 01/11): frontend 265–298 × 19–63 ms, backend 201–266 × 48–85 ms, `limitless_ui` 196 × 96 ms (privada) e **85 × 116 ms (exportada, ganha)**. **Ganha** em `completion` depois de edição, *hover* depois de edição e `references` no `limitless_ui`. **Perde** nos dependentes de uma mudança de API (CPU frontend 2,0 s × 112 ms, backend 1,3 s × 0,19 s, `limitless_ui` 0,68–0,78 × 0,15–0,16 s), em `references` dos tipos do SDK no frontend (mesmos resultados) e em `definition`/`prepareRename`/`codeAction` | frontend pico/repouso **1.552/736 × 952/870 MiB** (repouso ganha), `limitless_ui` 1.065/1.047 × 760/739, backend **297/297 × 478/477 (ganha)**. Oráculo de paridade 100% (references, implementation, definition; completion top-5) | 01/11 |
 | **`analyze`** × `dart analyze` | `new_sali/backend`: ~5 s × 21,7 s frio (2,6 s com cache); `format`: **0,42 × 1,55 s** | — | 13–14/10 |
 | **`test`** / **`pub`** × `dart test` / `dart pub` | **não medido** | — | — |
-| **Wasm** × `dart2wasm` (Node 24) | **perde** 1,2–3× em alocação/árvores, JSON, strings e crivo (ganho de só 10–20% em 31/10 noite; o coletor pesa ~25% no JSON); **ganha** 2–8× em `list.add`, `list[i]` e `sort` | módulo **1,26–1,94 MB × 47–114 KB (17–27× maior**; era 2,2–2,7 MB, −28 a −42%); memória **2,3–3,4× menor**. Exceções nativas do Wasm (`exnref`) são o padrão: −2,6 a −4,5% de tamanho | 31/10 noite |
+| **Wasm** × `dart2wasm` (Node 24) | **perde** 1,2–3× em alocação/árvores, JSON, strings e crivo (ganho de só 10–20% em 31/10 noite; o coletor pesa ~25% no JSON); **ganha** 2–8× em `list.add`, `list[i]` e `sort` | módulo **1,26–1,94 MB × 47–114 KB (17–27× maior**; era 2,2–2,7 MB, −28 a −42%); memória **2,3–3,4× menor**. Exceções nativas do Wasm (`exnref`) são o padrão: −2,6 a −4,5% de tamanho | 31/10 noite; **regressão de 10× no tamanho desde `863d4159` (hello 12,8 MB), achada em 02/11, correção em andamento**; contra outras linguagens: seção de 02/11 |
 | **AOT nativo** × `dart compile exe` | HTTP `dart:io`: **68–69,5 × 70,2 mil pedidos/s (97–99%)**; ciclos por pedido: tracing 66 mil × 70 mil (melhor), ARC real 205 mil (pior). Trees 12,4 × 11,9 ms; JSON 77,5 × 78 ms; strings 43 × 47 ms. Swift cru: 26 mil ciclos × nosso 38 mil. Compilar `new_sali/backend` com `--optimize` (macOS, objetos frios): **451 × 39 s de CPU (11,6×)**, mediana de três medidas com carga 45–116 (relógio sem significado com essa carga); era ~1 410 s em 31/10 de manhã. Desenvolvimento frio: 177 s de CPU | servidor **4,7 × 5,6 MB**; hello 0,56×; `new_sali/backend` **36,4 × 26,5 MB (1,37× maior**; era 43,5 MB); File Explorer 19,9 × 12,3 MB (1,62×); RSS do servidor 17,5 × 17,2 MB (ARC real 23,8 MB) | 30–31/10 (compilação e tamanho do grande: 01/11) |
 | **ARC real** × tracing (mesmo servidor, `DARTFORGE_ARC_PREPARED=1 --memory arc`) | instruções por pedido: `dart:io` **666 × 200 mil (3,3×)**, cru **248 × 123 mil (2,0×)**; ciclos por pedido (carga ~37): `dart:io` 306 × 123 mil (2,5×), cru 98 × 56 mil (1,7×). No início de 01/11: 813 e 361 mil instruções, 343 e 122 mil ciclos | RSS 25 × 18 MB (`dart:io`), 22 × 16 MB (cru) | 01/11 |
 
@@ -317,6 +317,84 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | AOT nativo: tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`) e tamanho (1,37×); próximo: mapa de campo, `$c`/`$g`/`$tc`, `$async` | em rodízio: agentes de desempenho um por vez desde 01/11 (ordem LSP → ARC → AOT); seção de 31/10 abaixo |
 | ARC real: 2,5× os ciclos do tracing no HTTP `dart:io` e 1,7× no cru (eram 3× e 2,2×); próximos passos na seção de 01/11 | em rodízio: agentes de desempenho um por vez (fila: LSP prioridade → AOT → ARC) |
 | LSP: *outline* incremental (passos 1–3 feitos em 01/11: prefixo congelado; falta o passo 4, as bibliotecas do pacote que não dependem da editada), corpos dos dependentes, índice de referências resolvidas (passo 5), memória do residente e da busca | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
+
+## 02/11/2026: tamanho do wasm contra outras linguagens; regressão de 10× achada (`863d4159`)
+
+**Regressão.** O `hello` do `compile-wasm` foi de **1 288 823 bytes para 12 753 111 bytes**. `git bisect`
+entre `7f35a02f` (31/10, bom) e `f06412db` (ruim), com orçamento de 3 MB, apontou como primeiro commit
+ruim o **`863d4159`** ("Close a third round of tests/language gaps of the native backend", 01/11 11:38).
+
+- **O que o pai `47f3ce7a` dá:** 1 288 823 bytes.
+- **O que o `main` atual mostra:**
+  - na poda, 20 559 de 51 070 símbolos vivos, ~11 mil funções contra ~2,8 mil;
+  - 24 s de ligação;
+  - o módulo importa a interop JS (`dartforge-wasm-run` o recusa).
+- **Por que ninguém viu antes:** o harness wasm continuou 164/164, porque só a saída é comparada, não o tamanho.
+- **Correção:** está com o agente backend nativo, junto com um teste de orçamento de bytes para o
+  `hello`.
+- **Para repetir a medição:** os arquivos estão em `/Volumes/ssd_dock/tmp/wasm-cmp/` (`bisect.sh`,
+  `bisect.sizes`, `src/`).
+
+**Comparação com outras linguagens que compilam para wasm.** Os mesmos dois programas em cada
+linguagem, com a configuração de menor tamanho de cada toolchain:
+- `hello`: imprime `Hello, World!`;
+- `colecoes`: gera 1000 números por LCG de 64 bits, ordena, conta palavras num mapa e junta 100 textos.
+
+A saída foi conferida em todos: Node 24 (WASI ou o carregador gerado) e Chrome *headless* no Blazor.
+
+A tabela mostra, em bytes, o `.wasm` principal, o mesmo com `gzip -9` e o resultado de
+`wasm-opt -Oz` (binaryen 123). Na coluna "coleta":
+- WasmGC: a coleta é a do motor;
+- própria: coletor em memória linear;
+- ARC: contagem de referências.
+
+| linguagem (toolchain, configuração) | coleta | `hello` | gzip | `wasm-opt` | `colecoes` | gzip |
+|---|---|---:|---:|---:|---:|---:|
+| AssemblyScript 0.28 (`-Oz`) | própria (pequena) | 207 | 204 | 207 | 11 622 | 5 352 |
+| Zig 0.14 (`ReleaseSmall`) | sem GC | 2 119 | 1 246 | 1 897 | 25 456 | 11 697 |
+| C, wasi-libc (`zig cc -Oz`) | sem GC | 2 760 | 1 357 | 2 190 | — | — |
+| Kotlin/Wasm 2.4.21 (wasmWasi, produção) | WasmGC | 9 542 | 4 727 | 9 545 | 34 733 | 15 620 |
+| Swift 6.4.2 Embedded (`-Osize`, strip) | ARC | 13 230 | 5 029 | 10 306 | 129 483 | 60 723 |
+| Rust 1.98 (`opt-level=z`, LTO, `panic=abort`) | sem GC | 37 429 | 15 320 | 32 773 | 65 885 | 28 002 |
+| **dart2wasm 3.6.2** | WasmGC | **47 013** | **15 369** | 46 631 | **65 948** | **20 643** |
+| TinyGo 0.39 (`-opt=z`) | própria | 158 291 | 68 014 | 152 169 | 195 664 | 80 961 |
+| C# .NET 10, console mínimo (`dotnet.native.wasm`) | própria (Mono) | 1 239 948 | 492 837 | 1 162 589 | igual | igual |
+| C# Blazor mínimo (`dotnet.native.wasm`) | própria (Mono) | 1 251 870 | 497 078 | 1 172 812 | igual | igual |
+| **DartForge em 31/10** (`7f35a02f`) | própria | **1 258 409** | **378 291** | — | — | — |
+| Go 1.24 oficial (`wasip1`, `-s -w`) | própria | 2 377 693 | 685 461 | 2 241 038 | 2 454 896 | 706 693 |
+| C# Blazor padrão | própria (Mono) | 2 898 925 | 1 126 025 | 2 735 619 | igual | igual |
+| Swift 6.4.2 completo (`-Osize`, strip) | ARC | 5 551 057 | 1 610 679 | 3 365 908 | 5 559 975 | 1 615 439 |
+| C# Blazor mínimo + AOT | própria (Mono) | 10 983 693 | 3 510 455 | 8 960 475 | 11 014 955 | 3 524 367 |
+| **DartForge hoje** (`f06412db`, regressão) | própria | **12 757 429** | **2 405 842** | 8 332 885 | 12 768 381 | 2 409 530 |
+
+O .NET baixa mais que o `.wasm` principal: os *assemblies* Webcil e o JS. No `hello`, o total
+baixado é:
+- console mínimo: 2 686 706 bytes (990 154 gzip);
+- Blazor mínimo: 4 529 730 (1 738 438);
+- Blazor padrão: 7 411 323 (2 736 086);
+- Blazor + AOT: 14 271 044 (4 516 711).
+
+**Leitura**
+- **Quem não tem coletor fica em bytes ou poucos KB:** C, Zig, Rust e AssemblyScript.
+- **Quem usa o WasmGC do motor (dart2wasm, Kotlin) fica em dezenas de KB.** O DartForge não usa
+  WasmGC, por decisão do projeto: um módulo que roda em qualquer motor, com o coletor dentro.
+  Por isso a régua justa é o grupo que leva o próprio runtime em memória linear:
+  - TinyGo 158 KB;
+  - .NET mínimo 1,24 MB;
+  - Go 2,4 MB;
+  - Swift completo 5,6 MB.
+- **No nosso melhor estado (1,26 MB)** ficamos empatados com o .NET mínimo, abaixo do Go e do
+  Swift completo e 8× o TinyGo. Hoje, com a regressão, estamos acima de todos menos o Blazor+AOT.
+- **Meta depois da correção:** voltar a 1,26 MB e depois ir na direção do TinyGo. O que sobra no
+  `hello` de 1,26 MB está descrito na seção de 31/10:
+  - ~560 KB do SDK (`NoSuchMethodError`, `_InvocationMirror`, `LinkedHashMap`);
+  - ~400 KB do runtime Rust;
+  - 194 KB de dados.
+  Mais o `wasm-opt -Oz`, que tiraria ~19% se o orçamento da pilha do motor for refeito depois dele.
+
+As toolchains estão em `/Volumes/ssd_dock/tools/wasm-langs/` (7,8 GB; `env.sh` lá) e
+`/Volumes/ssd_dock/tmp/wasm-cmp/tools/`. Fontes e scripts estão em `/Volumes/ssd_dock/tmp/wasm-cmp/`
+(`src/`, `out/`, `measure-langs/`, `wasi.mjs`).
 
 ## 02/11/2026: `dartforge test` com o runner do package:test; `pub cache` e `pub global`
 
