@@ -2132,6 +2132,7 @@ impl Engine {
             simple_bounds,
             load_diags,
             init,
+            cited,
             ..
         } = kept.world.as_mut().expect("loaded");
         let program: &Program = program;
@@ -2706,6 +2707,11 @@ impl Engine {
         // (`computeConstantValue`); here they are inferred, reporting nothing
         // of theirs. The SDK stays opaque (a valid unknown value).
         let mut inferred: HashSet<LibraryId> = own_libs.iter().copied().collect();
+        let frozen_end = program.frozen.map_or(0, |f| f.libraries);
+        if cited.collections != table.collections() {
+            cited.by_library.clear();
+            cited.collections = table.collections();
+        }
         if let Some(c) = &mut bodies {
             loop {
                 let new = libraries_of_cited_constants(program, c, &inferred);
@@ -2715,6 +2721,15 @@ impl Engine {
                 for lib in new {
                     if cancelled() {
                         return None;
+                    }
+                    if let Some(units) = cited.by_library.get(&lib) {
+                        for (i, t) in units {
+                            if *i < c.units.len() {
+                                c.units[*i] = t.clone();
+                            }
+                        }
+                        inferred.insert(lib);
+                        continue;
                     }
                     let (mut bt, _, _) = dartforge_types::infer_library_bodies_shared(
                         program,
@@ -2731,6 +2746,17 @@ impl Engine {
                         if i < c.units.len() && i < bt.units.len() {
                             c.units[i] = std::mem::take(&mut bt.units[i]);
                         }
+                    }
+                    if (lib.0 as usize) < frozen_end {
+                        let units = program
+                            .library(lib)
+                            .units
+                            .iter()
+                            .map(|u| u.0 as usize)
+                            .filter(|&i| i < c.units.len())
+                            .map(|i| (i, c.units[i].clone()))
+                            .collect();
+                        cited.by_library.insert(lib, units);
                     }
                     inferred.insert(lib);
                 }
