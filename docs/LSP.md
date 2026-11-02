@@ -1844,6 +1844,151 @@ nome marca deveriam ser refeitos. O conjunto S é o arquivo mudado mais esses de
 O critério de aceite é o de sempre: cada passo de `typed_incremental` publica o mesmo que uma
 análise do zero, e o oráculo fica a 100%.
 
+##### Resultado
+
+**1. As trocas entre processos (medidas antes de cortar).** Com `DARTFORGE_LSP_TRACE=1`, o
+servidor, o trabalhador tipado e o residente imprimem `[trace] <µs> <evento>` a cada
+passagem. O *driver* marca a última notificação da onda e as publicações no mesmo relógio
+(`2bb97f49`). No `new_sali`, em 20 rodadas com carga ~44, as medianas contadas a partir da
+última notificação da onda foram:
+
+| passagem | ms |
+|---|---:|
+| o trabalhador começa (o *debounce* de 20 ms) | 26 |
+| a tarefa chega ao residente | +6 |
+| a análise no residente | +512 (206 de CPU) |
+| os resultados publicados depois do fim | +1,6 |
+
+As trocas somam ~8 ms; o tempo da onda era o da análise. Por isso não juntamos processos e
+cortamos a análise.
+
+**2. O que mudou** (um *commit* cada):
+- **A ordem prefere o que muda por último** (`7a67cfc9`, etapa 1 do projeto). O residente
+  passa ao *layout* da carga seguinte os arquivos que viu mudar (`Program::layout_last`). A
+  onda caiu de 394 bibliotecas recarregadas para 41, e a mudança de API de 739 para 409.
+- **Uma mudança só no disco não cancela mais a análise** (`d0138bcb`). A onda chega em vários
+  lotes de `didChangeWatchedFiles`, e cada lote cancelava a análise em curso. A análise
+  cancelada perdia o mundo do residente, e a carga seguinte voltava ao prefixo congelado
+  (2.462 bibliotecas, p90 da onda 1,7 s). Agora a análise de uma raiz sujada só por `.dart` no
+  disco termina e publica, e a raiz é analisada de novo. Edição, configuração e fechamento
+  continuam cancelando na hora.
+- **Os índices das constantes são feitos por unidade, sob demanda** (`7d7e18d0`). A
+  verificação de ciclos fazia os índices do programa inteiro a cada análise (~120 ms por
+  onda).
+- **O índice de elementos sobrevive ao corte** (`0aa2712c`). `Program::truncate` jogava fora
+  o `ElementIndex`, e o primeiro verificador de cada carga o refazia sobre 140 mil elementos.
+  Agora o corte guarda as listas do que fica (`Program::index_kept`). O próximo `index` só
+  acrescenta o que foi carregado depois, na mesma ordem de um índice feito do zero; o teste do
+  prefixo congelado compara os dois.
+- **A classe de um construtor é buscada nas funções da unidade** (`a0724ed3`). O verificador
+  de constantes percorria todas as funções do programa para cada construtor `const`: ~40 ms
+  numa onda de 40 gerados.
+- **`computeSimplyBounded` roda só sobre as declarações novas** (`6793199c`). As declarações
+  antes do corte não citam nada depois dele.
+- **A inferência de *overrides* roda só depois do corte** (`d8be1447`). Cada carga inferia de
+  novo os *overrides* de todas as classes do pacote, o que era 15% do tempo do residente numa
+  sessão longa. A inferência de corpos muda o *outline* no lugar, então as classes mantidas já
+  têm os tipos que ela deu, e ela não reporta nada.
+  - Quando o *outline* mantido não foi inferido (uma análise parou antes), ela começa no fim
+    do prefixo congelado, como antes.
+  - O teste do residente com mudança repetida ganhou uma biblioteca mantida cujo erro depende
+    de um *override* inferido.
+- **Menos trabalho fixo por carga** (`928e899d`). Só uma carga do zero abre o *cache* do SDK.
+  A chave de cada unidade é emprestada quando o caminho já é chave.
+
+**3. Sessão longa no macOS, 150 rodadas (510 cargas), os dois servidores revezados.** São
+medianas até assentar, em ms, com a CPU entre parênteses. A carga da máquina é a média de
+1 minuto durante cada par.
+
+| carga | DartForge r12 (carga 58–63) | Dart r12 | DartForge agora (carga 41–46) | Dart (carga 41–46) | DartForge agora (carga 2–9, 2 sessões) | Dart (carga 2–9, 2 sessões) |
+|---|---:|---:|---:|---:|---:|---:|
+| onda de 40 `.g.dart` | 588 (186) | 476 (216) | **208 (107)** | 311 (216) | **79–83 (69–70)** | 102–103 (139) |
+| edição de corpo | 118 (36) | 136 (38) | **86 (29)** | 91 (35) | 40–43 (17) | **30–31** (17) |
+| mudança de API | 795 (185) | 420 (103) | 573 (139) | **250** (93) | 101–105 (81–82) | **90–92** (59–61) |
+
+O resultado por carga:
+- **Onda:** ganhamos nas duas condições. Com a máquina carregada, levamos 208 ms contra
+  311 ms; com ela calma, 79–83 ms contra 102–103 ms. Gastamos metade da CPU do Dart.
+- **Mudança de API:** com a máquina calma ficamos a 10–15% do Dart. Com ela carregada,
+  ainda ficamos 2,3× atrás no relógio, porque recarregamos e resolvemos de novo o *outline*
+  de 409 bibliotecas.
+  - Com a máquina calma, o diagnóstico do próprio arquivo sai em 99 ms contra 29 ms. O
+    resto dos dependentes assenta junto.
+  - A etapa 2 (recarga no lugar com ids estáveis) é o que falta para ganhar aqui. Ela não foi
+    feita.
+- **Edição de corpo:** com a máquina carregada, empatamos ou ganhamos. Com ela calma,
+  perdemos por ~12 ms. O diagnóstico do arquivo sai antes (18 contra 24 ms), mas a análise
+  tipada no residente custa ~40 ms de ponta a ponta.
+
+Outros dados da sessão:
+- **Publicações:** a última publicação dos 492 arquivos (9.763 diagnósticos) é igual entre as
+  sessões do binário final e à do binário da décima segunda rodada. Esta última comparação foi
+  feita antes da queda de energia; o binário é o mesmo.
+- **Carga anotada:** a sessão calma do DartForge sozinha, logo depois de a máquina religar
+  (carga 5–19), deu onda 78 ms, corpo 44 ms e API 109 ms. A do Dart que veio depois pegou a
+  carga subindo para 51 e não entrou na tabela.
+
+**4. Windows (i3, 2 núcleos a 1,2 GHz, parado; antes da reserva da máquina para o agente de
+corretude).** Cópia do `new_sali` (`frontend` e `core`) com o SDK 3.6.2, 150 rodadas
+revezadas:
+
+| carga | DartForge agora | Dart |
+|---|---:|---:|
+| onda | 520 | 370–587 |
+| edição de corpo | 125 | 61–62 |
+| mudança de API | 505 | 282–600 |
+
+- **No i3 perdemos.** Os diagnósticos publicados são idênticos aos do Dart (42 arquivos,
+  80 diagnósticos).
+- **A análise fica ~3× mais lenta a partir da quarta onda.** A terceira onda leva 52 ms de
+  carga, 43 de *outline* e 49 de corpos. Da quarta em diante, com o mesmo corte, são 145, 134
+  e 99–119 ms, e a edição de corpo passa de 13 para 38–50 ms.
+  - Não é a frequência do processador (fixa em 1,2 GHz) nem o antivírus.
+  - No macOS isso não acontece.
+- **Experimento com outro alocador, fora do repositório:** o servidor ligado ao `mimalloc`
+  ficou 19–21% mais rápido nas três cargas (onda 517–524 → 420–421 ms, corpo 125–126 →
+  95–101 ms, API 536–584 → 443–445 ms; 20 rodadas, duas sessões de cada). Parte da perda vem do *heap* do Windows; o resto não foi achado.
+- **Decisão pendente:** adotar um alocador próprio no Windows é uma dependência nova e fica
+  para o proprietário decidir.
+
+**5. Memória** (*footprint* de todos os processos, em MiB, macOS):
+
+| | DartForge | Dart |
+|---|---:|---:|
+| recém-aberto (só abrir) | 478,3 | 571,9 |
+| recém-aberto + 1 rodada | 544,5 | 460,7 |
+| fim da sessão longa (1 min quieto), máquina calma | **564,3** | 655,9 |
+| pico, máquina calma | 568,3 | 692,7 |
+| inclinação por 100 cargas, nas 4 sessões | −1,0; −0,2; +1,2; +1,5 | +36 a +40 |
+| dado vivo do residente, 1 rodada → fim | 474,2 → 474,5 (**+0,06%**) | — |
+
+- O dado vivo não cresce.
+- A inclinação do *footprint* oscila em torno de zero: −1,0 e −0,2 nas duas sessões calmas
+  revezadas, +1,2 e +1,5 em outras duas. Nas positivas, a curva sobe em degraus de 1–3 MiB
+  (picos do alocador nas mudanças de API) e fica plana entre eles.
+- As curvas estão em `bench/results/lsp-long-session/*-r23-*.csv`.
+
+**Validação** (binário final, depois da queda de energia):
+- testes em *release* de `elements`, `types`, `analysis`, `world`, `emit_js`,
+  `emit_js_production`, `parity`, `lsp` e `dev`: 848 passaram e nenhum falhou (com o `node`
+  no `PATH`);
+- `typed_incremental` repete cada edição de API (subtipo selado novo, membro removido da
+  base, tipo inferido que volta, o modelo) e publica o mesmo que uma análise do zero;
+- oráculo de paridade nos quatro projetos (35 arquivos, 398 posições):
+  - `references`, `implementation` e `definition` a 100%;
+  - *completion* top-5 a 100% e top-1 a 99%;
+  - o `app` com erros comuns foi recriado depois da queda de energia, porque as cópias em
+    `/private/tmp` se perderam;
+- clippy `-D warnings` em `elements`, `types`, `analysis`, `parity` e `lsp` (todos os alvos),
+  e `rustfmt` nos arquivos tocados.
+
+**O que não foi feito nesta rodada:**
+- **A etapa 2, a identidade estável de elementos.** Ela ficou só no projeto, e é o que falta
+  para a mudança de API ganhar do Dart com a máquina carregada.
+- **A edição de corpo com a máquina calma:** ainda ~12 ms atrás do Dart.
+- **O Windows:** perdemos nas três cargas num i3. A lentidão depois da quarta onda tem uma
+  parte no alocador; o resto não foi achado.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,

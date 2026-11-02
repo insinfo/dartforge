@@ -65,6 +65,48 @@ a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
+**Andamento (02/11, 15h), itens 1 e 3 (décima terceira rodada: ganhar na onda e na API):**
+- **Medida das trocas entre processos** (`2bb97f49`): as passagens servidor → trabalhador →
+  residente somam ~8 ms por onda. O tempo era o da análise, então juntar processos não
+  ajudaria.
+- **O que cortou o tempo da análise:**
+  - a ordem prefere o que muda por último (`7a67cfc9`): a onda recarrega 41 bibliotecas
+    em vez de 394, e a API 409 em vez de 739;
+  - uma mudança só no disco não cancela a análise (`d0138bcb`);
+  - o índice de elementos sobrevive ao corte (`0aa2712c`);
+  - os índices de constantes vêm por unidade (`7d7e18d0`), e a classe de um construtor é
+    buscada só na unidade dele (`a0724ed3`);
+  - os limites simples são decididos só nas declarações novas (`6793199c`);
+  - a inferência de *overrides* roda só depois do corte (`d8be1447`);
+  - menos trabalho fixo por carga (`928e899d`).
+- **150 rodadas no macOS, revezadas** (mediana até assentar; CPU entre parênteses):
+
+  | carga | máquina carregada (41–46): DartForge | Dart | máquina calma (2–9): DartForge | Dart |
+  |---|---:|---:|---:|---:|
+  | onda de 40 `.g.dart` | **208 ms (107)** | 311 ms (216) | **79–83 ms (70)** | 102–103 ms (139) |
+  | edição de corpo | **86 ms (29)** | 91 ms (35) | 40–43 ms (17) | **30–31 ms** (17) |
+  | mudança de API | 573 ms (139) | **250 ms** (93) | 101–105 ms (82) | **90–92 ms** (60) |
+
+  - A onda ganha do Dart nas duas condições. Na rodada 12 ela perdia: 588 contra 476 ms.
+  - A mudança de API caiu de 795 para 573 ms com a máquina carregada, mas ainda perde. Falta
+    a etapa 2 (identidade estável de elementos), que está projetada em `docs/LSP.md` e não foi
+    feita.
+  - Com a máquina calma, a edição de corpo ainda fica ~12 ms atrás do Dart.
+- **Windows (i3, parado), antes da reserva da máquina:** perdemos nas três cargas (onda 520
+  contra 370–587 ms, corpo 125 contra 61 ms, API 505 contra 282–600 ms).
+  - A análise fica ~3× mais lenta a partir da quarta onda. Com o `mimalloc` (experimento,
+    fora do repositório), o servidor ganha 19–21%.
+  - Adotar um alocador próprio no Windows é uma dependência nova e fica para o proprietário
+    decidir.
+- **Memória:** o dado vivo do residente foi de 474,2 MiB com 1 rodada para 474,5 MiB no fim
+  (+0,06%). A inclinação do *footprint* foi −1,0 e −0,2 MiB por 100 cargas nas sessões calmas
+  revezadas e +1,2 e +1,5 em outras duas (degraus do alocador). A do Dart foi +36 a +40.
+- **Validação:** testes em *release* dos *crates* tocados e dependentes (848, sem falhas);
+  `typed_incremental` com as edições de API repetidas; oráculo de paridade com `references`,
+  `implementation` e `definition` a 100% e *completion* top-5 a 100%; clippy `-D warnings`;
+  publicações do `new_sali` iguais às da décima segunda rodada.
+- Detalhes em `docs/LSP.md`, "Décima terceira rodada".
+
 **Andamento (02/11, 05h), itens 1 e 3 (velocidade da sessão longa):**
 - **Mudança de API (item 1, pelo nome):** um dependente só é reanalisado se pode ver um nome
   que a mudança alterou (`e4642ed6`). A comparação é declaração por declaração, com o dono do
