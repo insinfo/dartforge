@@ -444,9 +444,44 @@ impl TypeTable {
         self.types.len()
     }
 
+    /// The number of type parameters registered in the table.
+    pub fn type_param_count(&self) -> usize {
+        self.type_params.len()
+    }
+
     /// Tells whether the table is empty.
     pub fn is_empty(&self) -> bool {
         self.types.is_empty()
+    }
+
+    /// The table split into its structures, each with its name and how many
+    /// entries it has, for a memory measure that drops them one at a time
+    /// (the LSP resident's `measure_memory`).
+    pub fn into_parts(self) -> Vec<(&'static str, usize, Box<dyn std::any::Any>)> {
+        vec![
+            ("types", self.types.len(), Box::new(self.types)),
+            ("lookup", self.lookup.len(), Box::new(self.lookup)),
+            (
+                "type parameters",
+                self.type_params.len(),
+                Box::new(self.type_params),
+            ),
+            (
+                "decorations (display, decorated, canonical)",
+                self.display.len() + self.decorated.len() + self.canonical.len(),
+                Box::new((self.display, self.decorated, self.canonical)),
+            ),
+            (
+                "fresh formals",
+                self.fresh_formals.len(),
+                Box::new(self.fresh_formals),
+            ),
+            (
+                "parameters without a default type",
+                self.without_default_type.len(),
+                Box::new(self.without_default_type),
+            ),
+        ]
     }
 
     /// Returns the size in bytes taken by the structures interned in the table.

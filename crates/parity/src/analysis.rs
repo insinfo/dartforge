@@ -86,6 +86,16 @@ pub struct Resident {
     program_bytes: HashMap<PathBuf, ProgramBytes>,
 }
 
+/// One structure of what a [`Resident`] keeps, as
+/// [`Resident::measure_memory`] measured it: its live bytes and how many
+/// items (units, types, names, diagnostics) it had.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MemoryPart {
+    pub name: String,
+    pub count: usize,
+    pub bytes: usize,
+}
+
 /// The source bytes (outside the SDK) of a package's programs: the largest
 /// one a small batch (edited files, [`EDITED_FILES`]) imports, and the
 /// largest program loaded (the whole package's, once a batch covered it).
@@ -618,6 +628,175 @@ impl Resident {
         *self = Resident::default();
         self.context = context;
         self.program_bytes = program_bytes;
+    }
+
+    /// The live bytes of each structure the resident keeps, measured by
+    /// dropping it: `heap` is the process's live heap (the allocator's bytes
+    /// in use), read before and after each drop. Destructive: the resident
+    /// ends [cleared](Resident::clear), and the next analysis starts from the
+    /// files. The structures are dropped in the order listed, so what two of
+    /// them share counts for the last one; the heap left after the last drop
+    /// is the rest of the process (the engine with the SDK, the allocator's
+    /// own tables, other threads).
+    pub fn measure_memory(&mut self, heap: &dyn Fn() -> usize) -> Vec<MemoryPart> {
+        let mut parts = Vec::new();
+        let mut measure = |name: &str, count: usize, value: Box<dyn std::any::Any>| {
+            let before = heap();
+            drop(value);
+            parts.push(MemoryPart {
+                name: name.to_string(),
+                count,
+                bytes: before.saturating_sub(heap()),
+            });
+        };
+        let kind = |u: &dartforge_elements::model::Unit| -> usize {
+            if u.uri.starts_with("dart:") {
+                0
+            } else if is_generated(&u.uri) {
+                2
+            } else {
+                1
+            }
+        };
+        const KINDS: [&str; 3] = ["SDK", "packages and project", "generated files"];
+        if let Some(w) = self.world.take() {
+            let World {
+                mut program,
+                table,
+                core,
+                outline,
+                outline_diags,
+                outline_units,
+                simple_bounds,
+                load_diags,
+                init,
+                imports,
+                syntax_known,
+                ..
+            } = w;
+            // `DARTFORGE_RESIDENT_LIBRARIES=<file>`: the program's libraries,
+            // one per line, the frozen prefix's marked, to compare two
+            // measures.
+            if let Some(path) = std::env::var_os("DARTFORGE_RESIDENT_LIBRARIES") {
+                let frozen = program.frozen.map_or(0, |f| f.libraries);
+                let lines: String = program
+                    .libraries
+                    .iter()
+                    .enumerate()
+                    .map(|(i, l)| {
+                        format!(
+                            "{}\t{}\n",
+                            if i < frozen { "frozen" } else { "after" },
+                            l.uri
+                        )
+                    })
+                    .collect();
+                let _ = std::fs::write(path, lines);
+            }
+            for (name, count, part) in table.into_parts() {
+                measure(&format!("world: type table, {name}"), count, part);
+            }
+            measure("world: outline types", 1, Box::new(outline));
+            measure("world: core types", 1, Box::new(core));
+            measure("world: simple bounds", 1, Box::new(simple_bounds));
+            let diagnostics =
+                outline_diags.len() + load_diags.len() + init.as_ref().map_or(0, |(d, _)| d.len());
+            measure(
+                "world: diagnostics (load, outline, initializers)",
+                diagnostics,
+                Box::new((outline_diags, load_diags, init, outline_units)),
+            );
+            measure(
+                "world: keys (imports, units with syntax diagnostics)",
+                imports.len() + syntax_known.len(),
+                Box::new((imports, syntax_known)),
+            );
+            let index = std::mem::take(&mut program.element_index);
+            measure("program: element index", 1, Box::new(index));
+            let mut by_kind: [Vec<dartforge_elements::model::Unit>; 3] = Default::default();
+            for u in std::mem::take(&mut program.units) {
+                by_kind[kind(&u)].push(u);
+            }
+            for (k, units) in by_kind.into_iter().enumerate() {
+                let n = units.len();
+                measure(&format!("program: units, {}", KINDS[k]), n, Box::new(units));
+            }
+            let libraries = std::mem::take(&mut program.libraries);
+            measure(
+                "program: libraries (scopes, namespaces)",
+                libraries.len(),
+                Box::new(libraries),
+            );
+            let elements = (
+                std::mem::take(&mut program.classes),
+                std::mem::take(&mut program.extensions),
+                std::mem::take(&mut program.typedefs),
+                std::mem::take(&mut program.functions),
+                std::mem::take(&mut program.variables),
+            );
+            let n = elements.0.len()
+                + elements.1.len()
+                + elements.2.len()
+                + elements.3.len()
+                + elements.4.len();
+            measure("program: elements", n, Box::new(elements));
+            measure("program: the rest", 1, Box::new(program));
+        }
+        let mut by_kind: [Vec<dartforge_elements::model::Unit>; 3] = Default::default();
+        for u in self.units.take_all() {
+            by_kind[kind(&u)].push(u);
+        }
+        for (k, units) in by_kind.into_iter().enumerate() {
+            let n = units.len();
+            measure(
+                &format!("unit cache: units, {}", KINDS[k]),
+                n,
+                Box::new(units),
+            );
+        }
+        let units = std::mem::take(&mut self.units);
+        measure("unit cache: the rest", 1, Box::new(units));
+        let interner = std::mem::take(&mut self.interner);
+        measure("interner", interner.len(), Box::new(interner));
+        let keys = (
+            std::mem::take(&mut self.texts),
+            std::mem::take(&mut self.context_parts),
+        );
+        measure(
+            "texts and context stamps",
+            keys.0.len() + keys.1.len(),
+            Box::new(keys),
+        );
+        self.clear();
+        parts
+    }
+
+    /// What the resident keeps, counted without measuring bytes: cheap, for
+    /// the memory log after each analysis.
+    pub fn census(&self) -> Vec<(&'static str, usize)> {
+        let mut v = vec![
+            ("unit cache: units", self.units.len()),
+            ("interner: names", self.interner.len()),
+            ("texts", self.texts.len()),
+        ];
+        if let Some(w) = &self.world {
+            v.extend([
+                ("world: types", w.table.len()),
+                ("world: type parameters", w.table.type_param_count()),
+                ("world: units", w.program.units.len()),
+                ("world: libraries", w.program.libraries.len()),
+                ("world: classes", w.program.classes.len()),
+                ("world: functions", w.program.functions.len()),
+                ("world: variables", w.program.variables.len()),
+                (
+                    "world: diagnostics",
+                    w.outline_diags.len()
+                        + w.load_diags.len()
+                        + w.init.as_ref().map_or(0, |(d, _)| d.len()),
+                ),
+            ]);
+        }
+        v
     }
 
     /// The files of the package whose batches the next analyses are of: the

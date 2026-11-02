@@ -897,9 +897,10 @@ fn rss_of_all(pid: u32) -> (u64, u64) {
 /// rewritten on the disk (one `didChangeWatchedFiles` per file), a body edit
 /// and its undo in the main file, and every fifth round an API change and its
 /// undo in `--api`; RSS and footprint of all processes sampled every 2 s into
-/// `--csv`; then a quiet minute. `--long 0`: start, wait for the generated
-/// files' publications, rest and report (the freshly started server, for the
-/// same files).
+/// `--csv`; then a quiet minute, and what the resident keeps
+/// ([`resident_memory`]). `--long 0`: start, wait for the generated files'
+/// publications, rest and report (the freshly started server, for the same
+/// files).
 ///
 /// Each load is timed from the change (a wave's last notification) to the
 /// publication of the affected files' new diagnostics, and to settled: every
@@ -1114,6 +1115,33 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
         mib(rss_peak),
         mib(rest_rss),
     );
+    resident_memory(o, c);
+}
+
+/// Prints what DartForge's resident analysis process keeps, structure by
+/// structure (`dartforge/residentMemory`); the official server answers it
+/// with an error, and nothing is printed. Measuring empties the resident.
+fn resident_memory(o: &Options, c: &mut Client) {
+    let (answer, took) = c.request("dartforge/residentMemory", Value::Null);
+    let Some(parts) = answer["result"]["parts"].as_array() else {
+        return;
+    };
+    let mib_of = |v: &Value| v.as_f64().unwrap_or(0.0) / (1024.0 * 1024.0);
+    println!(
+        "resident memory {} (measured in {:.0} ms): heap {:.1} MiB before, {:.1} MiB after",
+        o.label,
+        ms(took),
+        mib_of(&answer["result"]["heap_before"]),
+        mib_of(&answer["result"]["heap_after"]),
+    );
+    for p in parts {
+        println!(
+            "  {:<44} {:>10} items {:>9.2} MiB",
+            p["name"].as_str().unwrap_or("?"),
+            p["count"].as_u64().unwrap_or(0),
+            mib_of(&p["bytes"]),
+        );
+    }
 }
 
 /// Inserts `declaration` at `at` of `doc` `reps` times, measuring the time to

@@ -141,6 +141,12 @@ const MAX_FAILURES_SHOWN: usize = 64;
 /// analysis. Real clients never send this method.
 const SLEEP_METHOD: &str = "dartforge/sleep";
 
+/// Measurement hook: `dartforge/residentMemory` answers what the resident
+/// analysis process keeps, structure by structure (the long-session driver
+/// asks it at the end). Measuring empties the resident, so the next analysis
+/// starts from the files; `null` without a resident process.
+const RESIDENT_MEMORY_METHOD: &str = "dartforge/residentMemory";
+
 /// Deferred completion metadata used by `completionItem/resolve`.
 #[derive(Debug, Clone)]
 struct UnimportedCompletion {
@@ -2982,6 +2988,16 @@ impl<A: Analyzer> Server<A> {
                     ),
                 }
             }
+            RESIDENT_MEMORY_METHOD => {
+                let memory = self
+                    .typed
+                    .as_ref()
+                    .and_then(|t| t.resident_memory(std::time::Duration::from_secs(600)));
+                match memory.and_then(|m| serde_json::to_value(m).ok()) {
+                    Some(v) => response(&id, v),
+                    None => response(&id, Value::Null),
+                }
+            }
             SLEEP_METHOD => {
                 let ms = message
                     .get("params")
@@ -4941,6 +4957,10 @@ pub fn supported_methods() -> HashMap<&'static str, &'static str> {
         (
             SLEEP_METHOD,
             "request: test hook for cancellation while running",
+        ),
+        (
+            RESIDENT_MEMORY_METHOD,
+            "request: what the resident analysis process keeps, per structure",
         ),
     ])
 }

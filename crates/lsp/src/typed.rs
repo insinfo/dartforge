@@ -126,6 +126,9 @@ struct State {
     /// Test hook: no analysis starts while true.
     paused: bool,
     shutdown: bool,
+    /// A request for the resident process's memory measure
+    /// ([`Typed::resident_memory`]): the worker answers it between analyses.
+    memory_request: Option<mpsc::Sender<Option<ResidentMemory>>>,
     /// `showTodos`: all TODOs, or those of these kinds (in uppercase).
     all: bool,
     all_types: Vec<String>,
@@ -376,6 +379,18 @@ impl Typed {
         }
     }
 
+    /// What the resident analysis process keeps, structure by structure
+    /// ([`dartforge_parity::analysis::Resident::measure_memory`]), measured
+    /// after the running analysis ends; `None` without a resident process, or
+    /// when the answer does not come within `limit`. Measuring empties the
+    /// resident: the next analysis starts from the files.
+    pub(crate) fn resident_memory(&self, limit: Duration) -> Option<ResidentMemory> {
+        let (tx, rx) = mpsc::channel();
+        self.state().memory_request = Some(tx);
+        self.shared.1.notify_all();
+        rx.recv_timeout(limit).ok().flatten()
+    }
+
     /// Files given to the analyses so far (a cancelled analysis counts too).
     pub(crate) fn analyses(&self) -> usize {
         self.state().analyses
@@ -458,7 +473,10 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
     loop {
         let (root, open, texts, config, changed, process) = {
             let mut e = block();
-            while !e.shutdown && ((e.dirty.is_empty() && !e.scan) || e.paused) {
+            while !e.shutdown
+                && e.memory_request.is_none()
+                && ((e.dirty.is_empty() && !e.scan) || e.paused)
+            {
                 let Some(r) = &resident else {
                     e = sinal
                         .wait(e)
@@ -478,6 +496,11 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             }
             if e.shutdown {
                 return;
+            }
+            if let Some(answer) = e.memory_request.take() {
+                drop(e);
+                let _ = answer.send(resident.as_mut().and_then(ResidentChild::measure));
+                continue;
             }
             // A wave of files changing on the disk: one analysis after it.
             if let Some(at) = e.disk_at {
@@ -956,6 +979,9 @@ enum Request {
     Analyze { id: u64, job: Box<Job> },
     /// Stop the analysis with this id at its next cancellation point.
     Cancel { id: u64 },
+    /// Measure what the process keeps, structure by structure, emptying it;
+    /// the answer carries the same id and [`Response::memory`].
+    Measure { id: u64 },
 }
 
 /// [`Request`] as the worker writes it (the job borrowed, not copied).
@@ -963,14 +989,29 @@ enum Request {
 enum Sent<'a> {
     Analyze { id: u64, job: &'a Job },
     Cancel { id: u64 },
+    Measure { id: u64 },
 }
 
 /// The answer of the resident process to [`Request::Analyze`]: the results, or
-/// `None` when the analysis was cancelled.
+/// `None` when the analysis was cancelled; to [`Request::Measure`], the
+/// measure.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Response {
     id: u64,
     results: Option<Vec<Result>>,
+    #[serde(default)]
+    memory: Option<ResidentMemory>,
+}
+
+/// What the resident process keeps
+/// ([`dartforge_parity::analysis::Resident::measure_memory`]), with the live
+/// heap of the process before and after the measure (what is left after is
+/// the engine with the SDK and the rest of the process).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub(crate) struct ResidentMemory {
+    pub(crate) heap_before: usize,
+    pub(crate) heap_after: usize,
+    pub(crate) parts: Vec<dartforge_parity::analysis::MemoryPart>,
 }
 
 /// The budget of the resident process, in bytes of kept source (`0`: off).
@@ -1086,6 +1127,25 @@ impl ResidentChild {
         self.used = Instant::now();
         answer
     }
+
+    /// The process's memory measure ([`Request::Measure`]); `None` when it
+    /// does not answer within a few minutes.
+    fn measure(&mut self) -> Option<ResidentMemory> {
+        self.next += 1;
+        let id = self.next;
+        if !self.send(&Sent::Measure { id }) {
+            return None;
+        }
+        let end = Instant::now() + Duration::from_secs(300);
+        loop {
+            let left = end.saturating_duration_since(Instant::now());
+            match self.output.recv_timeout(left) {
+                Ok(r) if r.id == id => return r.memory,
+                Ok(_) => {}
+                Err(_) => return None,
+            }
+        }
+    }
 }
 
 impl Drop for ResidentChild {
@@ -1138,7 +1198,8 @@ fn resident_child() -> i32 {
     use std::io::{BufRead, Write};
     use std::sync::atomic::{AtomicU64, Ordering};
     let cancelled = Arc::new(AtomicU64::new(0));
-    let (jobs, queue) = mpsc::channel::<(u64, Job)>();
+    // A job, or `None`: the memory measure.
+    let (jobs, queue) = mpsc::channel::<(u64, Option<Job>)>();
     let reader = {
         let cancelled = Arc::clone(&cancelled);
         std::thread::spawn(move || {
@@ -1146,11 +1207,16 @@ fn resident_child() -> i32 {
                 let Ok(line) = line else { break };
                 match serde_json::from_str::<Request>(&line) {
                     Ok(Request::Analyze { id, job }) => {
-                        if jobs.send((id, *job)).is_err() {
+                        if jobs.send((id, Some(*job))).is_err() {
                             break;
                         }
                     }
                     Ok(Request::Cancel { id }) => cancelled.store(id, Ordering::SeqCst),
+                    Ok(Request::Measure { id }) => {
+                        if jobs.send((id, None)).is_err() {
+                            break;
+                        }
+                    }
                     Err(_) => break,
                 }
             }
@@ -1166,6 +1232,28 @@ fn resident_child() -> i32 {
             let mut kept = Resident::new();
             let mut out = std::io::BufWriter::new(std::io::stdout());
             while let Ok((id, job)) = queue.recv() {
+                let Some(job) = job else {
+                    let heap = || crate::memory::heap_in_use().unwrap_or(0);
+                    let heap_before = heap();
+                    let parts = kept.measure_memory(&heap);
+                    let memory = ResidentMemory {
+                        heap_before,
+                        heap_after: heap(),
+                        parts,
+                    };
+                    let response = Response {
+                        id,
+                        results: None,
+                        memory: Some(memory),
+                    };
+                    if serde_json::to_writer(&mut out, &response).is_err()
+                        || out.write_all(b"\n").is_err()
+                        || out.flush().is_err()
+                    {
+                        return 1;
+                    }
+                    continue;
+                };
                 if engine.as_ref().is_none_or(|(sdk, _)| *sdk != job.sdk_lib) {
                     match Engine::new(&job.sdk_lib) {
                         Ok(e) => engine = Some((job.sdk_lib.clone(), e)),
@@ -1207,7 +1295,20 @@ fn resident_child() -> i32 {
                     "after the analysis, in the resident child ({} units kept)",
                     kept.units()
                 ));
-                if serde_json::to_writer(&mut out, &Response { id, results }).is_err()
+                if crate::memory::logging() {
+                    let census: Vec<String> = kept
+                        .census()
+                        .iter()
+                        .map(|(name, n)| format!("{name} {n}"))
+                        .collect();
+                    eprintln!("[dartforge-lsp] resident census: {}", census.join(", "));
+                }
+                let response = Response {
+                    id,
+                    results,
+                    memory: None,
+                };
+                if serde_json::to_writer(&mut out, &response).is_err()
                     || out.write_all(b"\n").is_err()
                     || out.flush().is_err()
                 {

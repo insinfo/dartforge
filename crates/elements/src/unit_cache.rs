@@ -84,6 +84,14 @@ impl AnalyzedUnitCache {
         self.sdk_libraries.clear();
     }
 
+    /// Takes every kept unit out of the cache, which ends up empty (the
+    /// resident's memory measure drops them group by group).
+    pub fn take_all(&mut self) -> Vec<Unit> {
+        self.marks.clear();
+        self.sdk_libraries.clear();
+        self.units.drain().map(|(_, u)| u).collect()
+    }
+
     /// Source bytes retained — the share that grows with the project, not with
     /// the number of edits (the `measure` example watches this).
     pub fn source_bytes(&self) -> usize {
