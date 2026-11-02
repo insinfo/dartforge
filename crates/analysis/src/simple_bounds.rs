@@ -178,8 +178,34 @@ fn node_parts<'a>(
 
 /// `computeSimplyBounded` over every declaration of the program.
 pub fn compute(program: &Program) -> SimpleBounds {
+    compute_after(program, SimpleBounds::default(), 0, 0)
+}
+
+/// `computeSimplyBounded` over the declarations after the first `classes`
+/// classes and `typedefs` typedefs, whose results (`kept`) stay: a program
+/// kept up to a checkpoint ([`dartforge_elements::frozen::Checkpoint`]),
+/// whose declarations cite nothing after it.
+pub fn compute_onto(
+    program: &Program,
+    mut kept: SimpleBounds,
+    classes: usize,
+    typedefs: usize,
+) -> SimpleBounds {
+    kept.not_simple.retain(|n| match *n {
+        Node::Class(c) => (c.0 as usize) < classes,
+        Node::Alias(t) => (t.0 as usize) < typedefs,
+    });
+    compute_after(program, kept, classes, typedefs)
+}
+
+fn compute_after(
+    program: &Program,
+    kept: SimpleBounds,
+    classes: usize,
+    typedefs: usize,
+) -> SimpleBounds {
     let mut nodes: Vec<Node> = Vec::new();
-    for (i, ce) in program.classes.iter().enumerate() {
+    for (i, ce) in program.classes.iter().enumerate().skip(classes) {
         if ce.decl.is_some()
             && matches!(
                 ce.kind,
@@ -193,10 +219,11 @@ pub fn compute(program: &Program) -> SimpleBounds {
             nodes.push(Node::Class(ClassId(i as u32)));
         }
     }
-    for i in 0..program.typedefs.len() {
+    for i in typedefs..program.typedefs.len() {
         nodes.push(Node::Alias(TypedefId(i as u32)));
     }
-    // `computeDependencies`: `None` decides false right away.
+    // `computeDependencies`: `None` decides false right away. A kept
+    // declaration has no entry: it is already decided (in `kept`).
     let mut deps: HashMap<Node, Option<Vec<Node>>> = HashMap::new();
     for &node in &nodes {
         let Some((u, tps, rhs)) = node_parts(program, node) else {
@@ -297,7 +324,7 @@ pub fn compute(program: &Program) -> SimpleBounds {
         stack: Vec::new(),
         on_stack: HashSet::new(),
         next: 1,
-        not_simple: HashSet::new(),
+        not_simple: kept.not_simple,
     };
     for &v in &nodes {
         if !e.index.contains_key(&v) {

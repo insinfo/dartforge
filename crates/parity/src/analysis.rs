@@ -1865,7 +1865,7 @@ impl Engine {
                 let onto_loads = prefix.as_ref().map_or(0, |w| w.0.onto_loads + 1);
                 let mut load_diags = load_diags;
                 let mut syntax_known: HashSet<PathBuf> = own.iter().cloned().collect();
-                let (table, core, outline, outline_diags, outline_units) = match prefix {
+                let (table, core, outline, outline_diags, outline_units, bounds) = match prefix {
                     // The prefix's types, hierarchy and inferred initializers
                     // stay; only the outline after it is resolved. The kept
                     // libraries' diagnostics stay too.
@@ -1931,7 +1931,15 @@ impl Engine {
                             .collect();
                         syntax_known
                             .extend(w.syntax_known.into_iter().filter(|k| kept_keys.contains(k)));
-                        (table, core, outline, all_diags, all_units)
+                        // `computeSimplyBounded`: the kept declarations cite
+                        // nothing after the cut, so only the new ones.
+                        let bounds = dartforge_analysis::simple_bounds::compute_onto(
+                            &program,
+                            w.simple_bounds,
+                            at.classes,
+                            at.typedefs,
+                        );
+                        (table, core, outline, all_diags, all_units, bounds)
                     }
                     None => {
                         let mut table = dartforge_types::TypeTable::new();
@@ -1941,11 +1949,12 @@ impl Engine {
                         let (outline, diags, units) = dartforge_types::resolve_outline_with_units(
                             &program, interner, &mut table, &core,
                         );
-                        (table, core, outline, diags, units)
+                        // `computeSimplyBounded`, once for the program.
+                        let bounds = dartforge_analysis::simple_bounds::compute(&program);
+                        (table, core, outline, diags, units, bounds)
                     }
                 };
-                // `computeSimplyBounded`, once for the program.
-                let simple_bounds = dartforge_analysis::simple_bounds::compute(&program);
+                let simple_bounds = bounds;
                 World {
                     program,
                     table,
