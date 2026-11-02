@@ -612,7 +612,13 @@ impl Universe {
                     .collect();
                 let named = named
                     .iter()
-                    .map(|(n, x, r)| (n.clone(), self.substitute_at(*x, class, function, depth + generics), *r))
+                    .map(|(n, x, r)| {
+                        (
+                            n.clone(),
+                            self.substitute_at(*x, class, function, depth + generics),
+                            *r,
+                        )
+                    })
                     .collect();
                 let f = self.intern(Type::Function {
                     generics,
@@ -687,12 +693,18 @@ impl Universe {
             return f;
         };
         let ret = self.replace_enabled(ret, never);
-        let pos = pos.iter().map(|&x| self.replace_enabled(x, never)).collect();
+        let pos = pos
+            .iter()
+            .map(|&x| self.replace_enabled(x, never))
+            .collect();
         let named = named
             .iter()
             .map(|(n, x, r)| (n.clone(), self.replace_enabled(*x, never), *r))
             .collect();
-        let bounds = bounds.iter().map(|&x| self.replace_enabled(x, never)).collect();
+        let bounds = bounds
+            .iter()
+            .map(|&x| self.replace_enabled(x, never))
+            .collect();
         self.intern(Type::Function {
             generics,
             bounds,
@@ -708,7 +720,10 @@ impl Universe {
         match self.ty(t).clone() {
             Type::Enabled(i) if levels.contains(&i) => T_NEVER,
             Type::Interface(c, args) if !args.is_empty() => {
-                let a = args.iter().map(|&x| self.replace_enabled(x, levels)).collect();
+                let a = args
+                    .iter()
+                    .map(|&x| self.replace_enabled(x, levels))
+                    .collect();
                 self.interface(c, a)
             }
             Type::Nullable(x) => {
@@ -890,8 +905,8 @@ impl Universe {
                     self.bound_env.push(b1.get(i).copied().unwrap_or(T_DYNAMIC));
                 }
                 let r = 'body: {
-                        // The type parameters must have the same bounds (each a
-                        // subtype of the other); an absent one is a top type.
+                    // The type parameters must have the same bounds (each a
+                    // subtype of the other); an absent one is a top type.
                     for i in 0..g1 {
                         let x = b1.get(i).copied().unwrap_or(T_DYNAMIC);
                         let y = b2.get(i).copied().unwrap_or(T_DYNAMIC);
@@ -963,7 +978,10 @@ impl Universe {
                 if args.is_empty() {
                     name
                 } else {
-                    let a: Vec<String> = args.iter().map(|&x| self.text_in(x, names, depth)).collect();
+                    let a: Vec<String> = args
+                        .iter()
+                        .map(|&x| self.text_in(x, names, depth))
+                        .collect();
                     format!("{name}<{}>", a.join(", "))
                 }
             }
@@ -980,20 +998,33 @@ impl Universe {
                 let level = names.len();
                 let inner = if *generics > 0 { depth + 1 } else { depth };
                 for i in 0..*generics {
-                    names.push(if depth == 0 { format!("Y{i}") } else { format!("F{depth}Y{i}") });
+                    names.push(if depth == 0 {
+                        format!("Y{i}")
+                    } else {
+                        format!("F{depth}Y{i}")
+                    });
                 }
                 let depth = inner;
-                let mut part_list: Vec<String> =
-                    pos[..*n_required].iter().map(|&x| self.text_in(x, names, depth)).collect();
+                let mut part_list: Vec<String> = pos[..*n_required]
+                    .iter()
+                    .map(|&x| self.text_in(x, names, depth))
+                    .collect();
                 if pos.len() > *n_required {
-                    let o: Vec<String> = pos[*n_required..].iter().map(|&x| self.text_in(x, names, depth)).collect();
+                    let o: Vec<String> = pos[*n_required..]
+                        .iter()
+                        .map(|&x| self.text_in(x, names, depth))
+                        .collect();
                     part_list.push(format!("[{}]", o.join(", ")));
                 }
                 if !named.is_empty() {
                     let n: Vec<String> = named
                         .iter()
                         .map(|(m, x, r)| {
-                            format!("{}{} {m}", if *r { "required " } else { "" }, self.text_in(*x, names, depth))
+                            format!(
+                                "{}{} {m}",
+                                if *r { "required " } else { "" },
+                                self.text_in(*x, names, depth)
+                            )
                         })
                         .collect();
                     part_list.push(format!("{{{}}}", n.join(", ")));
@@ -1015,12 +1046,17 @@ impl Universe {
                 } else {
                     String::new()
                 };
-                let r = format!("{g}({}) => {}", part_list.join(", "), self.text_in(*ret, names, depth));
+                let r = format!(
+                    "{g}({}) => {}",
+                    part_list.join(", "),
+                    self.text_in(*ret, names, depth)
+                );
                 names.truncate(level);
                 r
             }
             Type::Record { pos, named } => {
-                let mut part_list: Vec<String> = pos.iter().map(|&x| self.text_in(x, names, depth)).collect();
+                let mut part_list: Vec<String> =
+                    pos.iter().map(|&x| self.text_in(x, names, depth)).collect();
                 if !named.is_empty() {
                     let n: Vec<String> = named
                         .iter()
@@ -1320,7 +1356,10 @@ fn visible_type(u: &mut Universe, t: i64) -> i64 {
         }
         Type::Record { pos, named } => {
             let pos = pos.into_iter().map(|x| visible_type(u, x)).collect();
-            let named = named.into_iter().map(|(n, x)| (n, visible_type(u, x))).collect();
+            let named = named
+                .into_iter()
+                .map(|(n, x)| (n, visible_type(u, x)))
+                .collect();
             u.intern(Type::Record { pos, named })
         }
         _ => t,
@@ -1672,7 +1711,8 @@ pub unsafe extern "C" fn dartforge_rti_init_table(data: *const i64, len: i64) {
             // experiment, one digit per parameter (`Universe::variances`).
             "V" => RTI.with(|u| {
                 let mut u = u.borrow_mut();
-                u.variances.insert(id, b.bytes().map(|d| d.wrapping_sub(b'0')).collect());
+                u.variances
+                    .insert(id, b.bytes().map(|d| d.wrapping_sub(b'0')).collect());
                 u.cache_sub.clear();
                 u.forget_memos();
             }),
@@ -2205,7 +2245,10 @@ impl Universe {
             Type::Enabled(i) if i < n => args[i],
             Type::Enabled(i) => self.intern(Type::Enabled(i - n)),
             Type::Interface(c, a) if !a.is_empty() => {
-                let a = a.iter().map(|&x| self.instantiate_bound_variables(x, args)).collect();
+                let a = a
+                    .iter()
+                    .map(|&x| self.instantiate_bound_variables(x, args))
+                    .collect();
                 self.interface(c, a)
             }
             Type::Nullable(x) => {
@@ -2235,7 +2278,10 @@ pub extern "C" fn dartforge_rti_instantiation_bounds(closure: i64, tuple: i64) {
     let failure = RTI.with(|u| {
         let mut u = u.borrow_mut();
         let f = ref_type(&mut u, closure);
-        let Type::Function { generics, bounds, .. } = u.ty(f).clone() else {
+        let Type::Function {
+            generics, bounds, ..
+        } = u.ty(f).clone()
+        else {
             return None;
         };
         let Some(Type::Tuple(args)) = u.get_value(tuple).cloned() else {

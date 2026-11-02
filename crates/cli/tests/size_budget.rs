@@ -49,14 +49,84 @@ fn hello_world_wasm_stays_small_and_without_javascript_interop() {
         bytes.len()
     );
     // The interop imports come from the `dartforge_js` module and bring a
-    // `.mjs` companion; a hello world has neither.
+    // `.mjs` companion; a hello world has neither. (The runtime's own
+    // `dartforge_js_*` exports for the adapter are in every module.)
+    let modules = imported_modules(&bytes);
     assert!(
-        !bytes.windows(b"dartforge_js".len()).any(|w| w == b"dartforge_js"),
-        "hello world: the module imports the JavaScript interop"
+        !modules.iter().any(|m| m == "dartforge_js"),
+        "hello world: the module imports the JavaScript interop ({modules:?})"
     );
     assert!(
         !dir.join("hello.mjs").exists() && !dir.join("main.mjs").exists(),
         "hello world: the module has a JavaScript companion"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn leb(bytes: &[u8], at: &mut usize) -> u64 {
+    let (mut value, mut shift) = (0u64, 0);
+    loop {
+        let byte = bytes[*at];
+        *at += 1;
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return value;
+        }
+        shift += 7;
+    }
+}
+
+fn name(bytes: &[u8], at: &mut usize) -> String {
+    let n = leb(bytes, at) as usize;
+    let text = String::from_utf8_lossy(&bytes[*at..*at + n]).into_owned();
+    *at += n;
+    text
+}
+
+/// The module of each import of a WebAssembly binary (its import section).
+fn imported_modules(bytes: &[u8]) -> Vec<String> {
+    assert_eq!(&bytes[..4], b"\0asm", "not a WebAssembly module");
+    let mut at = 8;
+    while at < bytes.len() {
+        let id = bytes[at];
+        at += 1;
+        let size = leb(bytes, &mut at) as usize;
+        let end = at + size;
+        if id == 2 {
+            let mut modules = Vec::new();
+            for _ in 0..leb(bytes, &mut at) {
+                modules.push(name(bytes, &mut at));
+                name(bytes, &mut at);
+                let kind = bytes[at];
+                at += 1;
+                let limits = |at: &mut usize| {
+                    let flags = bytes[*at];
+                    *at += 1;
+                    leb(bytes, at);
+                    if flags & 1 != 0 {
+                        leb(bytes, at);
+                    }
+                };
+                match kind {
+                    0 => {
+                        leb(bytes, &mut at);
+                    }
+                    1 => {
+                        at += 1;
+                        limits(&mut at);
+                    }
+                    2 => limits(&mut at),
+                    3 => at += 2,
+                    4 => {
+                        at += 1;
+                        leb(bytes, &mut at);
+                    }
+                    _ => panic!("import kind {kind}"),
+                }
+            }
+            return modules;
+        }
+        at = end;
+    }
+    Vec::new()
 }

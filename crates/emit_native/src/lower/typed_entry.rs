@@ -176,14 +176,42 @@ fn declared_covariant(ctx: &Context, fid: usize) -> Vec<(usize, Option<SymbolId>
 /// covariant* (the kernel's `isGenericCovariantImpl`). `positive` is the
 /// current polarity: the parameter of a function type inverts it.
 fn mentions_covariant(ctx: &Context, t: TypeId, c: ClassId, positive: bool) -> bool {
+    mentions_class_param(ctx, t, c, positive, false)
+}
+
+/// [`mentions_covariant`], and the parameter it mentions is covariant by
+/// class: an `in` or `inout` parameter of the `variance` experiment is sound
+/// where the variance check lets it be, so it makes no parameter covariant
+/// (the CFE's `isCovariantByClass` stays false, and the tear-off keeps the
+/// declared type). The dynamic entry still checks it.
+fn mentions_covariant_by_class(ctx: &Context, t: TypeId, c: ClassId) -> bool {
+    mentions_class_param(ctx, t, c, true, true)
+}
+
+fn mentions_class_param(
+    ctx: &Context,
+    t: TypeId,
+    c: ClassId,
+    positive: bool,
+    by_class: bool,
+) -> bool {
+    let rec = |t: TypeId, positive: bool| mentions_class_param(ctx, t, c, positive, by_class);
     match ctx.table.get(t) {
         T::TypeParameter { param, .. } | T::Intersection { param, .. } => {
-            positive && matches!(ctx.table.param(*param).owner, TypeParamOwner::Class(d) if d == c)
+            let data = ctx.table.param(*param);
+            positive
+                && matches!(data.owner, TypeParamOwner::Class(d) if d == c)
+                && !(by_class
+                    && matches!(
+                        data.variance,
+                        dartforge_types::table::Variance::Contravariant
+                            | dartforge_types::table::Variance::Invariant
+                    ))
         }
-        T::Interface { args, .. } | T::ExtensionType { args, .. } => args
-            .iter()
-            .any(|a| mentions_covariant(ctx, *a, c, positive)),
-        T::FutureOr { arg, .. } => mentions_covariant(ctx, *arg, c, positive),
+        T::Interface { args, .. } | T::ExtensionType { args, .. } => {
+            args.iter().any(|a| rec(*a, positive))
+        }
+        T::FutureOr { arg, .. } => rec(*arg, positive),
         T::Function {
             type_params,
             ret,
@@ -196,25 +224,19 @@ fn mentions_covariant(ctx: &Context, t: TypeId, c: ClassId, positive: bool) -> b
             // position (`void Function<S extends T>(S)`).
             type_params.iter().any(|&p| {
                 let bound = ctx.table.param(p).bound;
-                mentions_covariant(ctx, bound, c, true) || mentions_covariant(ctx, bound, c, false)
-            }) || mentions_covariant(ctx, *ret, c, positive)
+                rec(bound, true) || rec(bound, false)
+            }) || rec(*ret, positive)
                 || positional
                     .iter()
                     .chain(optional.iter())
-                    .any(|p| mentions_covariant(ctx, *p, c, !positive))
-                || named
-                    .iter()
-                    .any(|(_, p, _)| mentions_covariant(ctx, *p, c, !positive))
+                    .any(|p| rec(*p, !positive))
+                || named.iter().any(|(_, p, _)| rec(*p, !positive))
         }
         T::Record {
             positional, named, ..
         } => {
-            positional
-                .iter()
-                .any(|p| mentions_covariant(ctx, *p, c, positive))
-                || named
-                    .iter()
-                    .any(|(_, p)| mentions_covariant(ctx, *p, c, positive))
+            positional.iter().any(|p| rec(*p, positive))
+                || named.iter().any(|(_, p)| rec(*p, positive))
         }
         T::Dynamic | T::Void | T::Never | T::Null => false,
     }
@@ -254,7 +276,7 @@ fn covariant_in(ctx: &Context, g: usize, j: usize) -> bool {
     written
         || ctx.program.functions[g]
             .class
-            .is_some_and(|c| mentions_covariant(ctx, q.ty, c, true))
+            .is_some_and(|c| mentions_covariant_by_class(ctx, q.ty, c))
 }
 
 /// Parameter `i` of `fid` is covariant: in the member itself, or because the
