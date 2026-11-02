@@ -194,7 +194,7 @@ impl Hosted {
             )));
         }
         let api = api_url(url, &format!("api/packages/{name}"));
-        let bytes = download(&api, Some("application/vnd.pub.v2+json"))
+        let bytes = download(&api, Some("application/vnd.pub.v2+json"), url)
             .map_err(|e| not_found_or_fatal(&api, e, name, url))?;
         let body = parse_json(&bytes).map_err(|e| {
             SourceError::Fatal(format!(
@@ -340,7 +340,8 @@ impl Hosted {
         if !matches!(archive_url.scheme(), "http" | "https") {
             return Err("invalid archive transport".into());
         }
-        let bytes = download(&archive, None).map_err(|e| format!("download {archive}: {e}"))?;
+        let bytes =
+            download(&archive, None, url).map_err(|e| format!("download {archive}: {e}"))?;
         let digest = format!("{:x}", Sha256::digest(&bytes));
         if let Some(expected) = &expected
             && *expected != digest
@@ -411,16 +412,20 @@ fn remove(path: &Path) -> Result<(), String> {
     std::fs::remove_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-fn download(url: &str, accept: Option<&str>) -> Result<Vec<u8>, ureq::Error> {
+/// `GET url` for the package server `server`, with its token if it has one.
+fn download(url: &str, accept: Option<&str>, server: &str) -> Result<Vec<u8>, ureq::Error> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(120)))
         .https_only(url.starts_with("https:"))
-        .user_agent(format!("Dart pub {}", env!("CARGO_PKG_VERSION")))
+        .user_agent("Dart pub 3.6.2")
         .build()
         .into();
     let mut request = agent.get(url);
     if let Some(accept) = accept {
         request = request.header("Accept", accept);
+    }
+    if let Some(authorization) = super::token::authorization_for(server, url) {
+        request = request.header("authorization", authorization);
     }
     let response = request.call()?;
     let mut reader = response.into_body().into_reader().take(DOWNLOAD_LIMIT + 1);

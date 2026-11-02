@@ -235,7 +235,8 @@ impl Client {
     ) -> Result<Response, HttpError> {
         let mut builder = ureq::http::Request::builder()
             .method(method)
-            .uri(url)
+            .uri(connect_to(url))
+            .header("host", host_header(url))
             .header("user-agent", "Dart pub 3.6.2");
         if api {
             builder = builder.header("Accept", "application/vnd.pub.v2+json");
@@ -383,17 +384,11 @@ fn json_error(response: &Response) -> Failure {
     }
 }
 
-/// The origin of a URL (`scheme://host:port`), as Pub compares them; the
-/// request URL of `localhost` is rewritten to `127.0.0.1` before sending.
-fn origin(url: &str, requested: bool) -> String {
+/// The origin of a URL (`scheme://host:port`), as Pub compares them.
+fn origin(url: &str) -> String {
     match url::Url::parse(url) {
         Ok(u) => {
             let host = u.host_str().unwrap_or("");
-            let host = if requested && host == "localhost" {
-                "127.0.0.1"
-            } else {
-                host
-            };
             match u.port() {
                 Some(port) => format!("{}://{host}:{port}", u.scheme()),
                 None => format!("{}://{host}", u.scheme()),
@@ -403,8 +398,21 @@ fn origin(url: &str, requested: bool) -> String {
     }
 }
 
-/// The URL as Pub's `_PubHttpClient` sends it.
-fn requested(url: &str) -> String {
+/// The `Host` header of a request for `url` (the name, not the address
+/// connected to).
+fn host_header(url: &str) -> String {
+    match url::Url::parse(url) {
+        Ok(u) => match u.port() {
+            Some(port) => format!("{}:{port}", u.host_str().unwrap_or("")),
+            None => u.host_str().unwrap_or("").to_owned(),
+        },
+        Err(_) => String::new(),
+    }
+}
+
+/// The address Pub connects to: `localhost` resolves to IPv4 first (the
+/// URL itself, as the request reports it, keeps `localhost`).
+fn connect_to(url: &str) -> String {
     match url::Url::parse(url) {
         Ok(mut u) if u.host_str() == Some("localhost") => {
             let _ = u.set_host(Some("127.0.0.1"));
@@ -485,6 +493,8 @@ pub(super) fn publish(settings: &Settings, archive: &[u8], host: &str) -> Result
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .max_redirects(0)
         .http_status_as_error(false)
+        // `package:http` sends no `Accept` of its own.
+        .accept(ureq::config::AutoHeaderValue::None)
         .timeout_global(Some(std::time::Duration::from_secs(600)))
         .build()
         .into();
@@ -517,7 +527,7 @@ fn upload(
     let new = crate::pub_get::hosted::api_url(host, "api/packages/versions/new");
     let mut cloud_storage: Option<String> = None;
     let outcome = (|| -> Result<(), HttpError> {
-        let response = client.fetch("GET", &requested(&new), true, || None)?;
+        let response = client.fetch("GET", &new, true, || None)?;
         let parameters = parse_map(&response)?;
         let Node::String(url) = parameters.get("url") else {
             return Err(invalid_response(&response));
@@ -536,13 +546,11 @@ fn upload(
             }
             _ => return Err(invalid_response(&response)),
         };
-        let upload = client.fetch("POST", &requested(url), false, || {
-            Some(multipart(&fields, archive))
-        })?;
+        let upload = client.fetch("POST", url, false, || Some(multipart(&fields, archive)))?;
         let Some(location) = upload.location.clone() else {
             return Err(HttpError::Status(Box::new(upload)));
         };
-        let finalize = client.fetch("GET", &requested(&location), true, || None)?;
+        let finalize = client.fetch("GET", &location, true, || None)?;
         match parse_map(&finalize)?.get("success").get("message") {
             Node::String(message) => {
                 terminal::message(&format!(
@@ -578,16 +586,14 @@ fn upload(
             )))
         }
         Err(HttpError::Status(response)) => {
-            let same_url = cloud_storage
-                .as_deref()
-                .is_some_and(|u| requested(u) == u && response.url == u);
+            let same_url = cloud_storage.as_deref().is_some_and(|u| response.url == u);
             if same_url {
                 gcs_error(&response.body);
                 return Err(Failure::from(terminal::red(
                     "Failed to upload the package.",
                 )));
             }
-            if origin(&response.url, false) == origin(host, false) {
+            if origin(&response.url) == origin(host) {
                 return Err(json_error(&response));
             }
             Err(unexpected(

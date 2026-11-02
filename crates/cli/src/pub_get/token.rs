@@ -277,6 +277,45 @@ pub(crate) fn save_credentials(credentials: &[Credential]) -> Result<(), Failure
     Ok(())
 }
 
+/// The `Authorization` header Pub's authenticated client adds to a request
+/// for `url` made for the package server `server`: the bearer token of the
+/// server's first valid credential, when the URL is below it.
+pub(crate) fn authorization_for(server: &str, url: &str) -> Option<String> {
+    static CREDENTIALS: std::sync::Mutex<Option<Vec<(String, Option<String>)>>> =
+        std::sync::Mutex::new(None);
+    let mut guard = CREDENTIALS.lock().ok()?;
+    let credentials = guard.get_or_insert_with(|| {
+        load_credentials()
+            .into_iter()
+            .filter_map(|c| {
+                let field = |k: &str| {
+                    c.fields
+                        .iter()
+                        .find(|(n, _)| n == k)
+                        .map(|(_, v)| v.as_str().map(str::to_owned))
+                };
+                match (field("token"), field("env")) {
+                    (Some(token), None) => Some((c.url, token)),
+                    (None, Some(Some(env))) => Some((c.url, std::env::var(env).ok())),
+                    _ => None,
+                }
+            })
+            .collect()
+    });
+    let normalize = |u: &str| {
+        let u = if u.ends_with('/') {
+            u.to_owned()
+        } else {
+            format!("{u}/")
+        };
+        u.to_lowercase()
+    };
+    let (credential_url, token) = credentials.iter().find(|(u, _)| u == server)?;
+    let token = token.as_ref()?;
+    (normalize(url).starts_with(&normalize(credential_url)) && valid_bearer_token(token))
+        .then(|| format!("Bearer {token}"))
+}
+
 fn missing_config_dir() -> Failure {
     let variable = if cfg!(windows) { "%APPDATA%" } else { "$HOME" };
     data(format!("No config dir found. Check that {variable} is set"))
