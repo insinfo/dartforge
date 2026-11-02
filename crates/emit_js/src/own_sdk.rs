@@ -229,10 +229,7 @@ pub fn covariant_field(ctx: &Ctx, c: ClassId, vid: VariableId) -> bool {
     {
         return true;
     }
-    let ids: HashSet<u32> = ctx.class_params[c.0 as usize]
-        .iter()
-        .map(|p| p.id)
-        .collect();
+    let ids: HashSet<u32> = ctx.covariant_param_ids(c);
     occurs_covariantly(&ctx.var_ty(vid), &ids, true) || overrides_covariant_setter(ctx, c, v.name)
 }
 
@@ -268,10 +265,7 @@ fn overrides_covariant_setter(ctx: &Ctx, c: ClassId, name: dartforge_intern::Sym
         let Some(p) = ctx.outline.functions[g.0 as usize].parameters.first() else {
             continue;
         };
-        let ids: HashSet<u32> = ctx.class_params[k.0 as usize]
-            .iter()
-            .map(|p| p.id)
-            .collect();
+        let ids: HashSet<u32> = ctx.covariant_param_ids(k);
         if occurs_covariantly(&ctx.ty_of(p.ty), &ids, true) {
             return true;
         }
@@ -1000,10 +994,7 @@ pub fn covariance_checks(
     {
         return String::new();
     }
-    let class_param_ids: HashSet<u32> = e.ctx.class_params[c.0 as usize]
-        .iter()
-        .map(|p| p.id)
-        .collect();
+    let class_param_ids: HashSet<u32> = e.ctx.covariant_param_ids(c);
     let mut out = String::new();
     for (i, p) in params.iter().enumerate() {
         let Some(n) = p.name else { continue };
@@ -1052,10 +1043,7 @@ pub fn user_covariance_checks(
         return String::new();
     }
     let ctx = e.ctx;
-    let class_param_ids: HashSet<u32> = ctx.class_params[c.0 as usize]
-        .iter()
-        .map(|p| p.id)
-        .collect();
+    let class_param_ids: HashSet<u32> = ctx.covariant_param_ids(c);
     let mut out = String::new();
     // A type parameter whose bound mentions the class's type parameters is
     // checked against the bound of the receiver's instantiation.
@@ -1118,10 +1106,7 @@ fn overrides_class_bounded(
             continue;
         }
         if let Some(&g) = ctx.program.class(k).instance_members.get(&f.name) {
-            let ids: HashSet<u32> = ctx.class_params[k.0 as usize]
-                .iter()
-                .map(|p| p.id)
-                .collect();
+            let ids: HashSet<u32> = ctx.covariant_param_ids(k);
             if ctx.outline.functions[g.0 as usize]
                 .type_params
                 .iter()
@@ -1198,10 +1183,7 @@ fn matching_param(
 /// Parameter `j` of method `g` declared in `k` is covariant there.
 fn param_covariant_in(ctx: &Ctx, k: ClassId, g: FunctionElementId, j: usize) -> bool {
     let ps = &ctx.outline.functions[g.0 as usize].parameters;
-    let ids: HashSet<u32> = ctx.class_params[k.0 as usize]
-        .iter()
-        .map(|p| p.id)
-        .collect();
+    let ids: HashSet<u32> = ctx.covariant_param_ids(k);
     occurs_covariantly(&ctx.ty_of(ps[j].ty), &ids, true)
         || ast_params(ctx, g).get(j).is_some_and(|q| q.covariant)
 }
@@ -1395,10 +1377,7 @@ pub fn setter_covariance_stubs(ctx: &Ctx, c: ClassId) -> Vec<(String, Ty)> {
     // checks it (covariant by `k`'s type parameters or written `covariant`).
     let setter_value =
         |k: ClassId, g: dartforge_elements::model::FunctionElementId| -> (Ty, bool) {
-            let ids: HashSet<u32> = ctx.class_params[k.0 as usize]
-                .iter()
-                .map(|p| p.id)
-                .collect();
+            let ids: HashSet<u32> = ctx.covariant_param_ids(k);
             let f = ctx.program.function(g);
             let (ty, written) = match f.variable {
                 Some(v) => (ctx.var_ty(v), false),
@@ -1500,10 +1479,7 @@ pub fn reified_method_type(
         .as_deref()
         .unwrap_or(&[]);
     let Some(object) = ctx.object else { return ty };
-    let class_param_ids: HashSet<u32> = ctx.class_params[c.0 as usize]
-        .iter()
-        .map(|p| p.id)
-        .collect();
+    let class_param_ids: HashSet<u32> = ctx.covariant_param_ids(c);
     let Ty::Fn {
         type_params,
         ret,
@@ -1611,10 +1587,7 @@ fn overrides_covariant(
             .then_some(i)
         };
         let Some(j) = j else { continue };
-        let ids: HashSet<u32> = ctx.class_params[k.0 as usize]
-            .iter()
-            .map(|p| p.id)
-            .collect();
+        let ids: HashSet<u32> = ctx.covariant_param_ids(k);
         if occurs_covariantly(&ctx.ty_of(gp[j].ty), &ids, true) {
             return true;
         }

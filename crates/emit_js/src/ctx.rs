@@ -2347,6 +2347,33 @@ impl<'a> Ctx<'a> {
         map.get(&name).cloned().flatten()
     }
 
+    /// The ids of `c`'s type parameters that are covariant by class: all of
+    /// them, except the `in` and `inout` ones of the variance experiment (a
+    /// parameter typed with those is not checked, and its tear-off keeps the
+    /// declared type, as in DDC).
+    pub fn covariant_param_ids(&self, c: ClassId) -> std::collections::HashSet<u32> {
+        let variances: Vec<dartforge_types::table::Variance> = self
+            .outline
+            .classes
+            .get(c.0 as usize)
+            .map(|d| d.type_params.iter().map(|p| self.table.param(*p).variance).collect())
+            .unwrap_or_default();
+        self.class_params[c.0 as usize]
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                !matches!(
+                    variances.get(*i),
+                    Some(
+                        dartforge_types::table::Variance::Contravariant
+                            | dartforge_types::table::Variance::Invariant
+                    )
+                )
+            })
+            .map(|(_, p)| p.id)
+            .collect()
+    }
+
     pub fn fn_ty(&self, fid: FunctionElementId) -> Ty {
         let data = &self.outline.functions[fid.0 as usize];
         let f = self.program.function(fid);

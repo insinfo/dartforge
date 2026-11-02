@@ -4161,10 +4161,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             MemberKind::Field(vid) => self.ctx.var_ty(vid),
             MemberKind::Setter(_) => return js,
         };
-        let ids: std::collections::HashSet<u32> = self.ctx.class_params[m.class.0 as usize]
-            .iter()
-            .map(|p| p.id)
-            .collect();
+        let ids: std::collections::HashSet<u32> = self.ctx.covariant_param_ids(m.class);
         if !crate::own_sdk::occurs_covariantly(&declared, &ids, false) {
             return js;
         }
