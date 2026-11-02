@@ -36,6 +36,8 @@ node platforms, coverage, debugging and line/column selection are refused.";
 
 /// The internal option the host uses to read library annotations.
 const METADATA_OPTION: &str = "--dartforge-library-metadata";
+/// The internal option the host uses to compile a suite through the cache.
+const COMPILE_OPTION: &str = "--dartforge-compile-suite";
 
 #[derive(Debug)]
 struct Options {
@@ -258,6 +260,179 @@ fn print_library_metadata(paths: &[OsString]) -> Result<ExitCode, Box<dyn std::e
     Ok(ExitCode::SUCCESS)
 }
 
+/// `--dartforge-compile-suite <bootstrap> -o <output> <compile arguments>`:
+/// `compile-native` through a cache of suite executables under
+/// `.dart_tool/dartforge/test-suites/`.
+///
+/// The key covers everything the compilation reads: the bootstrap with the
+/// suite's absolute path, this compiler (path, size, modification time), the
+/// compile arguments, the package configuration, the selected SDK, the
+/// `DARTFORGE_*` environment and the path, size and modification time of
+/// every file under every package root of the configuration. A hit copies
+/// the executable the same compilation produced before; anything the key
+/// cannot read compiles without the cache.
+fn compile_suite(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let [bootstrap, flag, output, rest @ ..] = args else {
+        return Err("test: invalid suite compilation".into());
+    };
+    if flag != "-o" {
+        return Err("test: invalid suite compilation".into());
+    }
+    let (bootstrap, output) = (PathBuf::from(bootstrap), PathBuf::from(output));
+    let compile = || -> std::io::Result<std::process::ExitStatus> {
+        Command::new(std::env::current_exe()?)
+            .arg("compile-native")
+            .arg(&bootstrap)
+            .arg("-o")
+            .arg(&output)
+            .args(rest)
+            .status()
+    };
+    let key = suite_key(&bootstrap, rest);
+    let Some((key, directory)) = key else {
+        let status = compile()?;
+        return Ok(ExitCode::from(
+            status
+                .code()
+                .and_then(|c| u8::try_from(c).ok())
+                .unwrap_or(1),
+        ));
+    };
+    let cached = directory.join(&key).join(executable_name("suite"));
+    if cached.is_file() && fs::copy(&cached, &output).is_ok() {
+        return Ok(ExitCode::SUCCESS);
+    }
+    let status = compile()?;
+    if status.success() && output.is_file() {
+        let target = directory.join(&key);
+        if fs::create_dir_all(&target).is_ok() {
+            let partial = target.join(format!("suite.{}", std::process::id()));
+            if fs::copy(&output, &partial).is_ok() && fs::rename(&partial, &cached).is_err() {
+                let _ = fs::remove_file(&partial);
+            }
+        }
+    }
+    Ok(ExitCode::from(
+        status
+            .code()
+            .and_then(|c| u8::try_from(c).ok())
+            .unwrap_or(1),
+    ))
+}
+
+/// The cache key of a suite compilation and the cache directory, or `None`
+/// when some input cannot be read.
+fn suite_key(bootstrap: &Path, arguments: &[OsString]) -> Option<(String, PathBuf)> {
+    let text = fs::read_to_string(bootstrap).ok()?;
+    // The bootstrap imports the suite relative to a per-run directory.
+    let (before, rest) = text.split_once("import \"")?;
+    let (relative, after) = rest.split_once('"')?;
+    let relative: String = serde_json::from_str(&format!("\"{relative}\"")).ok()?;
+    let suite =
+        dartforge_elements::config::canonicalize(&bootstrap.parent()?.join(relative)).ok()?;
+    let arguments: Vec<String> = arguments
+        .iter()
+        .map(|a| a.to_str().map(str::to_owned))
+        .collect::<Option<_>>()?;
+    let config = PathBuf::from(&arguments[arguments.iter().position(|a| a == "--packages")? + 1]);
+    let mut hash = Sha256::new();
+    let mut part = |bytes: &[u8]| {
+        hash.update((bytes.len() as u64).to_le_bytes());
+        hash.update(bytes);
+    };
+    part(before.as_bytes());
+    part(suite.to_string_lossy().as_bytes());
+    part(after.as_bytes());
+    let compiler = std::env::current_exe().ok()?;
+    let metadata = fs::metadata(&compiler).ok()?;
+    part(compiler.to_string_lossy().as_bytes());
+    part(&metadata.len().to_le_bytes());
+    part(
+        &metadata
+            .modified()
+            .ok()?
+            .duration_since(UNIX_EPOCH)
+            .ok()?
+            .as_nanos()
+            .to_le_bytes(),
+    );
+    part(arguments.join("\0").as_bytes());
+    let configuration = fs::read(&config).ok()?;
+    part(&configuration);
+    let mut environment: Vec<(String, String)> = std::env::vars()
+        .filter(|(k, _)| k.starts_with("DARTFORGE_") && k != "DARTFORGE_TEST_COMPILE_JOBS")
+        .collect();
+    environment.sort();
+    for (name, value) in environment {
+        part(name.as_bytes());
+        part(value.as_bytes());
+    }
+    let sdk = arguments
+        .iter()
+        .position(|a| a == "--sdk")
+        .map(|i| PathBuf::from(&arguments[i + 1]))
+        .or_else(|| std::env::var_os("DARTFORGE_SDK_LIB").map(PathBuf::from));
+    if let Some(sdk) = sdk {
+        part(sdk.to_string_lossy().as_bytes());
+        stamp_tree(&sdk, &mut part);
+    }
+    let packages: Value = serde_json::from_slice(&configuration).ok()?;
+    let base = url::Url::from_file_path(config.parent()?).ok()?;
+    let base = url::Url::parse(&format!("{}/", base.as_str().trim_end_matches('/'))).ok()?;
+    for package in packages["packages"].as_array()? {
+        let root = base
+            .join(package["rootUri"].as_str()?)
+            .ok()?
+            .to_file_path()
+            .ok()?;
+        part(root.to_string_lossy().as_bytes());
+        stamp_tree(&root, &mut part);
+    }
+    let key: String = hash
+        .finalize()
+        .iter()
+        .take(16)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    Some((key, config.parent()?.join("dartforge/test-suites")))
+}
+
+/// Feeds the path, size and modification time of every file below `root`
+/// (sorted), skipping `.dart_tool`, `.git` and `build` directories.
+fn stamp_tree(root: &Path, part: &mut impl FnMut(&[u8])) {
+    let mut stack = vec![root.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(directory) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
+                if name != ".dart_tool" && name != ".git" && name != "build" {
+                    stack.push(entry.path());
+                }
+            } else if let Ok(metadata) = entry.metadata() {
+                let modified = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_nanos());
+                files.push((entry.path(), metadata.len(), modified));
+            }
+        }
+    }
+    files.sort();
+    for (path, length, modified) in files {
+        part(path.to_string_lossy().as_bytes());
+        part(&length.to_le_bytes());
+        part(&modified.to_le_bytes());
+    }
+}
+
 struct Workspace {
     path: PathBuf,
     keep: bool,
@@ -274,6 +449,9 @@ impl Drop for Workspace {
 pub(crate) fn run(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Error>> {
     if args.first().is_some_and(|a| a == METADATA_OPTION) {
         return print_library_metadata(&args[1..]);
+    }
+    if args.first().is_some_and(|a| a == COMPILE_OPTION) {
+        return compile_suite(&args[1..]);
     }
     let options = match Options::parse(args) {
         Ok(options) => options,
@@ -305,6 +483,7 @@ pub(crate) fn run(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Err
     let settings = json!({
         "compiler": compiler,
         "compileArguments": compile_arguments(&config, options.sdk.as_deref()),
+        "compileCommand": ["test", COMPILE_OPTION],
         "compileJobs": compile_jobs(),
         "metadataCommand": [compiler, "test", METADATA_OPTION],
         "packageConfig": config,

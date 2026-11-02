@@ -718,7 +718,7 @@ class _NativePlatform {
             Platform.isWindows ? 'bootstrap.exe' : 'bootstrap'));
         final processResult = await Process.run(
             _settings['compiler'] as String, [
-          'compile-native',
+          ...(_settings['compileCommand'] as List).cast<String>(),
           bootstrap.path,
           '-o',
           output.path,
