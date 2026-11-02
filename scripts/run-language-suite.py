@@ -195,7 +195,9 @@ def forge_experiment_flags(test):
 def run(cmd, cwd, timeout=TIMEOUT):
     try:
         p = subprocess.run(cmd, cwd=cwd, capture_output=True, timeout=timeout)
-        return p.returncode, p.stdout.decode("utf-8", "replace"), p.stderr.decode("utf-8", "replace")
+        # The Windows runs (`vm-win*.json`) are compared with `\n` endings.
+        text = lambda b: b.decode("utf-8", "replace").replace("\r\n", "\n")
+        return p.returncode, text(p.stdout), text(p.stderr)
     except subprocess.TimeoutExpired:
         return -999, "", "timeout"
 
@@ -266,7 +268,7 @@ def jit(test):
 def native(test):
     # As `dart compile exe`: asserts off, like the VM run of vm.json.
     d = work_dir("native", test)
-    exe = os.path.join(d, "main")
+    exe = os.path.join(d, "main.exe" if sys.platform == "win32" else "main")
     c, o, e = run([FORGE, "aot", test, exe, "--optimize", "--packages", os.path.join(SDK, ".dart_tool/package_config.json")] + forge_experiment_flags(test), SDK, 300)
     if c != 0 or not os.path.exists(exe):
         return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
