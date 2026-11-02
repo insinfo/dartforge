@@ -179,9 +179,9 @@ struct State {
 /// the files of a wave a few milliseconds apart, and a later change cancels an
 /// analysis that started too soon. It was 250 ms; on `new_sali` a wave of 40
 /// `.g.dart` then took ~460 ms from its last notification against Dart's
-/// ~310 ms, and 50 ms brings it to ~340 ms.
+/// ~100-370 ms, and with 20 ms (and the cheaper analysis) ~135 ms.
 /// `DARTFORGE_LSP_DISK_QUIET_MS` changes it (`0`: no wait, to measure).
-const DISK_QUIET: Duration = Duration::from_millis(50);
+const DISK_QUIET: Duration = Duration::from_millis(20);
 
 fn disk_quiet() -> Duration {
     std::env::var("DARTFORGE_LSP_DISK_QUIET_MS")
@@ -479,6 +479,9 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
     let mut engine: Option<Engine> = None;
     // What the completed analyses left, per package root (only in this thread).
     let mut memos: HashMap<PathBuf, Memo> = HashMap::new();
+    // Per package root, its `.dart` files as `dart analyze` sees them, and when
+    // they were listed ([`package_files`]).
+    let mut listed: HashMap<PathBuf, (Instant, Vec<PathBuf>)> = HashMap::new();
     // The resident analysis process, while there is work for it.
     let mut resident: Option<ResidentChild> = None;
     let budget = resident_budget();
@@ -616,14 +619,20 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
         // every file is analyzed.
         if reset || all {
             memos.remove(&root);
+            listed.remove(&root);
         }
+        let of_package = if in_workspace {
+            package_files(&mut listed, &root, &changed)
+        } else {
+            Vec::new()
+        };
         let plan = plan(
             memos.get(&root),
             &root,
             open,
             &texts,
             &config,
-            in_workspace,
+            &of_package,
             &changed,
         );
         let job = Arc::new(Job {
@@ -1357,8 +1366,8 @@ fn folder_packages(folders: &[PathBuf]) -> Vec<PathBuf> {
 fn facts(path: &Path, text: &str, packages: Option<&dartforge_elements::PackageConfig>) -> Facts {
     let mut names = dartforge_intern::Interner::new();
     let parsed = dartforge_frontend::parser::parse(text, &mut names);
-    let signature =
-        dartforge_elements::incremental::api_signature_of(text, &parsed.ast, &parsed.unit);
+    let (signature, api) =
+        dartforge_elements::incremental::api_signature_and_digest(text, &parsed.ast, &parsed.unit);
     let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
     let mut targets = Vec::new();
     for d in &parsed.unit.directives {
@@ -1396,7 +1405,7 @@ fn facts(path: &Path, text: &str, packages: Option<&dartforge_elements::PackageC
         path: path.to_path_buf(),
         signature,
         targets,
-        api: dartforge_elements::incremental::api_digest(text, &parsed.ast, &parsed.unit),
+        api,
         words: dartforge_elements::incremental::text_words(text),
     }
 }
@@ -1609,6 +1618,52 @@ fn api_affected(
     Some(affected)
 }
 
+/// The `.dart` files of the package at `root` that `dart analyze` would see
+/// (outside the exclusions of its `analysis_options.yaml`), listed again only
+/// when a changed file was created or deleted (it is, or is not, in the list
+/// against the disk), when the options file changed, or after
+/// [`LISTING_AGE`]: walking the package's tree cost ~12 ms per analysis on
+/// `new_sali`'s frontend.
+fn package_files(
+    listed: &mut HashMap<PathBuf, (Instant, Vec<PathBuf>)>,
+    root: &Path,
+    changed: &BTreeSet<PathBuf>,
+) -> Vec<PathBuf> {
+    if let Some((at, files)) = listed.get(root) {
+        let known: BTreeSet<PathBuf> = files.iter().map(|f| key(f)).collect();
+        // A file the walk would list: in the package, outside hidden folders
+        // and `build/` (the generated files of `.dart_tool` do not count).
+        let listable = |k: &Path| {
+            k.strip_prefix(root).is_ok_and(|rel| {
+                rel.components()
+                    .all(|c| !c.as_os_str().to_string_lossy().starts_with('.'))
+                    && rel
+                        .components()
+                        .next()
+                        .is_none_or(|c| c.as_os_str() != "build")
+            })
+        };
+        let stale = at.elapsed() > LISTING_AGE
+            || changed.iter().any(|k| {
+                k.file_name().is_some_and(|n| n == "analysis_options.yaml")
+                    || (k.extension().is_some_and(|e| e == "dart")
+                        && listable(k)
+                        && known.contains(k) != k.is_file())
+            });
+        if !stale {
+            return files.clone();
+        }
+    }
+    let options = dartforge_parity::filters::AnalysisOptions::read(root);
+    let files = dartforge_parity::projects::files(root, &options);
+    listed.insert(root.to_path_buf(), (Instant::now(), files.clone()));
+    files
+}
+
+/// How long a package's file list ([`package_files`]) serves without a
+/// change that says it is stale.
+const LISTING_AGE: Duration = Duration::from_secs(30);
+
 /// Decides what to analyze and what to publish (Dart's driver republishes the
 /// changed files and those that depend on them; §3.2, I7).
 ///
@@ -1632,7 +1687,7 @@ fn plan(
     open: Vec<(String, i32, PathBuf, Arc<str>)>,
     texts: &HashMap<PathBuf, Arc<str>>,
     config: &AnalysisConfiguration,
-    in_workspace: bool,
+    package: &[PathBuf],
     changed: &BTreeSet<PathBuf>,
 ) -> Plan {
     // Documents in excluded folders are not analyzed: their publication is empty.
@@ -1641,15 +1696,7 @@ fn plan(
     let excluded = excluded.into_iter().map(|o| (o.0, o.1)).collect();
     // The package's `.dart` files that `dart analyze` would see (outside the
     // exclusions of `analysis_options.yaml` and of `analysisExcludedFolders`).
-    let of_package: Vec<PathBuf> = if in_workspace {
-        let options = dartforge_parity::filters::AnalysisOptions::read(root);
-        dartforge_parity::projects::files(root, &options)
-            .into_iter()
-            .filter(|a| !excluded_(a))
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let of_package: Vec<PathBuf> = package.iter().filter(|a| !excluded_(a)).cloned().collect();
     let open_keys: BTreeSet<PathBuf> = open.iter().map(|o| key(&o.2)).collect();
     let mut order: Vec<Target> = open
         .iter()
@@ -2000,6 +2047,11 @@ fn analyze_package(
     let analysis = match resident {
         Some(r) => {
             r.set_context(job.context.clone());
+            // Only the editor's texts changed (no watcher notification, no
+            // document closed): the disk is as the last analysis read it.
+            if !all && changed.iter().all(|k| job.texts.contains_key(k)) {
+                r.disk_unchanged();
+            }
             engine.analyze_resident(r, root, &files, packages_path, &texts, cancelled)
         }
         None => engine.analyze_with(root, &files, packages_path, &texts, cancelled),

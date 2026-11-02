@@ -37,6 +37,20 @@ pub struct Generation {
 /// disk, since the file does not exist) and without Windows' verbatim
 /// prefix.
 pub fn key(path: &Path) -> PathBuf {
+    // Already a key (an absolute path without `.`, `..` or empty segments, as
+    // the loader records them): a copy, without rebuilding it component by
+    // component (the LSP resident asks for the key of every unit of the
+    // program at each analysis).
+    #[cfg(unix)]
+    if let Some(s) = path.to_str()
+        && s.starts_with('/')
+        && !s.ends_with('/')
+        && s[1..]
+            .split('/')
+            .all(|c| !c.is_empty() && c != "." && c != "..")
+    {
+        return path.to_path_buf();
+    }
     crate::config::without_verbatim(crate::load::normalize(path))
 }
 

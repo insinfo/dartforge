@@ -364,7 +364,7 @@ fn a_wave_of_disk_changes_is_analyzed_once() {
         outputs.extend(p.server.pump());
         // The editor reports a wave over some time, not at once (a few
         // milliseconds apart, within the disk's quiet time).
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(5));
     }
     outputs.extend(p.server.await_diagnostics(LIMIT));
     let analyses = p.server.typed_analyses() - before;

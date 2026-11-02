@@ -93,7 +93,16 @@ pub struct Resident {
     /// kept unit (~3,600 on `new_sali`), and a load over a cut asked four
     /// times.
     disk_scan: std::cell::OnceCell<Vec<PathBuf>>,
+    /// The next analysis may skip the disk scan ([`Resident::disk_unchanged`]).
+    skip_disk_scan: bool,
+    /// When the disk was last scanned.
+    last_disk_scan: std::cell::Cell<Option<std::time::Instant>>,
 }
+
+/// How long the resident goes without scanning the disk when its caller says
+/// nothing changed there ([`Resident::disk_unchanged`]): a change that no
+/// notification reported is still seen after this.
+const DISK_SCAN_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// One structure of what a [`Resident`] keeps, as
 /// [`Resident::measure_memory`] measured it: its live bytes and how many
@@ -327,7 +336,18 @@ impl Resident {
     /// (`AnalyzedUnitCache::changed`), scanned once per analysis: the scan
     /// starts again at the next [`Resident::take_world`].
     fn disk_changed(&self) -> &[PathBuf] {
-        self.disk_scan.get_or_init(|| self.units.changed())
+        self.disk_scan.get_or_init(|| {
+            self.last_disk_scan.set(Some(std::time::Instant::now()));
+            self.units.changed()
+        })
+    }
+
+    /// The caller knows that no file the resident read changed on the disk
+    /// since the last analysis (the LSP: no watcher notification): the next
+    /// analysis skips the disk scan, one `stat` per kept unit, unless the
+    /// last scan is older than [`DISK_SCAN_EVERY`].
+    pub fn disk_unchanged(&mut self) {
+        self.skip_disk_scan = true;
     }
 
     /// The source bytes of the units kept.
@@ -360,6 +380,14 @@ impl Resident {
         texts: &HashMap<PathBuf, String>,
     ) -> Taken {
         self.disk_scan = std::cell::OnceCell::new();
+        if std::mem::take(&mut self.skip_disk_scan)
+            && self
+                .last_disk_scan
+                .get()
+                .is_some_and(|t| t.elapsed() < DISK_SCAN_EVERY)
+        {
+            let _ = self.disk_scan.set(Vec::new());
+        }
         let Some(mut world) = self.world.take() else {
             return Taken::Nothing;
         };

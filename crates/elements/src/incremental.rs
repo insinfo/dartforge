@@ -127,17 +127,37 @@ pub fn api_signature(text: &str) -> Option<u64> {
 
 /// [`api_signature`] over a tree already parsed from `text`.
 pub fn api_signature_of(text: &str, ast: &Ast, unit: &CompilationUnit) -> Option<u64> {
-    use std::hash::{Hash, Hasher};
     let tokens = dartforge_frontend::lexer::lex(text).ok()?;
+    Some(api_signature_with(text, &tokens, ast, unit))
+}
+
+/// [`api_signature_of`] and [`api_digest`] of a unit, with one lexing of
+/// `text`.
+pub fn api_signature_and_digest(
+    text: &str,
+    ast: &Ast,
+    unit: &CompilationUnit,
+) -> (Option<u64>, Option<ApiDigest>) {
+    match dartforge_frontend::lexer::lex(text) {
+        Ok(tokens) => (
+            Some(api_signature_with(text, &tokens, ast, unit)),
+            Some(api_digest_with(text, &tokens, ast, unit)),
+        ),
+        Err(_) => (None, None),
+    }
+}
+
+fn api_signature_with(text: &str, tokens: &[Token], ast: &Ast, unit: &CompilationUnit) -> u64 {
+    use std::hash::{Hash, Hasher};
     let bodies = regions(ast, false);
-    let (directives, signature) = split(text, &tokens, &directive_spans(unit), &bodies);
+    let (directives, signature) = split(text, tokens, &directive_spans(unit), &bodies);
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     directives.hash(&mut hasher);
     signature.hash(&mut hasher);
     for r in &bodies {
         std::mem::discriminant(&r.owner).hash(&mut hasher);
     }
-    Some(hasher.finish())
+    hasher.finish()
 }
 
 /// Replaces the text of unit `u` with `text` when the API signature did not
@@ -732,8 +752,12 @@ const IMPLICIT_MEMBERS: &[&str] = &[
 /// [`ApiDigest`] of a unit already parsed from `text`; `None` when the text
 /// does not lex.
 pub fn api_digest(text: &str, ast: &Ast, unit: &CompilationUnit) -> Option<ApiDigest> {
-    use std::hash::{Hash, Hasher};
     let tokens = dartforge_frontend::lexer::lex(text).ok()?;
+    Some(api_digest_with(text, &tokens, ast, unit))
+}
+
+fn api_digest_with(text: &str, tokens: &[Token], ast: &Ast, unit: &CompilationUnit) -> ApiDigest {
+    use std::hash::{Hash, Hasher};
     let mut excerpts: Vec<(Span, bool)> = regions(ast, false)
         .iter()
         .map(|r| (r.span, r.strict))
@@ -766,7 +790,7 @@ pub fn api_digest(text: &str, ast: &Ast, unit: &CompilationUnit) -> Option<ApiDi
         (h.finish(), words)
     };
     let mut d = std::collections::hash_map::DefaultHasher::new();
-    for t in &tokens {
+    for t in tokens {
         if inside(&directives, t.span) {
             text.get(t.span.start..t.span.end)
                 .unwrap_or("")
@@ -866,8 +890,8 @@ pub fn api_digest(text: &str, ast: &Ast, unit: &CompilationUnit) -> Option<ApiDi
             }
         }
     }
-    Some(ApiDigest {
+    ApiDigest {
         directives: d.finish(),
         declarations,
-    })
+    }
 }
