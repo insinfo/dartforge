@@ -101,6 +101,12 @@ pub struct Program {
     /// ([`Program::index`]): the verifiers that run once per library or per
     /// unit would otherwise walk every element of the program each time.
     pub element_index: std::sync::OnceLock<ElementIndex>,
+    /// What a truncation ([`Program::truncate`]) kept of the
+    /// [`ElementIndex`]: the lists of the libraries and units before the
+    /// checkpoint, which only hold elements before it. The next
+    /// [`Program::index`] extends it with the elements loaded since, instead
+    /// of walking every element of the program again.
+    pub index_kept: std::sync::Mutex<Option<ElementIndex>>,
     /// The end of the frozen prefix ([`crate::frozen`]), when the load laid
     /// one out ([`crate::load::load_lenient_frozen`]).
     pub frozen: Option<crate::frozen::Checkpoint>,
@@ -120,7 +126,7 @@ pub struct Program {
 /// The program's elements grouped by unit and by library, each list in
 /// increasing id order (a walk over a list visits the elements in the same
 /// order as a filtered walk over the whole arena).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct ElementIndex {
     /// The functions whose node ([`FunctionRef`]) is in each unit.
     pub unit_functions: Vec<Vec<FunctionElementId>>,
@@ -138,6 +144,136 @@ pub struct ElementIndex {
     pub unit_typedefs: Vec<HashMap<DeclId, TypedefId>>,
     /// The extension declared by each declaration node, by unit.
     pub unit_extensions: Vec<HashMap<DeclId, ExtensionId>>,
+    /// How many elements of each arena the lists hold: those before
+    /// (classes, extensions, typedefs, functions, variables).
+    pub covered: [usize; 5],
+}
+
+impl ElementIndex {
+    /// Adds the elements of `program` after those it covers, and the lists of
+    /// the units and libraries added since: the same lists, in the same order,
+    /// as an index built from nothing.
+    pub(crate) fn extend(&mut self, program: &Program) {
+        let [classes, extensions, typedefs, functions, variables] = self.covered;
+        self.unit_functions
+            .resize_with(program.units.len(), Vec::new);
+        self.unit_variables
+            .resize_with(program.units.len(), Vec::new);
+        self.unit_classes
+            .resize_with(program.units.len(), HashMap::new);
+        self.unit_typedefs
+            .resize_with(program.units.len(), HashMap::new);
+        self.unit_extensions
+            .resize_with(program.units.len(), HashMap::new);
+        self.library_functions
+            .resize_with(program.libraries.len(), Vec::new);
+        self.library_variables
+            .resize_with(program.libraries.len(), Vec::new);
+        self.library_classes
+            .resize_with(program.libraries.len(), Vec::new);
+        for (i, e) in program.extensions.iter().enumerate().skip(extensions) {
+            if let Some(m) = self.unit_extensions.get_mut(e.decl.unit.0 as usize) {
+                m.entry(e.decl.decl).or_insert(ExtensionId(i as u32));
+            }
+        }
+        // The first element of each node, like a `position` over the arena.
+        for (i, c) in program.classes.iter().enumerate().skip(classes) {
+            if let Some(l) = self.library_classes.get_mut(c.library.0 as usize) {
+                l.push(ClassId(i as u32));
+            }
+            if let Some(d) = c.decl
+                && let Some(m) = self.unit_classes.get_mut(d.unit.0 as usize)
+            {
+                m.entry(d.decl).or_insert(ClassId(i as u32));
+            }
+        }
+        for (i, t) in program.typedefs.iter().enumerate().skip(typedefs) {
+            if let Some(m) = self.unit_typedefs.get_mut(t.decl.unit.0 as usize) {
+                m.entry(t.decl.decl).or_insert(TypedefId(i as u32));
+            }
+        }
+        for (i, f) in program.functions.iter().enumerate().skip(functions) {
+            let id = FunctionElementId(i as u32);
+            if let Some(l) = self.library_functions.get_mut(f.library.0 as usize) {
+                l.push(id);
+            }
+            let unit = match f.node {
+                FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => unit,
+                FunctionRef::None => continue,
+            };
+            if let Some(l) = self.unit_functions.get_mut(unit.0 as usize) {
+                l.push(id);
+            }
+        }
+        for (i, v) in program.variables.iter().enumerate().skip(variables) {
+            let id = VariableId(i as u32);
+            if let Some(l) = self.library_variables.get_mut(v.library.0 as usize) {
+                l.push(id);
+            }
+            if let Some(unit) = v.node.unit()
+                && let Some(l) = self.unit_variables.get_mut(unit.0 as usize)
+            {
+                l.push(id);
+            }
+        }
+        self.covered = [
+            program.classes.len(),
+            program.extensions.len(),
+            program.typedefs.len(),
+            program.functions.len(),
+            program.variables.len(),
+        ];
+    }
+
+    /// Keeps only the lists of the first `units` units and `libraries`
+    /// libraries, and in them the elements before `covered`.
+    pub(crate) fn truncate(&mut self, units: usize, libraries: usize, covered: [usize; 5]) {
+        let [classes, extensions, typedefs, functions, variables] = covered;
+        self.unit_functions.truncate(units);
+        self.unit_variables.truncate(units);
+        self.unit_classes.truncate(units);
+        self.unit_typedefs.truncate(units);
+        self.unit_extensions.truncate(units);
+        self.library_functions.truncate(libraries);
+        self.library_variables.truncate(libraries);
+        self.library_classes.truncate(libraries);
+        // A checkpoint keeps the elements of the libraries before it, and no
+        // others; an element of a later library in a kept unit's list (none
+        // is expected) goes too.
+        for l in self
+            .unit_functions
+            .iter_mut()
+            .chain(&mut self.library_functions)
+        {
+            if l.last().is_some_and(|f| f.0 as usize >= functions) {
+                l.retain(|f| (f.0 as usize) < functions);
+            }
+        }
+        for l in self
+            .unit_variables
+            .iter_mut()
+            .chain(&mut self.library_variables)
+        {
+            if l.last().is_some_and(|v| v.0 as usize >= variables) {
+                l.retain(|v| (v.0 as usize) < variables);
+            }
+        }
+        for l in &mut self.library_classes {
+            if l.last().is_some_and(|c| c.0 as usize >= classes) {
+                l.retain(|c| (c.0 as usize) < classes);
+            }
+        }
+        for m in &mut self.unit_classes {
+            m.retain(|_, c| (c.0 as usize) < classes);
+        }
+        for m in &mut self.unit_typedefs {
+            m.retain(|_, t| (t.0 as usize) < typedefs);
+        }
+        for m in &mut self.unit_extensions {
+            m.retain(|_, e| (e.0 as usize) < extensions);
+        }
+        self.covered = covered;
+    }
 }
 
 /// Role of a file within its library.
@@ -546,67 +682,18 @@ impl Program {
     }
 
     /// The elements by unit and by library ([`ElementIndex`]), built on the
-    /// first call. Whoever changes the element arenas or the nodes calls
-    /// [`Program::forget_index`].
+    /// first call: from what a truncation kept of the last one
+    /// ([`Program::index_kept`]), when there is one. Whoever changes the
+    /// element arenas or the nodes calls [`Program::forget_index`].
     pub fn index(&self) -> &ElementIndex {
         self.element_index.get_or_init(|| {
-            let mut x = ElementIndex {
-                unit_functions: vec![Vec::new(); self.units.len()],
-                library_functions: vec![Vec::new(); self.libraries.len()],
-                library_variables: vec![Vec::new(); self.libraries.len()],
-                unit_variables: vec![Vec::new(); self.units.len()],
-                library_classes: vec![Vec::new(); self.libraries.len()],
-                unit_classes: vec![HashMap::new(); self.units.len()],
-                unit_typedefs: vec![HashMap::new(); self.units.len()],
-                unit_extensions: vec![HashMap::new(); self.units.len()],
-            };
-            for (i, e) in self.extensions.iter().enumerate() {
-                if let Some(m) = x.unit_extensions.get_mut(e.decl.unit.0 as usize) {
-                    m.entry(e.decl.decl).or_insert(ExtensionId(i as u32));
-                }
-            }
-            // The first element of each node, like a `position` over the arena.
-            for (i, c) in self.classes.iter().enumerate() {
-                if let Some(l) = x.library_classes.get_mut(c.library.0 as usize) {
-                    l.push(ClassId(i as u32));
-                }
-                if let Some(d) = c.decl
-                    && let Some(m) = x.unit_classes.get_mut(d.unit.0 as usize)
-                {
-                    m.entry(d.decl).or_insert(ClassId(i as u32));
-                }
-            }
-            for (i, t) in self.typedefs.iter().enumerate() {
-                if let Some(m) = x.unit_typedefs.get_mut(t.decl.unit.0 as usize) {
-                    m.entry(t.decl.decl).or_insert(TypedefId(i as u32));
-                }
-            }
-            for (i, f) in self.functions.iter().enumerate() {
-                let id = FunctionElementId(i as u32);
-                if let Some(l) = x.library_functions.get_mut(f.library.0 as usize) {
-                    l.push(id);
-                }
-                let unit = match f.node {
-                    FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => {
-                        unit
-                    }
-                    FunctionRef::None => continue,
-                };
-                if let Some(l) = x.unit_functions.get_mut(unit.0 as usize) {
-                    l.push(id);
-                }
-            }
-            for (i, v) in self.variables.iter().enumerate() {
-                let id = VariableId(i as u32);
-                if let Some(l) = x.library_variables.get_mut(v.library.0 as usize) {
-                    l.push(id);
-                }
-                if let Some(unit) = v.node.unit()
-                    && let Some(l) = x.unit_variables.get_mut(unit.0 as usize)
-                {
-                    l.push(id);
-                }
-            }
+            let kept = self
+                .index_kept
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+            let mut x = kept.unwrap_or_default();
+            x.extend(self);
             x
         })
     }
@@ -614,6 +701,10 @@ impl Program {
     /// Drops the [`ElementIndex`] (after a change to the arenas or nodes).
     pub fn forget_index(&mut self) {
         self.element_index = std::sync::OnceLock::new();
+        *self
+            .index_kept
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 
     /// The element of the function (or method) declared by node `function`

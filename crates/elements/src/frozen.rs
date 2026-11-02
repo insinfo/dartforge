@@ -59,7 +59,24 @@ impl Program {
             .retain(|c, _| (c.0 as usize) < at.classes);
         self.classes_macro.retain(|c| (c.0 as usize) < at.classes);
         self.entry = self.entry.filter(|l| (l.0 as usize) < at.libraries);
-        self.element_index = std::sync::OnceLock::new();
+        // The index of what stays: the next one extends it.
+        let kept = std::mem::take(&mut self.element_index).into_inner();
+        let slot = self
+            .index_kept
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(mut x) = kept.or_else(|| slot.take()) {
+            let c = [
+                at.classes,
+                at.extensions,
+                at.typedefs,
+                at.functions,
+                at.variables,
+            ];
+            let covered = std::array::from_fn(|i| x.covered[i].min(c[i]));
+            x.truncate(at.units, at.libraries, covered);
+            *slot = Some(x);
+        }
         self.times = Default::default();
         self.groups.truncate(at.libraries);
     }
@@ -480,6 +497,12 @@ mod tests {
         out
     }
 
+    fn index_from_nothing(p: &Program) -> crate::model::ElementIndex {
+        let mut x = crate::model::ElementIndex::default();
+        x.extend(p);
+        x
+    }
+
     fn frozen_load(entry: &Path, outside: &Path, names: &mut Interner) -> Program {
         let sdk = crate::sdk::SdkLayout::default();
         let outside = outside.to_path_buf();
@@ -557,8 +580,12 @@ mod tests {
         )
         .unwrap();
         let sdk = crate::sdk::SdkLayout::default();
+        // The index of the kept prefix survives the load and is extended.
+        let _ = first.index();
         let (onto, _) =
             crate::load::load_lenient_onto(first, at, &a, &sdk, None, &mut names, None, None);
+        assert!(onto.index_kept.lock().unwrap().is_some());
+        assert_eq!(*onto.index(), index_from_nothing(&onto));
         assert_eq!(onto.frozen, Some(at));
         assert_eq!(names.resolve(onto.classes[class_e].name), "E");
         let fresh = frozen_load(&a, &ext, &mut names);
@@ -599,6 +626,7 @@ mod tests {
         .unwrap();
         let (again, _) =
             crate::load::load_lenient_onto(onto, cut, &a, &sdk, None, &mut names, None, None);
+        assert_eq!(*again.index(), index_from_nothing(&again));
         assert_eq!(names.resolve(again.classes[class_b].name), "B");
         let fresh = frozen_load(&a, &ext, &mut names);
         assert_eq!(dump(&again, &names), dump(&fresh, &names));
