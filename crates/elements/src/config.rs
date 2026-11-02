@@ -54,6 +54,24 @@ pub struct PackageConfig {
     pub hidden: Option<Arc<std::collections::HashSet<PathBuf>>>,
 }
 
+/// The path as the file system spells it (`std::fs::canonicalize`: case and
+/// links resolved), without Windows' verbatim prefix: the form of every path
+/// the loader records in a [`crate::model::Program`] (units, libraries), the
+/// one a caller compares them with.
+///
+/// ```
+/// let dir = std::env::temp_dir();
+/// let c = dartforge_elements::config::canonical_path(&dir).unwrap();
+/// assert!(!c.to_string_lossy().starts_with(r"\\?\"));
+/// ```
+///
+/// # Errors
+///
+/// When the path does not exist or cannot be resolved.
+pub fn canonical_path(p: &Path) -> std::io::Result<PathBuf> {
+    std::fs::canonicalize(p).map(without_verbatim)
+}
+
 /// Strips the `\\?\` verbatim prefix `canonicalize` returns on Windows, so
 /// that `strip_prefix` and comparisons with plain paths work.
 pub fn without_verbatim(p: PathBuf) -> PathBuf {

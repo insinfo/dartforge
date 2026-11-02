@@ -467,9 +467,8 @@ fn load_lenient_(
     // library's turn in the queue.
     let mut decoded_sdk: HashMap<String, Vec<crate::sdk_cache::UnitCache>> = HashMap::new();
     for (i, entry_path) in entries.iter().enumerate() {
-        let canonical_entry = crate::config::without_verbatim(
-            std::fs::canonicalize(entry_path).unwrap_or_else(|_| entry_path.to_path_buf()),
-        );
+        let canonical_entry = crate::config::canonical_path(entry_path)
+            .unwrap_or_else(|_| crate::config::without_verbatim(entry_path.to_path_buf()));
         let entry_uri = canonical_file_uri(&canonical_entry, &package_config);
         let entry_lib_id = if let Some(&existing) = uri_to_library.get(&entry_uri) {
             existing
