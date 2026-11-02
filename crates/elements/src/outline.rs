@@ -596,120 +596,16 @@ pub fn build_outline_from(
     program.times.outline_declarations += t_phase.elapsed();
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
-    // Initializes `exported` with what is declared locally and not private
-    for lib in &mut program.libraries[from.libraries..] {
-        for (&sym, &binding) in &lib.declared {
-            if !is_private(sym, interner) {
-                lib.exported.insert(sym, binding);
-            }
-        }
-    }
-
-    // Iterates transitive reexports until reaching a fixpoint
-    let mut changed = true;
-    let mut iterations = 0;
-    while changed && iterations < 500 {
-        changed = false;
-        iterations += 1;
-        for lib_idx in from.libraries..program.libraries.len() {
-            let exports = program.libraries[lib_idx].exports.clone();
-            for export in exports {
-                let target_exported = program.libraries[export.library.0 as usize]
-                    .exported
-                    .clone();
-                let filtered = filter_namespace(&target_exported, &export.combinators);
-                let current_exported = &mut program.libraries[lib_idx].exported;
-
-                for (sym, binding) in filtered {
-                    if !is_private(sym, interner) {
-                        let entry = current_exported.entry(sym).or_default();
-                        if entry.getter.is_none() && binding.getter.is_some() {
-                            entry.getter = binding.getter;
-                            changed = true;
-                        }
-                        if entry.setter.is_none() && binding.setter.is_some() {
-                            entry.setter = binding.setter;
-                            changed = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    let libraries: Vec<usize> = (from.libraries..program.libraries.len()).collect();
+    build_exported(program, interner, &libraries);
 
     // -----------------------------------------------------------------------
     // Phase 3: building each library's lexical scope (Library::scope)
     program.times.outline_reexports += t_phase.elapsed();
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
-    for lib_idx in from.libraries..program.libraries.len() {
-        let mut scope = program.libraries[lib_idx].declared.clone();
-        let mut prefixes: HashMap<SymbolId, Namespace> = HashMap::new();
-        let imports = program.libraries[lib_idx].imports.clone();
-
-        for import in imports {
-            let target_exported = program.libraries[import.library.0 as usize]
-                .exported
-                .clone();
-            let filtered = filter_namespace(&target_exported, &import.combinators);
-
-            if let Some(prefix_sym) = import.prefix {
-                // Prefixed import: accessible via p.member
-                let prefix_ns = prefixes.entry(prefix_sym).or_default();
-                for (sym, binding) in filtered {
-                    let entry = prefix_ns.entry(sym).or_default();
-                    merge_binding_with(entry, binding, &|e| sdk_element(program, e));
-                }
-                // Records the prefix in the general scope
-                scope.insert(
-                    prefix_sym,
-                    Binding {
-                        getter: Some(Element::Prefix(import.library, prefix_sym)),
-                        setter: None,
-                        ambiguous: false,
-                    },
-                );
-            } else {
-                // Unprefixed import: goes straight into the scope
-                for (sym, binding) in filtered {
-                    // A local declaration always wins over an import
-                    if program.libraries[lib_idx].declared.contains_key(&sym) {
-                        continue;
-                    }
-                    let entry = scope.entry(sym).or_default();
-                    merge_binding_with(entry, binding, &|e| sdk_element(program, e));
-                }
-            }
-        }
-
-        // Implicit dart:core: the lowest precedence of all. Only without an
-        // explicit `dart:core` import (`import 'dart:core' as core;` removes even
-        // `int` from the scope) in the library file: the 3.6.2 analyzer decides by
-        // the directives of the `LibraryFileKind` (`file_state.dart:288-300`,
-        // `hasDartCoreImport`), and the `import 'dart:core' as prefix0;` of an
-        // augmentation (the macros' one) or of a part does not count.
-        let principal = program.libraries[lib_idx].units.first().copied();
-        let imports_core = program.libraries[lib_idx]
-            .imports
-            .iter()
-            .any(|i| Some(i.library) == program.core && Some(i.unit) == principal);
-        if let Some(core_id) = program.core
-            && !imports_core
-        {
-            if LibraryId(lib_idx as u32) != core_id {
-                let core_exported = program.libraries[core_id.0 as usize].exported.clone();
-                for (sym, binding) in core_exported {
-                    // Only goes in if nothing in the library or in the previous imports took
-                    // the name
-                    scope.entry(sym).or_insert(binding);
-                }
-            }
-        }
-
-        program.libraries[lib_idx].scope = scope;
-        program.libraries[lib_idx].prefixes = prefixes;
-        let scopes = unit_scopes(program, LibraryId(lib_idx as u32));
-        program.libraries[lib_idx].unit_scopes = scopes;
+    for lib_idx in libraries {
+        build_scope(program, lib_idx);
     }
 
     // -----------------------------------------------------------------------
@@ -797,6 +693,170 @@ pub fn build_outline_from(
     }
     compute_homonym_owners(program, from.libraries);
     program.times.outline_supertypes += t_phase.elapsed();
+}
+
+/// Phase 2 for `libraries` (whose `exported` is empty): what each declares
+/// and does not keep private, then, to a fixpoint, what its exports bring
+/// (the first one to bring a name wins it).
+fn build_exported(program: &mut Program, interner: &Interner, libraries: &[usize]) {
+    for &l in libraries {
+        let lib = &mut program.libraries[l];
+        for (&sym, &binding) in &lib.declared {
+            if !is_private(sym, interner) {
+                lib.exported.insert(sym, binding);
+            }
+        }
+    }
+    // Iterates transitive reexports until reaching a fixpoint
+    let mut changed = true;
+    let mut iterations = 0;
+    while changed && iterations < 500 {
+        changed = false;
+        iterations += 1;
+        for &lib_idx in libraries {
+            if program.libraries[lib_idx].exports.is_empty() {
+                continue;
+            }
+            let mut exported = std::mem::take(&mut program.libraries[lib_idx].exported);
+            for export in &program.libraries[lib_idx].exports {
+                // A library that exports itself sees what it had.
+                let own;
+                let target = if export.library.0 as usize == lib_idx {
+                    own = exported.clone();
+                    &own
+                } else {
+                    &program.libraries[export.library.0 as usize].exported
+                };
+                for (sym, binding) in visible(target, &export.combinators) {
+                    if !is_private(sym, interner) {
+                        let entry = exported.entry(sym).or_default();
+                        if entry.getter.is_none() && binding.getter.is_some() {
+                            entry.getter = binding.getter;
+                            changed = true;
+                        }
+                        if entry.setter.is_none() && binding.setter.is_some() {
+                            entry.setter = binding.setter;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            program.libraries[lib_idx].exported = exported;
+        }
+    }
+}
+
+/// Phase 3 for one library: its scope (the declarations, then the unprefixed
+/// imports, then the implicit `dart:core`), its prefixes and its units'
+/// scopes.
+fn build_scope(program: &mut Program, lib_idx: usize) {
+    let (scope, prefixes) = {
+        let p: &Program = program;
+        let lib = &p.libraries[lib_idx];
+        let mut scope = lib.declared.clone();
+        let mut prefixes: HashMap<SymbolId, Namespace> = HashMap::new();
+        for import in &lib.imports {
+            let target = &p.libraries[import.library.0 as usize].exported;
+            if let Some(prefix_sym) = import.prefix {
+                // Prefixed import: accessible via p.member
+                let prefix_ns = prefixes.entry(prefix_sym).or_default();
+                for (sym, binding) in visible(target, &import.combinators) {
+                    let entry = prefix_ns.entry(sym).or_default();
+                    merge_binding_with(entry, binding, &|e| sdk_element(p, e));
+                }
+                // Records the prefix in the general scope
+                scope.insert(
+                    prefix_sym,
+                    Binding {
+                        getter: Some(Element::Prefix(import.library, prefix_sym)),
+                        setter: None,
+                        ambiguous: false,
+                    },
+                );
+            } else {
+                // Unprefixed import: goes straight into the scope
+                for (sym, binding) in visible(target, &import.combinators) {
+                    // A local declaration always wins over an import
+                    if lib.declared.contains_key(&sym) {
+                        continue;
+                    }
+                    let entry = scope.entry(sym).or_default();
+                    merge_binding_with(entry, binding, &|e| sdk_element(p, e));
+                }
+            }
+        }
+        // Implicit dart:core: the lowest precedence of all. Only without an
+        // explicit `dart:core` import (`import 'dart:core' as core;` removes even
+        // `int` from the scope) in the library file: the 3.6.2 analyzer decides by
+        // the directives of the `LibraryFileKind` (`file_state.dart:288-300`,
+        // `hasDartCoreImport`), and the `import 'dart:core' as prefix0;` of an
+        // augmentation (the macros' one) or of a part does not count.
+        let principal = lib.units.first().copied();
+        let imports_core = lib
+            .imports
+            .iter()
+            .any(|i| Some(i.library) == p.core && Some(i.unit) == principal);
+        if let Some(core_id) = p.core
+            && !imports_core
+            && LibraryId(lib_idx as u32) != core_id
+        {
+            for (&sym, &binding) in &p.libraries[core_id.0 as usize].exported {
+                // Only goes in if nothing in the library or in the previous imports took
+                // the name
+                scope.entry(sym).or_insert(binding);
+            }
+        }
+        (scope, prefixes)
+    };
+    program.libraries[lib_idx].scope = scope;
+    program.libraries[lib_idx].prefixes = prefixes;
+    let scopes = unit_scopes(program, LibraryId(lib_idx as u32));
+    program.libraries[lib_idx].unit_scopes = scopes;
+}
+
+/// Phases 2 and 3 again, over a program whose other libraries changed their
+/// exports: `exporters` get their `exported` built again, then `exporters`
+/// and `importers` their scopes. For the libraries a reload in place kept
+/// that import or export a library it reloaded (whose elements kept their
+/// ids, but whose names may have changed).
+pub fn rebuild_scopes(
+    program: &mut Program,
+    interner: &Interner,
+    exporters: &[LibraryId],
+    importers: &[LibraryId],
+) {
+    let mut exporters: Vec<usize> = exporters.iter().map(|l| l.0 as usize).collect();
+    exporters.sort_unstable();
+    exporters.dedup();
+    for &l in &exporters {
+        program.libraries[l].exported.clear();
+    }
+    build_exported(program, interner, &exporters);
+    let mut all: Vec<usize> = importers.iter().map(|l| l.0 as usize).collect();
+    all.extend(&exporters);
+    all.sort_unstable();
+    all.dedup();
+    for l in all {
+        build_scope(program, l);
+    }
+}
+
+/// What a namespace makes visible through `combinators` (each `show` and
+/// `hide` in turn): [`filter_namespace`] without the copy.
+fn visible<'a>(
+    ns: &'a Namespace,
+    combinators: &'a [ast::Combinator],
+) -> impl Iterator<Item = (SymbolId, Binding)> + 'a {
+    let filters: Vec<(bool, HashSet<SymbolId>)> = combinators
+        .iter()
+        .map(|c| match c {
+            ast::Combinator::Show(names) => (true, names.iter().map(|n| n.sym).collect()),
+            ast::Combinator::Hide(names) => (false, names.iter().map(|n| n.sym).collect()),
+        })
+        .collect();
+    ns.iter()
+        .filter(move |(sym, _)| filters.iter().all(|(show, set)| set.contains(sym) == *show))
+        .map(|(&sym, &binding)| (sym, binding))
 }
 
 /// T1 (docs/ANALYZER-ESPECIFICACAO.md §G, T1.1 d): the owner of the
