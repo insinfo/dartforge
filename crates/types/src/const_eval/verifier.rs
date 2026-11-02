@@ -991,7 +991,7 @@ impl Verifier<'_, '_> {
             let in_cycle = self
                 .m
                 .graph
-                .constructor_of(self.unit, mid)
+                .constructor_of(self.m.program, self.unit, mid)
                 .is_some_and(|f| self.m.graph.constructors_in_cycle.contains(&f));
             // The primary constructor (3.13) is a `PrimaryConstructorDeclaration`:
             // `visitConstructorDeclaration` does not go through it. In 3.13.4 the

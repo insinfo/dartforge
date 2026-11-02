@@ -59,45 +59,66 @@ pub enum Target {
     Values(ClassId),
 }
 
-/// The indices of the program's declarations, by tree node.
+/// The program's declarations by tree node, built unit by unit when a unit is
+/// first asked about (from `Program::index`, the unit's elements in id order:
+/// a later element of the same node wins, as in a walk of the whole arena).
+/// Building them for the whole program at each analysis cost a pass over every
+/// variable, function and class (~180,000 on `new_sali`) for a batch of a few
+/// libraries.
 #[derive(Debug, Default)]
 struct Indices {
-    top: HashMap<(UnitId, ast::DeclId, usize), VariableId>,
-    fields: HashMap<(UnitId, ast::MemberId, usize), VariableId>,
-    constructors: HashMap<(UnitId, ast::MemberId), FunctionElementId>,
-    classes: HashMap<(UnitId, ast::DeclId), ClassId>,
+    units: std::cell::RefCell<HashMap<UnitId, UnitIndices>>,
+}
+
+/// [`Indices`] of one unit.
+#[derive(Debug, Default)]
+struct UnitIndices {
+    top: HashMap<(ast::DeclId, usize), VariableId>,
+    fields: HashMap<(ast::MemberId, usize), VariableId>,
+    constructors: HashMap<ast::MemberId, FunctionElementId>,
+    classes: HashMap<ast::DeclId, ClassId>,
 }
 
 impl Indices {
-    fn new(program: &Program) -> Self {
-        let mut x = Indices::default();
-        for (i, v) in program.variables.iter().enumerate() {
-            match v.node {
-                VariableRef::TopLevel { unit, decl, index } => {
-                    x.top.insert((unit, decl, index), VariableId(i as u32));
+    /// `f` over the indices of unit `u`, built on the first question.
+    fn with<T>(&self, program: &Program, u: UnitId, f: impl FnOnce(&UnitIndices) -> T) -> T {
+        let mut units = self.units.borrow_mut();
+        let x = units.entry(u).or_insert_with(|| {
+            let index = program.index();
+            let mut x = UnitIndices::default();
+            for &v in index.unit_variables.get(u.0 as usize).into_iter().flatten() {
+                match program.variable(v).node {
+                    VariableRef::TopLevel { unit, decl, index } if unit == u => {
+                        x.top.insert((decl, index), v);
+                    }
+                    VariableRef::Field {
+                        unit,
+                        member,
+                        index,
+                    } if unit == u => {
+                        x.fields.insert((member, index), v);
+                    }
+                    _ => {}
                 }
-                VariableRef::Field {
-                    unit,
-                    member,
-                    index,
-                } => {
-                    x.fields.insert((unit, member, index), VariableId(i as u32));
+            }
+            for &f in index.unit_functions.get(u.0 as usize).into_iter().flatten() {
+                if let FunctionRef::Constructor { unit, member } = program.function(f).node
+                    && unit == u
+                {
+                    x.constructors.insert(member, f);
                 }
-                _ => {}
             }
-        }
-        for (i, f) in program.functions.iter().enumerate() {
-            if let FunctionRef::Constructor { unit, member } = f.node {
-                x.constructors
-                    .insert((unit, member), FunctionElementId(i as u32));
+            let library = program.unit(u).library;
+            for &c in &index.library_classes[library.0 as usize] {
+                if let Some(d) = program.class(c).decl
+                    && d.unit == u
+                {
+                    x.classes.insert(d.decl, c);
+                }
             }
-        }
-        for (i, k) in program.classes.iter().enumerate() {
-            if let Some(d) = k.decl {
-                x.classes.insert((d.unit, d.decl), ClassId(i as u32));
-            }
-        }
-        x
+            x
+        });
+        f(x)
     }
 }
 
@@ -114,7 +135,7 @@ pub struct State {
     annotations: Vec<Vec<Target>>,
     /// The local constants of each unit, by the name's offset.
     locals: HashMap<UnitId, HashMap<usize, (StmtId, usize)>>,
-    indices: Option<Indices>,
+    indices: Indices,
     /// Constructors with `isCycleFree == false`.
     pub constructors_in_cycle: HashSet<FunctionElementId>,
     /// Variables whose result is the cycle's invalid value.
@@ -125,8 +146,14 @@ pub struct State {
 
 impl State {
     /// The constructor declared in member `mid` of unit `u`.
-    pub fn constructor_of(&self, u: UnitId, mid: ast::MemberId) -> Option<FunctionElementId> {
-        self.indices.as_ref()?.constructors.get(&(u, mid)).copied()
+    pub fn constructor_of(
+        &self,
+        program: &Program,
+        u: UnitId,
+        mid: ast::MemberId,
+    ) -> Option<FunctionElementId> {
+        self.indices
+            .with(program, u, |x| x.constructors.get(&mid).copied())
     }
 
     /// The initializer of the local constant declared at `offset`.
@@ -158,9 +185,6 @@ pub fn compute(m: &mut Engine<'_>, lib: LibraryId) {
         return;
     }
     let mut st = std::mem::take(&mut m.graph);
-    if st.indices.is_none() {
-        st.indices = Some(Indices::new(m.program));
-    }
     let mut walker = std::mem::take(&mut st.walker);
     {
         let engine: &Engine<'_> = m;
@@ -653,8 +677,7 @@ impl<'p, 'a> Walk<'p, 'a> {
         let cls = self
             .est
             .indices
-            .as_ref()
-            .and_then(|x| x.classes.get(&(self.u, d)).copied());
+            .with(program, self.u, |x| x.classes.get(&d).copied());
         match &decl.kind {
             DeclKind::Variables(l) => {
                 for (i, var) in l.variables.iter().enumerate() {
@@ -666,8 +689,7 @@ impl<'p, 'a> Walk<'p, 'a> {
                         let v = self
                             .est
                             .indices
-                            .as_ref()
-                            .and_then(|x| x.top.get(&(self.u, d, i)).copied());
+                            .with(program, self.u, |x| x.top.get(&(d, i)).copied());
                         if let Some(v) = v {
                             self.targets.push(Target::Var(v));
                         }
@@ -732,8 +754,7 @@ impl<'p, 'a> Walk<'p, 'a> {
                             let v = self
                                 .est
                                 .indices
-                                .as_ref()
-                                .and_then(|x| x.fields.get(&(self.u, mid, i)).copied());
+                                .with(self.m.program, self.u, |x| x.fields.get(&(mid, i)).copied());
                             if let Some(v) = v {
                                 self.targets.push(Target::Var(v));
                             }
@@ -766,11 +787,9 @@ impl<'p, 'a> Walk<'p, 'a> {
                     // The `const` constructor and all its parameters, after the
                     // children.
                     if k.const_ {
-                        let f = self
-                            .est
-                            .indices
-                            .as_ref()
-                            .and_then(|x| x.constructors.get(&(self.u, mid)).copied());
+                        let f = self.est.indices.with(self.m.program, self.u, |x| {
+                            x.constructors.get(&mid).copied()
+                        });
                         if let Some(f) = f {
                             self.targets.push(Target::Ctor(f));
                             for p in k.parameters.iter() {
