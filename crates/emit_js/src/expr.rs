@@ -1100,6 +1100,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let text = self.text(*span).replace('_', "");
                 let v = parse_int(&text);
                 let is_double_ctx = expected.is_some_and(|t| self.ctx.is_double(t));
+                // An `int` literal that a JavaScript number cannot hold
+                // exactly is a compile-time error on the web, as in DDC and
+                // dart2js (the CFE's web target): `9223372036854775807`,
+                // `0xffffffffffffffff`. In a `double` context it is a double.
+                if !is_double_ctx
+                    && !self.ctx.libs[self.ctx.program.unit(self.unit).library.0 as usize].is_sdk
+                    && let Some(nearest) = inexact_in_javascript(&text)
+                {
+                    let raw = self.text(*span).to_string();
+                    self.language_error(
+                        *span,
+                        format!(
+                            "The integer literal {raw} can't be represented exactly in JavaScript. In JavaScript {nearest} is the nearest value that can be represented exactly."
+                        ),
+                    );
+                }
                 if is_double_ctx {
                     (Js::prim(format!("{v}.0")), self.ctx.t_double())
                 } else {
@@ -7631,6 +7647,29 @@ pub fn binop_name(op: BinaryOp) -> &'static str {
         // `a ~ b`: a compile-time error (`NOT_BINARY_OPERATOR`); it never reaches emission.
         BinaryOp::NotBinary => "~",
     }
+}
+
+/// The nearest value a JavaScript number holds, written like the literal
+/// (`0x…` or decimal), when the `int` literal `text` (no `_`) is not one of
+/// them; `None` when it is exact (or does not parse as a 64-bit literal, which
+/// the front end reports).
+fn inexact_in_javascript(text: &str) -> Option<String> {
+    let hex = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X"));
+    let v: u128 = match hex {
+        Some(h) => u128::from_str_radix(h, 16).ok()?,
+        None => text.parse().ok()?,
+    };
+    if v > u128::from(u64::MAX) {
+        return None;
+    }
+    let nearest = v as f64 as u128;
+    if nearest == v {
+        return None;
+    }
+    Some(match hex {
+        Some(_) => format!("0x{nearest:x}"),
+        None => nearest.to_string(),
+    })
 }
 
 fn parse_int(text: &str) -> String {

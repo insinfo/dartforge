@@ -825,6 +825,7 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
         return String::new();
     }
     let mut entries: Vec<String> = Vec::new();
+    let mut variances: Vec<String> = Vec::new();
     let noted: Vec<u32> = m.noted_classes.borrow().iter().copied().collect();
     let mut seen: HashSet<u32> = HashSet::new();
     let mut queue: Vec<ClassId> = noted.into_iter().map(ClassId).collect();
@@ -860,6 +861,29 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
         }
         let class = ctx.program.class(c);
         let params = &ctx.class_params[c.0 as usize];
+        // Declaration-site variance (`class C<in T>`, the `variance`
+        // experiment): the RTI's codes, as DDC writes them
+        // (`addTypeParameterVariances`; legacy covariant 0, `out` 1, `in` 2,
+        // `inout` 3).
+        if let Some(data) = ctx.outline.classes.get(c.0 as usize) {
+            let codes: Vec<&str> = data
+                .type_params
+                .iter()
+                .map(|p| match ctx.table.param(*p).variance {
+                    dartforge_types::table::Variance::Unspecified => "0",
+                    dartforge_types::table::Variance::Covariant => "1",
+                    dartforge_types::table::Variance::Contravariant => "2",
+                    dartforge_types::table::Variance::Invariant => "3",
+                })
+                .collect();
+            if codes.iter().any(|v| *v != "0") {
+                variances.push(format!(
+                    "{}:[{}]",
+                    json_str(&ctx.class_recipe(c)),
+                    codes.join(",")
+                ));
+            }
+        }
         let mut items: Vec<String> = Vec::new();
         // Positional type variables: the substitutions are derived from the
         // supertype entries (`Ctx::positional_type_variables`).
@@ -933,6 +957,12 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
         "dart_rti._Universe.addRules(dart.typeUniverse, JSON.parse({}));\n",
         js::string_literal(&json)
     );
+    if !variances.is_empty() {
+        out.push_str(&format!(
+            "dart_rti._Universe.addTypeParameterVariances(dart.typeUniverse, JSON.parse({}));\n",
+            js::string_literal(&format!("{{{}}}", variances.join(",")))
+        ));
+    }
     if !interop.is_empty() {
         interop.sort();
         m.use_sdk("_interceptors");

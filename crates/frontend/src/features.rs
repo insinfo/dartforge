@@ -121,12 +121,15 @@ pub enum Feature {
     /// 3.4 — `??`, `??=`, `?:` and switch expressions take the context type
     /// when UP of the branches does not fit it.
     InferenceUpdate3,
+    /// Experiment (no `enabledIn`): declaration-site variance, `class C<in T>`,
+    /// `<out T>`, `<inout T>`.
+    Variance,
 }
 
 impl Feature {
     /// All of them, in declaration order (the index is the bit in
     /// [`LibraryFeatures`]).
-    pub const ALL: [Feature; 18] = [
+    pub const ALL: [Feature; 19] = [
         Feature::WildcardVariables,
         Feature::InferenceUsingBounds,
         Feature::NullAwareElements,
@@ -145,6 +148,7 @@ impl Feature {
         Feature::InferenceUpdate1,
         Feature::InferenceUpdate2,
         Feature::InferenceUpdate3,
+        Feature::Variance,
     ];
 
     /// Experiment name in `tools/experimental_features.yaml` (also the value of
@@ -162,6 +166,7 @@ impl Feature {
             Feature::Augmentations => "augmentations",
             Feature::EnhancedParts => "enhanced-parts",
             Feature::Macros => "macros",
+            Feature::Variance => "variance",
             Feature::NonfunctionTypeAliases => "nonfunction-type-aliases",
             Feature::GenericMetadata => "generic-metadata",
             Feature::ClassModifiers => "class-modifiers",
@@ -186,7 +191,9 @@ impl Feature {
             Feature::DotShorthands => Some(LanguageVersion::new(3, 10)),
             Feature::PrivateNamedParameters => Some(LanguageVersion::new(3, 12)),
             Feature::PrimaryConstructors => Some(LanguageVersion::new(3, 13)),
-            Feature::Augmentations | Feature::EnhancedParts | Feature::Macros => None,
+            Feature::Augmentations | Feature::EnhancedParts | Feature::Macros | Feature::Variance => {
+                None
+            }
             Feature::NonfunctionTypeAliases => Some(LanguageVersion::new(2, 13)),
             Feature::GenericMetadata => Some(LanguageVersion::new(2, 14)),
             Feature::ClassModifiers | Feature::SealedClass => Some(LanguageVersion::new(3, 0)),

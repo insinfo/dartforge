@@ -493,11 +493,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.advance();
                 let text = self.token_text(first_);
                 variance = Variance::from_text_(text).map(|v| (v, first_.span));
-                self.error_at(
-                    codes::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT,
-                    first_.span,
-                    &["variance"],
-                );
+                if !self.features.has(crate::features::Feature::Variance) {
+                    self.error_at(
+                        codes::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT,
+                        first_.span,
+                        &["variance"],
+                    );
+                }
             }
             let (name, s) = self.ensure_type_variable_name();
             synthetic = s;

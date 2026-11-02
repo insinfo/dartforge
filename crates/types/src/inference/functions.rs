@@ -532,17 +532,18 @@ fn initializer(
         ast::Initializer::Assert {
             condition, message, ..
         } => {
-            let (_, if_false) = expr::assert_condition(inf, cx, *condition);
+            let before = cx.flow.clone();
+            let (if_true, if_false) = expr::assert_condition(inf, cx, *condition);
             if let Some(m) = message {
                 // The message runs where the condition is false (without
                 // dead code when it cannot be).
-                let before = cx.flow.clone();
                 if if_false.reachable {
                     cx.flow = if_false;
                 }
                 infer_free(inf, cx, *m);
-                cx.flow = before;
             }
+            // `assert_end`: the state before joined with the true branch.
+            cx.flow = inf.join(cx, &before, &if_true);
         }
     }
 }
