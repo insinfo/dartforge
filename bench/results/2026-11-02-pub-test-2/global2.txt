@@ -1,0 +1,13 @@
+global activate --source path ../../pt/gp
+global activate --source path ../../pt/gp -x gp -x nope
+global activate --source path ../../pt/gp --no-executables -x gp
+global activate --source path ../../pt/gp --git-ref main
+global activate --source bogus x
+cache repair
+global list
+global run gp:other
+global run --enable-asserts gp:other
+global run gp:sub/dir
+global deactivate gp extra
+global deactivate gp
+cache repair
