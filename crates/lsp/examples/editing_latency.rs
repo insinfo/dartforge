@@ -837,6 +837,20 @@ fn generated_dir(o: &Options) -> PathBuf {
     main_package(o).join("lib/df_long_session")
 }
 
+/// With `DARTFORGE_LSP_TRACE=1`, prints `[trace] <µs since the epoch>
+/// <event>` to `stderr` for a moment `at` of the driver, on the clock the
+/// server's trace uses.
+fn trace_at(at: Instant, event: &str) {
+    if std::env::var_os("DARTFORGE_LSP_TRACE").is_none() {
+        return;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let micros = now.saturating_sub(at.elapsed()).as_micros();
+    eprintln!("[trace] {micros} {event}");
+}
+
 /// The undefined name the generated files of wave `wave` carry.
 fn wave_marker(wave: usize) -> String {
     format!("dfWave{}", wave % 3)
@@ -1012,9 +1026,11 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
             last = Instant::now();
             std::thread::sleep(Duration::from_millis(5));
         }
+        trace_at(last, "driver last notification");
         let published = c
             .published_with(&generated, &wave_marker(round), last + LIMIT)
             .then(|| last.elapsed());
+        trace_at(Instant::now(), "driver published");
         if c.analyzing {
             c.settle(last + LIMIT);
         }

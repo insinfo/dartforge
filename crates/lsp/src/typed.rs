@@ -684,7 +684,9 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             };
             let early = match first {
                 Some(first) => {
+                    crate::memory::trace("worker send first");
                     let results = run(&first);
+                    crate::memory::trace("worker back first");
                     if !results.is_empty() {
                         for r in &results {
                             sent.insert(r.uri.clone(), r.version);
@@ -702,7 +704,9 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
                 // Cancelled or failed: so is the whole analysis.
                 Some(early) if early.is_empty() => None,
                 early => {
+                    crate::memory::trace("worker send rest");
                     let results = run(&rest);
+                    crate::memory::trace("worker back rest");
                     (!results.is_empty()).then(|| {
                         let mut all = early.unwrap_or_default();
                         all.extend(results);
@@ -746,6 +750,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
         for r in results {
             let _ = tx.send(r);
         }
+        crate::memory::trace("worker done");
         crate::memory::log("after the analysis");
         {
             let mut e = block();
@@ -1230,6 +1235,7 @@ fn resident_child() -> i32 {
                 let Ok(line) = line else { break };
                 match serde_json::from_str::<Request>(&line) {
                     Ok(Request::Analyze { id, job }) => {
+                        crate::memory::trace("resident read");
                         if jobs.send((id, Some(*job))).is_err() {
                             break;
                         }
@@ -1255,6 +1261,7 @@ fn resident_child() -> i32 {
             let mut kept = Resident::new();
             let mut out = std::io::BufWriter::new(std::io::stdout());
             while let Ok((id, job)) = queue.recv() {
+                crate::memory::trace("resident start");
                 let Some(job) = job else {
                     let heap = || crate::memory::heap_in_use().unwrap_or(0);
                     let heap_before = heap();
@@ -1326,6 +1333,7 @@ fn resident_child() -> i32 {
                         .collect();
                     eprintln!("[dartforge-lsp] resident census: {}", census.join(", "));
                 }
+                crate::memory::trace("resident end");
                 let response = Response {
                     id,
                     results,

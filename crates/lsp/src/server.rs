@@ -904,6 +904,9 @@ impl<A: Analyzer> Server<A> {
         let mut outputs = Vec::new();
         let mut new = false;
         let mut received = false;
+        if !results.is_empty() {
+            crate::memory::trace("server results");
+        }
         for r in results {
             received = true;
             // A file of the roots that is not open (I7): publishes with the analyzed
@@ -1242,6 +1245,7 @@ impl<A: Analyzer> Server<A> {
                 self.filter_repeated_empty(uri, p)
             }
             "textDocument/didChange" => {
+                crate::memory::trace("server handle change");
                 let params = message.get("params")?;
                 let doc = params.get("textDocument")?;
                 let uri = doc.get("uri")?.as_str()?;
@@ -1330,6 +1334,7 @@ impl<A: Analyzer> Server<A> {
                 None
             }
             "workspace/didChangeWatchedFiles" => {
+                crate::memory::trace("server handle watched");
                 // The file watcher (§3.3): what changed on disk.
                 let paths: Vec<std::path::PathBuf> = message
                     .pointer("/params/changes")

@@ -101,6 +101,13 @@ pub use sdk_report::SdkReport;
 pub use semantic::SemanticAnalyzer;
 pub use semantic::{REFERENCE_SEARCH_ARGUMENT, reference_search_child};
 pub use server::{Server, Trace};
+
+/// Prints a hand-off of the trace (`DARTFORGE_LSP_TRACE=1`): the binary's
+/// reader thread marks when a message arrives.
+#[doc(hidden)]
+pub fn trace_hop(event: &str) {
+    memory::trace(event);
+}
 pub use typed::{CHILD_ARGUMENT as TYPED_ANALYSIS_ARGUMENT, typed_analysis_child};
 
 pub use actions::{CodeAction, Linked, LinkedGroup};

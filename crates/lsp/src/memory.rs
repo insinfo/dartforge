@@ -22,6 +22,28 @@ pub(crate) fn logging() -> bool {
     })
 }
 
+/// The hand-off trace is on (`DARTFORGE_LSP_TRACE=1`).
+pub(crate) fn tracing() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("DARTFORGE_LSP_TRACE").is_ok_and(|v| v != "0" && !v.is_empty())
+    })
+}
+
+/// With the trace on, prints `[trace] <µs since the epoch> <event>` to
+/// `stderr`: the moments a change goes from one thread or process to the
+/// next (server, worker, resident), on a clock every process shares, to
+/// measure the time each hand-off waits.
+pub(crate) fn trace(event: &str) {
+    if !tracing() {
+        return;
+    }
+    let micros = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_micros());
+    eprintln!("[trace] {micros} {event}");
+}
+
 /// With the memory log on, prints the live heap at `label` to `stderr`.
 pub(crate) fn log(label: &str) {
     if !logging() {

@@ -165,6 +165,7 @@ fn read_all(tx: mpsc::Sender<Entry>) {
     loop {
         match read_message(&mut reader) {
             Ok(Some(message)) => {
+                dartforge_lsp::trace_hop("server read");
                 if tx.send(Entry::Message(message)).is_err() {
                     return;
                 }
