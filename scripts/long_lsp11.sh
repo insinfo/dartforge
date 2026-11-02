@@ -1,6 +1,6 @@
 #!/bin/sh
 # Long LSP session on new_sali for one server (round 11 of docs/LSP.md).
-# usage: [DRIVER=<editing_latency>] long_lsp11.sh <dartforge|dart> <rounds> <label> [out-dir] [server binary]
+# usage: [DRIVER=<editing_latency>] [JSON=1] long_lsp11.sh <dartforge|dart> <rounds> <label> [out-dir] [server binary]
 set -eu
 which="$1"
 rounds="$2"
@@ -17,9 +17,12 @@ case "$which" in
   dart) target="--dart $HOME/tools/dart/3.6.2/dart-sdk/bin/dart" ;;
   *) echo "unknown server $which" >&2; exit 2 ;;
 esac
+# JSON=1: the last publication of every file in <out-dir>/<label>.json.
+json=""
+if [ -n "${JSON:-}" ]; then json="--json $out/$label.json"; fi
 echo "load before: $(uptime)"
 # shellcheck disable=SC2086
-"$driver" $target --label "$label" --root "$root" \
+"$driver" $target $json --label "$label" --root "$root" \
   --file "$front/components/processo_filtros/processo_filtros_component.dart" \
   --api "$front/services/documento_service.dart" \
   --long "$rounds" --generated 40 --csv "$out/$label.csv" \

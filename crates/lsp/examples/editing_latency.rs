@@ -943,16 +943,21 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
     let mut kinds: [Vec<Duration>; 6] = Default::default();
     let mut unseen = [0u32; 6];
     let mut missing = [0u32; 6];
-    let mut record = |k: usize, (published, settled, seen): (Option<Duration>, Duration, bool)| {
-        match published {
-            Some(d) => kinds[k].push(d),
-            None => missing[k] += 1,
-        }
-        kinds[k + 1].push(settled);
-        if !seen {
-            unseen[k + 1] += 1;
-        }
-    };
+    // The CPU time of the server and its descendants from the change to
+    // settled, per kind (on a loaded machine the steadier measure).
+    let mut cpu: [Vec<Duration>; 3] = Default::default();
+    let mut record =
+        |k: usize, cpu0: u64, (published, settled, seen): (Option<Duration>, Duration, bool)| {
+            cpu[k / 2].push(Duration::from_nanos(cpu_of_all(pid).saturating_sub(cpu0)));
+            match published {
+                Some(d) => kinds[k].push(d),
+                None => missing[k] += 1,
+            }
+            kinds[k + 1].push(settled);
+            if !seen {
+                unseen[k + 1] += 1;
+            }
+        };
     let generated: Vec<String> = wave_files(o, 0).iter().map(|(p, _)| uri_of(p)).collect();
     // The workspace's first analysis has reached the generated files (the
     // official server builds its contexts for seconds without reporting, and
@@ -981,6 +986,7 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
         // them; timed from the last notification.
         let mut last = Instant::now();
         c.saw_start = false;
+        let cpu0 = cpu_of_all(pid);
         for (path, text) in wave_files(o, round) {
             std::fs::write(&path, text).expect("write a generated file");
             c.notify(
@@ -996,20 +1002,20 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
         if c.analyzing {
             c.settle(last + LIMIT);
         }
-        record(0, (published, last.elapsed(), c.saw_start));
+        record(0, cpu0, (published, last.elapsed(), c.saw_start));
         loads.fetch_add(1, Ordering::Relaxed);
         // A body edit (an unused local: a warning on its line) and its undo.
         let at = body_insertion(&doc.text);
         let statement = "\n    var dfLongSession = 1;";
         c.saw_start = false;
-        let t = Instant::now();
+        let (t, cpu0) = (Instant::now(), cpu_of_all(pid));
         doc.insert(c, at, statement);
         let (line, _) = position(&doc.text, at + 1);
-        record(2, c.edit_timed(t, &doc.uri, line, true));
+        record(2, cpu0, c.edit_timed(t, &doc.uri, line, true));
         c.saw_start = false;
-        let t = Instant::now();
+        let (t, cpu0) = (Instant::now(), cpu_of_all(pid));
         doc.remove(c, at, at + statement.len());
-        record(2, c.edit_timed(t, &doc.uri, line, false));
+        record(2, cpu0, c.edit_timed(t, &doc.uri, line, false));
         loads.fetch_add(2, Ordering::Relaxed);
         // An API change (a public function with a type error) and its undo.
         if round % 5 == 0
@@ -1018,14 +1024,14 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
             let at = a.text.rfind('}').map_or(a.text.len(), |i| i + 1);
             let declaration = format!("\nint dfLongSessionApi{round}() => '{round}';\n");
             c.saw_start = false;
-            let t = Instant::now();
+            let (t, cpu0) = (Instant::now(), cpu_of_all(pid));
             a.insert(c, at, &declaration);
             let (line, _) = position(&a.text, at + 1);
-            record(4, c.edit_timed(t, &a.uri, line, true));
+            record(4, cpu0, c.edit_timed(t, &a.uri, line, true));
             c.saw_start = false;
-            let t = Instant::now();
+            let (t, cpu0) = (Instant::now(), cpu_of_all(pid));
             a.remove(c, at, at + declaration.len());
-            record(4, c.edit_timed(t, &a.uri, line, false));
+            record(4, cpu0, c.edit_timed(t, &a.uri, line, false));
             loads.fetch_add(2, Ordering::Relaxed);
         }
         if round % 10 == 0 {
@@ -1047,6 +1053,19 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
         "API change to the file's diagnostics",
         "API change to settled",
     ];
+    for (k, kind) in ["wave", "body edit", "API change"].iter().enumerate() {
+        let mut v = cpu[k].clone();
+        if v.is_empty() {
+            continue;
+        }
+        v.sort();
+        println!(
+            "long session {}: {kind}: CPU to settled, median {:.0} ms, p90 {:.0} ms",
+            o.label,
+            ms(v[v.len() / 2]),
+            ms(v[(v.len() * 9 / 10).min(v.len() - 1)]),
+        );
+    }
     for (k, kind) in names.iter().enumerate() {
         let n = kinds[k].len();
         if n == 0 {
@@ -1115,6 +1134,12 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
         mib(rss_peak),
         mib(rest_rss),
     );
+    // `--json`: the last publication of every file, to compare two servers
+    // (or two builds) after the same session.
+    if let Some(path) = &o.json {
+        let out = json!({"server": o.label, "diagnostics": c.diagnostics});
+        std::fs::write(path, serde_json::to_vec_pretty(&out).expect("json")).expect("write --json");
+    }
     resident_memory(o, c);
 }
 
