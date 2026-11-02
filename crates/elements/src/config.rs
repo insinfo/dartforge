@@ -52,6 +52,9 @@ pub struct PackageConfig {
     /// phases before its own). Importing one of them stays unresolved, as in the
     /// official `BuildStep.resolver`.
     pub hidden: Option<Arc<std::collections::HashSet<PathBuf>>>,
+    /// [`PackageConfig::package_dirs`] by directory (the first one of each,
+    /// in their order), built on the first [`PackageConfig::package_of_file`].
+    dir_index: std::sync::OnceLock<HashMap<PathBuf, usize>>,
 }
 
 /// The plain form of a Windows verbatim path, as `canonicalize` returns them
@@ -112,6 +115,26 @@ pub fn canonicalize(path: &Path) -> std::io::Result<PathBuf> {
 }
 
 impl PackageConfig {
+    /// The first of [`PackageConfig::package_dirs`] whose directory contains
+    /// `canonical` (they are longest first, so the innermost one), with the
+    /// path relative to it: the nearest ancestor of `canonical` that is a
+    /// package directory, looked up instead of comparing every package (this
+    /// runs for each directive of each library loaded).
+    pub fn package_of_file<'a>(&self, canonical: &'a Path) -> Option<(&str, &'a Path)> {
+        let index = self.dir_index.get_or_init(|| {
+            let mut m = HashMap::new();
+            for (i, (_, dir)) in self.package_dirs.iter().enumerate() {
+                m.entry(dir.clone()).or_insert(i);
+            }
+            m
+        });
+        canonical.ancestors().find_map(|dir| {
+            let &i = index.get(dir)?;
+            let rel = canonical.strip_prefix(dir).ok()?;
+            Some((self.package_dirs[i].0.as_str(), rel))
+        })
+    }
+
     /// Is the path among this load's [`PackageConfig::hidden`]?
     pub fn is_hidden(&self, path: &Path) -> bool {
         self.hidden
@@ -365,6 +388,7 @@ impl PackageConfig {
             generated_root,
             generated_sources: None,
             hidden: None,
+            dir_index: std::sync::OnceLock::new(),
         })
     }
 

@@ -1484,11 +1484,9 @@ fn canonical_file_uri(canonical: &Path, package_config: &PackageConfig) -> Strin
             }
         }
     }
-    for (name, dir) in &package_config.package_dirs {
-        if let Ok(rel) = canonical.strip_prefix(dir) {
-            let rel_str = rel.to_string_lossy().replace('\\', "/");
-            return format!("package:{name}/{rel_str}");
-        }
+    if let Some((name, rel)) = package_config.package_of_file(&canonical) {
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        return format!("package:{name}/{rel_str}");
     }
     Url::from_file_path(&canonical)
         .map(|u| u.to_string())
