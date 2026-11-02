@@ -125,13 +125,14 @@ pub(crate) fn url_to_directory(url: &str) -> String {
     result
 }
 
-fn not_found_or_fatal(url: &str, error: ureq::Error, name: &str, host: &str) -> SourceError {
+fn not_found_or_fatal(_url: &str, error: ureq::Error, name: &str, host: &str) -> SourceError {
     match error {
         ureq::Error::StatusCode(404) => {
             SourceError::NotFound(format!("could not find package {name} at {host}"))
         }
-        error => SourceError::Fatal(format!(
-            "Got socket error trying to find package {name} at {host}.\n({url}: {error})"
+        // Pub's `fail(message, error)` prints only the message.
+        _ => SourceError::Fatal(format!(
+            "Got socket error trying to find package {name} at {host}."
         )),
     }
 }

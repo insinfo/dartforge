@@ -281,8 +281,9 @@ pub(crate) fn save_credentials(credentials: &[Credential]) -> Result<(), Failure
 /// for `url` made for the package server `server`: the bearer token of the
 /// server's first valid credential, when the URL is below it.
 pub(crate) fn authorization_for(server: &str, url: &str) -> Option<String> {
-    static CREDENTIALS: std::sync::Mutex<Option<Vec<(String, Option<String>)>>> =
-        std::sync::Mutex::new(None);
+    /// Each server with its token (`None` when its variable is unset).
+    type Tokens = Vec<(String, Option<String>)>;
+    static CREDENTIALS: std::sync::Mutex<Option<Tokens>> = std::sync::Mutex::new(None);
     let mut guard = CREDENTIALS.lock().ok()?;
     let credentials = guard.get_or_insert_with(|| {
         load_credentials()

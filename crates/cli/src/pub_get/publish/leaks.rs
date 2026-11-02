@@ -228,7 +228,28 @@ fn find(pattern: &LeakPattern, url: &str, content: &std::rc::Rc<Vec<u8>>, leaks:
 const DOCS: &str = "https://dart.dev/go/false-secrets";
 
 pub(super) fn validate(c: &Context<'_>, found: &mut Found) -> Result<(), Failure> {
-    let secrets = false_secrets(c.fields())?;
+    // Pub reads `false_secrets` again here, and a bad value stops the whole
+    // validation with the pubspec's YAML error.
+    let secrets = false_secrets(c.fields()).map_err(|failure| {
+        let pubspec = p::normalize(&p::join(&c.package.dir, "pubspec.yaml"));
+        let text = super::files::read_text(&pubspec);
+        let item = match c.fields().get("false_secrets") {
+            crate::pub_get::tree::Node::List(items) => items
+                .iter()
+                .position(|n| !matches!(n, crate::pub_get::tree::Node::String(_))),
+            _ => None,
+        };
+        match super::span::yaml_scalar_span(&text, "false_secrets", item) {
+            Some((start, end)) => Failure {
+                code: failure.code,
+                message: format!(
+                    "Error on {}",
+                    SourceFile::new(&text, &pubspec).message(start, end, &failure.message)
+                ),
+            },
+            None => failure,
+        }
+    })?;
     let false_secrets = Ignore::new(&secrets, IGNORE_CASE, |_, _| {});
     let mut leaks = Vec::new();
     for file in c.files {

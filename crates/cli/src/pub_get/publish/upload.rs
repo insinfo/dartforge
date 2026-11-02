@@ -259,7 +259,7 @@ impl Client {
                 self.agent.run(request)
             }
         };
-        let mut response = response.map_err(|e| HttpError::Io(e.to_string()))?;
+        let mut response = response.map_err(|e| HttpError::Io(io_message(&e, url)))?;
         let status = response.status();
         let header = |name: &str| {
             response
@@ -348,6 +348,24 @@ impl Client {
             std::thread::sleep(std::time::Duration::from_millis(delay));
         }
     }
+}
+
+/// The text of the `http.ClientException` Pub prints for a failed
+/// connection. Dart also names the local port of the attempt, which is not
+/// known here; the server's port is written instead.
+fn io_message(error: &ureq::Error, url: &str) -> String {
+    if let ureq::Error::Io(io) = error
+        && io.kind() == std::io::ErrorKind::ConnectionRefused
+        && let Ok(u) = url::Url::parse(&connect_to(url))
+    {
+        return format!(
+            "ClientException with SocketException: Connection refused (OS Error: Connection refused, errno = {}), address = {}, port = {}, uri={url}",
+            io.raw_os_error().unwrap_or(61),
+            u.host_str().unwrap_or(""),
+            u.port_or_known_default().unwrap_or(0)
+        );
+    }
+    error.to_string()
 }
 
 /// `invalidServerResponse`.

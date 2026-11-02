@@ -231,10 +231,13 @@ pub fn run(
                     // The file requested on the command line is not excluded.
                     vec![target.clone()]
                 };
-                let package_cfg = root.join(".dart_tool").join("package_config.json");
-                let default = requested_packages
-                    .clone()
-                    .or_else(|| package_cfg.is_file().then_some(package_cfg));
+                // The nearest `package_config.json` going up: a workspace member
+                // uses the one of the workspace root.
+                let package_cfg = root
+                    .ancestors()
+                    .map(|d| d.join(".dart_tool").join("package_config.json"))
+                    .find(|c| c.is_file());
+                let default = requested_packages.clone().or(package_cfg);
                 // Nested packages (`example/`): each one with its own package_config.
                 for (pkg_root, fs) in dartforge_parity::projects::by_package(&root, &files) {
                     let c = pkg_root.join(".dart_tool").join("package_config.json");

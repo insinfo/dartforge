@@ -498,8 +498,107 @@ fn line_has_column_from_start(span: &Span, line: &Line) -> bool {
         .all(|&c| c == b' ' as u16 || c == TAB)
 }
 
+/// The UTF-16 span of a scalar of a pubspec: the value of the top-level
+/// `key`, or its `item`-th element when the value is a sequence. Only plain
+/// and quoted scalars have a span here; `None` otherwise.
+pub(crate) fn yaml_scalar_span(
+    text: &str,
+    key: &str,
+    item: Option<usize>,
+) -> Option<(usize, usize)> {
+    use yaml_rust2::parser::{Event, Parser};
+    use yaml_rust2::scanner::TScalarStyle;
+    let mut parser = Parser::new_from_str(text);
+    let chars: Vec<char> = text.chars().collect();
+    let mut depth = 0usize;
+    let mut expect_key = false;
+    let mut found_key = false;
+    let mut index_in_sequence: Option<usize> = None;
+    loop {
+        let (event, mark) = parser.next_token().ok()?;
+        let at = mark.index();
+        match event {
+            Event::StreamEnd => return None,
+            Event::MappingStart(..) | Event::SequenceStart(..) => {
+                if found_key && depth == 1 {
+                    if item.is_none() || !matches!(event, Event::SequenceStart(..)) {
+                        return None;
+                    }
+                    index_in_sequence = Some(0);
+                    depth += 1;
+                    continue;
+                }
+                if found_key && depth == 2 {
+                    return None;
+                }
+                depth += 1;
+                expect_key = depth == 1 && matches!(event, Event::MappingStart(..));
+            }
+            Event::MappingEnd | Event::SequenceEnd => {
+                if found_key {
+                    return None;
+                }
+                depth = depth.saturating_sub(1);
+                if depth == 1 {
+                    expect_key = true;
+                }
+            }
+            Event::Scalar(value, style, ..) => {
+                if depth == 1 && expect_key && !found_key {
+                    found_key = value == key;
+                    expect_key = false;
+                    continue;
+                }
+                let wanted = match (found_key, index_in_sequence) {
+                    (true, None) => depth == 1 && item.is_none(),
+                    (true, Some(i)) => {
+                        index_in_sequence = Some(i + 1);
+                        Some(i) == item
+                    }
+                    _ => false,
+                };
+                if wanted {
+                    let length = match style {
+                        TScalarStyle::Plain => value.chars().count(),
+                        TScalarStyle::SingleQuoted | TScalarStyle::DoubleQuoted => {
+                            let quote = *chars.get(at)?;
+                            let close = (at + 1..chars.len()).find(|&i| {
+                                chars[i] == quote && (quote != '"' || chars[i - 1] != '\\')
+                            })?;
+                            close + 1 - at
+                        }
+                        _ => return None,
+                    };
+                    let start: usize = chars[..at].iter().map(|c| c.len_utf16()).sum();
+                    let len: usize = chars[at..at + length].iter().map(|c| c.len_utf16()).sum();
+                    return Some((start, start + len));
+                }
+                if depth == 1 {
+                    expect_key = true;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn finds_pubspec_scalars() {
+        let text = "name: x\nfalse_secrets: lib/x.dart\n";
+        assert_eq!(
+            super::yaml_scalar_span(text, "false_secrets", None),
+            Some((23, 33))
+        );
+        let text = "false_secrets:\n  - a\n  - 7\n";
+        assert_eq!(
+            super::yaml_scalar_span(text, "false_secrets", Some(1)),
+            Some((25, 26))
+        );
+        assert_eq!(super::yaml_scalar_span("a: {b: 1}\n", "a", None), None);
+    }
+
     use super::*;
 
     #[test]
