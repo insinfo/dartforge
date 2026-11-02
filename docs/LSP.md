@@ -1775,6 +1775,75 @@ O resultado de memória da décima primeira rodada se mantém: inclinação ≤ 
 - **A medida da onda e do corpo com a máquina calma** variou muito no Dart entre sessões, e
   não houve janela calma longa o bastante para as 150 rodadas.
 
+#### Décima terceira rodada (2026-11-02): recarregar só o que depende da mudança
+
+##### Projeto (escrito antes do código)
+
+**O que a medida mostrou.** O residente imprime agora onde corta o programa mantido
+(`DARTFORGE_ENGINE_TIMES=1`). No `new_sali`, o programa tem 3.164 bibliotecas; as 2.185
+primeiras são o prefixo congelado (SDK e dependências) e o resto é o pacote. Em 20 rodadas:
+- **cada onda** cortava na biblioteca 2.770 e recarregava as **394** seguintes: os 40 `.g.dart`
+  e 354 bibliotecas que só estavam depois deles por acaso da ordem;
+- **cada mudança de API** em `documento_service.dart` cortava na 2.425 e recarregava **739**,
+  das quais ~260 dependem do arquivo.
+
+A ordem das bibliotecas depois do prefixo é uma ordem de dependência (Tarjan). O corte
+recarrega tudo o que vem depois da primeira biblioteca mudada, dependa dela ou não.
+
+**Por que não basta o nome (décima segunda rodada).** A análise por nome decide quais
+dependentes *publicam* de novo. Mas o programa mantido guarda elementos com ids densos
+(`ClassId`, `FunctionElementId`, `VariableId`), e tudo o que vem depois do corte é refeito
+com ids novos: escopos, *outline*, hierarquia, tipos. É a "identidade estável" do item 1.
+
+**Etapa 1 (esta rodada): a ordem prefere o que muda por último.** Entre as ordens de
+dependência possíveis, `frozen::lay_out` escolhe, a cada passo, entre os grupos (componentes
+fortemente conexos) prontos para entrar:
+1. primeiro os que não dependem de um arquivo que mudou nesta carga
+   (`Program::layout_last`, que o residente preenche com o que o corte viu mudar);
+2. depois os que têm dependentes;
+3. por último os que mudaram;
+4. empate: a ordem antiga.
+
+Isso continua sendo uma ordem de dependência: nada que não dependa do que mudou pode
+depender de algo que dependa. Uma biblioteca que ninguém importa (um `.g.dart`) vai para o
+fim.
+
+O que fica igual, e por isso a etapa não mexe no que as rodadas 7 e 11 garantiram:
+- **o prefixo congelado** e tudo antes do corte: a ordem só muda o trecho que a carga refaz,
+  antes de os elementos existirem;
+- **a tabela de tipos:** a coleta por corte e o descarte dos parâmetros de tipo de dono solto
+  continuam valendo sem mudança.
+
+Efeito esperado: a próxima mudança dos mesmos arquivos recarrega só eles e o que depende
+deles:
+- a onda: só os 40 gerados;
+- a mudança de API: o arquivo e os ~260 dependentes.
+
+**Etapa 2 (projeto, não feita nesta rodada): recarga no lugar com ids estáveis.** Para a
+mudança de API custar como no Dart, só o arquivo mudado e os dependentes que a análise por
+nome marca deveriam ser refeitos. O conjunto S é o arquivo mudado mais esses dependentes
+(no caso medido, o arquivo e os *barrels*). O plano:
+1. **Ids por *slot*:** cada declaração de uma biblioteca de S guarda o *slot* (o id) que tinha,
+   casada por espécie, dono e nome. Uma declaração nova toma um *slot* livre ou entra no fim
+   da arena. Uma removida vira *slot* morto: elemento vazio e sem nome, que nenhum escopo
+   alcança. É o mesmo esquema dos parâmetros de tipo da décima primeira rodada.
+2. **Refazer só S:** as unidades, os escopos e os *namespaces* das bibliotecas de S, e as
+   entradas do `OutlineTypes` dos elementos delas: assinatura, tipo declarado ou inferido,
+   hierarquia das classes de S. As bibliotecas fora de S citam elementos de S só por ids que
+   não mudaram, e a análise por nome garante que elas não veem o que mudou.
+3. **Tabela de tipos:** um `ClassId` estável mantém os tipos que o citam. Os tipos que só
+   citavam *slots* mortos saem na coleta seguinte; os parâmetros de tipo de dono morto já
+   saem pela regra da rodada 11.
+4. **Corte e *checkpoint*:** uma biblioteca de S que ganhou um *slot* no fim da arena quebra a
+   regra "tudo depois do *checkpoint* é de bibliotecas depois do corte". A próxima carga
+   estrutural (diretivas mudadas, lote novo) volta a cortar no início do pacote, e a ordem é
+   refeita. Enquanto isso, só as recargas no lugar valem.
+5. **Hierarquia:** as subclasses fora de S de uma classe de S citam o nome dela, então a
+   análise por nome já as põe em S.
+
+O critério de aceite é o de sempre: cada passo de `typed_incremental` publica o mesmo que uma
+análise do zero, e o oráculo fica a 100%.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
