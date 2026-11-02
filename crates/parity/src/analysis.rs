@@ -2648,6 +2648,7 @@ impl Engine {
                     // The extensions this pass chose (the `unused_import`'s
                     // `notifyExtensionUsed`).
                     c.used_extensions.extend(bt.used_extensions.drain());
+                    shared.recycle(program, bt, core.dynamic_);
                 }
             }
             let start = if ds.len() >= init_diags.len() && ds[..init_diags.len()] == init_diags[..]
@@ -2747,6 +2748,7 @@ impl Engine {
                             c.units[i] = std::mem::take(&mut bt.units[i]);
                         }
                     }
+                    shared.recycle(program, bt, core.dynamic_);
                     if (lib.0 as usize) < frozen_end {
                         let units = program
                             .library(lib)

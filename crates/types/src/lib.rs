@@ -288,10 +288,9 @@ pub fn infer_library_bodies_shared(
     Vec<Diagnostic>,
     Vec<Option<dartforge_elements::model::UnitId>>,
 ) {
-    let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
+    let mut inferrer = BodyInferrer::new_shared(program, interner, table, core, outline, shared);
     inferrer.only_libraries = Some(libraries.iter().map(|l| l.0).collect());
     inferrer.record_locals = record_locals;
-    inferrer.shared = Some(shared);
     inferrer.infer_all_with_units()
 }
 

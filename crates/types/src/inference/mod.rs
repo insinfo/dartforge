@@ -263,7 +263,8 @@ pub fn infer_bodies(
     probe: Option<(UnitId, usize)>,
     record_locals: bool,
 ) -> InferredBodies {
-    let mut inf = BodyInferrer::with_tables(program, interner, table, core, outline, Some(unit_id));
+    let mut inf =
+        BodyInferrer::with_tables(program, interner, table, core, outline, Some(unit_id), None);
     inf.only_libraries = Some(HashSet::from([program.unit(unit_id).library.0]));
     inf.record_locals = record_locals;
     inf.scope_probe = probe;
@@ -316,6 +317,36 @@ pub struct SharedInference {
     /// of inferring the initializer again.
     ready: std::cell::RefCell<Vec<VariableId>>,
     ready_mark: std::cell::RefCell<Vec<bool>>,
+    /// Body tables of an earlier pass, made fresh again
+    /// ([`SharedInference::recycle`]): a pass gives every unit of the
+    /// program a table, and building them for each library's pass cost as
+    /// much as inferring its bodies.
+    spare: std::cell::RefCell<Vec<Vec<UnitBodyTypes>>>,
+}
+
+impl SharedInference {
+    /// Takes back the tables of a pass whose own units the caller already
+    /// took: the written ones are made fresh again, and the next pass uses
+    /// them instead of building new ones.
+    pub fn recycle(&self, program: &Program, body: BodyTypes, fallback: TypeId) {
+        let mut units = body.units;
+        if units.len() != program.units.len() {
+            return;
+        }
+        for (t, u) in units.iter_mut().zip(&program.units) {
+            let sdk = program.library(u.library).is_sdk;
+            let n = u.ast.exprs.len();
+            let lazy = (!sdk && n > 0).then_some((n as u32, fallback));
+            if !t.is_fresh(lazy) {
+                *t = if sdk {
+                    UnitBodyTypes::default()
+                } else {
+                    UnitBodyTypes::new(n, fallback)
+                };
+            }
+        }
+        self.spare.borrow_mut().push(units);
+    }
 }
 
 /// Member name, candidate list and an optional pair of full extension descriptions.
@@ -540,6 +571,7 @@ pub fn applicable_extensions(
         core,
         outline,
         Some(UnitId(u32::MAX)),
+        None,
     );
     let exts = inf.accessible_extensions(lib);
     exts.iter()
@@ -566,6 +598,7 @@ pub fn applicable_extensions_among(
         core,
         outline,
         Some(UnitId(u32::MAX)),
+        None,
     );
     candidates
         .iter()
@@ -581,7 +614,24 @@ impl<'a> BodyInferrer<'a> {
         core: &'a CoreTypes,
         outline: &'a mut crate::resolve::OutlineTypes,
     ) -> Self {
-        Self::with_tables(program, interner, table, core, outline, None)
+        Self::with_tables(program, interner, table, core, outline, None, None)
+    }
+
+    /// Like [`BodyInferrer::new`], for a pass that shares what does not
+    /// depend on it with the others (`shared`), and takes their spare tables
+    /// ([`SharedInference::recycle`]).
+    pub fn new_shared(
+        program: &'a Program,
+        interner: &'a Interner,
+        table: &'a mut TypeTable,
+        core: &'a CoreTypes,
+        outline: &'a mut crate::resolve::OutlineTypes,
+        shared: &'a SharedInference,
+    ) -> Self {
+        let spare = shared.spare.borrow_mut().pop();
+        let mut inferrer = Self::with_tables(program, interner, table, core, outline, None, spare);
+        inferrer.shared = Some(shared);
+        inferrer
     }
 
     /// Like [`BodyInferrer::new`]; with `only = Some(u)`, only unit `u` has tables
@@ -593,9 +643,13 @@ impl<'a> BodyInferrer<'a> {
         core: &'a CoreTypes,
         outline: &'a mut crate::resolve::OutlineTypes,
         only: Option<UnitId>,
+        spare: Option<Vec<UnitBodyTypes>>,
     ) -> Self {
-        let mut units = Vec::with_capacity(program.units.len());
-        for (ui, u) in program.units.iter().enumerate() {
+        let mut units = match spare {
+            Some(v) if v.len() == program.units.len() && only.is_none() => v,
+            _ => Vec::with_capacity(program.units.len()),
+        };
+        for (ui, u) in program.units.iter().enumerate().skip(units.len()) {
             // SDK units do not get body inference: an empty table
             // (`get_type`/`get_resolved` return `None`, `set_*` ignore).
             let allocate = match only {

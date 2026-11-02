@@ -210,6 +210,37 @@ impl UnitBodyTypes {
         }
     }
 
+    /// Whether the table is as [`Self::new`] (with `lazy`, the expression
+    /// count and fallback it was given) left it: nothing written.
+    pub fn is_fresh(&self, lazy: Option<(u32, TypeId)>) -> bool {
+        self.lazy == lazy
+            && self.static_types.is_empty()
+            && self.resolved.is_empty()
+            && self.local_types.is_empty()
+            && self.local_declarations.is_empty()
+            && self.metadata_local_declarations.is_empty()
+            && self.with_function_type.is_empty()
+            && self.annotation_types.is_empty()
+            && self.pattern_declarations.is_empty()
+            && self.invalid_types.is_empty()
+            && self.function_runtime_types.is_empty()
+            && self.instantiations.is_empty()
+            && self.tearoff_instantiations.is_empty()
+            && self.pattern_types.is_empty()
+            && self.extension_fields.is_empty()
+            && self.extension_arguments.is_empty()
+            && self.invalid_patterns.is_empty()
+            && self.matched_types.is_empty()
+            && self.non_constant_name_patterns.is_empty()
+            && self.pattern_names.is_empty()
+            && self.implicit_calls.is_empty()
+            && self.parameter_types.is_empty()
+            && self.write_types.is_empty()
+            && self.promoted_contexts.is_empty()
+            && self.field_elements.is_empty()
+            && self.relational_operators.is_empty()
+    }
+
     /// Allocates the vectors of tables created lazily (see [`Self::new`]).
     fn materialize(&mut self) {
         if let Some((n, fallback)) = self.lazy.take() {
