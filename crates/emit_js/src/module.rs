@@ -2551,7 +2551,27 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     let jsname = js_member_name(&name);
                     let text = nsm_forwarder(ctx, m, c, unit, fid, &sym);
                     cw.line(&format!("{}{text}", sig_key(&jsname, &se, c)));
-                    method_sigs.push((jsname.clone(), ctx.fn_ty(fid)));
+                    // The member's type as `c` sees it (`NoSuchMethod<T>
+                    // implements Invariant<T>`: `T Function(T)` with `c`'s own
+                    // `T`), not with the declaring interface's parameters,
+                    // which `c`'s instance cannot evaluate.
+                    let seen = ctx
+                        .program
+                        .function(fid)
+                        .class
+                        .and_then(|owner| {
+                            let Ty::Iface { args, .. } = ctx.as_super(&ctx.this_ty(c), owner)? else {
+                                return None;
+                            };
+                            let map: HashMap<u32, Ty> = ctx.class_params[owner.0 as usize]
+                                .iter()
+                                .map(|p| p.id)
+                                .zip(args.iter().cloned())
+                                .collect();
+                            Some(ctx.fn_ty(fid).subst(&map))
+                        })
+                        .unwrap_or_else(|| ctx.fn_ty(fid));
+                    method_sigs.push((jsname.clone(), seen));
                     // A generic forwarder's default type arguments (`dart.bind`
                     // and dynamic calls read them).
                     let data = &ctx.outline.functions[fid.0 as usize];

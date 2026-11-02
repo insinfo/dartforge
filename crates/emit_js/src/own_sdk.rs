@@ -1257,8 +1257,12 @@ pub fn covariance_stubs(ctx: &Ctx, c: ClassId) -> Vec<CovarianceStub> {
                 subst,
             })
         });
-        let Some(imp) = from_mixin.or_else(|| ctx.lookup_member(&ctx.this_ty(sc), &name, false))
-        else {
+        // The superclass as `c` instantiates it (`class H<T> extends G<T>`:
+        // `G<H.T>`), so the implementation's types are in `c`'s parameters.
+        let sc_ty = ctx
+            .as_super(&ctx.this_ty(c), sc)
+            .unwrap_or_else(|| ctx.this_ty(sc));
+        let Some(imp) = from_mixin.or_else(|| ctx.lookup_member(&sc_ty, &name, false)) else {
             continue;
         };
         let crate::ctx::MemberKind::Method(imp_fid) = imp.kind else {
