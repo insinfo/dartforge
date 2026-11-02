@@ -37,10 +37,14 @@ pub struct Generation {
 /// disk, since the file does not exist) and without Windows' verbatim
 /// prefix.
 pub fn key(path: &Path) -> PathBuf {
-    // Already a key (an absolute path without `.`, `..` or empty segments, as
-    // the loader records them): a copy, without rebuilding it component by
-    // component (the LSP resident asks for the key of every unit of the
-    // program at each analysis).
+    key_of(path).into_owned()
+}
+
+/// [`key`], borrowing `path` when it is already a key (an absolute path
+/// without `.`, `..` or empty segments, as the loader records them): no copy
+/// and no rebuilding component by component (the LSP resident asks for the
+/// key of every unit of the program at each analysis, to look it up).
+pub fn key_of(path: &Path) -> std::borrow::Cow<'_, Path> {
     #[cfg(unix)]
     if let Some(s) = path.to_str()
         && s.starts_with('/')
@@ -49,9 +53,11 @@ pub fn key(path: &Path) -> PathBuf {
             .split('/')
             .all(|c| !c.is_empty() && c != "." && c != "..")
     {
-        return path.to_path_buf();
+        return std::borrow::Cow::Borrowed(path);
     }
-    crate::config::without_verbatim(crate::load::normalize(path))
+    std::borrow::Cow::Owned(crate::config::without_verbatim(crate::load::normalize(
+        path,
+    )))
 }
 
 impl Generation {

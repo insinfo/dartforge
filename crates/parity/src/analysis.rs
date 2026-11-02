@@ -473,7 +473,10 @@ impl Resident {
             program.libraries.len()
         };
         for u in &program.units[frozen.units.min(program.units.len())..] {
-            if u.path.as_deref().is_some_and(|p| changed.contains(&key(p))) {
+            if u.path
+                .as_deref()
+                .is_some_and(|p| changed.contains(&*key_of(p)))
+            {
                 first = first.min(u.library.0 as usize);
             }
         }
@@ -1169,6 +1172,11 @@ pub fn key(p: &Path) -> PathBuf {
     dartforge_elements::generated::key(p)
 }
 
+/// [`key`], borrowed when the path already is one (to look it up).
+fn key_of(p: &Path) -> std::borrow::Cow<'_, Path> {
+    dartforge_elements::generated::key_of(p)
+}
+
 /// The path as the file system spells it (case and links resolved), as the
 /// loading sees the files; for a file that does not exist yet (an unsaved
 /// document), its directory's canonical path with the name.
@@ -1749,9 +1757,13 @@ impl Engine {
         }
         c.put(entry.clone(), imports.clone(), "parity", vec![]);
         let generation = c.finish(1).ok();
-        let cache = dartforge_elements::SdkCache::open_or_build(&self.sdk, "dartdevc")
-            .ok()
-            .map(|(c, _)| c);
+        // Only a load from nothing reads the SDK from its cache (a load over a
+        // kept program keeps the SDK in its frozen prefix).
+        let sdk_cache = || {
+            dartforge_elements::SdkCache::open_or_build(&self.sdk, "dartdevc")
+                .ok()
+                .map(|(c, _)| c)
+        };
         let mut fresh = dartforge_intern::Interner::new();
         let (reused, mut onto) = match resident
             .as_deref_mut()
@@ -1806,7 +1818,7 @@ impl Engine {
                             &self.sdk,
                             packages,
                             interner,
-                            cache,
+                            sdk_cache(),
                             units.as_deref_mut(),
                             generation.clone(),
                         )
@@ -1816,7 +1828,7 @@ impl Engine {
                         &self.sdk,
                         packages,
                         interner,
-                        cache,
+                        sdk_cache(),
                         units.as_deref_mut(),
                         generation.clone(),
                         &frozen,
@@ -2007,9 +2019,9 @@ impl Engine {
         let mut unit_of: HashMap<PathBuf, UnitId> = HashMap::new();
         for (i, u) in program.units.iter().enumerate() {
             if let Some(p) = &u.path {
-                let k = key(p);
-                if own.contains(&k) && !program.library(u.library).is_sdk {
-                    unit_of.insert(k, UnitId(i as u32));
+                let k = key_of(p);
+                if own.contains(&*k) && !program.library(u.library).is_sdk {
+                    unit_of.insert(k.into_owned(), UnitId(i as u32));
                 }
             }
         }
