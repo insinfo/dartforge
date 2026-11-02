@@ -1197,7 +1197,8 @@ fn diagnostic_edits(
 
 fn main() {
     let o = options();
-    if o.long.is_some_and(|n| n > 0) {
+    // The freshly started server (`--long 0`) sees the same generated files.
+    if o.long.is_some() {
         write_wave(&o, 0);
     }
     let mut child = Command::new(&o.command[0])
