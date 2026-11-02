@@ -96,7 +96,12 @@ pub(super) fn library_metadata(source: &str) -> Value {
     let result = reader.read(annotations);
     let mut value = json!({ "checks": reader.checks });
     match result {
-        Ok(metadata) => value["metadata"] = metadata,
+        Ok(mut metadata) => {
+            if let Some(comment) = language_version_comment(source) {
+                metadata["languageVersionComment"] = json!(comment);
+            }
+            value["metadata"] = metadata
+        }
         Err(failure) => {
             value["error"] = json!({
                 "message": failure.message,
@@ -107,6 +112,50 @@ pub(super) fn library_metadata(source: &str) -> Value {
         }
     }
     value
+}
+
+/// The analyzer's `languageVersionToken`: a `// @dart = x.y` comment among
+/// the comments before the first token, as written.
+fn language_version_comment(source: &str) -> Option<String> {
+    let mut rest = source.strip_prefix('\u{feff}').unwrap_or(source);
+    if rest.starts_with("#!") {
+        rest = rest.split_once('\n').map_or("", |(_, tail)| tail);
+    }
+    loop {
+        rest = rest.trim_start();
+        if let Some(comment) = rest.strip_prefix("/*") {
+            rest = comment.split_once("*/").map_or("", |(_, tail)| tail);
+            continue;
+        }
+        if !rest.starts_with("//") {
+            return None;
+        }
+        let (line, tail) = rest.split_once('\n').unwrap_or((rest, ""));
+        let line = line.trim_end_matches('\r');
+        if is_language_version(line) {
+            return Some(line.to_owned());
+        }
+        rest = tail;
+    }
+}
+
+/// `// @dart = 2.12` with optional spaces around `@dart` and `=`.
+fn is_language_version(comment: &str) -> bool {
+    let Some(text) = comment.strip_prefix("//") else {
+        return false;
+    };
+    let Some(text) = text.trim_start().strip_prefix("@dart") else {
+        return false;
+    };
+    let Some(version) = text.trim_start().strip_prefix('=') else {
+        return false;
+    };
+    let Some((major, minor)) = version.trim().split_once('.') else {
+        return false;
+    };
+    [major, minor]
+        .iter()
+        .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// `SourceFile` offsets count UTF-16 code units, not UTF-8 bytes.

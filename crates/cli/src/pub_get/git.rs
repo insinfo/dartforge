@@ -222,6 +222,7 @@ impl Git {
                 return Err(format!("could not install {}", checkout.display()));
             }
         }
+        super::hosted::ensure_readme(&self.cache);
         Ok(())
     }
 }

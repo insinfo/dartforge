@@ -17,6 +17,7 @@ use std::{
 };
 use url::Url;
 static NEXT: AtomicU64 = AtomicU64::new(0);
+static README_WRITTEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 const DOWNLOAD_LIMIT: u64 = 256 * 1024 * 1024;
 
 /// One version of a registry listing.
@@ -265,8 +266,33 @@ impl Hosted {
             discontinued,
             replaced_by,
         });
+        self.cache_listing(name, url, body);
         self.listings.insert(key, result.clone());
         Ok(result)
+    }
+
+    /// `_cacheVersionListingResponse`: the listing as fetched, with the
+    /// local time it was fetched, in `hosted/<server>/.cache`. Failing to
+    /// write it is not an error.
+    fn cache_listing(&self, name: &str, url: &str, body: Node) {
+        let Node::Map(mut entries) = body else {
+            return;
+        };
+        entries.push((
+            "_fetchedAt".to_owned(),
+            Node::String(super::output::iso8601(false)),
+        ));
+        let directory = self
+            .cache
+            .join("hosted")
+            .join(url_to_directory(url))
+            .join(".cache");
+        if std::fs::create_dir_all(&directory).is_ok() {
+            let _ = std::fs::write(
+                directory.join(format!("{name}-versions.json")),
+                Node::Map(entries).to_json(),
+            );
+        }
     }
 
     /// Pub's `downloadToSystemCache`: reuses a cached package whose recorded
@@ -346,9 +372,35 @@ impl Hosted {
         result?;
         self.downloaded
             .insert((name.to_owned(), version.to_string()));
+        ensure_readme(&self.cache);
         Ok(digest)
     }
 }
+
+/// `SystemCache.maintainCache`: the cache's `README.md`, written once per run
+/// when the run changed the cache.
+pub(crate) fn ensure_readme(root: &Path) {
+    if README_WRITTEN.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let _ = std::fs::create_dir_all(root);
+    let _ = std::fs::write(root.join("README.md"), CACHE_README);
+}
+
+const CACHE_README: &str = "Pub Package Cache
+=================
+
+This folder is used by Pub to store cached packages used in Dart / Flutter
+projects.
+
+The contents of this folder should only be modified using the `dart pub` and
+`flutter pub` commands.
+
+Modifying this folder manually can lead to inconsistent behavior.
+
+For details on how manage the `PUB_CACHE`, see:
+https://dart.dev/go/pub-cache
+";
 
 fn remove(path: &Path) -> Result<(), String> {
     std::fs::remove_dir_all(path).map_err(|e| format!("{}: {e}", path.display()))

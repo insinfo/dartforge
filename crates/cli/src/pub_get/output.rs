@@ -224,10 +224,19 @@ fn language(manifest: &Manifest) -> String {
 
 /// Dart's `DateTime.now().toUtc().toIso8601String()`.
 fn now_iso8601() -> String {
+    iso8601(true)
+}
+
+/// Dart's `DateTime.now().toIso8601String()` in UTC (with `Z`) or in local
+/// time (without a zone, like a local `DateTime`).
+pub(crate) fn iso8601(utc: bool) -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    let seconds = now.as_secs() as i64;
+    let mut seconds = now.as_secs() as i64;
+    if !utc {
+        seconds += dartforge_local_time::local_time_zone(seconds).0;
+    }
     let micros = now.subsec_micros();
     let days = seconds.div_euclid(86_400);
     let rest = seconds.rem_euclid(86_400);
@@ -251,7 +260,9 @@ fn now_iso8601() -> String {
     if !micros.is_multiple_of(1000) {
         text.push_str(&format!("{:03}", micros % 1000));
     }
-    text.push('Z');
+    if utc {
+        text.push('Z');
+    }
     text
 }
 

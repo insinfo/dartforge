@@ -1,49 +1,41 @@
-//! Native execution of ordinary package:test suites through its own Engine.
+//! Native execution of ordinary package:test suites through package:test's
+//! own runner.
 //!
 //! `dartforge test` keeps package:test's semantics by running package:test's
-//! own code natively. A planner program, compiled once per package
-//! configuration and cached under `.dart_tool/dartforge/`, parses the command
-//! line and the `dart_test.yaml` files with `test_core`'s `Configuration`,
-//! finds the suites like its `Runner`/`Loader` and resolves each suite's
-//! configuration, merged with the library annotations that
-//! [`metadata::library_metadata`] reads. Each suite then runs in its own
-//! native worker built around package:test's `Declarer` and `Engine`.
+//! own code natively. A host program (`test_runner/host.dart`), compiled once
+//! per package configuration and cached under `.dart_tool/dartforge/`, is
+//! `dart test` with one platform replaced: it parses the command line and the
+//! `dart_test.yaml` files with `test_core`'s `Configuration`, loads the suites
+//! like its `Runner`/`Loader`, and runs them through its `Engine` and
+//! reporters (`expanded`, `compact`, `json`, `github`, `failures-only`,
+//! `silent`, file reporters, `--fail-fast`). Each suite is compiled into a
+//! native executable around test_core's own native bootstrap and talks to the
+//! host over test_core's socket protocol, as `dart test -c exe` does. The
+//! library annotations that test_core reads with the analyzer come from
+//! [`metadata::library_metadata`], which the host requests through
+//! `dartforge test --dartforge-library-metadata`.
 mod metadata;
 
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
     ffi::OsString,
     fs,
-    io::{BufRead, BufReader, Write},
-    path::{Component, Path, PathBuf},
-    process::{Command, ExitCode, Stdio},
-    sync::{Arc, Mutex},
-    thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    path::{Path, PathBuf},
+    process::{Command, ExitCode},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-const USAGE: &str = "usage: dartforge test [<file|directory> ...] [dart test options] [--reporter expanded|json] [--sdk <lib>] [--packages <package_config.json>] [--process-timeout <seconds>] [--keep-artifacts]
-Runs resolved package:test suites in native DartForge executables on the vm platform.
-Command-line options, dart_test.yaml (including presets, tags, on_os, on_platform,
-paths, filename, timeout, retry and concurrency) and the library annotations
-@TestOn, @Timeout, @Skip, @OnPlatform, @Tags and @Retry follow package:test.
-Suites report the vm platform with the exe compiler. Requires resolved test,
-test_api and test_core dependencies. Browser and node platforms, coverage,
-debugging, --fail-fast, file reporters, line/column selection and watch mode
-are not supported and are refused.";
+const USAGE: &str = "DartForge options of dartforge test:
+    --sdk <lib>                  The Dart SDK library directory used to compile the suites.
+    --packages <config>          The package_config.json (default: the one of the working directory).
+    --process-timeout <seconds>  Kills a suite's native executable after this many seconds.
+    --keep-artifacts             Keeps the generated bootstraps and executables.
+Suites run on the vm platform as native executables (the exe compiler). Browser and
+node platforms, coverage, debugging and line/column selection are refused.";
 
-/// Options of `dart test` that the native runner cannot honor; they are
-/// refused before anything is compiled. The planner refuses the same
-/// settings when they come from `dart_test.yaml`.
-const REFUSED_FLAGS: [(&str, &str); 5] = [
-    ("--coverage", "coverage collection"),
-    ("--pause-after-load", "debugging"),
-    ("--debug", "debugging"),
-    ("--fail-fast", "--fail-fast"),
-    ("--file-reporter", "file reporters"),
-];
+/// The internal option the host uses to read library annotations.
+const METADATA_OPTION: &str = "--dartforge-library-metadata";
 
 #[derive(Debug)]
 struct Options {
@@ -51,36 +43,9 @@ struct Options {
     forwarded: Vec<String>,
     sdk: Option<PathBuf>,
     packages: Option<PathBuf>,
-    /// `Some(true)` for the JSON reporter, `None` when not given.
-    json: Option<bool>,
-    timeout: Duration,
+    timeout: Option<u64>,
     keep: bool,
-}
-
-/// Values of `-p`/`--platform` in every spelling package:args accepts.
-fn platform_values(arguments: &[String]) -> Vec<String> {
-    let mut values = Vec::new();
-    let mut iter = arguments.iter();
-    while let Some(arg) = iter.next() {
-        if arg == "--" {
-            break;
-        }
-        let value = if arg == "-p" || arg == "--platform" {
-            iter.next().cloned()
-        } else if let Some(value) = arg.strip_prefix("--platform=") {
-            Some(value.to_owned())
-        } else if let Some(value) = arg.strip_prefix("-p") {
-            (!arg.starts_with("--")).then(|| value.to_owned())
-        } else {
-            None
-        };
-        values.extend(
-            value
-                .into_iter()
-                .flat_map(|v| v.split(',').map(str::to_owned).collect::<Vec<_>>()),
-        );
-    }
-    values
+    help: bool,
 }
 
 impl Options {
@@ -89,9 +54,9 @@ impl Options {
             forwarded: Vec::new(),
             sdk: None,
             packages: None,
-            json: None,
-            timeout: Duration::from_secs(120),
+            timeout: None,
             keep: false,
+            help: false,
         };
         let mut it = args.iter();
         while let Some(arg) = it.next() {
@@ -105,17 +70,13 @@ impl Options {
             match text {
                 "--sdk" => options.sdk = Some(PathBuf::from(value("--sdk")?)),
                 "--packages" => options.packages = Some(PathBuf::from(value("--packages")?)),
-                "--reporter" | "-r" => options.json = Some(reporter(&value("--reporter")?)?),
-                _ if text.starts_with("--reporter=") => {
-                    options.json = Some(reporter(&text["--reporter=".len()..])?)
-                }
                 "--process-timeout" => {
                     let seconds = value("--process-timeout")?
                         .parse::<u64>()
                         .ok()
                         .filter(|v| *v > 0)
                         .ok_or("test: --process-timeout requires positive seconds")?;
-                    options.timeout = Duration::from_secs(seconds);
+                    options.timeout = Some(seconds);
                 }
                 "--keep-artifacts" => options.keep = true,
                 "--" => {
@@ -129,38 +90,14 @@ impl Options {
                     }
                 }
                 _ => {
-                    let name = text.split('=').next().unwrap_or(text);
-                    if let Some((_, what)) = REFUSED_FLAGS.iter().find(|(flag, _)| *flag == name) {
-                        return Err(format!(
-                            "test: {what} ({name}) is not supported by the native runner"
-                        ));
-                    }
-                    if matches!(text, "--watch" | "-w") {
-                        return Err("test: watch mode is not supported by the native runner".into());
+                    if text == "--help" || text == "-h" {
+                        options.help = true;
                     }
                     options.forwarded.push(text.to_owned());
                 }
             }
         }
-        let others: Vec<String> = platform_values(&options.forwarded)
-            .into_iter()
-            .filter(|p| p != "vm")
-            .collect();
-        if !others.is_empty() {
-            return Err(format!(
-                "test: the native runner only runs the vm platform; {} is not supported",
-                others.join(", ")
-            ));
-        }
         Ok(options)
-    }
-}
-
-fn reporter(value: &str) -> Result<bool, String> {
-    match value {
-        "expanded" => Ok(false),
-        "json" => Ok(true),
-        _ => Err("test: --reporter must be expanded or json".into()),
     }
 }
 
@@ -196,51 +133,7 @@ fn check_packages(config: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Relative source imports avoid depending on native loader file-URI support.
-fn relative_import(from: &Path, to: &Path) -> Result<String, String> {
-    let left: Vec<Component<'_>> = from.components().collect();
-    let right: Vec<Component<'_>> = to.components().collect();
-    let shared = left.iter().zip(&right).take_while(|(a, b)| a == b).count();
-    if shared == 0 {
-        return Err("test: temporary worker and suite must be on the same filesystem root".into());
-    }
-    let mut pieces = vec!["..".to_owned(); left.len() - shared];
-    for part in &right[shared..] {
-        pieces.push(
-            part.as_os_str()
-                .to_str()
-                .ok_or("test: suite path must be valid UTF-8")?
-                .to_owned(),
-        );
-    }
-    Ok(pieces.join("/"))
-}
-
-fn dart_string_contents(text: &str) -> String {
-    // JSON and Dart share these escapes, except interpolation and single quotes.
-    let quoted = serde_json::to_string(text).expect("strings are JSON serializable");
-    quoted[1..quoted.len() - 1]
-        .replace('$', "\\$")
-        .replace('\'', "\\'")
-}
-
-const SELECTION_SOURCE: &str = include_str!("test_runner/selection.dart");
-const PLANNER_SOURCE: &str = include_str!("test_runner/planner.dart");
-const WORKER_SOURCE: &str = include_str!("test_runner/worker.dart");
-/// Prefix of the planner's protocol lines; ordinary output never starts so.
-const PROTOCOL: &str = "\u{0}dartforge-test-plan:";
-
-fn worker_source(directory: &Path, suite: &Path) -> Result<String, String> {
-    let uri = dart_string_contents(&relative_import(directory, suite)?);
-    let (before, after) = WORKER_SOURCE
-        .split_once("__DARTFORGE_SUITE_URI__")
-        .ok_or("test: invalid worker template")?;
-    Ok(format!("{before}{uri}{after}"))
-}
-
-fn planner_source() -> String {
-    PLANNER_SOURCE.replace("__DARTFORGE_PROTOCOL__", &dart_string_contents(PROTOCOL))
-}
+const HOST_SOURCE: &str = include_str!("test_runner/host.dart");
 
 const COMPILE_FLAGS: [&str; 5] = [
     "--optimize",
@@ -250,29 +143,18 @@ const COMPILE_FLAGS: [&str; 5] = [
     "--stack-trace=symbolic",
 ];
 
-fn compile(
-    source: &Path,
-    binary: &Path,
-    config: &Path,
-    sdk: Option<&Path>,
-) -> Result<std::process::Output, Box<dyn std::error::Error>> {
-    let mut command = Command::new(std::env::current_exe()?);
-    command
-        .arg("compile-native")
-        .arg(source)
-        .arg("-o")
-        .arg(binary)
-        .arg("--packages")
-        .arg(config)
-        .args(COMPILE_FLAGS);
+/// The `compile-native` arguments shared by the host and the suites.
+fn compile_arguments(config: &Path, sdk: Option<&Path>) -> Vec<String> {
+    let mut arguments = vec![
+        "--packages".to_owned(),
+        config.to_string_lossy().into_owned(),
+    ];
+    arguments.extend(COMPILE_FLAGS.iter().map(|f| (*f).to_owned()));
     if let Some(sdk) = sdk {
-        command.arg("--sdk").arg(sdk);
+        arguments.push("--sdk".to_owned());
+        arguments.push(sdk.to_string_lossy().into_owned());
     }
-    let output = command.output()?;
-    let directory = binary.parent().unwrap_or(Path::new("."));
-    fs::write(directory.join("compile.stdout"), &output.stdout)?;
-    fs::write(directory.join("compile.stderr"), &output.stderr)?;
-    Ok(output)
+    arguments
 }
 
 fn executable_name(stem: &str) -> String {
@@ -283,19 +165,15 @@ fn executable_name(stem: &str) -> String {
     }
 }
 
-/// The planner only depends on its sources, the package configuration, the
+/// The host only depends on its source, the package configuration, the
 /// compiler and the compile options, so its binary is reused across runs.
-fn planner_binary(
-    config: &Path,
-    sdk: Option<&Path>,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let source = planner_source();
+fn host_binary(config: &Path, sdk: Option<&Path>) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let compiler = std::env::current_exe()?;
     let compiler_metadata = fs::metadata(&compiler)?;
+    let arguments = compile_arguments(config, sdk);
     let mut hash = Sha256::new();
     for part in [
-        source.as_bytes(),
-        SELECTION_SOURCE.as_bytes(),
+        HOST_SOURCE.as_bytes(),
         &fs::read(config)?,
         compiler.to_string_lossy().as_bytes(),
         &compiler_metadata.len().to_le_bytes(),
@@ -304,10 +182,7 @@ fn planner_binary(
             .duration_since(UNIX_EPOCH)?
             .as_nanos()
             .to_le_bytes(),
-        sdk.map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default()
-            .as_bytes(),
-        COMPILE_FLAGS.join(" ").as_bytes(),
+        arguments.join(" ").as_bytes(),
     ] {
         hash.update((part.len() as u64).to_le_bytes());
         hash.update(part);
@@ -321,25 +196,33 @@ fn planner_binary(
     let tool = config
         .parent()
         .ok_or("test: invalid package configuration path")?;
-    let directory = tool.join("dartforge/test-planner").join(&key);
-    let binary = directory.join(executable_name("planner"));
+    let directory = tool.join("dartforge/test-host").join(&key);
+    let binary = directory.join(executable_name("host"));
     if binary.is_file() {
         return Ok(binary);
     }
     fs::create_dir_all(&directory)?;
-    fs::write(directory.join("planner.dart"), &source)?;
-    fs::write(directory.join("selection.dart"), SELECTION_SOURCE)?;
+    let source = directory.join("host.dart");
+    fs::write(&source, HOST_SOURCE)?;
     // Another run may compile the same key: publish the binary atomically.
     let partial = directory.join(format!(
         "{}.{}",
-        executable_name("planner"),
+        executable_name("host"),
         std::process::id()
     ));
-    let output = compile(&directory.join("planner.dart"), &partial, config, sdk)?;
+    let output = Command::new(&compiler)
+        .arg("compile-native")
+        .arg(&source)
+        .arg("-o")
+        .arg(&partial)
+        .args(&arguments)
+        .output()?;
+    fs::write(directory.join("compile.stdout"), &output.stdout)?;
+    fs::write(directory.join("compile.stderr"), &output.stderr)?;
     if !output.status.success() {
         let _ = fs::remove_file(&partial);
         return Err(format!(
-            "test: failed to compile the test planner with DartForge:\n{}",
+            "test: failed to compile the test host with DartForge:\n{}",
             String::from_utf8_lossy(&output.stderr)
         )
         .into());
@@ -348,424 +231,31 @@ fn planner_binary(
     Ok(binary)
 }
 
-enum Planned {
-    /// The planner already reported the problem and exited with this code.
-    Exit(u8),
-    Refused(String),
-    Plan {
-        plan: Value,
-        suites: Vec<Value>,
-    },
-}
-
-/// Runs the planner, answering its request for library annotations.
-fn plan(
-    binary: &Path,
-    cwd: &Path,
-    options: &Options,
-) -> Result<Planned, Box<dyn std::error::Error>> {
-    let mut child = Command::new(binary)
-        .current_dir(cwd)
-        .args(&options.forwarded)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()?;
-    let mut stdin = child.stdin.take().ok_or("test: missing planner input")?;
-    let stdout = child.stdout.take().ok_or("test: missing planner output")?;
-    let mut plan = None;
-    let mut suites = None;
-    let mut refusal = None;
-    for line in BufReader::new(stdout).lines() {
-        let line = line?;
-        let Some(message) = line.strip_prefix(PROTOCOL) else {
-            println!("{line}");
-            continue;
-        };
-        let message: Value = serde_json::from_str(message)?;
-        match message["type"].as_str() {
-            Some("refusal") => refusal = message["message"].as_str().map(str::to_owned),
-            Some("plan") => {
-                let mut libraries = serde_json::Map::new();
-                for load in message["loads"].as_array().ok_or("test: invalid plan")? {
-                    if load["missing"] == true {
-                        continue;
-                    }
-                    let path = load["path"].as_str().ok_or("test: invalid plan")?;
-                    if !libraries.contains_key(path) {
-                        let source = fs::read_to_string(cwd.join(path))?;
-                        libraries.insert(path.to_owned(), metadata::library_metadata(&source));
-                    }
-                }
-                writeln!(stdin, "{}", json!({ "libraries": libraries }))?;
-                stdin.flush()?;
-                plan = Some(message);
-            }
-            Some("suites") => suites = Some(message["suites"].clone()),
-            _ => return Err("test: unknown planner message".into()),
-        }
-    }
-    drop(stdin);
-    let status = child.wait()?;
-    if let Some(message) = refusal {
-        return Ok(Planned::Refused(message));
-    }
-    match (plan, suites) {
-        (Some(plan), Some(Value::Array(suites))) if status.success() => {
-            Ok(Planned::Plan { plan, suites })
-        }
-        _ => Ok(Planned::Exit(
-            status
-                .code()
-                .and_then(|c| u8::try_from(c).ok())
-                .filter(|c| *c != 0)
-                .unwrap_or(1),
-        )),
-    }
-}
-
-/// package:test's `ExpandedReporter`, fed with the events of every suite
-/// in the order the suites report them, so a sequential run prints what
-/// `dart test -r expanded` prints (apart from the elapsed time and the
-/// frames of native stack traces).
-struct Expanded {
-    color: bool,
-    print_path: bool,
-    started: Option<Instant>,
-    passed: u64,
-    skipped: u64,
-    failed: u64,
-    ran: bool,
-    last: Option<(u64, u64, u64, String, Option<String>)>,
-    chain_notice: bool,
-    /// The running test's description and whether it already failed.
-    current: Option<(String, bool)>,
-}
-
-impl Expanded {
-    fn new(color: bool, print_path: bool) -> Self {
-        Self {
-            color,
-            print_path,
-            started: None,
-            passed: 0,
-            skipped: 0,
-            failed: 0,
-            ran: false,
-            last: None,
-            chain_notice: false,
-            current: None,
-        }
-    }
-
-    fn code(&self, code: &'static str) -> &'static str {
-        if self.color { code } else { "" }
-    }
-
-    fn progress(&mut self, message: &str, color: &str, suffix: Option<String>) {
-        let key = (self.passed, self.skipped, self.failed, message.to_owned());
-        if let Some(last) = &self.last
-            && (last.0, last.1, last.2, last.3.clone()) == key
-            && (suffix.is_none() || suffix == last.4)
-        {
-            return;
-        }
-        self.last = Some((key.0, key.1, key.2, key.3, suffix.clone()));
-        let elapsed = self.started.map(|s| s.elapsed().as_secs()).unwrap_or(0);
-        let (green, yellow, red, none) = (
-            self.code("\u{1b}[32m"),
-            self.code("\u{1b}[33m"),
-            self.code("\u{1b}[31m"),
-            self.code("\u{1b}[0m"),
-        );
-        let mut line = format!(
-            "{:02}:{:02} {green}+{}{none}",
-            elapsed / 60,
-            elapsed % 60,
-            self.passed
-        );
-        if self.skipped > 0 {
-            line.push_str(&format!("{yellow} ~{}{none}", self.skipped));
-        }
-        if self.failed > 0 {
-            line.push_str(&format!("{red} -{}{none}", self.failed));
-        }
-        line.push_str(&format!(
-            ": {color}{message}{}{none}",
-            suffix.unwrap_or_default()
-        ));
-        println!("{line}");
-    }
-
-    fn describe(&self, suite: &str, name: &str) -> String {
-        if self.print_path {
-            format!("{suite}: {name}")
-        } else {
-            name.to_owned()
-        }
-    }
-
-    fn error_suffix(&self) -> String {
-        format!(
-            " {}{}[E]{}",
-            self.code("\u{1b}[1m"),
-            self.code("\u{1b}[31m"),
-            self.code("\u{1b}[0m")
-        )
-    }
-
-    /// The `loading <path>` line printed when a suite starts loading.
-    fn loading(&mut self, suite: &str) {
-        let text = format!(
-            "{}{}loading {suite}{}",
-            self.code("\u{1b}[1m"),
-            self.code("\u{1b}[90m"),
-            self.code("\u{1b}[0m")
-        );
-        self.progress(&text, "", None);
-    }
-
-    fn event(&mut self, suite: &str, event: &Value) {
-        let name = event["name"].as_str().unwrap_or("");
-        match event["type"].as_str() {
-            Some("testStart") => {
-                self.started.get_or_insert_with(Instant::now);
-                self.ran = true;
-                let description = self.describe(suite, name);
-                self.current = Some((description.clone(), false));
-                self.progress(&description, "", None);
-            }
-            Some("message") | Some("print") => {
-                if let Some((description, _)) = self.current.clone() {
-                    self.progress(&description, "", None);
-                }
-                let text = event["message"].as_str().unwrap_or("");
-                if event["messageType"] == "skip" {
-                    println!(
-                        "  {}{text}{}",
-                        self.code("\u{1b}[33m"),
-                        self.code("\u{1b}[0m")
-                    );
-                } else {
-                    println!("{text}");
-                }
-            }
-            Some("error") => {
-                self.chain_notice = true;
-                let description = match &mut self.current {
-                    Some((description, failed)) => {
-                        if !*failed {
-                            *failed = true;
-                            self.failed += 1;
-                        }
-                        description.clone()
-                    }
-                    None => self.describe(suite, name),
-                };
-                let suffix = self.error_suffix();
-                self.progress(&description, "", Some(suffix));
-                let indent = |text: &str| format!("  {}", text.replace('\n', "\n  "));
-                println!("{}", indent(event["error"].as_str().unwrap_or("")));
-                println!("{}", indent(event["stackTrace"].as_str().unwrap_or("")));
-            }
-            Some("loadError") => {
-                self.ran = true;
-                self.failed += 1;
-                let text = format!(
-                    "{}{}loading {suite}{}",
-                    self.code("\u{1b}[1m"),
-                    self.code("\u{1b}[90m"),
-                    self.code("\u{1b}[0m")
-                );
-                let suffix = self.error_suffix();
-                self.progress(&text, "", Some(suffix));
-                let message = event["error"].as_str().unwrap_or("");
-                println!("  {}", message.replace('\n', "\n  "));
-            }
-            Some("testDone") => {
-                let failed = self.current.take().is_some_and(|(_, failed)| failed);
-                match event["result"].as_str() {
-                    Some("success") => self.passed += 1,
-                    _ if event["skipped"] == true => self.skipped += 1,
-                    _ if !failed => self.failed += 1,
-                    _ => {}
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn done(&mut self) {
-        if !self.ran {
-            println!("No tests ran.");
-        } else if self.failed > 0 {
-            let red = self.code("\u{1b}[31m");
-            self.progress("Some tests failed.", red, None);
-        } else if self.passed == 0 {
-            self.progress("All tests skipped.", "", None);
-        } else {
-            self.progress("All tests passed!", "", None);
-        }
-        if self.chain_notice {
-            println!();
-            println!(
-                "Consider enabling the flag chain-stack-traces to receive more detailed exceptions.\nFor example, 'dart test --chain-stack-traces'."
-            );
-        }
-    }
-}
-
-/// Prints worker events: as JSON lines, or through the shared expanded
-/// reporter. Events of a suite running in parallel are kept together.
-struct Relay {
-    json: bool,
-    suite: String,
-    expanded: Arc<Mutex<Expanded>>,
-    buffer: Option<Vec<Value>>,
-}
-
-impl Relay {
-    fn event(&mut self, mut event: Value) {
-        if self.json {
-            event["suite"] = json!(self.suite);
-            println!("{event}");
-            return;
-        }
-        match &mut self.buffer {
-            Some(events) => events.push(event),
-            None => self
-                .expanded
-                .lock()
-                .expect("reporter")
-                .event(&self.suite, &event),
-        }
-    }
-
-    fn line(&mut self, line: &str) {
-        let event = serde_json::from_str::<Value>(line)
-            .unwrap_or_else(|_| json!({"type":"print", "message":line}));
-        self.event(event);
-    }
-
-    /// Prints the `loading` line of the suite (unbuffered runs).
-    fn start(&mut self) {
-        if !self.json && self.buffer.is_none() {
-            self.expanded.lock().expect("reporter").loading(&self.suite);
-        }
-    }
-
-    fn flush(&mut self) {
-        if let Some(events) = self.buffer.take() {
-            let mut expanded = self.expanded.lock().expect("reporter");
-            expanded.loading(&self.suite);
-            for event in events {
-                expanded.event(&self.suite, &event);
-            }
-        }
-    }
-}
-
-#[derive(Default)]
-struct Tally {
-    passed: u64,
-    failed: u64,
-    skipped: u64,
-    /// A suite failed to compile, load or report.
-    broken: bool,
-}
-
-struct SuiteRun {
-    binary: PathBuf,
-    spec: PathBuf,
-    report: PathBuf,
-    token: String,
-    relay: Relay,
-}
-
-/// Runs one compiled worker under the process timeout.
-fn run_worker(job: SuiteRun, cwd: &Path, timeout: Duration) -> std::io::Result<Tally> {
-    let SuiteRun {
-        binary,
-        spec,
-        report,
-        token,
-        relay,
-    } = job;
-    let suite = relay.suite.clone();
-    let relay = Arc::new(Mutex::new(relay));
-    relay.lock().expect("relay").start();
-    let mut child = Command::new(&binary)
-        .current_dir(cwd)
-        .arg(&report)
-        .arg(&token)
-        .arg(&spec)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()?;
-    let stdout = child.stdout.take().expect("piped worker output");
-    let reader_relay = Arc::clone(&relay);
-    let reader = thread::spawn(move || {
-        for line in BufReader::new(stdout).lines() {
-            match line {
-                Ok(line) => reader_relay.lock().expect("relay").line(&line),
-                Err(error) => {
-                    eprintln!("test worker output: {error}");
-                    break;
-                }
-            }
-        }
-    });
-    let started = Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if started.elapsed() >= timeout {
-            child.kill()?;
-            let status = child.wait()?;
-            eprintln!("Test process timed out: {suite}");
-            break status;
-        }
-        thread::sleep(Duration::from_millis(20));
-    };
-    let _ = reader.join();
-    relay.lock().expect("relay").flush();
-    let summary = fs::read(&report)
+/// How many suites DartForge compiles at the same time. Native compilation
+/// is far heavier than the VM's kernel compilation, so it does not follow
+/// `--concurrency`; `DARTFORGE_TEST_COMPILE_JOBS` overrides the default.
+fn compile_jobs() -> usize {
+    if let Some(jobs) = std::env::var("DARTFORGE_TEST_COMPILE_JOBS")
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
-    let Some(summary) =
-        summary.filter(|s| s["schemaVersion"] == 2 && s["token"].as_str() == Some(&token))
-    else {
-        eprintln!("Test process produced no valid completion report: {suite} ({status})");
-        return Ok(Tally {
-            broken: true,
-            ..Tally::default()
-        });
-    };
-    let count = |key: &str| summary[key].as_u64().unwrap_or(u64::MAX);
-    let (total, passed, failed, skipped) = (
-        count("total"),
-        count("passed"),
-        count("failed"),
-        count("skipped"),
-    );
-    let consistent = [total, passed, failed, skipped]
-        .iter()
-        .all(|v| *v != u64::MAX);
-    let broken = !consistent
-        || if total == 0 {
-            status.code() != Some(79)
-        } else {
-            let succeeded = status.success() && summary["success"] == true && failed == 0;
-            // A suite that claims success must account for every selected test.
-            (succeeded && passed.checked_add(skipped) != Some(total)) || (!succeeded && failed == 0)
-        };
-    Ok(Tally {
-        passed,
-        failed,
-        skipped,
-        broken,
-    })
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+    {
+        return jobs;
+    }
+    let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+    (cpus / 4).clamp(1, 4)
+}
+
+/// `--dartforge-library-metadata <path>...`: the annotations of each suite.
+fn print_library_metadata(paths: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    let mut libraries = serde_json::Map::new();
+    for path in paths {
+        let path = path.to_str().ok_or("test: paths must be valid UTF-8")?;
+        let source = fs::read_to_string(path)?;
+        libraries.insert(path.to_owned(), metadata::library_metadata(&source));
+    }
+    println!("{}", Value::Object(libraries));
+    Ok(ExitCode::SUCCESS)
 }
 
 struct Workspace {
@@ -780,30 +270,10 @@ impl Drop for Workspace {
     }
 }
 
-/// The reporter: an explicit `--reporter` wins; otherwise dart_test.yaml may
-/// select one, compared with package:test's own default.
-fn select_reporter(options: &Options, plan: &Value) -> Result<bool, String> {
-    if let Some(json) = options.json {
-        return Ok(json);
-    }
-    let chosen = plan["reporter"].as_str().unwrap_or("");
-    if chosen == plan["defaultReporter"].as_str().unwrap_or("") {
-        return Ok(false);
-    }
-    match chosen {
-        "json" => Ok(true),
-        "expanded" | "compact" => Ok(false),
-        other => Err(format!(
-            "test: the {other} reporter is not supported; use expanded or json"
-        )),
-    }
-}
-
-/// Execute suites in separate DartForge AOT programs, without an SDK test runner.
+/// Runs package:test suites through the natively compiled test host.
 pub(crate) fn run(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Error>> {
-    if args.iter().any(|v| v == "--help" || v == "-h") {
-        println!("{USAGE}");
-        return Ok(ExitCode::SUCCESS);
+    if args.first().is_some_and(|a| a == METADATA_OPTION) {
+        return print_library_metadata(&args[1..]);
     }
     let options = match Options::parse(args) {
         Ok(options) => options,
@@ -818,23 +288,7 @@ pub(crate) fn run(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Err
     let cwd = dartforge_elements::config::canonicalize(&std::env::current_dir()?)?;
     let config = package_config(&cwd, options.packages.as_deref())?;
     check_packages(&config)?;
-    let planner = planner_binary(&config, options.sdk.as_deref())?;
-    let (plan, suites) = match self::plan(&planner, &cwd, &options)? {
-        Planned::Exit(code) => return Ok(ExitCode::from(code)),
-        Planned::Refused(message) => {
-            eprintln!("error: test: {message}");
-            return Ok(ExitCode::from(64));
-        }
-        Planned::Plan { plan, suites } => (plan, suites),
-    };
-    let json_reporter = match select_reporter(&options, &plan) {
-        Ok(json) => json,
-        Err(message) => {
-            eprintln!("error: {message}");
-            return Ok(ExitCode::from(64));
-        }
-    };
-    let concurrency = plan["concurrency"].as_u64().unwrap_or(1).max(1) as usize;
+    let host = host_binary(&config, options.sdk.as_deref())?;
 
     let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let directory =
@@ -847,139 +301,36 @@ pub(crate) fn run(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Err
     if options.keep {
         eprintln!("Test artifacts: {}", workspace.path.display());
     }
-    fs::write(workspace.path.join("selection.dart"), SELECTION_SOURCE)?;
-
-    let runnable = suites.iter().filter(|s| s["action"] == "run").count();
-    let color = plan["color"].as_bool().unwrap_or(false);
-    let print_path = plan["printPath"].as_bool().unwrap_or(true);
-    let expanded = Arc::new(Mutex::new(Expanded::new(color, print_path)));
-    let mut tally = Tally::default();
-    let mut binaries: BTreeMap<String, Option<PathBuf>> = BTreeMap::new();
-    let parallel = concurrency > 1 && runnable > 1;
-    let mut running: Vec<thread::JoinHandle<std::io::Result<Tally>>> = Vec::new();
-    let collect =
-        |handle: thread::JoinHandle<std::io::Result<Tally>>, tally: &mut Tally| match handle.join()
-        {
-            Ok(Ok(result)) => {
-                tally.passed += result.passed;
-                tally.failed += result.failed;
-                tally.skipped += result.skipped;
-                tally.broken |= result.broken;
-            }
-            Ok(Err(error)) => {
-                eprintln!("test worker: {error}");
-                tally.broken = true;
-            }
-            Err(_) => tally.broken = true,
-        };
-    for (index, suite) in suites.iter().enumerate() {
-        let path = suite["path"].as_str().ok_or("test: invalid suite plan")?;
-        let relay = |buffer: bool| Relay {
-            json: json_reporter,
-            suite: path.to_owned(),
-            expanded: Arc::clone(&expanded),
-            buffer: buffer.then(Vec::new),
-        };
-        match suite["action"].as_str() {
-            Some("none") => {}
-            Some("error") => {
-                let message = suite["message"].as_str().unwrap_or("");
-                let mut relay = relay(false);
-                relay.start();
-                relay.event(json!({"type": "loadError", "error": message}));
-                tally.failed += 1;
-            }
-            Some("skip") => {
-                let mut relay = relay(false);
-                relay.start();
-                if let Some(warning) = suite["warning"].as_str() {
-                    relay.event(json!({"type": "print", "message": warning}));
-                }
-                relay.event(json!({"type": "testStart", "name": "(suite)"}));
-                if let Some(reason) = suite["reason"].as_str() {
-                    relay.event(json!({"type": "message", "name": "(suite)", "message": format!("Skip: {reason}")}));
-                }
-                relay.event(json!({"type": "testDone", "name": "(suite)", "result": "skipped", "skipped": true}));
-                tally.skipped += 1;
-            }
-            Some("run") => {
-                let binary = match binaries.get(path) {
-                    Some(binary) => binary.clone(),
-                    None => {
-                        let suite_path = dartforge_elements::config::canonicalize(&cwd.join(path))?;
-                        let output = workspace.path.join(binaries.len().to_string());
-                        fs::create_dir(&output)?;
-                        let worker = output.join("worker.dart");
-                        fs::write(&worker, worker_source(&output, &suite_path)?)?;
-                        fs::write(output.join("selection.dart"), SELECTION_SOURCE)?;
-                        let binary = output.join(executable_name("worker"));
-                        let compilation =
-                            compile(&worker, &binary, &config, options.sdk.as_deref())?;
-                        let binary = if compilation.status.success() {
-                            Some(binary)
-                        } else {
-                            eprintln!(
-                                "Failed to compile {path} with DartForge:\n{}",
-                                String::from_utf8_lossy(&compilation.stderr)
-                            );
-                            None
-                        };
-                        binaries.insert(path.to_owned(), binary.clone());
-                        binary
-                    }
-                };
-                let Some(binary) = binary else {
-                    tally.failed += 1;
-                    tally.broken = true;
-                    continue;
-                };
-                let spec = workspace.path.join(format!("suite-{index}.json"));
-                fs::write(&spec, serde_json::to_vec(&suite["worker"])?)?;
-                let job = SuiteRun {
-                    binary,
-                    report: workspace.path.join(format!("result-{index}.json")),
-                    spec,
-                    token: format!("{unique}-{index}"),
-                    relay: relay(parallel && !json_reporter),
-                };
-                while running.len() >= concurrency {
-                    let handle = running.remove(0);
-                    collect(handle, &mut tally);
-                }
-                let cwd = cwd.clone();
-                let timeout = options.timeout;
-                running.push(thread::spawn(move || run_worker(job, &cwd, timeout)));
-            }
-            _ => return Err("test: invalid suite plan".into()),
-        }
+    let compiler = std::env::current_exe()?.to_string_lossy().into_owned();
+    let settings = json!({
+        "compiler": compiler,
+        "compileArguments": compile_arguments(&config, options.sdk.as_deref()),
+        "compileJobs": compile_jobs(),
+        "metadataCommand": [compiler, "test", METADATA_OPTION],
+        "packageConfig": config,
+        "processTimeout": options.timeout,
+        "workDirectory": workspace.path.join("suites"),
+    });
+    let settings_path = workspace.path.join("settings.json");
+    fs::write(&settings_path, serde_json::to_vec(&settings)?)?;
+    let mut command = Command::new(&host);
+    command
+        .current_dir(&cwd)
+        .arg(&settings_path)
+        .args(&options.forwarded);
+    // package:test prints `Platform.executable` in the command that reruns a
+    // failed test (`<dart> test <path> -p vm --plain-name ...`); here that
+    // command is this executable.
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::arg0(&mut command, &compiler);
+    let status = command.status()?;
+    if options.help {
+        println!("{USAGE}");
     }
-    for handle in running {
-        collect(handle, &mut tally);
-    }
-
-    let ran = tally.passed + tally.failed + tally.skipped;
-    let code = if tally.broken || tally.failed > 0 {
-        1
-    } else if ran == 0 {
-        eprintln!(
-            "{}",
-            plan["noTestsMessage"]
-                .as_str()
-                .unwrap_or("No tests were found.")
-        );
-        79
-    } else {
-        0
-    };
-    if json_reporter {
-        println!(
-            "{}",
-            json!({"type":"done", "success":code == 0, "passed": tally.passed, "failed": tally.failed, "skipped": tally.skipped})
-        );
-    } else {
-        expanded.lock().expect("reporter").done();
-    }
-    Ok(ExitCode::from(code))
+    Ok(match status.code() {
+        Some(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
+        None => ExitCode::FAILURE,
+    })
 }
 
 #[cfg(test)]
@@ -998,15 +349,21 @@ mod tests {
             "group async",
             "--reporter",
             "json",
+            "--file-reporter",
+            "json:out.json",
+            "--fail-fast",
             "-P",
             "ci",
             "--sdk",
             "/sdk/lib",
             "--keep-artifacts",
+            "--process-timeout",
+            "30",
             "-p",
             "vm",
             "--",
-            "--odd-name_test.dart",
+            "--sdk",
+            "--help",
         ]))
         .unwrap();
         assert_eq!(
@@ -1015,71 +372,60 @@ mod tests {
                 "test/a_test.dart",
                 "--plain-name",
                 "group async",
+                "--reporter",
+                "json",
+                "--file-reporter",
+                "json:out.json",
+                "--fail-fast",
                 "-P",
                 "ci",
                 "-p",
                 "vm",
                 "--",
-                "--odd-name_test.dart"
+                "--sdk",
+                "--help",
             ]
         );
-        assert_eq!(options.json, Some(true));
         assert_eq!(options.sdk, Some(PathBuf::from("/sdk/lib")));
+        assert_eq!(options.timeout, Some(30));
         assert!(options.keep);
+        assert!(!options.help, "paths after -- are not options");
     }
 
     #[test]
-    fn unsupported_platforms_reporters_and_runner_modes_are_refused() {
+    fn dartforge_option_values_are_checked() {
         for values in [
-            vec!["--platform", "chrome"],
-            vec!["-p", "vm,node"],
-            vec!["-pchrome"],
-            vec!["--platform=firefox"],
-            vec!["--reporter", "compact"],
-            vec!["--reporter=github"],
             vec!["--process-timeout", "0"],
-            vec!["--coverage", "out"],
-            vec!["--coverage=out"],
-            vec!["--pause-after-load"],
-            vec!["--debug"],
-            vec!["--fail-fast"],
-            vec!["--file-reporter", "json:out.json"],
-            vec!["--watch"],
+            vec!["--process-timeout", "x"],
             vec!["--sdk"],
+            vec!["--packages"],
         ] {
             assert!(Options::parse(&args(&values)).is_err(), "{values:?}");
         }
-        // Paths after `--` are never read as options.
-        assert!(Options::parse(&args(&["--", "-pchrome"])).is_ok());
+        assert!(Options::parse(&args(&["-h"])).unwrap().help);
     }
 
     #[test]
-    fn reporter_from_configuration_is_compared_with_the_package_default() {
-        let options = Options::parse(&args(&[])).unwrap();
-        let plan = |reporter: &str| json!({"reporter": reporter, "defaultReporter": "compact"});
-        assert_eq!(select_reporter(&options, &plan("compact")), Ok(false));
-        assert_eq!(select_reporter(&options, &plan("json")), Ok(true));
-        assert_eq!(select_reporter(&options, &plan("expanded")), Ok(false));
-        assert!(select_reporter(&options, &plan("github")).is_err());
-        let explicit = Options::parse(&args(&["-r", "json"])).unwrap();
-        assert_eq!(select_reporter(&explicit, &plan("github")), Ok(true));
-    }
-
-    #[test]
-    fn relative_import_and_dart_escaping_preserve_literal_path() {
-        let base = dartforge_elements::config::canonicalize(&std::env::temp_dir()).unwrap();
-        let from = base.join("workers/0");
-        let suite = base.join("project/test/quote'$__DARTFORGE_SUITE_URI___test.dart");
-        let relative = relative_import(&from, &suite).unwrap();
-        assert_eq!(
-            relative,
-            "../../project/test/quote'$__DARTFORGE_SUITE_URI___test.dart"
+    fn host_template_runs_package_test_engine_and_reporters() {
+        assert!(
+            HOST_SOURCE.contains("allReporters[config.reporter]!.factory(config, engine, stdout)")
         );
-        let source = worker_source(&from, &suite).unwrap();
-        assert!(source.contains("quote\\'\\$__DARTFORGE_SUITE_URI___test.dart"));
-        assert!(source.contains("Invoker.guard<Future<bool?>>"));
-        assert!(source.contains("await declarer.declare<FutureOr<void>>(suite_source.main)"));
-        assert!(planner_source().contains("const _protocol = '\\u0000dartforge-test-plan:';"));
+        assert!(HOST_SOURCE.contains("stopOnFirstFailure: config.stopOnFirstFailure"));
+        assert!(HOST_SOURCE.contains("internalBootstrapNativeTest(() => test.main, args)"));
+        assert!(HOST_SOURCE.contains("deserializeSuite(path, platform, suiteConfig"));
+    }
+
+    #[test]
+    fn compile_arguments_carry_the_package_configuration_and_sdk() {
+        let arguments =
+            compile_arguments(Path::new("/p/.dart_tool/pc.json"), Some(Path::new("/sdk")));
+        assert_eq!(arguments[..2], ["--packages", "/p/.dart_tool/pc.json"]);
+        assert_eq!(arguments[arguments.len() - 2..], ["--sdk", "/sdk"]);
+        assert!(
+            compile_arguments(Path::new("/c"), None)
+                .iter()
+                .all(|a| a != "--sdk")
+        );
     }
 
     #[test]

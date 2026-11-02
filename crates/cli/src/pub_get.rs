@@ -5,10 +5,12 @@
 //! the same lockfile; `pubspec.lock` and `.dart_tool/package_config.json`
 //! are written in Pub's exact layout (`generator: pub`), so tools that
 //! check them accept the result.
+mod cache;
 mod commands;
 mod edit;
 mod failure;
 mod git;
+mod global;
 mod hosted;
 mod inspect;
 mod manifest;
@@ -38,6 +40,7 @@ pub(crate) const USAGE: &str = "Usage: dartforge pub <subcommand> [arguments...]
 
 Available subcommands:
   add         Add dependencies to `pubspec.yaml`.
+  cache       Work with the system cache.
   deps        Print package dependencies.
   downgrade   Downgrade packages in a project.
   get         Get the current package's dependencies.
@@ -350,6 +353,7 @@ pub(crate) fn run(args: &[OsString]) -> Result<u8, Failure> {
         "remove" => commands::remove(rest),
         "deps" => commands::deps(rest),
         "outdated" => commands::outdated(rest),
+        "cache" => cache::run(rest),
         other => Err(usage(format!(
             "Could not find a subcommand named \"{other}\" for \"dart pub\".\n\n{USAGE}"
         ))),
