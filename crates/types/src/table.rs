@@ -769,13 +769,15 @@ impl TypeTable {
         }
         let remap = TypeRemap(map);
         let f = |t: TypeId| remap.get(t);
-        let old = std::mem::take(&mut self.types);
-        self.types = old
-            .into_iter()
-            .enumerate()
-            .filter(|(i, _)| live[*i])
-            .map(|(_, t)| remap_type(&t, &f))
-            .collect();
+        // In place: the kept types move down, renumbered.
+        let mut next = 0;
+        for i in 0..n {
+            if live[i] {
+                self.types[next] = remap_type(&self.types[i], &f);
+                next += 1;
+            }
+        }
+        self.types.truncate(next);
         let kept = |t: &TypeId| live.get(t.0 as usize).copied().unwrap_or(false);
         self.display = std::mem::take(&mut self.display)
             .into_iter()
@@ -824,13 +826,15 @@ impl TypeTable {
         }
         // The lowest slots first.
         self.free_params.reverse();
-        self.lookup = self
-            .types
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| !self.display.contains_key(&TypeId(*i as u32)))
-            .map(|(i, t)| (t.clone(), TypeId(i as u32)))
-            .collect();
+        // Into the old map (its keys hold old ids): a new one, built while the
+        // old one lives, would double the table's largest structure for the
+        // time of the collection, and the allocator keeps that peak.
+        self.lookup.clear();
+        for (i, t) in self.types.iter().enumerate() {
+            if !self.display.contains_key(&TypeId(i as u32)) {
+                self.lookup.insert(t.clone(), TypeId(i as u32));
+            }
+        }
         self.payload_bytes = self.types.len()
             * (2 * std::mem::size_of::<Type>() + std::mem::size_of::<TypeId>() + 8)
             + self.type_params.len() * std::mem::size_of::<TypeParameterData>();
