@@ -673,6 +673,7 @@ impl LlvmEmitter<'_> {
         // modules (a closure created in the source SDK is called in the program) and
         // does not depend on the order of anything.
         self.annotate_external(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
+        self.note_sdk_tearoff(code_symbol);
         let code = format!("ptrtoint (ptr @{code_symbol} to i64)");
         self.emit_inline_closure(v, &code, env, "0", 0);
     }
@@ -691,6 +692,7 @@ impl LlvmEmitter<'_> {
     ) {
         let _ = direct;
         self.annotate_external(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
+        self.note_sdk_tearoff(code_symbol);
         let code = format!("ptrtoint (ptr @{code_symbol} to i64)");
         let body = format!("ptrtoint (ptr @{typed} to i64)");
         self.emit_inline_closure(v, &code, env, &body, abi);
@@ -700,6 +702,7 @@ impl LlvmEmitter<'_> {
     /// runtime keeps the single handle, `Heap::tearoff`).
     pub(super) fn emit_tearoff(&mut self, v: u32, code_symbol: &str) {
         self.annotate_external(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
+        self.note_sdk_tearoff(code_symbol);
         // The typed body of the function (`lower/closures.rs`,
         // `typed_tearoff_body`), when the uniform entry of this module calls it:
         // its ABI comes from its signature, the code `type_abi` gives the type.

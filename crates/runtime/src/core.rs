@@ -399,6 +399,23 @@ pub unsafe extern "C" fn dartforge_register_tearoff(code: *const u8, ptr: *const
     TEAROFF_NAMES.with(|map| map.borrow_mut().insert(code as usize as i64, (name, is_static != 0)));
 }
 
+/// [`dartforge_register_tearoff`] and [`dartforge_register_tearoff_key`] on
+/// the first call for `code`: an SDK library calls it where it creates the
+/// closure of one of its tear-off entries, not at startup
+/// (`LlvmEmitter::note_sdk_tearoff`).
+///
+/// # Safety
+/// `ptr` points to `len` readable bytes (a module constant).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_note_tearoff(code: *const u8, ptr: *const u8, len: i64, is_static: u8, key: i64) {
+    if TEAROFF_NAMES.with(|map| map.borrow().contains_key(&(code as usize as i64))) {
+        return;
+    }
+    // SAFETY: guaranteed by the caller.
+    unsafe { dartforge_register_tearoff(code, ptr, len, is_static) };
+    dartforge_register_tearoff_key(code, key);
+}
+
 /// Registers the identity `key` of the tear-off entry `code` (a hash of the
 /// selector of an instance method, of the symbol otherwise):
 /// [`dartforge_native_Closure_equals`] and the closure's hash compare keys,

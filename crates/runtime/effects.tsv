@@ -787,6 +787,7 @@ dartforge_native_WeakProperty_setValue	1	1	0
 dartforge_native_WeakReference_getTarget	1	1	0
 dartforge_native_WeakReference_setTarget	1	1	0
 dartforge_no_such_method_error_new	1	1	1
+dartforge_note_tearoff	0	0	0
 dartforge_nsm_call	1	1	1
 dartforge_nsm_mismatch	1	1	1
 dartforge_null_check_error_new	1	1	1

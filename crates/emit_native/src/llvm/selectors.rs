@@ -296,6 +296,35 @@ impl LlvmEmitter<'_> {
 
     /// The `<record>` function: the names of the classes of the module, the subtype
     /// edges and the method tables, handed to the runtime.
+    /// Before an SDK library creates the closure of one of its tear-off
+    /// entries (`Module::tearoff_names`, `Module::instantiation_entries`):
+    /// the runtime learns its name and identity on first use
+    /// (`dartforge_note_tearoff`), not at startup, so the registration keeps
+    /// nothing alive the creating code does not ([`Self::emit_registration`]).
+    pub(super) fn note_sdk_tearoff(&mut self, symbol: &str) {
+        if !self.module.sdk_library {
+            return;
+        }
+        if let Some((name, is_static)) = self.module.tearoff_names.get(symbol).cloned() {
+            let idx = self.string_const_index(name.as_bytes()).unwrap_or(0);
+            writeln!(
+                self.out,
+                "  call void @dartforge_note_tearoff(ptr @{symbol}, ptr @.str.{idx}, i64 {}, i8 {}, i64 {})",
+                name.len(),
+                u8::from(is_static),
+                selector_hash(&tearoff_key(symbol, is_static))
+            )
+            .unwrap();
+        }
+        if self.module.instantiation_entries.contains(symbol) {
+            writeln!(
+                self.out,
+                "  call void @dartforge_register_instantiation(ptr @{symbol})"
+            )
+            .unwrap();
+        }
+    }
+
     pub(super) fn emit_registration(&mut self, record: &str) {
         let module = self.module;
         let mut body = String::new();
@@ -327,11 +356,13 @@ impl LlvmEmitter<'_> {
         //
         // A registration cites the entry, which keeps it (and all it reaches)
         // live through the link's pruning. So an SDK library registers none of
-        // its own: registering every SDK tear-off kept 20 thousand symbols of
-        // a hello world alive, `dart:js_interop` included (863d4159; 1.29 →
-        // 12.75 MB of wasm). The tear-offs a program creates are registered
-        // by the program, also those of SDK functions (declared here), whose
-        // creation already keeps them live.
+        // its own at startup: registering every SDK tear-off kept 20 thousand
+        // symbols of a hello world alive, `dart:js_interop` included
+        // (863d4159; 1.29 → 12.75 MB of wasm). The tear-offs a program creates
+        // are registered by the program, also those of SDK functions (declared
+        // here); one the SDK creates (the dynamic `toString` of an `int`) is
+        // registered where it is created ([`Self::note_sdk_tearoff`]), which
+        // is live only when that code is.
         let mut tearoffs = String::new();
         let defined: std::collections::HashSet<&str> =
             module.functions.iter().map(|f| f.symbol.as_str()).collect();
