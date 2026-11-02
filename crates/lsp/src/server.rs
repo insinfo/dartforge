@@ -1338,10 +1338,16 @@ impl<A: Analyzer> Server<A> {
                             .and_then(|u| u.to_file_path().ok())
                     })
                     .collect();
+                let mut analysis = false;
                 if let Some(t) = &self.typed {
                     for path in &paths {
-                        t.file_on_disk(path);
+                        analysis |= t.file_on_disk(path);
                     }
+                }
+                // Dart reports the analysis its watcher starts the same way as
+                // an edit's.
+                if analysis {
+                    self.mark_analyzing();
                 }
                 // `pub get` rewrote a project's configuration: the open documents'
                 // language versions and the retained programs are stale, and their

@@ -319,14 +319,16 @@ impl Typed {
     /// watcher, §3.3): a `.dart` that is not open now counts from disk, and
     /// those that depend on it are reanalyzed; `analysis_options.yaml`,
     /// `pubspec.yaml` and `package_config.json` rebuild the contexts (the whole
-    /// package is analyzed and published again, the YAML files too).
-    pub(crate) fn file_on_disk(&self, path: &Path) {
+    /// package is analyzed and published again, the YAML files too). Whether
+    /// an analysis follows (the server then reports itself analyzing, as
+    /// Dart's does for what its watcher sees).
+    pub(crate) fn file_on_disk(&self, path: &Path) -> bool {
         let mut e = self.state();
         let root = package_root(path, &e.folders);
         let inside = e.folders.iter().any(|p| path.starts_with(p))
             || e.documents.values().any(|o| o.root == root);
         if !inside {
-            return;
+            return false;
         }
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if matches!(
@@ -339,19 +341,20 @@ impl Typed {
             e.dirty.insert(root);
             e.disk_at = Some(Instant::now());
             self.shared.1.notify_all();
-            return;
+            return true;
         }
         if path.extension().is_none_or(|x| x != "dart") {
-            return;
+            return false;
         }
         // An open document counts through the editor.
         if e.documents.values().any(|d| key(&d.path) == key(path)) {
-            return;
+            return false;
         }
         e.changed.entry(root.clone()).or_default().insert(key(path));
         e.dirty.insert(root);
         e.disk_at = Some(Instant::now());
         self.shared.1.notify_all();
+        true
     }
 
     /// The document closed: its text leaves the copy and those that depended on
@@ -684,13 +687,16 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             }
             e.running = None;
             sinal.notify_all();
+            drop(e);
+            if let Some(d) = &wake {
+                (d.0)();
+            }
             continue;
         };
         let memo = memos.entry(root.clone()).or_default();
         let mut results = merge(memo, fresh, plan.order, plan.excluded);
         // What the first phase published is not sent again.
         results.retain(|r| sent.get(&r.uri) != Some(&r.version));
-        let happened = !results.is_empty();
         for r in results {
             let _ = tx.send(r);
         }
@@ -700,7 +706,8 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             e.running = None;
             sinal.notify_all();
         }
-        if happened && let Some(d) = &wake {
+        // Even without results: the server reports the end of the analysis.
+        if let Some(d) = &wake {
             (d.0)();
         }
     }

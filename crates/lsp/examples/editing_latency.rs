@@ -324,6 +324,8 @@ struct Client {
     /// The last publication of every URI.
     diagnostics: BTreeMap<String, Value>,
     analyzing: bool,
+    /// The server said an analysis started since this was last cleared.
+    saw_start: bool,
 }
 
 impl Client {
@@ -353,6 +355,7 @@ impl Client {
                 }
                 if f["method"] == "$/analyzerStatus" {
                     self.analyzing = f["params"]["isAnalyzing"].as_bool().unwrap_or(false);
+                    self.saw_start |= self.analyzing;
                 }
                 if f["method"] == "textDocument/publishDiagnostics"
                     && let Some(u) = f["params"]["uri"].as_str()
@@ -425,11 +428,76 @@ impl Client {
         }
     }
 
-    /// The time of the change to settled.
+    /// The time of the change to settled. Without a reported start, the time
+    /// is the driver's waiting windows (500 ms for the start, 1 s of
+    /// silence), not the analysis: the long session times its loads by the
+    /// publications instead ([`Client::edit_timed`]).
     fn settle_after(&mut self, t: Instant) -> Duration {
         self.wait_start();
         self.settle(t + LIMIT);
         t.elapsed()
+    }
+
+    /// Waits until the last publication of `uri` has (`present`) or no longer
+    /// has a diagnostic starting at `line`; whether it came before
+    /// `deadline`.
+    fn published_line(&mut self, uri: &str, line: u32, present: bool, deadline: Instant) -> bool {
+        let at_line = |d: Option<&Value>| {
+            d.and_then(Value::as_array).is_some_and(|d| {
+                d.iter()
+                    .any(|d| d["range"]["start"]["line"].as_u64() == Some(line.into()))
+            })
+        };
+        loop {
+            if at_line(self.diagnostics.get(uri)) == present {
+                return true;
+            }
+            if self.take(deadline).is_none() {
+                return false;
+            }
+        }
+    }
+
+    /// After an edit at `t` whose effect on `uri` is a diagnostic starting
+    /// at `line` that appears (`present`) or goes: the time to that
+    /// publication (`None` if it never came), the time to settled, and
+    /// whether the server reported the analysis's start (without it, the
+    /// time to settled is the time to the publication).
+    fn edit_timed(
+        &mut self,
+        t: Instant,
+        uri: &str,
+        line: u32,
+        present: bool,
+    ) -> (Option<Duration>, Duration, bool) {
+        let published = self
+            .published_line(uri, line, present, t + LIMIT)
+            .then(|| t.elapsed());
+        if self.analyzing {
+            self.settle(t + LIMIT);
+        }
+        (published, t.elapsed(), self.saw_start)
+    }
+
+    /// Waits until the last publication of every one of `uris` has a
+    /// diagnostic that names `marker` (`'marker'` in its message); whether it
+    /// came before `deadline`.
+    fn published_with(&mut self, uris: &[String], marker: &str, deadline: Instant) -> bool {
+        let quoted = format!("'{marker}'");
+        let named = |d: Option<&Value>| {
+            d.and_then(Value::as_array).is_some_and(|d| {
+                d.iter()
+                    .any(|d| d["message"].as_str().is_some_and(|m| m.contains(&quoted)))
+            })
+        };
+        loop {
+            if uris.iter().all(|u| named(self.diagnostics.get(u))) {
+                return true;
+            }
+            if self.take(deadline).is_none() {
+                return false;
+            }
+        }
     }
 
     /// Waits for a publication of `uri` with a diagnostic starting at `line`;
@@ -762,10 +830,26 @@ fn generated_dir(o: &Options) -> PathBuf {
     main_package(o).join("lib/df_long_session")
 }
 
-/// Rewrites the long session's generated files for wave `wave` (what
-/// `build_runner` or `webdev` does: a `.g.dart` per source, with members
-/// that change every wave), each importing the main file.
-fn write_wave(o: &Options, wave: usize) -> Vec<PathBuf> {
+/// The undefined name the generated files of wave `wave` carry.
+fn wave_marker(wave: usize) -> String {
+    format!("dfWave{}", wave % 3)
+}
+
+/// Writes the generated files of wave `wave` at once (the session's start).
+fn write_wave(o: &Options, wave: usize) {
+    for (path, text) in wave_files(o, wave) {
+        std::fs::write(&path, text).expect("write a generated file");
+    }
+}
+
+/// The long session's generated files for wave `wave` (what `build_runner`
+/// or `webdev` writes: a `.g.dart` per source, with members that change every
+/// wave), each importing the main file, with their texts. Each one carries an
+/// undefined name, [`wave_marker`], that changes every wave: both servers
+/// must publish every file of the wave again, and the wave's time waits for
+/// those publications. The names cycle through three versions, so the set of
+/// distinct names does not grow with the session.
+fn wave_files(o: &Options, wave: usize) -> Vec<(PathBuf, String)> {
     let dir = generated_dir(o);
     std::fs::create_dir_all(&dir).expect("the generated directory");
     let main = o
@@ -782,11 +866,12 @@ fn write_wave(o: &Options, wave: usize) -> Vec<PathBuf> {
                  import '{main}';\n\n\
                  class Gen{i}W{w} {{\n  final int value;\n  const Gen{i}W{w}(this.value);\n\
                  \x20 Map<String, Object?> toJson() => {{'value': value, 'wave': {wave}}};\n}}\n\n\
-                 Gen{i}W{w} gen{i}FromJson(Map<String, Object?> json) => Gen{i}W{w}(json['value'] as int);\n",
-                w = wave % 3
+                 Gen{i}W{w} gen{i}FromJson(Map<String, Object?> json) => Gen{i}W{w}(json['value'] as int);\n\n\
+                 Object? gen{i}Marker() => {marker};\n",
+                w = wave % 3,
+                marker = wave_marker(wave),
             );
-            std::fs::write(&path, text).expect("write a generated file");
-            path
+            (path, text)
         })
         .collect()
 }
@@ -811,9 +896,20 @@ fn rss_of_all(pid: u32) -> (u64, u64) {
 /// The long session (`--long N`): N rounds of a wave of generated files
 /// rewritten on the disk (one `didChangeWatchedFiles` per file), a body edit
 /// and its undo in the main file, and every fifth round an API change and its
-/// undo in `--api`; RSS of all processes sampled every 2 s into `--csv`;
-/// then a quiet minute. `--long 0`: start, rest and report (the freshly
-/// started server, for the same files).
+/// undo in `--api`; RSS and footprint of all processes sampled every 2 s into
+/// `--csv`; then a quiet minute. `--long 0`: start, wait for the generated
+/// files' publications, rest and report (the freshly started server, for the
+/// same files).
+///
+/// Each load is timed from the change (a wave's last notification) to the
+/// publication of the affected files' new diagnostics, and to settled: every
+/// generated file with the wave's [`wave_marker`]; the edited file with, or
+/// without, the diagnostic of the edited line (an unused local for a body
+/// edit, a type error in a public function for an API change). Waiting for
+/// `$/analyzerStatus` alone does not time a load: a server that debounces
+/// disk changes starts after the driver's short wait for the start, and the
+/// official server does not report the analysis of every edit; the time
+/// measured was the driver's waiting windows.
 fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) {
     let pid = c.pid;
     let started = Instant::now();
@@ -837,64 +933,137 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
     };
     let mut api = o.api.as_ref().map(|a| Document::open(c, a));
     c.settle_after(Instant::now());
-    // Time to settled per kind of load: waves, body edits (and undos), API
-    // changes (and undos).
-    let mut kinds = [(Duration::ZERO, 0u32); 3];
+    // Time per kind of load, from the change (a wave's last notification)
+    // to the publication of the affected files' new diagnostics (every
+    // generated file with the wave's marker; the edited file with, or
+    // without, the diagnostic on the edited line), and to settled. A load
+    // whose start the server did not report is counted apart: its time to
+    // settled is the time to the publication.
+    let mut kinds: [Vec<Duration>; 6] = Default::default();
+    let mut unseen = [0u32; 6];
+    let mut missing = [0u32; 6];
+    let mut record = |k: usize, (published, settled, seen): (Option<Duration>, Duration, bool)| {
+        match published {
+            Some(d) => kinds[k].push(d),
+            None => missing[k] += 1,
+        }
+        kinds[k + 1].push(settled);
+        if !seen {
+            unseen[k + 1] += 1;
+        }
+    };
+    let generated: Vec<String> = wave_files(o, 0).iter().map(|(p, _)| uri_of(p)).collect();
+    // The workspace's first analysis has reached the generated files (the
+    // official server builds its contexts for seconds without reporting, and
+    // on a loaded machine it may still be analyzing when the first analysis
+    // looked settled): the rounds start after it.
+    {
+        let t = Instant::now();
+        if !c.published_with(&generated, &wave_marker(0), t + LIMIT) {
+            println!(
+                "long session {}: the first wave was never published",
+                o.label
+            );
+        }
+        if c.analyzing {
+            c.settle(t + LIMIT);
+        }
+        println!(
+            "long session {}: the generated files published {:.0} ms after the first analysis",
+            o.label,
+            ms(t.elapsed())
+        );
+    }
     for round in 1..=rounds {
-        // A wave: every generated file rewritten, one notification each,
-        // spread as a file watcher reports them.
-        let paths = write_wave(o, round);
-        for path in &paths {
+        // A wave: every generated file rewritten and reported as it is
+        // written, one notification each, spread as a file watcher reports
+        // them; timed from the last notification.
+        let mut last = Instant::now();
+        c.saw_start = false;
+        for (path, text) in wave_files(o, round) {
+            std::fs::write(&path, text).expect("write a generated file");
             c.notify(
                 "workspace/didChangeWatchedFiles",
-                json!({"changes": [{"uri": uri_of(path), "type": 2}]}),
+                json!({"changes": [{"uri": uri_of(&path), "type": 2}]}),
             );
+            last = Instant::now();
             std::thread::sleep(Duration::from_millis(5));
         }
-        kinds[0].0 += c.settle_after(Instant::now());
-        kinds[0].1 += 1;
+        let published = c
+            .published_with(&generated, &wave_marker(round), last + LIMIT)
+            .then(|| last.elapsed());
+        if c.analyzing {
+            c.settle(last + LIMIT);
+        }
+        record(0, (published, last.elapsed(), c.saw_start));
         loads.fetch_add(1, Ordering::Relaxed);
-        // A body edit and its undo.
+        // A body edit (an unused local: a warning on its line) and its undo.
         let at = body_insertion(&doc.text);
         let statement = "\n    var dfLongSession = 1;";
+        c.saw_start = false;
+        let t = Instant::now();
         doc.insert(c, at, statement);
-        kinds[1].0 += c.settle_after(Instant::now());
+        let (line, _) = position(&doc.text, at + 1);
+        record(2, c.edit_timed(t, &doc.uri, line, true));
+        c.saw_start = false;
+        let t = Instant::now();
         doc.remove(c, at, at + statement.len());
-        kinds[1].0 += c.settle_after(Instant::now());
-        kinds[1].1 += 2;
+        record(2, c.edit_timed(t, &doc.uri, line, false));
         loads.fetch_add(2, Ordering::Relaxed);
-        // An API change and its undo.
+        // An API change (a public function with a type error) and its undo.
         if round % 5 == 0
             && let Some(a) = api.as_mut()
         {
             let at = a.text.rfind('}').map_or(a.text.len(), |i| i + 1);
-            let declaration = format!("\nint dfLongSessionApi{round}() => {round};\n");
+            let declaration = format!("\nint dfLongSessionApi{round}() => '{round}';\n");
+            c.saw_start = false;
+            let t = Instant::now();
             a.insert(c, at, &declaration);
-            kinds[2].0 += c.settle_after(Instant::now());
+            let (line, _) = position(&a.text, at + 1);
+            record(4, c.edit_timed(t, &a.uri, line, true));
+            c.saw_start = false;
+            let t = Instant::now();
             a.remove(c, at, at + declaration.len());
-            kinds[2].0 += c.settle_after(Instant::now());
-            kinds[2].1 += 2;
+            record(4, c.edit_timed(t, &a.uri, line, false));
             loads.fetch_add(2, Ordering::Relaxed);
         }
         if round % 10 == 0 {
-            let (rss, _) = rss_of_all(pid);
+            let (rss, foot) = rss_of_all(pid);
             println!(
-                "round {round}: {:.0} s, RSS {:.0} MiB",
+                "round {round}: {:.0} s, footprint {:.0} MiB, RSS {:.0} MiB",
                 started.elapsed().as_secs_f64(),
+                mib(foot),
                 mib(rss)
             );
         }
     }
     let busy_end = started.elapsed().as_secs_f64();
-    for ((total, n), kind) in kinds.iter().zip(["wave", "body edit", "API change"]) {
-        if *n > 0 {
-            println!(
-                "long session {}: {kind}: {n} loads, {:.1} s in all, {:.0} ms each to settled",
-                o.label,
-                total.as_secs_f64(),
-                ms(*total) / f64::from(*n)
-            );
+    let names = [
+        "wave to the generated files' diagnostics",
+        "wave to settled",
+        "body edit to the file's diagnostics",
+        "body edit to settled",
+        "API change to the file's diagnostics",
+        "API change to settled",
+    ];
+    for (k, kind) in names.iter().enumerate() {
+        let n = kinds[k].len();
+        if n == 0 {
+            continue;
         }
+        let total: Duration = kinds[k].iter().sum();
+        let mut sorted = kinds[k].clone();
+        sorted.sort();
+        println!(
+            "long session {}: {kind}: {n} loads, {:.1} s in all, mean {:.0} ms, median {:.0} ms, p90 {:.0} ms ({} without a reported start, {} without the publication)",
+            o.label,
+            total.as_secs_f64(),
+            ms(total) / n as f64,
+            ms(sorted[n / 2]),
+            ms(sorted[(n * 9 / 10).min(n - 1)]),
+            unseen[k],
+            missing[k],
+        );
     }
     std::thread::sleep(Duration::from_secs(60));
     let (rest_rss, rest_foot) = rss_of_all(pid);
@@ -908,7 +1077,9 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
         }
         std::fs::write(path, out).expect("write the CSV");
     }
-    // Least squares over the busy part, after the first tenth (the startup).
+    // Least squares of the footprint over the busy part, after the first tenth
+    // (the startup). The footprint, not the RSS: macOS compresses the pages of
+    // a loaded machine, and the RSS of an idle process falls with it.
     let busy: Vec<&(f64, u64, u64, u64)> = samples
         .iter()
         .filter(|s| s.0 >= busy_end * 0.1 && s.0 <= busy_end)
@@ -920,26 +1091,28 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
         }
         let (sx, sy) = busy
             .iter()
-            .fold((0.0, 0.0), |(a, b), s| (a + x(s), b + mib(s.1)));
+            .fold((0.0, 0.0), |(a, b), s| (a + x(s), b + mib(s.2)));
         let (mx, my) = (sx / n, sy / n);
         let (num, den) = busy.iter().fold((0.0, 0.0), |(a, b), s| {
-            (a + (x(s) - mx) * (mib(s.1) - my), b + (x(s) - mx).powi(2))
+            (a + (x(s) - mx) * (mib(s.2) - my), b + (x(s) - mx).powi(2))
         });
         if den == 0.0 { 0.0 } else { num / den }
     };
     let per_hour = slope(&|s| s.0 / 3600.0);
     let per_100_loads = slope(&|s| s.3 as f64 / 100.0);
-    let peak = samples.iter().map(|s| s.1).max().unwrap_or(0);
+    let peak = samples.iter().map(|s| s.2).max().unwrap_or(0);
+    let rss_peak = samples.iter().map(|s| s.1).max().unwrap_or(0);
     println!(
-        "long session {}: {rounds} rounds, {} loads, {:.0} s busy; RSS peak {:.1} MiB, slope {:.1} MiB/h ({:.1} MiB per 100 loads), at rest after 60 s {:.1} MiB (footprint {:.1} MiB)",
+        "long session {}: {rounds} rounds, {} loads, {:.0} s busy; footprint peak {:.1} MiB, slope {:.1} MiB/h ({:.1} MiB per 100 loads), at rest after 60 s {:.1} MiB; RSS peak {:.1} MiB, at rest {:.1} MiB",
         o.label,
         loads.load(Ordering::Relaxed),
         busy_end,
         mib(peak),
         per_hour,
         per_100_loads,
-        mib(rest_rss),
         mib(rest_foot),
+        mib(rss_peak),
+        mib(rest_rss),
     );
 }
 
@@ -1061,6 +1234,7 @@ fn main() {
         published: Vec::new(),
         diagnostics: BTreeMap::new(),
         analyzing: false,
+        saw_start: false,
     };
     let mut results = BTreeMap::new();
     let root_uri = uri_of(&o.root);
