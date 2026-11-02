@@ -207,6 +207,12 @@ pub fn run(
             for target in &absolutes {
                 let root = package_root(target);
                 let options = dartforge_parity::filters::AnalysisOptions::read(&root);
+                // A `pubspec.yaml` named on the command line (as `pub publish`
+                // passes it) is analyzed as a pubspec, not as Dart.
+                if target.is_file() && target.file_name().is_some_and(|n| n == "pubspec.yaml") {
+                    v.extend(dartforge_parity::pubspec_diagnostics(&root, &options));
+                    continue;
+                }
                 // The package's `pubspec.yaml`, when the target is its folder.
                 if target.is_dir() && *target == root {
                     v.extend(dartforge_parity::pubspec_diagnostics(&root, &options));

@@ -38,7 +38,7 @@ const LOGOUT_USAGE: &str = "Usage: dart pub logout <subcommand> [arguments...]
 -h, --help    Print this usage information.";
 
 /// `applicationConfigHome('dart')` of package:cli_util.
-fn config_dir() -> Option<PathBuf> {
+pub(crate) fn config_dir() -> Option<PathBuf> {
     let base = if cfg!(windows) {
         PathBuf::from(std::env::var_os("APPDATA")?)
     } else if cfg!(target_os = "macos") {
@@ -160,9 +160,9 @@ fn validate_url(text: &str) -> Result<String, String> {
 }
 
 /// One entry of `pub-tokens.json`, in its written key order.
-struct Credential {
-    url: String,
-    fields: Vec<(String, Node)>,
+pub(crate) struct Credential {
+    pub url: String,
+    pub fields: Vec<(String, Node)>,
 }
 
 impl Credential {
@@ -184,7 +184,7 @@ impl Credential {
 }
 
 /// `TokenStore._loadCredentials`.
-fn load_credentials() -> Vec<Credential> {
+pub(crate) fn load_credentials() -> Vec<Credential> {
     let mut result = Vec::new();
     let Some(path) = tokens_file() else {
         return result;
@@ -263,7 +263,7 @@ fn load_credentials() -> Vec<Credential> {
     result
 }
 
-fn save_credentials(credentials: &[Credential]) -> Result<(), Failure> {
+pub(crate) fn save_credentials(credentials: &[Credential]) -> Result<(), Failure> {
     let path = tokens_file().ok_or_else(missing_config_dir)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -447,7 +447,7 @@ fn add(args: &[String]) -> Result<u8, Failure> {
 }
 
 /// `Credential.isValidBearerToken`.
-fn valid_bearer_token(token: &str) -> bool {
+pub(crate) fn valid_bearer_token(token: &str) -> bool {
     !token.is_empty()
         && token
             .bytes()

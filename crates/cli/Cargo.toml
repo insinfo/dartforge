@@ -30,6 +30,7 @@ tar = "0.4"
 sha2 = "0.10"
 sha1 = "0.10"
 url = "2"
+regex = "1"
 
 [features]
 # Native AOT backend (LLVM IR -> Clang), ABI and emit-native. Only clang.exe.

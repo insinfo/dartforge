@@ -239,6 +239,43 @@ impl Version {
         }
     }
 
+    /// `nextMajor`: a prerelease of `x.0.0` moves to `x.0.0` itself.
+    pub fn next_major(&self) -> Self {
+        if self.is_prerelease() && self.minor == 0 && self.patch == 0 {
+            Self::new(self.major, 0, 0)
+        } else {
+            Self::new(self.major + 1, 0, 0)
+        }
+    }
+
+    /// `nextMinor`: a prerelease of `x.y.0` moves to `x.y.0` itself.
+    pub fn next_minor(&self) -> Self {
+        if self.is_prerelease() && self.patch == 0 {
+            Self::new(self.major, self.minor, 0)
+        } else {
+            Self::new(self.major, self.minor + 1, 0)
+        }
+    }
+
+    /// `nextPatch`: a prerelease moves to its release.
+    pub fn next_patch(&self) -> Self {
+        if self.is_prerelease() {
+            Self::new(self.major, self.minor, self.patch)
+        } else {
+            Self::new(self.major, self.minor, self.patch + 1)
+        }
+    }
+
+    /// The version with its build suffix removed.
+    pub fn without_build(&self) -> Self {
+        let mut result = self.clone();
+        result.build.clear();
+        if let Some(index) = result.text.find('+') {
+            result.text.truncate(index);
+        }
+        result
+    }
+
     fn same_release(&self, other: &Self) -> bool {
         (self.major, self.minor, self.patch) == (other.major, other.minor, other.patch)
     }

@@ -16,6 +16,7 @@ mod inspect;
 mod manifest;
 mod outdated;
 mod output;
+mod publish;
 mod report;
 mod sdk;
 mod solver;
@@ -48,6 +49,7 @@ Available subcommands:
   downgrade   Downgrade packages in a project.
   get         Get the current package's dependencies.
   outdated    Analyze dependencies to find which ones can be upgraded.
+  publish     Publish the current package to pub.dev.
   remove      Removes dependencies from `pubspec.yaml`.
   token       Manage authentication tokens for hosted pub repositories.
   upgrade     Upgrade the current package's dependencies to latest versions.";
@@ -367,6 +369,7 @@ pub(crate) fn run(args: &[OsString]) -> Result<u8, Failure> {
         "token" => token::run(rest),
         "logout" => token::logout(rest),
         "uploader" => token::uploader(rest, "."),
+        "publish" | "lish" => publish::run(rest),
         other => Err(usage(format!(
             "Could not find a subcommand named \"{other}\" for \"dart pub\".\n\n{USAGE}"
         ))),

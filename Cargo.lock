@@ -514,6 +514,7 @@ dependencies = [
  "dartforge-macros-host",
  "dartforge-parity",
  "flate2",
+ "regex",
  "semver",
  "serde",
  "serde_json",
