@@ -600,34 +600,28 @@ fn repair(args: &[String]) -> Result<u8, Failure> {
     Ok(0)
 }
 
-/// `_directoryToUrl`, the inverse of `_urlToDirectory`.
+/// `_directoryToUrl`, the inverse of `_urlToDirectory`: the escaped
+/// characters are decoded one by one, then a scheme is added when missing
+/// (`http` for a loopback host, `https` otherwise).
 pub(crate) fn directory_to_url(directory: &str) -> Option<String> {
-    let mut decoded = String::new();
-    let bytes = directory.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' {
-            let digits: String = directory[index + 1..]
-                .chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
-            let code: u32 = digits.parse().ok()?;
-            decoded.push(char::from_u32(code)?);
-            index += 1 + digits.len();
-        } else {
-            let c = directory[index..].chars().next()?;
-            decoded.push(c);
-            index += c.len_utf8();
-        }
+    let mut decoded = directory.to_owned();
+    for c in "<>:\"\\/|?*%".chars() {
+        decoded = decoded.replace(&format!("%{}", c as u32), &c.to_string());
     }
-    let url = if decoded.starts_with("http://") || decoded.starts_with("https://") {
+    let url = if decoded.contains("://") {
         decoded
-    } else if let Some(rest) = decoded.strip_prefix("localhost") {
-        format!("http://localhost{rest}")
     } else {
-        format!("https://{decoded}")
+        let host = decoded.split(':').next().unwrap_or_default();
+        let loopback = host == "localhost"
+            || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback());
+        format!("{}://{decoded}", if loopback { "http" } else { "https" })
     };
-    super::hosted::normalize_host(&url).ok()
+    url::Url::parse(&url).ok().map(|parsed| {
+        // Dart's `Uri.toString` keeps the path as written; `url` adds a
+        // final slash to an empty one.
+        let text = parsed.to_string();
+        if url.ends_with('/') { text } else { text.trim_end_matches('/').to_owned() }
+    })
 }
 
 /// `HostedSource.repairCachedPackages`.
