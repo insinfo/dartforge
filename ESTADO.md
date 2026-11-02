@@ -65,6 +65,46 @@ a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
+**Andamento (02/11, 01h), item 3:**
+- **Medida:** cada carga da sessão longa agora é medida até a publicação dos diagnósticos
+  novos dos arquivos afetados (`6828d91f`); os 1.513 ms fixos da onda sumiram. O servidor
+  anuncia a análise que uma mudança no disco começa.
+- **Contadores por estrutura** (`dartforge/residentMemory`, `a7ada9e0`). O que se via como
+  crescimento era:
+  - um degrau único na primeira edição: o contexto do pacote, +53 MiB de dado vivo;
+  - a tabela de tipos, que guardava todos os parâmetros de tipo de todas as cargas.
+- **Correção:** os parâmetros soltos saem da tabela e os slots são reusados; o lote solta as
+  bibliotecas do pacote que não alcança mais.
+- **150 rodadas, *footprint* em MiB** (carga 41–130):
+
+  | | DartForge | Dart |
+  |---|---:|---:|
+  | recém-aberto (só abrir) | 445,9 | 533,1 |
+  | recém-aberto + 1 rodada | 506,4 | 450,6 |
+  | fim da sessão longa | **537,0** | 886,0 |
+  | pico | 598,8 | 1.103,1 |
+  | inclinação por 100 cargas | **−0,7** | +62,2 |
+  | dado vivo do residente, 1 rodada → fim | 473,2 → 476,9 (**+0,8%**) | — |
+
+- **Critério:** contra o recém-aberto que já fez uma edição, o dado vivo está a +0,8% e o
+  *footprint* a +6%. Contra o só aberto, +20%, que é o degrau do contexto. Os +30 MiB de
+  *footprint* sobre o dado vivo são memória que o alocador guarda depois dos picos; isso não
+  foi atacado.
+- **Tempo** (mediana, até assentar): onda 2.309 × 767 ms, edição de corpo 357 × 214 ms,
+  mudança de API 14,7 × 3,2 s.
+- **Windows:** o teste do prefixo congelado agora compara caminhos sem `\\?\` (`b2ce641f`).
+- **Validação:**
+  - testes em *release* dos *crates* tocados e dependentes: 845, sem falhas;
+  - corpus JS 277/277 em desenvolvimento e em `-O2`;
+  - harness nativo 164/164 (`corpus/native`);
+  - oráculo de paridade: `references`, `implementation` e `definition` 100%, *completion*
+    top-5 100%;
+  - clippy `-D warnings`.
+- **Ainda não feitos:**
+  - a retenção do alocador;
+  - o modelo de análise preguiçosa do Dart (item 4 do pedido).
+- Detalhes em `docs/LSP.md`, "Décima primeira rodada".
+
 **Andamento (01/11, 23h), item 3:**
 - O mimalloc com *purge* no residente foi testado com `--long 150` e **descartado**:
   - recém-aberto → fim: 310 → 410 MiB com o alocador do sistema;

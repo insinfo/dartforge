@@ -1439,6 +1439,187 @@ carga. Antes de comparar ondas, o *driver* precisa esperar o início da análise
 - **Item 4:** com o *driver* ainda medindo a onda errado, a tabela de tempo por carga desta
   rodada não é confiável.
 
+#### Décima primeira rodada (2026-11-02): medida por publicação, memória por estrutura e o que crescia
+
+**1. A medida de cada carga (`6828d91f`).** O *driver* media toda carga pelo
+`$/analyzerStatus`: até 500 ms esperando o início, depois 1 s de silêncio. Dois defeitos:
+- o `didChangeWatchedFiles` não marcava o nosso servidor como analisando, e o *debounce* de
+  250 ms começava a análise depois das janelas: toda onda media 1.513 ms, nos dois
+  servidores;
+- o Dart não anuncia a análise de boa parte das edições: numa sessão de 150 rodadas, 58 das
+  60 mudanças de API saíram sem início anunciado.
+
+Agora cada carga é medida da mudança (a última notificação da onda) até a publicação dos
+diagnósticos novos dos arquivos afetados, e até assentar:
+- **onda:** cada `.g.dart` tem um nome indefinido que muda a cada onda (`dfWave0..2`, três
+  versões, para o conjunto de nomes não crescer). A onda acaba quando os 40 arquivos são
+  publicados com o nome novo. Os arquivos são escritos e notificados um a um, como um
+  *watcher* os vê;
+- **corpo:** a edição põe um local não usado; a mudança de API, uma função pública com erro de
+  tipo. Cada edição e cada desfazer acabam quando a publicação do arquivo tem (ou deixa de
+  ter) o diagnóstico daquela linha;
+- as rodadas começam depois que a primeira onda foi publicada. Com a máquina carregada, o Dart
+  ainda analisava o *workspace* 11–14 s depois do "assentado" da partida;
+- o pico e a inclinação passaram a ser do *footprint*. Antes eram do RSS, que o macOS
+  comprime em repouso;
+- `--long 0` escreve os mesmos arquivos gerados, para o recém-aberto ver os mesmos arquivos
+  (`acdb1d19`).
+
+O servidor agora anuncia a análise que uma mudança no disco começa, como o Dart faz com o
+*watcher* dele, e o trabalhador acorda o laço principal no fim de toda análise. Assim o fim
+sai mesmo sem resultados.
+
+Validado nos dois servidores: em 150 ondas de cada um, todas as 40 publicações chegaram, e
+nenhuma carga ficou sem publicação. Script: `scripts/long_lsp11.sh`.
+
+**2. Contadores por estrutura (`a7ada9e0`).** O pedido `dartforge/residentMemory` mede o
+residente estrutura por estrutura (`Resident::measure_memory`):
+- o trabalhador repassa o pedido entre análises;
+- o residente solta cada estrutura e lê os bytes em uso do alocador antes e depois;
+- a medida é destrutiva (o residente termina vazio);
+- o *driver* pede no fim da sessão, depois do minuto quieto, e o Dart responde com erro.
+
+Com `DARTFORGE_LSP_MEMORY=1`, o residente imprime ainda um censo (só contagens) depois de cada
+análise. `DARTFORGE_RESIDENT_LIBRARIES=<arquivo>` grava as bibliotecas do programa.
+
+Heap vivo do residente no `new_sali`, em MiB (binário antes do passo 3):
+
+| estrutura | só aberto | 1 rodada | 30 rodadas | 150 rodadas |
+|---|---:|---:|---:|---:|
+| unidades do programa: pacotes e projeto | 210,15 | 241,69 | 244,45 | 244,45 |
+| unidades do programa: gerados | 78,35 | 80,01 | 80,01 | 80,01 |
+| unidades do programa: SDK | 19,46 | 20,05 | 21,01 | 21,01 |
+| bibliotecas (escopos, *namespaces*) | 61,41 | 68,37 | 68,37 | 68,37 |
+| elementos | 18,87 | 22,58 | 22,58 | 22,58 |
+| tipos do *outline* | 11,61 | 17,98 | 17,73 | 17,73 |
+| tabela de tipos | 10,85 | 11,07 | 12,36 | **16,17** |
+| interner | 6,86 | 8,18 | 8,19 | 8,19 |
+| índice de elementos | 2,31 | 2,63 | 2,63 | 2,63 |
+| cache de unidades (mapas) | 0,27 | 0,27 | 0,73 | 0,73 |
+| **heap do residente** | **420,2** | **473,2** | **478,5** | **482,3** |
+
+Depois da medida sobram 0,1 MiB: o motor com o SDK não pesa, e todo o heap é o que o
+residente guarda.
+
+**O que era o crescimento:**
+- **Só aberto → 1 rodada (+53 MiB):** é um degrau, não um crescimento por carga. Na primeira
+  edição, o residente passa a carregar o pacote inteiro com cada lote (o contexto,
+  `context_pays`). São 3.164 bibliotecas em vez de 2.771, e o conjunto de bibliotecas não muda
+  mais até a 150ª rodada. É isso que separava o "recém-aberto" das rodadas anteriores
+  (339 → 506, 310 → 410 MiB): o recém-aberto nunca tinha feito uma edição.
+- **1 → 150 rodadas (+9,1 MiB):** o que cresce com o número de cargas é a tabela de tipos
+  (+5,1 MiB), mais dois caches que saturam:
+  - as unidades (+3,7 MiB): escopos léxicos derivados sob demanda de mais árvores, que param
+    em 30 rodadas;
+  - os mapas do cache de unidades (+0,46 MiB).
+
+**3. A raiz: os parâmetros de tipo nunca saíam da tabela (`50daa279`).** A coleta da tabela a cada carga
+sobre um corte (sétima rodada) mantinha todos os parâmetros de tipo, e os limites deles
+contavam como raízes. Cada carga resolve de novo o *outline* depois do corte. Com isso,
+cada carga deixava na tabela os parâmetros dos elementos que soltou e os tipos que os limites
+deles alcançam.
+
+A correção:
+- **`TypeTable::collect_dropping`** (`collect_types_at`):
+  - os parâmetros de dono solto (classe, extensão, *typedef* ou função depois do corte) saem;
+  - os de tipos de função genérica que nenhum tipo mantido tem também saem;
+  - os slots livres servem aos próximos parâmetros (`alloc_type_param`), sem renumerar nada;
+  - os limites dos parâmetros soltos deixam de manter tipos vivos;
+  - `fresh_formals` e `without_default_type` perdem as entradas dos parâmetros soltos;
+  - `DARTFORGE_TYPE_PARAMS_KEPT=1` mantém o comportamento antigo, para medir.
+- **O teste `resident_reloads_only_after_the_frozen_prefix`** ganhou declarações genéricas. Ele
+  exige que tipos e parâmetros fiquem do mesmo tamanho a cada repetição das mudanças de API.
+  Com `DARTFORGE_TYPE_PARAMS_KEPT=1` o teste falha: os parâmetros crescem 13 → 29 e os tipos
+  45 → 55 em seis cargas.
+- **Soltar o que o lote não alcança:** quando os *imports* da entrada mudam, o corte desce até a
+  primeira biblioteca do pacote que os novos *imports* não alcançam (`first_unreached`). O
+  programa mantido passa a ser o que uma carga só daquele lote teria antes do corte, e não
+  tudo o que algum lote já importou. Teste: `resident_drops_what_the_batch_no_longer_reaches`.
+  No `new_sali` todo lote carrega o contexto, os *imports* não mudam e isso não muda nada; vale
+  para os pacotes em que o contexto não paga, como o `limitless_ui`. O prefixo congelado (SDK e
+  dependências) continua acumulando as dependências que algum lote alcançou: soltá-lo pede uma
+  recarga total, que não foi feita.
+- **Os mapas do cache de unidades** devolvem a capacidade a mais depois de cada carga
+  (`AnalyzedUnitCache::shrink`).
+
+Tabela de tipos no fim de 150 rodadas: **16,17 → 11,19 MiB**, igual à de 1 rodada (11,07 MiB).
+São 54.598 tipos e 3.789 parâmetros, contra 2.791 parâmetros em 1 rodada.
+
+**4. Sessão longa, 150 rodadas (510 cargas), os dois servidores.** `new_sali` inteiro, ondas
+de 40 `.g.dart`, carga 41–130. *Footprint* de todos os processos, em MiB:
+
+| | DartForge antes (passo 2) | DartForge agora | Dart |
+|---|---:|---:|---:|
+| recém-aberto (só abrir, 1 min quieto) | 449,0 | 445,9 | 533,1 |
+| recém-aberto + 1 rodada (3 cargas) | 508,3 | 506,4 | 450,6 |
+| fim da sessão longa (1 min quieto) | 534,2 | 537,0 | 886,0 |
+| pico | 598,0 | 598,8 | 1.103,1 |
+| inclinação por 100 cargas | +0,6 | **−0,7** | **+62,2** |
+| heap vivo do residente: 1 rodada → fim | 473,2 → 482,3 (+1,9%) | 473,2 → **476,9 (+0,8%)** | — |
+| fim ÷ recém-aberto + 1 rodada | 1,05× | **1,06×** | 1,97× |
+| fim ÷ recém-aberto (só abrir) | 1,19× | 1,20× | 1,66× |
+
+- **Nosso dado vivo ficou plano:** +0,8% de 1 a 150 rodadas, sem nenhuma estrutura crescendo
+  com as cargas. A inclinação do *footprint* é zero.
+- **O *footprint* em repouso fica 6% acima do de 1 rodada (+30 MiB):** com o dado vivo plano,
+  é memória que o alocador guarda depois dos picos (~598 MiB em toda a sessão). Ela sobe nas
+  primeiras rodadas e não cresce mais. Não foi atacada nesta rodada (veja abaixo).
+- **Contra o servidor só aberto, o fim fica 20% acima.** É o degrau do contexto na primeira
+  edição: +53 MiB de dado vivo, uma vez. O critério "a poucos % de um recém-aberto" vale contra
+  um servidor que já fez uma edição, e não contra um que nunca editou.
+- **O Dart cresceu 62 MiB a cada 100 cargas,** do começo ao fim, e terminou 1,97× acima do de 1
+  rodada.
+
+Tempo por carga (mediana; a mesma sessão; o *driver* novo):
+
+| carga | DartForge: diagnósticos | DartForge: assentado | Dart: diagnósticos | Dart: assentado |
+|---|---:|---:|---:|---:|
+| onda de 40 `.g.dart` | 2.309 ms | 2.309 ms | 748 ms | 767 ms |
+| edição de corpo (e desfazer) | 1 ms¹ | 357 ms | 194 ms | 214 ms |
+| mudança de API (e desfazer) | 712 ms | 14.688 ms | 226 ms | 3.182 ms |
+
+¹ A publicação imediata do nosso servidor, antes da análise tipada, já traz (ou já tira) o
+aviso do local não usado.
+
+A onda de verdade custa ~2,3 s contra 0,75 s do Dart: 250 ms de *debounce* mais a recarga e a
+análise dos 40 arquivos. A mudança de API assentada (os dependentes) é 4,6× a do Dart. São os
+itens 1 e 2 da prioridade.
+
+**5. Windows: o prefixo congelado do teste (`b2ce641f`).** Pedido do coordenador. No Windows,
+`a_load_onto_the_frozen_prefix_is_a_full_load` não congelava nenhuma biblioteca. O teste
+montava a raiz "fora do pacote" com `std::fs::canonicalize` (`\\?\C:\…`) e a comparava com os
+caminhos das unidades, que o *loader* grava sem esse prefixo (eles voltam de URIs `file:`).
+`config::canonical_path` é a forma canônica do *loader* (caixa e *links* resolvidos, sem o
+prefixo): a entrada do *loader* e o teste passam por ela. O residente do LSP já comparava
+chaves sem o prefixo (`analysis::key`), então o prefixo congelado dele não era afetado.
+Verificado no Windows 11 x64: o teste falhava (0 × 2) e agora passa com o resto do *crate*.
+
+**Validação:**
+- oráculo de paridade nos quatro projetos de sempre, com o binário final: `references`,
+  `implementation` e `definition` 100%, *completion* top-5 100% (top-1 99%);
+  - o SDK em `~/tools/dart` é um *link* para `/Volumes/ssd_dock/tools/dart`. O Dart responde
+    com o caminho real e o nosso com o dado em `DARTFORGE_SDK_LIB`;
+  - com o *link* resolvido nas respostas, os URIs são idênticos;
+- testes em *release* de `elements`, `types`, `analysis`, `world`, `emit_js`,
+  `emit_js_production`, `parity`, `lsp` e `dev`: 845, sem falhas. Os 19 de
+  `emit_js/tests/basic.rs` pedem o `node` no `PATH` e rodaram à parte;
+- corpus JS 277/277 em desenvolvimento e em produção `-O2`;
+- harness nativo (desenvolvimento): 164/164 (`--native --corpus corpus/native`, LLVM 22.1.8).
+  O `--native` sobre o `corpus/js` deu 273/277. As 4 falhas (`253`, `256`, `272`, `273`) estão
+  no *backend* nativo, que esta rodada não tocou, e não foram comparadas com o `main`;
+- clippy `-D warnings` em `elements`, `types`, `parity` e `lsp` (todos os alvos);
+- Windows: `cargo test --release -p dartforge-elements` com a correção do prefixo.
+
+**O que não foi feito nesta rodada:**
+- **A memória que o alocador guarda depois dos picos (+30 MiB, 6%) não foi atacada.** Fica a
+  hipótese de reconstruir de forma compacta as tabelas de vida longa depois que uma carga
+  assenta. Os +53 MiB do contexto na primeira edição também ficam: tirá-los pede decidir o
+  contexto já na primeira carga, ou soltá-lo em repouso, e as duas coisas mexem no tempo do
+  primeiro diagnóstico.
+- **O prefixo congelado não solta as dependências** que nenhum lote alcança mais.
+- **Item 4 (análise preguiçosa do Dart) não foi verificado.**
+- **O custo da onda (2,3 s contra 0,75 s)** e o das mudanças de API não foram atacados.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
