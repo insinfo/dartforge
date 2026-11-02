@@ -65,6 +65,42 @@ a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
+**Andamento (02/11, 05h), itens 1 e 3 (velocidade da sessão longa):**
+- **Mudança de API (item 1, pelo nome):** um dependente só é reanalisado se pode ver um nome
+  que a mudança alterou (`e4642ed6`). A comparação é declaração por declaração, com o dono do
+  membro, as famílias seladas e a propagação pelas assinaturas. Antes eram os 260 dependentes
+  de `documento_service.dart`; o Dart também não os reanalisa.
+- **O resto:**
+  - os verificadores por biblioteca não andam mais pelo programa inteiro;
+  - só rodam as regras de *lint* ligadas;
+  - o disco e a árvore do pacote não são relidos a cada análise;
+  - o *debounce* da onda caiu de 250 para 20 ms.
+- **150 rodadas, os dois servidores revezados** (carga 58–63; mediana até assentar, CPU entre
+  parênteses):
+
+  | carga | DartForge r11 | DartForge agora | Dart |
+  |---|---:|---:|---:|
+  | onda de 40 `.g.dart` | 2.309 ms | 588 ms (186) | 476 ms (216) |
+  | edição de corpo | 357 ms | **118 ms (36)** | 136 ms (38) |
+  | mudança de API | 14.688 ms | 795 ms (185) | 420 ms (103) |
+
+  - Ganhamos na edição de corpo.
+  - Na onda gastamos menos CPU, mas com a máquina carregada perdemos no relógio. Com a
+    máquina calma (10 rodadas) ficamos à frente ou empatados.
+  - A mudança de API ainda é ~1,9× a do Dart: ela recarrega o *outline* de tudo o que vem
+    depois do corte.
+- **Memória mantida:** fim da sessão 540,6 MiB contra 550,8 de uma rodada, inclinação −0,3 MiB
+  por 100 cargas, dado vivo +1,0%. Dart: 731,5 MiB, +44,3 por 100 cargas.
+- **Validação:**
+  - testes em *release* dos *crates* tocados e dependentes: 846, sem falhas;
+  - oráculo de paridade: `references`, `implementation` e `definition` 100%, *completion*
+    top-5 100%;
+  - clippy `-D warnings`;
+  - publicações finais do `new_sali` iguais às da décima primeira rodada.
+- **Ainda não feito:** refazer só o *outline* de quem depende da mudança de API (identidade
+  estável de elementos).
+- Detalhes em `docs/LSP.md`, "Décima segunda rodada".
+
 **Andamento (02/11, 01h), item 3:**
 - **Medida:** cada carga da sessão longa agora é medida até a publicação dos diagnósticos
   novos dos arquivos afetados (`6828d91f`); os 1.513 ms fixos da onda sumiram. O servidor

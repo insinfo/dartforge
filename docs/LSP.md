@@ -1620,6 +1620,161 @@ Verificado no Windows 11 x64: o teste falhava (0 × 2) e agora passa com o resto
 - **Item 4 (análise preguiçosa do Dart) não foi verificado.**
 - **O custo da onda (2,3 s contra 0,75 s)** e o das mudanças de API não foram atacados.
 
+#### Décima segunda rodada (2026-11-02): a distância de velocidade para o Dart
+
+Meta do coordenador: no `new_sali`, a sessão longa não pode ser mais lenta que o Dart em
+nenhum dos três tipos de carga. Na décima primeira rodada perdíamos nos três: mudança de API
+14,7 × 3,2 s, onda 2.309 × 767 ms, edição de corpo 357 × 214 ms.
+
+**Como se mediu.**
+- **A CPU de cada carga (`52a2bb17`).** Com a máquina dividida entre agentes, o relógio de uma
+  carga conta também a espera por um núcleo. Agora a sessão longa informa, por tipo de carga, a
+  CPU do servidor e dos descendentes da mudança até assentar.
+- **`--tail MS`** informa a CPU gasta nos MS seguintes a cada carga assentada. Foi assim que se
+  viu que o Dart não reanalisa os dependentes de uma mudança de API: ~75 ms de CPU, e nada
+  depois de assentar.
+- **`--json`** grava a última publicação de cada arquivo, para conferir que dois binários
+  publicam o mesmo.
+- **O perfil** saiu do `sample` do macOS sobre o residente e sobre o servidor, durante sessões
+  de 10 rodadas.
+
+**1. Os verificadores por biblioteca andavam pelo programa inteiro (`40bce2b0`).**
+- **As regras de *lint* de árvore:** rodavam todas (~300) em cada arquivo, e a publicação ficava
+  só com as poucas que o `analysis_options.yaml` liga. Agora o motor roda só as regras ligadas
+  pelas opções que valem para o arquivo (`Engine::lint_rules_from_options`, ligado no LSP).
+- **Os verificadores de cada biblioteca:** `main_function`, `variance`, `invalid_overrides`,
+  `unused_parameters`, `unnecessary_no_such_method`, os `final` não inicializados e mais
+  onze andavam por todas as classes, funções e variáveis do programa para achar as da
+  biblioteca. O `unused_elements` procurava cada construtor na arena inteira de funções. Agora
+  andam pelos elementos da biblioteca ou da unidade (`Program::index`, que ganhou
+  `library_classes`), na mesma ordem de ids.
+- **A varredura do disco:** cada carga sobre um corte lia o `stat` de cada unidade mantida
+  quatro vezes. Agora lê uma vez por análise.
+- **O `package_config.json`:** o `PackageConfig::load` canonicalizava todos os diretórios de
+  pacote a cada chamada. Agora há um cache do processo, válido enquanto data, tamanho e a
+  existência do diretório gerado não mudam.
+
+CPU por carga, 10 rodadas revezadas com o binário da décima primeira rodada (carga 37–48):
+onda 418–437 → 284–290 ms, corpo 102–114 → 72–81 ms, API 2.405–2.797 → 1.537–1.564 ms.
+
+**2. Reanalisar só os dependentes que veem um nome mudado (`e4642ed6`).** É o item 1 da
+prioridade, pelo nome. Cada `Facts` agora traz:
+- a API declaração por declaração (`incremental::api_digest`): o resumo dos *tokens* de
+  assinatura de cada declaração de topo e de cada membro, e os identificadores neles;
+- as palavras do texto (`incremental::text_words`).
+
+Numa mudança de API, o plano compara o resumo velho e o novo e reanalisa a biblioteca do
+arquivo mudado e só os dependentes que podem ver um nome mudado (`api_affected`):
+- **o dono:** um membro mudado muda também o nome do dono;
+- **famílias seladas:** uma classe mudada muda as classes da biblioteca que dividem com ela um
+  supertipo da biblioteca. Um `switch` pode citar só um subtipo;
+- **propagação:** uma declaração cuja assinatura cita um nome mudado muda também (um tipo
+  inferido, um supertipo). Vale na biblioteca e em cada dependente afetado, até um ponto
+  fixo;
+- **quem é afetado:** um dependente cujo texto tem um nome mudado como palavra, comentários
+  incluídos, ou que tem `export` e aponta para um arquivo afetado (um *barrel*);
+- **o caminho antigo** (todos os dependentes) continua quando as diretivas mudaram, quando uma
+  declaração mudada pode ser usada sem o nome (operadores, extensões sem nome, `call`,
+  `iterator`, `toString`…), quando falta um resumo, ou com `DARTFORGE_LSP_API_BY_NAME=0`.
+
+Os outros dependentes ficam com a publicação que já tinham.
+
+O teste `typed_incremental` ganhou três casos, e em cada passo publica o mesmo que uma análise
+do zero:
+- uma família selada percorrida por um `switch` que cita só os subtipos;
+- uma base cujo membro abstrato novo uma subclasse duas bibliotecas adiante precisa
+  implementar;
+- um tipo inferido que passa por uma biblioteca que cita a função mudada até uma que não
+  cita.
+
+Uma mudança de API que ninguém cita analisa o arquivo e o *barrel*, e nada mais.
+
+**3. O que cada análise refazia sem precisar (`789d3b9b`).**
+- **A varredura do disco:** o residente lia o `stat` das suas ~3.600 unidades. O trabalhador
+  agora avisa quando só mudaram textos do editor, e a varredura é pulada, com uma pelo menos a
+  cada 30 s (`Resident::disk_unchanged`).
+- **A árvore do pacote:** o plano andava pela árvore do pacote atrás dos `.dart`. A lista agora
+  fica guardada e é refeita quando um arquivo mudado foi criado ou apagado, quando o
+  `analysis_options.yaml` mudou, ou depois de 30 s.
+- **A chave de caminho:** era refeita componente por componente para cada unidade. Um caminho
+  que já é chave volta como está (`generated::key`, Unix).
+- **Os `Facts`:** a assinatura de API e o resumo dividem um só *lexing*.
+- **O *debounce* da onda:** caiu de 250 ms para 20 ms, porque os arquivos de uma onda chegam a
+  poucos milissegundos um do outro, e uma mudança depois cancela a análise que começou cedo
+  demais.
+
+**Sessões curtas, máquina quase parada.** Mediana até assentar (CPU), 10 rodadas revezadas,
+em ms:
+
+| carga | r11 (carga 2–17) | depois do passo 2 (carga 2–17) | agora (carga 5–25) | Dart (carga 2–25) |
+|---|---:|---:|---:|---:|
+| mudança de API | 1.304–1.577 (1.340–1.583) | 152–209 (159–193) | 131–142 (114–119) | 102–343 (72–139) |
+| onda de 40 `.g.dart` | 476–479 (268–274) | 185–188 (145–149) | 134–135 (124–127) | 99–373 (178–316) |
+| edição de corpo | 75–80 (67–69) | 58 (49) | 44–47 (22) | 34–116 (27–64) |
+
+O Dart varia muito entre as sessões: na janela mais calma (carga 2–17), ele assentou a onda
+em 99–108 ms e o corpo em 34 ms. A última publicação dos 492 arquivos (9.763 diagnósticos) é
+a mesma em todos os binários.
+
+**4. Sessão longa, 150 rodadas (510 cargas), os dois servidores revezados** (carga 58–63, a
+máquina com outros agentes). Medianas, em ms:
+
+| carga | DartForge r11 | DartForge agora | Dart agora | Dart r11 |
+|---|---:|---:|---:|---:|
+| onda: diagnósticos dos gerados | 2.309 | 588 | 467 | 748 |
+| onda: assentado | 2.309 | 588 | 476 | 767 |
+| onda: CPU | — | **186** | 216 | — |
+| corpo: assentado | 357 | **118** | 136 | 214 |
+| corpo: CPU | — | **36** | 38 | — |
+| API: diagnóstico do arquivo | 712 | 235 | 127 | 226 |
+| API: assentado | 14.688 | 795 | 420 | 3.182 |
+| API: CPU | — | 185 | **103** | — |
+
+- **Edição de corpo:** ganhamos, no relógio e na CPU.
+- **Onda:** gastamos menos CPU que o Dart (186 × 216 ms), mas no relógio ficamos 112 ms atrás
+  com a máquina carregada. A carga passa por mais trocas de processo e de *thread* (servidor,
+  trabalhador, residente), e cada uma espera um núcleo. Com a máquina calma, ficamos à frente
+  ou empatados.
+- **Mudança de API:** caiu de 14,7 s para 0,8 s, mas ainda é 1,9× o Dart no relógio e 1,8× na
+  CPU. Ela recarrega e resolve de novo o *outline* de todas as bibliotecas depois do corte
+  (~55 ms de carga e ~55 ms de *outline*). Refazer só o *outline* de quem depende do que mudou
+  é o resto do item 1 (identidade estável de elementos), que não foi feito.
+
+**Memória** (*footprint* de todos os processos, em MiB, mesmas sessões):
+
+| | DartForge | Dart |
+|---|---:|---:|
+| recém-aberto (só abrir) | 488,1 | 549,0 |
+| recém-aberto + 1 rodada | 550,8 | 508,9 |
+| fim da sessão longa (1 min quieto) | **540,6** | 731,5 |
+| pico | 578,7 | 759,5 |
+| inclinação por 100 cargas | **−0,3** | +44,3 |
+| dado vivo do residente, 1 rodada → fim | 473,5 → 478,3 (**+1,0%**) | — |
+
+O resultado de memória da décima primeira rodada se mantém: inclinação ≤ 0, e dado vivo a
++1% do recém-aberto com uma rodada. As curvas estão em
+`bench/results/lsp-long-session/*-r22-*.csv`.
+
+**Validação** (com o binário final):
+- testes em *release* de `elements`, `types`, `analysis`, `world`, `emit_js`,
+  `emit_js_production`, `parity`, `lsp` e `dev`: 846, sem falhas (com o `node` no `PATH`);
+- oráculo de paridade nos quatro projetos de sempre, com a tabela de recursos idêntica à da
+  décima primeira rodada: `references`, `implementation` e `definition` 100%, *completion*
+  top-5 100% (top-1 99%);
+- clippy `-D warnings` em `elements`, `types`, `analysis`, `parity` e `lsp` (todos os
+  alvos), e `rustfmt` nos arquivos tocados;
+- a última publicação dos 492 arquivos do `new_sali`, depois das sessões, é igual à do binário
+  da décima primeira rodada, salvo o marcador da onda (`dfWave0` × `dfWave1`) nos 40 gerados.
+
+**O que não foi feito nesta rodada:**
+- **A mudança de API ainda é ~2× o Dart.** Ela recarrega tudo o que vem depois do corte no
+  programa mantido. Refazer só o *outline* das bibliotecas que dependem do que mudou pede a
+  identidade estável de elementos (item 1 da prioridade).
+- **A onda com a máquina carregada:** perde no relógio, com menos CPU. Juntar as trocas de
+  processo (o trabalhador e o residente) não foi tentado.
+- **A medida da onda e do corpo com a máquina calma** variou muito no Dart entre sessões, e
+  não houve janela calma longa o bastante para as 150 rodadas.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
