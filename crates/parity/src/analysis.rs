@@ -221,7 +221,7 @@ enum Taken {
     Onto(
         World,
         dartforge_elements::frozen::Checkpoint,
-        Option<crate::in_place::Plan>,
+        Option<Box<crate::in_place::Plan>>,
     ),
 }
 
@@ -492,7 +492,7 @@ impl Resident {
             // depends on it: the next change of the same files cuts there.
             world.program.layout_last = changed;
             world.program.layout_hot = self.hot.clone();
-            return Taken::Onto(world, at, plan);
+            return Taken::Onto(world, at, plan.map(Box::new));
         }
         self.units.reclaim(world.program);
         Taken::Nothing

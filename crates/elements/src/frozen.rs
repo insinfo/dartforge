@@ -341,7 +341,10 @@ fn prefer_order(program: &Program, order: &[usize], starts: &[usize]) -> (Vec<us
             reaches_changed[g] = true;
         }
     }
-    let key = |g: usize| {
+    /// What a ready group is ordered by (the least first): hot, depends on
+    /// what changed, has no dependents, changed, its old place.
+    type Key = (bool, bool, bool, bool, usize);
+    let key = |g: usize| -> Key {
         (
             hot[g],
             reaches_changed[g],
@@ -355,7 +358,7 @@ fn prefer_order(program: &Program, order: &[usize], starts: &[usize]) -> (Vec<us
         .enumerate()
         .map(|(g, d)| d.iter().filter(|&&h| waits(g, h)).count())
         .collect();
-    let mut ready: BinaryHeap<Reverse<(bool, bool, bool, bool, usize)>> = (0..n)
+    let mut ready: BinaryHeap<Reverse<Key>> = (0..n)
         .filter(|&g| waiting[g] == 0)
         .map(|g| Reverse(key(g)))
         .collect();

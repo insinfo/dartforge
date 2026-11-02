@@ -771,8 +771,8 @@ impl TypeTable {
         let f = |t: TypeId| remap.get(t);
         // In place: the kept types move down, renumbered.
         let mut next = 0;
-        for i in 0..n {
-            if live[i] {
+        for (i, &l) in live.iter().enumerate() {
+            if l {
                 self.types[next] = remap_type(&self.types[i], &f);
                 next += 1;
             }
