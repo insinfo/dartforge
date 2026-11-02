@@ -174,9 +174,11 @@ pub fn collect_types_at(
 /// gave a program with the same libraries before `at` (which depend on
 /// nothing after it: the frozen prefix of `program`, or a later group start,
 /// `Program::groups`). The diagnostics are those of the elements after `at`.
-/// The override inference of the next body inference runs from the classes
-/// of the frozen prefix's end on (`OutlineTypes::overrides_from`), so that the
-/// package's classes before `at` give their diagnostics again.
+/// The override inference of the next body inference runs from `at` on
+/// (`OutlineTypes::overrides_from`) when it already ran over `prefix` (a body
+/// inference mutates the outline in place, and the inference reports nothing
+/// of its own): the classes before `at` keep the types it gave them.
+/// Otherwise (an analysis stopped before it), from the frozen prefix's end.
 ///
 /// # Panics
 ///
@@ -194,11 +196,16 @@ pub fn resolve_outline_onto(
     Vec<dartforge_elements::model::UnitId>,
 ) {
     let frozen = program.frozen.expect("a program with a frozen prefix");
+    let overrides_from = if prefix.inferred_overrides {
+        at.classes
+    } else {
+        frozen.classes.min(at.classes)
+    };
     let (outline, diags, units) =
         OutlineResolver::onto(program, interner, table, core, prefix, at).resolve_all_with_units();
     (
         OutlineTypes {
-            overrides_from: frozen.classes.min(at.classes),
+            overrides_from,
             ..outline
         },
         diags,

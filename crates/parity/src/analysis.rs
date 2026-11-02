@@ -4252,8 +4252,14 @@ mod tests {
         std::fs::write(&a, "import 'b.dart';\nint fa(B b) => b.v;\n").unwrap();
         std::fs::write(&c, "import 'b.dart';\nbool fc(B b) => b.v;\n").unwrap();
         // Discovered after `b.dart` (the batch's file comes first), and
-        // independent of it.
-        std::fs::write(&x, "int fx() => true;\n").unwrap();
+        // independent of it. Its error needs the override inference of `Q.f`
+        // (`int`, from `P.f`), which a kept class keeps from the first load.
+        std::fs::write(
+            &x,
+            "class P { int f(int a) => a; }\nclass Q extends P { f(a) => a; }\n\
+             bool fx() => Q().f(1);\n",
+        )
+        .unwrap();
         let engine = Engine::new(&base.join("sdk/lib")).unwrap();
         let mut resident = Resident::new();
         let all = vec![a.clone(), b.clone(), c.clone(), x.clone()];
@@ -4287,6 +4293,7 @@ mod tests {
             for f in &all {
                 assert_eq!(shown(&kept_program, f), shown(&fresh, f), "{version} {f:?}");
             }
+            assert_eq!(shown(&kept_program, &x).len(), 1, "{version}");
         }
         // The first change cut before `x.dart`; the next ones keep it.
         assert!(kept[1] > kept[0] && kept[2] > kept[0], "{kept:?}");
