@@ -47,3 +47,6 @@ runtime/ddc/*/
 __pycache__/
 # casos dirigidos das especificações: o package_config do pub get tem caminhos da máquina
 /corpus/specification/**/.dart_tool/
+
+# macOS Finder metadata
+.DS_Store
