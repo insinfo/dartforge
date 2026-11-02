@@ -48,7 +48,11 @@ package:test 1.25.7 / test_core 0.6.x. O código está em `crates/cli/src/pub_ge
 | `cache` (`add`, `clean`, `list`, `preload`, `repair`) | suportado | `add` (`--version`, `--all`, "Already cached"), `clean` (`-f` e a pergunta), `list` (JSON do servidor padrão), `preload` (hash do arquivo, servidor padrão), `repair` (hosted reinstalado do servidor, Git com `clean`/`reset`, pacotes globais reativados, código 69 nas falhas). Mesmos textos de ajuda e erros de uso. O `pub get` e o `cache add` agora também gravam o `README.md` do cache e as listagens `hosted/<servidor>/.cache/<pacote>-versions.json` com `_fetchedAt`, como o Pub |
 | `global` (`activate`, `deactivate`, `list`, `run`) | suportado | `activate` hosted (restrição, `-u`), Git (`--git-ref`, `--git-path`, repositório relativo) e path; `-x`, `--no-executables`, `--overwrite`; pacote raiz `pub global activate`, `pubspec.lock` e `package_config.json` em `global_packages/<pacote>` iguais aos do Pub; *bin stubs* com o mesmo cabeçalho (`Package`, `Version`, `Executable`, `Script`), aviso de PATH, colisões, executáveis desconhecidos. `run` resolve de novo os pacotes path a cada execução e os do cache só quando falta o executável, como o Pub. Diferença do que fica no cache: onde o Pub grava o *snapshot* `bin/<script>.dart-3.6.2.snapshot` o DartForge grava o executável nativo `bin/<script>` (e `.dart_tool/pub/bin/<pacote>/<script>` para path); o *stub* executa esse binário ou `dartforge pub global run`. A ordem das linhas `Built pkg:exe.` é a de término das compilações no Pub (paralelas) e alfabética no DartForge |
 | `run` | ausente | use `dartforge run` |
-| `publish`/`lish`, `uploader`, `token`, `login`, `logout` | ausente | |
+| `token` (`add`, `list`, `remove`) | suportado | `pub-tokens.json` no diretório de configuração do Dart (`applicationConfigHome('dart')`: `~/Library/Application Support/dart` no macOS, `$XDG_CONFIG_HOME/dart` ou `~/.config/dart` no Linux, `%APPDATA%\dart` no Windows) com a mesma ordem de chaves; token pelo stdin ou `--env-var`; avisos de nome de variável, URL normalizada (`pub.dartlang.org` → `pub.dev`, barra final), recusa de `http://` fora de localhost, `remove --all`, ajudas com a quebra de linha do package:args |
+| `logout` | suportado | apaga `pub-credentials.json` ou diz que não existe |
+| `uploader` | suportado | como no Pub 3.6.2: só aponta para `https://pub.dev/packages/<pacote>/admin` (código 1) |
+| `login` | ausente | fluxo OAuth2 com navegador e servidor do Google; não há como testá-lo sem rede nem igualá-lo offline |
+| `publish`/`lish` | ausente | ver "`pub publish`: o que falta" abaixo |
 | `bump`, `unpack`, `workspace list`, `dependency_services` | ausente | |
 | Sugestões após falha ("You can try one of the following suggestions") | ausente | o Pub re-resolve variações; o DartForge imprime só a explicação |
 | SDK Flutter/Fuchsia | parcial | tratados como indisponíveis (o Pub sem `FLUTTER_ROOT` faz o mesmo) |
@@ -93,6 +97,34 @@ rastro nulo e emite `line`/`column`/`url` nulos, como o próprio package:test fa
 não há rastro. Quando o backend ganhar quadros, a coleta volta sozinha. Os
 `stackTrace` dos eventos `error` e os rastros impressos pelos relatores de texto são os
 do executável nativo (`dart:native  main`).
+
+## `pub publish`: o que falta
+
+Não foi feito nesta rodada. O `--dry-run` do Pub 3.6.2 só sai idêntico com todas as
+peças abaixo; entregar parte delas daria avisos e erros diferentes nos pacotes que
+acionam as que faltam, e por isso nada foi ligado:
+
+1. `acquireDependencies` (já existe: o `pub get`) e a lista de arquivos do
+   `Package.listFiles`, com as regras de `.pubignore`/`.gitignore` do `ignore.dart` do
+   Pub (por diretório, `.pubignore` vence `.gitignore`, sempre fora `.git`, `pubspec.lock`
+   só na raiz etc.);
+2. a árvore com tamanhos (`ascii_tree.fromFiles`, `showFileSizes`) e o arquivo
+   `.tar.gz` do `createTarGz` (cabeçalhos do package:tar, ordem, modos); o tamanho
+   comprimido aparece arredondado em KB, então o gzip precisa sair com o mesmo nível e
+   praticamente os mesmos bytes do `GZipCodec` do Dart;
+3. os 25 validadores do `Validator.runAll`, na ordem: `FileCase`, `Analyze` (o
+   `dart analyze` de `lib`, `bin`, `test`... — temos o `dartforge analyze`, 99,95% no
+   corpus, mas as mensagens têm de sair como as do analisador embutido no Pub),
+   `Gitignore` e `GitStatus` (rodam `git`), `Pubspec`, `License`, `Name`, `PubspecField`,
+   `Dependency` (consulta o servidor), `DependencyOverride`, `DeprecatedFields`,
+   `Directory`, `Executable`, `CompiledDartdoc`, `Readme`, `Changelog`, `SdkConstraint`,
+   `StrictDependencies` (lê os `import`/`export` de todo arquivo Dart), `FlutterConstraint`,
+   `FlutterPluginFormat`, `RelativeVersionNumbering` (consulta o servidor), `PubspecTypo`,
+   `LeakDetection` (671 linhas de padrões de segredos), `Size` e `DevtoolsExtension`;
+4. o protocolo de envio (`GET api/packages/versions/new`, `POST` multipart para a URL
+   devolvida, `GET` da `location`) com `--force`, a confirmação e os erros de servidor,
+   testado só contra um servidor falso local; autenticação por `pub-tokens.json` (já
+   implementado) para servidores de terceiros e OAuth2 para o pub.dev.
 
 ## Matriz das opções do `dart test`
 

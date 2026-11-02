@@ -1,0 +1,31 @@
+token list
+token add
+token add a b
+token add http://example.com
+token add not-a-url
+stdin=abc.DEF_123 token add https://example.com
+token list
+stdin=bad%token token add https://other.example.com
+token add https://env.example.com --env-var MY_TOKEN
+token add https://env2.example.com --env-var lower_case
+token add https://env3.example.com --env-var A=B
+token add https://env4.example.com --env-var ''
+stdin=xyz token add https://example.com/
+stdin=xyz token add https://pub.dartlang.org
+token list
+token remove
+token remove a b
+token remove https://nothere.example.com
+token remove https://example.com
+token list
+token remove --all
+token remove --all
+token
+token --help
+token add --help
+token list --help
+token remove --help
+logout
+logout x
+uploader
+uploader add a@b.c

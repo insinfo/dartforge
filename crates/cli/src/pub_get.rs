@@ -22,6 +22,7 @@ mod solver;
 mod source;
 #[cfg(test)]
 mod tests;
+mod token;
 mod tree;
 mod version;
 mod yaml_edit;
@@ -42,11 +43,13 @@ Available subcommands:
   add         Add dependencies to `pubspec.yaml`.
   cache       Work with the system cache.
   global      Work with global packages.
+  logout      Log out of pub.dev.
   deps        Print package dependencies.
   downgrade   Downgrade packages in a project.
   get         Get the current package's dependencies.
   outdated    Analyze dependencies to find which ones can be upgraded.
   remove      Removes dependencies from `pubspec.yaml`.
+  token       Manage authentication tokens for hosted pub repositories.
   upgrade     Upgrade the current package's dependencies to latest versions.";
 
 /// A failure with the exit code `dart pub` uses for it.
@@ -361,6 +364,9 @@ pub(crate) fn run(args: &[OsString]) -> Result<u8, Failure> {
         "outdated" => commands::outdated(rest),
         "cache" => cache::run(rest),
         "global" => global::run(rest),
+        "token" => token::run(rest),
+        "logout" => token::logout(rest),
+        "uploader" => token::uploader(rest, "."),
         other => Err(usage(format!(
             "Could not find a subcommand named \"{other}\" for \"dart pub\".\n\n{USAGE}"
         ))),
