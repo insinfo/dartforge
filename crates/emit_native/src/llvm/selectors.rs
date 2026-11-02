@@ -324,11 +324,30 @@ impl LlvmEmitter<'_> {
         // at startup after the records): its record keeps only nominal and
         // textual metadata, the startup body the allocation inventory certifies
         // (`actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup`).
+        //
+        // A registration cites the entry, which keeps it (and all it reaches)
+        // live through the link's pruning. So an SDK library registers none of
+        // its own: registering every SDK tear-off kept 20 thousand symbols of
+        // a hello world alive, `dart:js_interop` included (863d4159; 1.29 →
+        // 12.75 MB of wasm). The tear-offs a program creates are registered
+        // by the program, also those of SDK functions (declared here), whose
+        // creation already keeps them live.
         let mut tearoffs = String::new();
         let defined: std::collections::HashSet<&str> =
             module.functions.iter().map(|f| f.symbol.as_str()).collect();
+        let registrable_set: std::collections::HashSet<String> = module
+            .tearoff_names
+            .keys()
+            .chain(module.instantiation_entries.iter())
+            .filter(|s| {
+                !module.sdk_library
+                    && (defined.contains(s.as_str()) || self.externals.contains_key(s.as_str()))
+            })
+            .cloned()
+            .collect();
+        let registrable = |symbol: &str| registrable_set.contains(symbol);
         for (symbol, (name, is_static)) in &module.tearoff_names {
-            if !defined.contains(symbol.as_str()) {
+            if !registrable(symbol) {
                 continue;
             }
             let idx = self.string_const_index(name.as_bytes()).unwrap_or(0);
@@ -352,7 +371,7 @@ impl LlvmEmitter<'_> {
             .unwrap();
         }
         for symbol in &module.instantiation_entries {
-            if defined.contains(symbol.as_str()) {
+            if registrable(symbol) {
                 writeln!(
                     tearoffs,
                     "  call void @dartforge_register_instantiation(ptr @{symbol})"
