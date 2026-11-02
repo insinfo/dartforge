@@ -325,8 +325,10 @@ fn compile_suite(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Erro
 fn suite_key(bootstrap: &Path, arguments: &[OsString]) -> Option<(String, PathBuf)> {
     let text = fs::read_to_string(bootstrap).ok()?;
     // The bootstrap imports the suite relative to a per-run directory.
-    let (before, rest) = text.split_once("import \"")?;
-    let (relative, after) = rest.split_once('"')?;
+    // The suite is the import `as test`; the others are `dart:` and `package:`.
+    let end = text.find("\" as test;")?;
+    let start = text[..end].rfind('"')? + 1;
+    let (before, relative, after) = (&text[..start], &text[start..end], &text[end..]);
     let relative: String = serde_json::from_str(&format!("\"{relative}\"")).ok()?;
     let suite =
         dartforge_elements::config::canonicalize(&bootstrap.parent()?.join(relative)).ok()?;
@@ -605,6 +607,57 @@ mod tests {
                 .iter()
                 .all(|a| a != "--sdk")
         );
+    }
+
+    #[test]
+    fn suite_cache_key_follows_the_suite_not_the_run_directory() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("dartforge-suite-key-{unique}"));
+        let workspace = Workspace {
+            path: path.clone(),
+            keep: false,
+        };
+        fs::create_dir_all(path.join("pkg/test")).unwrap();
+        fs::create_dir_all(path.join("pkg/.dart_tool")).unwrap();
+        fs::create_dir_all(path.join("run1/0")).unwrap();
+        fs::create_dir_all(path.join("run2/0")).unwrap();
+        fs::write(path.join("pkg/test/a_test.dart"), "void main() {}").unwrap();
+        let config = path.join("pkg/.dart_tool/package_config.json");
+        fs::write(
+            &config,
+            r#"{"configVersion":2,"packages":[{"name":"pkg","rootUri":"../","packageUri":"lib/"}]}"#,
+        )
+        .unwrap();
+        let bootstrap = |run: &str| {
+            let file = path.join(run).join("0/bootstrap.dart");
+            fs::write(
+                &file,
+                "import \"dart:isolate\";\nimport \"../../pkg/test/a_test.dart\" as test;\n",
+            )
+            .unwrap();
+            file
+        };
+        let arguments: Vec<OsString> = ["--packages", config.to_str().unwrap()]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let first = suite_key(&bootstrap("run1"), &arguments).unwrap();
+        let second = suite_key(&bootstrap("run2"), &arguments).unwrap();
+        assert_eq!(
+            first, second,
+            "the per-run directory does not change the key"
+        );
+        assert_eq!(
+            first.1,
+            config.parent().unwrap().join("dartforge/test-suites")
+        );
+        fs::write(path.join("pkg/test/a_test.dart"), "void main() { }").unwrap();
+        let changed = suite_key(&bootstrap("run1"), &arguments).unwrap();
+        assert_ne!(first.0, changed.0, "an edited file changes the key");
+        drop(workspace);
     }
 
     #[test]

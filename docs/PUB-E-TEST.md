@@ -87,6 +87,18 @@ test_core usa o analisador; o anfitrião pede a leitura do DartForge com
 iniciado com `argv[0]` igual ao executável do DartForge, então o "To run this test again"
 do relator `compact` mostra `<dartforge> test ...` onde o `dart test` mostra `<dart> test ...`.
 
+**Cache dos executáveis das suítes.** O anfitrião compila cada suíte por
+`dartforge test --dartforge-compile-suite`, que reaproveita o executável de
+`.dart_tool/dartforge/test-suites/<chave>/` quando nada do que a compilação lê mudou:
+o *bootstrap* (com o caminho absoluto da suíte no lugar do relativo, que muda a cada
+execução), o compilador (caminho, tamanho e data), os argumentos de compilação, o
+`package_config.json`, o SDK selecionado (caminho e carimbos dos arquivos), as
+variáveis `DARTFORGE_*` e o caminho, tamanho e data de todo arquivo sob a raiz de todo
+pacote da configuração (fora `.dart_tool`, `.git` e `build`). A chave é conservadora:
+mexer em qualquer arquivo do pacote invalida todas as suítes. Um acerto copia o mesmo
+executável que a compilação produziu antes, então a saída é a mesma; o cache não tem
+limite de tamanho (apague o diretório para limpá-lo).
+
 **Rastros de pilha.** O executável nativo ainda não tem quadros de pilha
 (`StackTrace.current` é `#0 main (dart:native)`; ver
 `docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md` §13.14). O package:test usa o rastro da
