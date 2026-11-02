@@ -372,7 +372,9 @@ foi o exercitado). Os `canonicalize` de outros crates (`runtime`, `lsp`, `build`
 `cargo test --release --workspace` com **3133 passados, 0 falhas** (195 ignorados, 33 min, `-j 4`);
 diferencial nativo de `corpus/native` rodado no próprio Windows (não cruzado), contra o `dart run`
 3.6.2: **164/164** em desenvolvimento (276 s) e **164/164** com `--optimize` (5326 s, `--jobs 3`).
-O tempo do `--optimize` (19× o de desenvolvimento) é a mesma lacuna do tempo de compilação do AOT.
+O tempo do `--optimize` (19× o de desenvolvimento) é a mesma lacuna do tempo de compilação do AOT. Corpus JS
+(`corpus/js`, Node do Windows): **277/277** em desenvolvimento e **277/277** em produção, DDC×VM
+261/277, os mesmos números do macOS.
 
 ### Correções do backend nesta rodada
 
