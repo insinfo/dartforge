@@ -132,6 +132,42 @@ Differences that remain by design:
   line when its compilation ends; DartForge compiles them one after the other in
   alphabetical order.
 
+## `pub token`, `logout`, `uploader` (second round)
+
+`homescen.sh tk token1.txt` runs `probehome.sh` with each tool: `HOME`, `PUB_CACHE` and
+the working directory are fresh per tool, and the directories have names of the same
+length, because the help text wraps the path of `pub-tokens.json` at 80 columns. After
+every command the transcript includes the contents of `pub-tokens.json`. A line may
+feed a token on stdin (`stdin=<token> token add ...`).
+
+`token1.txt`: `token list` (empty), `token add` without and with extra arguments,
+`http://` and a relative URL (64), a token from stdin, an invalid token (65),
+`--env-var` (undefined variable, lower-case name, `=` in the name, empty name), a URL
+with a final slash and `https://pub.dartlang.org` (both normalized), `token list`,
+`token remove` without, with extra arguments, unknown (65) and known, `--all` twice
+(file deleted, then missing), `token` without subcommand, the four `--help` texts,
+`logout` without credentials, `logout x` (64), `uploader` and `uploader add a@b.c` (1):
+**31/31 commands identical, including every state of `pub-tokens.json`.**
+
+`login` is not implemented: it is the OAuth2 flow with a browser and Google's servers,
+which cannot be run or compared offline.
+
+## Suite executable cache (second round)
+
+`suitecache.sh` (not a speed benchmark: one run each, machine shared with other agents)
+empties `.dart_tool/dartforge/test-suites` and runs `dartforge test -r json -j 1` on the
+fixture three times, comparing each event stream with `dart test -r json -j 1`:
+
+| Run | Wall time | Events against `dart test` | Cache entries |
+|---|---|---|---|
+| cold (also compiles the test host, new binary) | 176 s | identical | 3 |
+| warm (every suite from the cache) | **1 s** | identical | 3 |
+| after `touch test/b_test.dart` (every key changes) | 108 s | identical | 6 |
+
+The first version of the key looked for the first `import` of the bootstrap
+(`dart:isolate`), never produced a key and therefore never cached (0 entries in a
+first measurement); fixed in `Find the suite import of the bootstrap for the cache key`.
+
 ## Unit and integration tests
 
 `cargo test --release --locked -p dartforge-cli --no-fail-fast`: all pass (30 + 4 + 2
