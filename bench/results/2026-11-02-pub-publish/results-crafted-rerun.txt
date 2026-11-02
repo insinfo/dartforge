@@ -1,0 +1,24 @@
+crafted: identical (31 commands)
+server requests: differ
+10d9
+< 8765 GET /api/packages/deps accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+12c11
+< 8765 GET /api/packages/foo accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+---
+> 8765 GET /api/packages/deps accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+14,15d12
+< 8765 GET /api/packages/deps2 accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+< 8765 GET /api/packages/other accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+16a14,15
+> 8765 GET /api/packages/other accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+> 8765 GET /api/packages/deps2 accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+18d16
+< 8765 GET /api/packages/deps3 accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+19a18
+> 8765 GET /api/packages/deps3 accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+20a20
+> 8765 GET /api/packages/foo accept=application/vnd.pub.v2+json auth=None type= agent=Dart pub 3.6.2
+archive ignore: identical (1061 bytes)
+archive inrepo: identical (462 bytes)
+archive linkfile: identical (421 bytes)
+archive private: identical (406 bytes)

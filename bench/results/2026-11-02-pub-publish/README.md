@@ -73,9 +73,10 @@ release binary of commit `4721dbcb`:
 Total: 116 commands, 20 archives byte for byte. The request-log differences all come
 from the `pub get` that `publish` runs first, not from publishing: Pub fetches
 listings and archives in parallel, so their order differs, and in the workspace runs
-(and once in `crafted`) DartForge reads a listing Pub did not ask the server for. In
-this run the archive downloads of DartForge also carried ureq's
-default `Accept: */*`; the next commit drops it (Pub sends none).
+DartForge reads a listing Pub did not ask the server for. In this run the archive
+downloads of DartForge also carried ureq's default `Accept: */*`; commit `5c4fc8c7`
+drops it (Pub sends none), and a rerun of `crafted` with that binary gives the same
+37 requests as Pub, sorted (only the order differs).
 
 **crafted** covers every validator that can fire without Flutter: missing LICENSE,
 README, CHANGELOG, description, version and homepage; SDK constraint without upper
