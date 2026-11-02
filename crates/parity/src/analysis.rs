@@ -4204,10 +4204,13 @@ mod tests {
             assert_eq!(shown(&kept, &d), shown(&fresh, &d), "{version} d");
         }
         // The same API changes over and over: the type table, and its type
-        // parameters, do not grow with the number of loads (each load
-        // collects it, and reuses the slots of the dropped parameters).
+        // parameters, do not grow with the number of loads (the collection,
+        // every few loads, drops what each of them replaced, and reuses the
+        // slots of the dropped parameters). Measured right after each
+        // collection.
         let mut sizes = Vec::new();
-        for round in 0..6 {
+        let mut collections = resident.world.as_ref().unwrap().table.collections();
+        for round in 0..50 {
             let version = versions[round % 2];
             let texts = HashMap::from([(key(&b), version.to_string())]);
             engine
@@ -4221,10 +4224,18 @@ mod tests {
                 )
                 .unwrap();
             let table = &resident.world.as_ref().unwrap().table;
-            sizes.push((table.len(), table.type_param_count()));
+            if table.collections() > collections {
+                collections = table.collections();
+                sizes.push((round % 2, table.len(), table.type_param_count()));
+            }
         }
-        assert_eq!(sizes[2], sizes[4], "{sizes:?}");
-        assert_eq!(sizes[3], sizes[5], "{sizes:?}");
+        assert!(sizes.len() >= 3, "{sizes:?}");
+        // After the first collection, which may still hold the first loads'.
+        for pair in sizes[1..].windows(2) {
+            if pair[0].0 == pair[1].0 {
+                assert_eq!(pair[0], pair[1], "{sizes:?}");
+            }
+        }
         let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&base).unwrap();

@@ -163,6 +163,19 @@ pub struct TypeTable {
     /// ([`TypeTable::collect_dropping`]): [`TypeTable::alloc_type_param`]
     /// takes them before growing the arena.
     free_params: Vec<TypeParamId>,
+    /// The epoch each type parameter was allocated in (parallel to
+    /// `type_params`): a reload over a cut starts a new one
+    /// ([`TypeTable::note_reload`]).
+    param_epochs: Vec<u32>,
+    epoch: u32,
+    /// The reloads since the last collection: the element counts each kept
+    /// (classes, extensions, typedefs, functions) and the epoch it started.
+    /// A parameter allocated before a reload, whose owner that reload
+    /// replaced, is dead.
+    reloads: Vec<([usize; 4], u32)>,
+    /// Types and type parameters right after the last collection, and how
+    /// many collections there were.
+    collected: (usize, usize, usize),
 }
 
 impl CoreTypes {
@@ -342,6 +355,10 @@ impl TypeTable {
             fresh_formals: HashMap::new(),
             without_default_type: std::collections::HashSet::new(),
             free_params: Vec::new(),
+            param_epochs: Vec::with_capacity(256),
+            epoch: 0,
+            reloads: Vec::new(),
+            collected: (0, 0, 0),
         }
     }
 
@@ -526,10 +543,12 @@ impl TypeTable {
         };
         if let Some(id) = self.free_params.pop() {
             self.type_params[id.0 as usize] = data;
+            self.param_epochs[id.0 as usize] = self.epoch;
             return id;
         }
         let id = TypeParamId(self.type_params.len() as u32);
         self.type_params.push(data);
+        self.param_epochs.push(self.epoch);
         self.payload_bytes += std::mem::size_of::<TypeParameterData>();
         id
     }
@@ -621,13 +640,63 @@ impl TypeTable {
         roots: impl IntoIterator<Item = TypeId>,
         dropped: &dyn Fn(TypeParamOwner) -> bool,
     ) -> TypeRemap {
-        self.collect_params(roots, Some(dropped))
+        self.collect_params(roots, Some(&|owner, _| dropped(owner)))
+    }
+
+    /// Records a reload over a cut that keeps the first `kept` elements of
+    /// each arena (classes, extensions, typedefs, functions): the type
+    /// parameters allocated so far whose owner comes after them belong to
+    /// elements the reload replaced. The next [`TypeTable::collect_reloaded`]
+    /// drops them (unless a kept type still has them), whenever it runs: the
+    /// parameters allocated from here on start a new epoch, so the new
+    /// elements' parameters, with the same owner ids, are not mistaken for
+    /// the old ones.
+    pub fn note_reload(&mut self, kept: [usize; 4]) {
+        self.epoch += 1;
+        self.reloads.push((kept, self.epoch));
+    }
+
+    /// Whether the loads since the last collection left enough behind to
+    /// collect: the table grew by an eighth (and at least 4,096 types or 256
+    /// type parameters), or 16 reloads passed. A collection walks the whole
+    /// table, so it is amortized over the reloads; until it runs, what they
+    /// left behind stays.
+    pub fn collection_due(&self) -> bool {
+        let (types, params, _) = self.collected;
+        self.types.len() > types + (types / 8).max(4096)
+            || self.type_params.len() > params + (params / 8).max(256)
+            || self.reloads.len() >= 16
+    }
+
+    /// How many collections the table had.
+    pub fn collections(&self) -> usize {
+        self.collected.2
+    }
+
+    /// [`TypeTable::collect_dropping`] with the parameters that the reloads
+    /// recorded since the last collection ([`TypeTable::note_reload`])
+    /// replaced.
+    pub fn collect_reloaded(&mut self, roots: impl IntoIterator<Item = TypeId>) -> TypeRemap {
+        let reloads = std::mem::take(&mut self.reloads);
+        let dead = move |owner: TypeParamOwner, epoch: u32| {
+            let (kind, id) = match owner {
+                TypeParamOwner::Class(c) => (0, c.0 as usize),
+                TypeParamOwner::Extension(e) => (1, e.0 as usize),
+                TypeParamOwner::Typedef(t) => (2, t.0 as usize),
+                TypeParamOwner::Function(f) => (3, f.0 as usize),
+                TypeParamOwner::GenericFunctionType => return false,
+            };
+            reloads
+                .iter()
+                .any(|(kept, started)| epoch < *started && id >= kept[kind])
+        };
+        self.collect_params(roots, Some(&dead))
     }
 
     fn collect_params(
         &mut self,
         roots: impl IntoIterator<Item = TypeId>,
-        dropped: Option<&dyn Fn(TypeParamOwner) -> bool>,
+        dropped: Option<&dyn Fn(TypeParamOwner, u32) -> bool>,
     ) -> TypeRemap {
         let n = self.types.len();
         let mut live = vec![false; n];
@@ -640,7 +709,7 @@ impl TypeTable {
             for (i, p) in self.type_params.iter().enumerate() {
                 param_live[i] = !free.contains(&TypeParamId(i as u32))
                     && p.owner != TypeParamOwner::GenericFunctionType
-                    && !dropped(p.owner);
+                    && !dropped(p.owner, self.param_epochs[i]);
             }
             if let Some(u) = self.the_unknown_param {
                 param_live[u.0 as usize] = true;
@@ -765,6 +834,11 @@ impl TypeTable {
         self.payload_bytes = self.types.len()
             * (2 * std::mem::size_of::<Type>() + std::mem::size_of::<TypeId>() + 8)
             + self.type_params.len() * std::mem::size_of::<TypeParameterData>();
+        self.collected = (
+            self.types.len(),
+            self.type_params.len(),
+            self.collected.2 + 1,
+        );
         remap
     }
 

@@ -148,23 +148,25 @@ pub fn collect_types(table: &mut TypeTable, outline: &mut OutlineTypes, core: &m
 /// serve the next ones ([`TypeTable::collect_dropping`]). Without it, the
 /// resident's table grows with every load over the cut by the parameters of
 /// what the load resolves again.
+///
+/// The collection walks the whole table, so it runs only when the loads
+/// since the last one left enough behind ([`TypeTable::collection_due`]);
+/// each load records its cut ([`TypeTable::note_reload`]), and the
+/// collection drops the parameters of every load it covers.
 pub fn collect_types_at(
     table: &mut TypeTable,
     outline: &mut OutlineTypes,
     core: &mut CoreTypes,
     at: &dartforge_elements::frozen::Checkpoint,
 ) {
+    table.note_reload([at.classes, at.extensions, at.typedefs, at.functions]);
+    if !table.collection_due() {
+        return;
+    }
     let mut roots: Vec<TypeId> = Vec::new();
     outline.for_each_type(&mut |t| roots.push(*t));
     core.for_each_type(&mut |t| roots.push(*t));
-    let dropped = |owner: TypeParamOwner| match owner {
-        TypeParamOwner::Class(c) => c.0 as usize >= at.classes,
-        TypeParamOwner::Extension(e) => e.0 as usize >= at.extensions,
-        TypeParamOwner::Typedef(t) => t.0 as usize >= at.typedefs,
-        TypeParamOwner::Function(f) => f.0 as usize >= at.functions,
-        TypeParamOwner::GenericFunctionType => false,
-    };
-    let remap = table.collect_dropping(roots, &dropped);
+    let remap = table.collect_reloaded(roots);
     outline.for_each_type(&mut |t| *t = remap.get(*t));
     core.for_each_type(&mut |t| *t = remap.get(*t));
 }
