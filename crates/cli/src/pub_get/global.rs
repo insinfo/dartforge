@@ -277,7 +277,7 @@ fn activate(args: &[String]) -> Result<u8, Failure> {
     let source = arguments.option("source").unwrap_or("hosted");
     if !matches!(source, "git" | "hosted" | "path") {
         return Err(usage_error(
-            &format!("\"{source}\" is not an allowed value for option \"source\"."),
+            &format!("\"{source}\" is not an allowed value for option \"--source\"."),
             ACTIVATE_USAGE,
             false,
         ));
@@ -1247,22 +1247,29 @@ fn run_executable(args: &[String]) -> Result<u8, Failure> {
         return Ok(exit::NO_INPUT);
     }
     let binary = built.join(executable_file(&executable));
-    // A path package can change at any time, so Pub rebuilds it on every run;
-    // a cached one only when its executable is missing.
-    let program = if !extra.is_empty() {
-        let temp = temp_dir(&settings.cache_root)?;
-        let binary = temp.join(executable_file(&executable));
-        compile(&settings, &script, &config, &binary, &extra)?;
-        Some((binary, temp))
-    } else {
-        if !binary.is_file() || !global {
-            recompile(&settings, &active, &package, &source, global)?;
+    // Experiments make Pub run from source instead of the snapshot; without
+    // them a path package, which can change at any time, is rebuilt on every
+    // run and a cached one only when its executable is missing.
+    let use_snapshot = arguments.options("enable-experiment").is_empty();
+    let asserts = extra.iter().any(|e| e == "--enable-asserts");
+    if use_snapshot && (!binary.is_file() || !global) {
+        recompile(&settings, &active, &package, &source, global)?;
+        if !asserts {
             std::fs::create_dir_all(&built).map_err(|e| e.to_string())?;
             if let Err(error) = compile(&settings, &script, &config, &binary, &[]) {
                 return Err(format!("Failed to build {package}:{executable}:\n{error}").into());
             }
         }
+    }
+    // The VM applies `--enable-asserts` and experiments when it runs the
+    // program; a native executable needs them at compile time.
+    let program = if extra.is_empty() {
         None
+    } else {
+        let temp = temp_dir(&settings.cache_root)?;
+        let binary = temp.join(executable_file(&executable));
+        compile(&settings, &script, &config, &binary, &extra)?;
+        Some((binary, temp))
     };
     let to_run = program.as_ref().map_or(&binary, |(b, _)| b);
     let status = std::process::Command::new(to_run)

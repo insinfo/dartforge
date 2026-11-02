@@ -46,7 +46,15 @@ test` (`cmp.sh`), keeping stdout, stderr and the exit code. Comparison rules:
 | `-r silent -j 1` | 1 / 1 | identical (empty) |
 | `-r expanded -j 1 --fail-fast` | 1 / 1 | identical except the stack trace |
 | `-r nope` | 64 / 64 | identical usage error |
-REPORTERS2
+| `-r compact -j 1 --file-reporter json:<file>` (`reporters2.sh`) | 1 / 1 | the JSON file: **59 events identical**; stdout identical except the two stack traces and the rerun executable |
+| `-r json -j 1 --fail-fast` | 1 / 1 | 31 events identical (the run stops after the first failure in both) |
+| `-r github -j 1 --fail-fast test/a_test.dart test/b_test.dart` | 1 / 1 | identical except the stack trace |
+| `-r json -j 1 --test-randomize-ordering-seed 42 test/a_test.dart` | 1 / 1 | 19 events identical (same shuffled order) |
+| `-r expanded -j 1 -t slow` | 0 / 0 | identical, including the unknown-tag warning |
+| `--version` | 0 / 0 | identical (`1.25.7`) |
+| `--help` | 0 / 0 | package:test's usage identical; DartForge appends the 7 lines of its own options |
+| `--watch` | 64 / 64 | identical usage error |
+| `--coverage out` | 1 / 64 | refused by DartForge (`coverage collection is not supported by the native runner`) |
 
 Known, documented differences:
 
@@ -92,7 +100,7 @@ interleaved, exit codes, cache and work paths normalized) and the tree of the ca
 
 The one difference of `cache2.txt` was the message for a file that is not gzip:
 Dart's `GZipCodec` says `Filter error, bad data`, `flate2` said `invalid gzip header`;
-`preload` now reports zlib's text. CACHE2RERUN
+`preload` now reports zlib's text. Rerun with the fix (`batch2.sh`): **12/12 commands identical, cache tree identical (189 entries), 31/31 files identical**.
 
 ## `pub global`
 
@@ -103,7 +111,8 @@ committed in a local Git repository. Hosted package: `markdown 7.2.2` / `7.1.1`.
 | Scenario | Commands | Transcript | Cache tree | Files |
 |---|---|---|---|---|
 | `global1.txt`: `list` (empty); `activate --source path` (+ `-x gp`, `--no-executables`); `list`; `run gp:gp` (66), `run gp:other` (re-resolution + exit 3), `run gp`, `run gp:missing`; `deactivate` twice (65); `activate --source git` (relative repository) twice ("already activated"); `run gp a`; `activate markdown 7.2.2` twice, `run markdown:markdown --version`, downgrade to `'>=7.0.0 <7.2.0'`, `deactivate`; usage errors (`activate` without/with extra arguments, invalid name), missing package (69), unsatisfiable version (65), `run` without/with unknown package, `deactivate` without package, `global`, `--help` of `global`/`activate`/`run`, `list x` | 35 | identical except (1) `+ gp 1.2.3 from git ../../pt/gp` printed with the absolute path (fixed afterwards: `p.prettyUri`'s rule) and (2) the order of `Built gp:main.` / `Built gp:other.` | **identical (616 entries)** | **27/27 identical** |
-GLOBAL2
+| `global1.txt` again after the fix (`batch2.sh`) | 35 | **identical** (this time the VM also finished `main` first) | identical (616 entries) | 27/27 identical |
+| `global2.txt`: path activation; `-x gp -x nope` (65, `Unknown executable nope.` after installing `gp`); `--no-executables -x gp` (64); `--git-ref` without `--source git` (64); `--source bogus` (64); `cache repair` with an activated path package ("Reactivating gp 1.2.3...", re-resolution, stubs, "Reactivated 1 package."); `list`; `run gp:other`; `run --enable-asserts gp:other`; `run gp:sub/dir` (64); `deactivate gp extra` (64); `deactivate gp`; `cache repair` | 13 | identical except (1) `option "--source"` (DartForge wrote `"source"`) and (2) `run --enable-asserts` did not re-resolve the path package; both fixed afterwards | identical (48 entries) | 5/5 identical |
 
 Differences that remain by design:
 
@@ -124,4 +133,22 @@ Differences that remain by design:
 
 ## Unit and integration tests
 
-UNITTESTS
+`cargo test --release --locked -p dartforge-cli --no-fail-fast`: all pass (30 + 4 + 2
+tests in the binaries that have tests), including the new ones:
+
+* `pub_get::tests::cache_add_list_repair_and_preload_follow_pub_layout` — against the
+  local registry: `cache add` (best version, `--all` with a constraint), the hash, the
+  `.cache/<name>-versions.json` listing with `_fetchedAt`, the README, the JSON of
+  `cache list`, `repair` reinstalling a corrupted package, `_directoryToUrl` of a
+  loopback server, `preload` with its hash and zlib's error text for a non-gzip file;
+* `pub_get::tests::global_activation_writes_pub_lockfile_config_and_bin_stubs` —
+  hosted activation (lockfile kinds and `sdks`, package configuration without the
+  placeholder root, stub header and executable bit), path activation with
+  `--no-executables` (absolute path, `dart: any`), `global list`, `deactivate` and its
+  error code;
+* `test_runner::tests::*` — the split between DartForge's options and package:test's,
+  option checks, the compile arguments and the host template (engine, reporters,
+  native bootstrap, `deserializeSuite`).
+
+`cargo clippy --locked -p dartforge-cli --all-targets -- -D warnings`: clean.
+`cargo fmt -p dartforge-cli`: applied.

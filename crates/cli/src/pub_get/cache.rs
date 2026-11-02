@@ -613,14 +613,20 @@ pub(crate) fn directory_to_url(directory: &str) -> Option<String> {
     } else {
         let host = decoded.split(':').next().unwrap_or_default();
         let loopback = host == "localhost"
-            || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback());
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback());
         format!("{}://{decoded}", if loopback { "http" } else { "https" })
     };
     url::Url::parse(&url).ok().map(|parsed| {
         // Dart's `Uri.toString` keeps the path as written; `url` adds a
         // final slash to an empty one.
         let text = parsed.to_string();
-        if url.ends_with('/') { text } else { text.trim_end_matches('/').to_owned() }
+        if url.ends_with('/') {
+            text
+        } else {
+            text.trim_end_matches('/').to_owned()
+        }
     })
 }
 
