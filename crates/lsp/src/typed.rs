@@ -2080,8 +2080,19 @@ fn analyze_package(
             r.set_context(job.context.clone());
             // Only the editor's texts changed (no watcher notification, no
             // document closed): the disk is as the last analysis read it.
+            // Otherwise, what changed on it is what the watcher reported (and
+            // the documents closed): the resident checks those, not every
+            // file it read.
             if !all && changed.iter().all(|k| job.texts.contains_key(k)) {
                 r.disk_unchanged();
+            } else if !all {
+                r.disk_changed_only(
+                    changed
+                        .iter()
+                        .filter(|k| !job.texts.contains_key(*k))
+                        .cloned()
+                        .collect(),
+                );
             }
             engine.analyze_resident(r, root, &files, packages_path, &texts, cancelled)
         }

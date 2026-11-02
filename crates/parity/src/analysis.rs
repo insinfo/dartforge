@@ -95,6 +95,9 @@ pub struct Resident {
     disk_scan: std::cell::OnceCell<Vec<PathBuf>>,
     /// The next analysis may skip the disk scan ([`Resident::disk_unchanged`]).
     skip_disk_scan: bool,
+    /// What the next analysis takes as the scan's result when it skips it:
+    /// the files the caller says changed ([`Resident::disk_changed_only`]).
+    disk_known: Vec<PathBuf>,
     /// When the disk was last scanned.
     last_disk_scan: std::cell::Cell<Option<std::time::Instant>>,
     /// The files whose API changed in the last loads over a cut and that
@@ -377,6 +380,16 @@ impl Resident {
     /// last scan is older than [`DISK_SCAN_EVERY`].
     pub fn disk_unchanged(&mut self) {
         self.skip_disk_scan = true;
+        self.disk_known.clear();
+    }
+
+    /// The caller knows which files changed on the disk since the last
+    /// analysis (the LSP: the watcher's notifications, `files`): the next
+    /// analysis takes them as the scan's result instead of a `stat` per kept
+    /// unit, unless the last scan is older than [`DISK_SCAN_EVERY`].
+    pub fn disk_changed_only(&mut self, files: Vec<PathBuf>) {
+        self.skip_disk_scan = true;
+        self.disk_known = files;
     }
 
     /// The source bytes of the units kept.
@@ -409,13 +422,14 @@ impl Resident {
         texts: &HashMap<PathBuf, String>,
     ) -> Taken {
         self.disk_scan = std::cell::OnceCell::new();
+        let known = std::mem::take(&mut self.disk_known);
         if std::mem::take(&mut self.skip_disk_scan)
             && self
                 .last_disk_scan
                 .get()
                 .is_some_and(|t| t.elapsed() < DISK_SCAN_EVERY)
         {
-            let _ = self.disk_scan.set(Vec::new());
+            let _ = self.disk_scan.set(known);
         }
         let Some(mut world) = self.world.take() else {
             return Taken::Nothing;
