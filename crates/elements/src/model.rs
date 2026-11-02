@@ -109,6 +109,12 @@ pub struct Program {
     /// come in dependency order, so the libraries before a group's start do
     /// not depend on it ([`crate::frozen::lay_out`]).
     pub groups: Vec<u32>,
+    /// The files (by [`crate::generated::key`]) that changed for the load
+    /// being laid out: their libraries, and the libraries that depend on
+    /// them, go after the others ([`crate::frozen::lay_out`]), so that the
+    /// next load over the program, which cuts at the first library whose
+    /// text changed, reloads only them when the same files change again.
+    pub layout_last: Vec<std::path::PathBuf>,
 }
 
 /// The program's elements grouped by unit and by library, each list in

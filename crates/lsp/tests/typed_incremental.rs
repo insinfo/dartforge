@@ -249,6 +249,32 @@ fn edit_and_compare(name: &str, in_child: bool) {
             "int limit() => 1;",
             "String limit() => '1';",
         ),
+        // The same files again: the reload laid them out last, with what
+        // depends on them, and the next load cuts there.
+        (
+            "API edit again: another subtype of the sealed class",
+            "lib/shape.dart",
+            "Shape any()",
+            "class Hexagon extends Shape {}\n\nShape any()",
+        ),
+        (
+            "API edit again: the base loses a member",
+            "lib/base.dart",
+            "  int extra();\n",
+            "",
+        ),
+        (
+            "API edit again: the inferred type goes back",
+            "lib/conf.dart",
+            "String limit() => '1';",
+            "int limit() => 1;",
+        ),
+        (
+            "API edit again in the model",
+            "lib/model.dart",
+            "int unusedApi() => 0;",
+            "int unusedApi() => 1;\nint another() => 2;",
+        ),
     ];
     for (step, (label, relative, from, to)) in steps.iter().enumerate() {
         let before = p.server.typed_analyzed_files();

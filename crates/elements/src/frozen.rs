@@ -122,6 +122,7 @@ pub(crate) fn lay_out(
     // everything they reach): a library after all it imports or exports.
     let rest: Vec<usize> = (first..n).filter(|&l| !keep[l]).collect();
     let (rest, starts) = dependency_order(program, &rest);
+    let (rest, starts) = prefer_order(program, &rest, &starts);
     let order: Vec<usize> = (0..n).filter(|&l| keep[l]).chain(rest).collect();
     let mut library_map = vec![LibraryId(0); n];
     for (new, &old) in order.iter().enumerate() {
@@ -186,6 +187,107 @@ pub(crate) fn lay_out(
         .groups
         .extend(starts.iter().map(|&s| (frozen_end + s) as u32));
     frozen_end
+}
+
+/// Reorders `order` (libraries in dependency order, with `starts`: where each
+/// one's group starts) into another dependency order that puts last what is
+/// most likely to be loaded again: among the groups ready to come next, first
+/// those that do not depend on a library whose file changed for this load
+/// (`Program::layout_last`), then those that have dependents, then the
+/// changed ones; ties keep the old order. A later load cuts at the first
+/// library whose text changed, so when the same files change again (an API
+/// change being edited, a wave of generated files, which nothing imports)
+/// only they and what depends on them are reloaded, not every library that
+/// happened to come after them.
+fn prefer_order(program: &Program, order: &[usize], starts: &[usize]) -> (Vec<usize>, Vec<usize>) {
+    use std::cmp::Reverse;
+    use std::collections::{BinaryHeap, HashMap, HashSet};
+    if order.is_empty() {
+        return (order.to_vec(), starts.to_vec());
+    }
+    let last: HashSet<&std::path::Path> = program.layout_last.iter().map(|p| p.as_path()).collect();
+    // The groups, as ranges of `order`.
+    let mut groups: Vec<std::ops::Range<usize>> = Vec::new();
+    for i in 0..order.len() {
+        if i == 0 || starts[i] != starts[i - 1] {
+            groups.push(starts[i]..starts[i]);
+        }
+        groups.last_mut().expect("a group").end = i + 1;
+    }
+    let group_of: HashMap<usize, usize> = groups
+        .iter()
+        .enumerate()
+        .flat_map(|(g, r)| order[r.clone()].iter().map(move |&l| (l, g)))
+        .collect();
+    let n = groups.len();
+    // The groups each one depends on, and its dependents.
+    let mut depends: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    for (g, r) in groups.iter().enumerate() {
+        for &l in &order[r.clone()] {
+            let lib = &program.libraries[l];
+            for t in lib
+                .imports
+                .iter()
+                .map(|i| i.library.0 as usize)
+                .chain(lib.exports.iter().map(|e| e.library.0 as usize))
+            {
+                if let Some(&h) = group_of.get(&t)
+                    && h != g
+                {
+                    depends[g].insert(h);
+                }
+            }
+        }
+    }
+    let mut dependents: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for (g, d) in depends.iter().enumerate() {
+        for &h in d {
+            dependents[h].push(g);
+        }
+    }
+    let changed: Vec<bool> = groups
+        .iter()
+        .map(|r| {
+            order[r.clone()].iter().any(|&l| {
+                program.libraries[l].units.iter().any(|u| {
+                    program.units[u.0 as usize]
+                        .path
+                        .as_deref()
+                        .is_some_and(|p| last.contains(crate::generated::key(p).as_path()))
+                })
+            })
+        })
+        .collect();
+    // Groups come after everything they depend on: in the old order, so a
+    // group's "depends on a changed one" is known when it is reached.
+    let mut reaches_changed = changed.clone();
+    for g in 0..n {
+        if depends[g].iter().any(|&h| reaches_changed[h]) {
+            reaches_changed[g] = true;
+        }
+    }
+    let key = |g: usize| (reaches_changed[g], dependents[g].is_empty(), changed[g], g);
+    let mut waiting: Vec<usize> = depends.iter().map(HashSet::len).collect();
+    let mut ready: BinaryHeap<Reverse<(bool, bool, bool, usize)>> = (0..n)
+        .filter(|&g| waiting[g] == 0)
+        .map(|g| Reverse(key(g)))
+        .collect();
+    let (mut new_order, mut new_starts) = (Vec::with_capacity(order.len()), Vec::new());
+    while let Some(Reverse((_, _, _, g))) = ready.pop() {
+        let start = new_order.len();
+        for &l in &order[groups[g].clone()] {
+            new_order.push(l);
+            new_starts.push(start);
+        }
+        for &d in &dependents[g] {
+            waiting[d] -= 1;
+            if waiting[d] == 0 {
+                ready.push(Reverse(key(d)));
+            }
+        }
+    }
+    debug_assert_eq!(new_order.len(), order.len());
+    (new_order, new_starts)
 }
 
 /// `libraries` in dependency order, with the position (in the result) where

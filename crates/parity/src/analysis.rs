@@ -406,11 +406,22 @@ impl Resident {
             && world.onto_loads < max_onto_loads()
             && self.same_prefix(&world, root, packages, texts)
         {
-            let at = self.cut(&world, imports, texts, frozen);
+            let (at, changed) = self.cut(&world, imports, texts, frozen);
+            if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
+                eprintln!(
+                    "engine: cut at library {} of {} (frozen prefix {})",
+                    at.libraries,
+                    world.program.libraries.len(),
+                    frozen.libraries
+                );
+            }
             let after: Vec<dartforge_elements::model::Unit> =
                 world.program.units.drain(at.units..).collect();
             self.units.reclaim_units(after);
             self.kept_libraries = at.libraries - frozen.libraries;
+            // What changed goes last in the reload's layout, with what
+            // depends on it: the next change of the same files cuts there.
+            world.program.layout_last = changed;
             return Taken::Onto(world, at);
         }
         self.units.reclaim(world.program);
@@ -428,7 +439,7 @@ impl Resident {
         imports: &BTreeSet<String>,
         texts: &HashMap<PathBuf, String>,
         frozen: dartforge_elements::frozen::Checkpoint,
-    ) -> dartforge_elements::frozen::Checkpoint {
+    ) -> (dartforge_elements::frozen::Checkpoint, Vec<PathBuf>) {
         use std::hash::{Hash, Hasher};
         let digest = |t: &str| {
             let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -472,7 +483,9 @@ impl Resident {
         let start = program
             .group_start(LibraryId(first as u32))
             .max(frozen.libraries);
-        program.checkpoint_at(start).unwrap_or(frozen)
+        let mut changed: Vec<PathBuf> = changed.into_iter().collect();
+        changed.sort();
+        (program.checkpoint_at(start).unwrap_or(frozen), changed)
     }
 
     /// Whether `w` was built for the same package and packages, with nothing
@@ -4191,6 +4204,83 @@ mod tests {
         }
         assert_eq!(sizes[2], sizes[4], "{sizes:?}");
         assert_eq!(sizes[3], sizes[5], "{sizes:?}");
+        let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// After an API change, the reload lays out what changed, and what
+    /// depends on it, last (`Program::layout_last`): the next change of the
+    /// same file keeps the package's libraries that do not depend on it, even
+    /// the ones the first layout put after it; each analysis publishes what a
+    /// fresh one does.
+    #[test]
+    fn resident_keeps_what_a_repeated_change_does_not_reach() {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-agent/engine-repeated-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(base.join("pkg")).unwrap();
+        let base = std::fs::canonicalize(&base).unwrap();
+        std::fs::write(
+            base.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            base.join("sdk/lib/core/core.dart"),
+            "class Object {} class bool {} class num {} class int extends num {} class Null {}",
+        )
+        .unwrap();
+        let root = base.join("pkg");
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        let c = root.join("c.dart");
+        let x = root.join("x.dart");
+        std::fs::write(&b, "class B { int v = 0; }\n").unwrap();
+        std::fs::write(&a, "import 'b.dart';\nint fa(B b) => b.v;\n").unwrap();
+        std::fs::write(&c, "import 'b.dart';\nbool fc(B b) => b.v;\n").unwrap();
+        // Discovered after `b.dart` (the batch's file comes first), and
+        // independent of it.
+        std::fs::write(&x, "int fx() => true;\n").unwrap();
+        let engine = Engine::new(&base.join("sdk/lib")).unwrap();
+        let mut resident = Resident::new();
+        let all = vec![a.clone(), b.clone(), c.clone(), x.clone()];
+        let none = HashMap::new();
+        let shown = |r: &AnalysisResult, f: &Path| {
+            let mut v: Vec<(usize, usize, String)> = r.files[&key(f)]
+                .diags
+                .iter()
+                .map(|d| (d.span.start, d.span.end, d.message.clone()))
+                .collect();
+            v.sort();
+            v
+        };
+        engine
+            .analyze_resident(&mut resident, &root, &all, None, &none, &|| false)
+            .unwrap();
+        let mut kept = Vec::new();
+        for version in [
+            "class B { int v = 0; }\nclass B2 {}\n",
+            "class B { int v = 0; }\nclass B3 {}\n",
+            "class B { String v = ''; }\n",
+        ] {
+            let texts = HashMap::from([(key(&b), version.to_string())]);
+            let kept_program = engine
+                .analyze_resident(&mut resident, &root, &all, None, &texts, &|| false)
+                .unwrap();
+            kept.push(resident.kept_libraries);
+            let fresh = engine
+                .analyze_with(&root, &all, None, &texts, &|| false)
+                .unwrap();
+            for f in &all {
+                assert_eq!(shown(&kept_program, f), shown(&fresh, f), "{version} {f:?}");
+            }
+        }
+        // The first change cut before `x.dart`; the next ones keep it.
+        assert!(kept[1] > kept[0] && kept[2] > kept[0], "{kept:?}");
         let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&base).unwrap();
