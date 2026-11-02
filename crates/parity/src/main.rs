@@ -166,10 +166,10 @@ fn main() -> ExitCode {
             .find(|x| !x.starts_with("--"))
             .map(PathBuf::from)
             .unwrap_or_else(|| {
-                corpus::corpus_root()
-                    .join("../analyze-output")
-                    .canonicalize()
-                    .expect("corpus/analyze-output")
+                dartforge_elements::config::canonicalize(
+                    &corpus::corpus_root().join("../analyze-output"),
+                )
+                .expect("corpus/analyze-output")
             });
         let ok = if write {
             dartforge_parity::output::record(&dir)

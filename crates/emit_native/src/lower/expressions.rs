@@ -575,15 +575,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Type::Ref,
                     )
                 } else {
-                    let mut parts: Vec<Operand> = Vec::with_capacity(str_lit.parts.len());
+                    // As the VM (`StringConcatenation`, then `_interpolate`):
+                    // every interpolated expression is evaluated first, and
+                    // only then is each value turned into text, in order —
+                    // `"$t${throw x}"` throws `x` before `t.toString()` runs.
+                    let mut values: Vec<Option<Operand>> = Vec::with_capacity(str_lit.parts.len());
                     for part in &str_lit.parts {
-                        let part_op = match part {
-                            ast::StringPart::Text(t) => self.emit(
+                        values.push(match part {
+                            ast::StringPart::Text(_) => None,
+                            ast::StringPart::Interpolation(sub_expr) => {
+                                Some(self.lower_expr(ast, *sub_expr))
+                            }
+                        });
+                    }
+                    let mut parts: Vec<Operand> = Vec::with_capacity(str_lit.parts.len());
+                    for (part, value) in str_lit.parts.iter().zip(values) {
+                        let part_op = match (part, value) {
+                            (ast::StringPart::Text(t), _) => self.emit(
                                 Instruction::Const(Constant::StringWtf8(t.as_bytes().to_vec())),
                                 Type::Ref,
                             ),
-                            ast::StringPart::Interpolation(sub_expr) => {
-                                let raw_op = self.lower_expr(ast, *sub_expr);
+                            (ast::StringPart::Interpolation(_), None) => unreachable!(),
+                            (ast::StringPart::Interpolation(_), Some(raw_op)) => {
                                 let raw_ty = self.operand_type(&raw_op);
                                 match raw_ty {
                                     // The `int` goes unboxed into `ConcatStrings`: the
@@ -1162,6 +1175,42 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         span,
                     );
                 }
+                // `Alias<T…>.new` / `Alias<T…>.name` with `typedef Alias<…> =
+                // C<…>`: the tear-off of `C`'s constructor instantiated with
+                // the alias's arguments substituted into `C<…>`, which the
+                // static type (`C<int> Function(int)`) already carries; it is
+                // the same tear-off as `C<int>.new` (canonicalized with it).
+                if let ExprKind::TypeArguments { target: alias, .. } = &ast.expr(*target).kind
+                    && let Some(Resolved::Element(dartforge_elements::model::Element::Typedef(td))) =
+                        self.resolution_or_name(ast, *alias)
+                    && let Some(data) = self.ctx.outline.typedefs.get(td.0 as usize)
+                    && let dartforge_types::table::Type::Interface { class: c, .. } =
+                        self.ctx.table.get(data.target_type).clone()
+                    && self
+                        .ctx
+                        .compiled_library(self.ctx.program.classes[c.0 as usize].library)
+                    && let Some(f) = (if prop_name == "new" {
+                        self.ctx.interner.lookup("")
+                    } else {
+                        Some(name.sym)
+                    })
+                    .and_then(|k| {
+                        self.ctx.program.classes[c.0 as usize]
+                            .constructors
+                            .get(&k)
+                            .copied()
+                    })
+                    && let Some(typ) = self.ctx.get_type(self.unit_id, expr_id)
+                    && let Some((object, tuple)) = self.tearoff_instantiation(c, typ)
+                {
+                    return self.instantiated_constructor_tearoff(
+                        f.0 as usize,
+                        object,
+                        tuple,
+                        Some(typ),
+                        span,
+                    );
+                }
                 // `E.new`/`E.name` of an extension type: a constructor tear-off
                 // (the primary one too).
                 if let Some(c) = self.named_extension_type(ast, *target) {
@@ -1217,6 +1266,39 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 Some(typ),
                                 span,
                             );
+                        }
+                        // A proper rename (`typedef Direct<T> = C<T>`: the
+                        // parameters of `C` in order, with the same bounds):
+                        // the uninstantiated tear-off is `C`'s own, identical
+                        // to `C.new` (`typedef/aliased_constructor_tear_off`).
+                        let class_params = &self.ctx.outline.classes[c.0 as usize].type_params;
+                        let forwards = args.len() == data.type_params.len()
+                            && args.iter().zip(data.type_params.iter()).all(|(a, p)| {
+                                matches!(self.ctx.table.get(*a),
+                                    dartforge_types::table::Type::TypeParameter { param, nullable: false } if param == p)
+                            });
+                        let proper_rename = forwards
+                            && class_params.len() == data.type_params.len()
+                            && class_params.iter().zip(data.type_params.iter()).all(|(k, p)| {
+                                let (kb, pb) =
+                                    (self.ctx.table.param(*k).bound, self.ctx.table.param(*p).bound);
+                                let top = |b: dartforge_types::table::TypeId| {
+                                    b == self.ctx.core.object_nullable
+                                        || matches!(
+                                            self.ctx.table.get(b),
+                                            dartforge_types::table::Type::Dynamic
+                                        )
+                                };
+                                kb == pb || (top(kb) && top(pb))
+                            });
+                        if proper_rename
+                            && self.ctx.bodies.units[self.unit_id.0 as usize]
+                                .tearoff_instantiation(expr_id)
+                                .is_none()
+                        {
+                            let t = self.constructor_tearoff(f.0 as usize, span);
+                            self.tearoff_generic_signature(&t, expr_id);
+                            return t;
                         }
                         // A generic tear-off through an alias that does not just forward the
                         // parameters (`typedef F<T> = C<int, T>`): the generic
@@ -1281,11 +1363,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 span,
                             );
                         }
-                        let forwards = args.len() == data.type_params.len()
-                            && args.iter().zip(data.type_params.iter()).all(|(a, p)| {
-                                matches!(self.ctx.table.get(*a),
-                                    dartforge_types::table::Type::TypeParameter { param, nullable: false } if param == p)
-                            });
                         if forwards {
                             let t = self.constructor_tearoff(f.0 as usize, span);
                             self.tearoff_generic_signature(&t, expr_id);

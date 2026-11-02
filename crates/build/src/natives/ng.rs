@@ -395,11 +395,11 @@ impl NgStageA {
         request: &NativeRequest,
     ) -> Option<NativeOutput> {
         let root = &request.package_root;
-        let canon_root = std::fs::canonicalize(root).ok()?;
+        let canon_root = dartforge_elements::config::canonicalize(root).ok()?;
         // The events come in lexical and in canonical form: a single set.
         let mut changed: Vec<PathBuf> = Vec::new();
         for p in ctx.changed_paths.iter() {
-            let c = std::fs::canonicalize(p).ok()?;
+            let c = dartforge_elements::config::canonicalize(p).ok()?;
             if !changed.contains(&c) {
                 changed.push(c);
             }
@@ -422,7 +422,7 @@ impl NgStageA {
                     .unit(u)
                     .path
                     .as_ref()
-                    .and_then(|p| std::fs::canonicalize(p).ok())
+                    .and_then(|p| dartforge_elements::config::canonicalize(p).ok())
                 {
                     library_of_unit.insert(p, i);
                 }
@@ -461,7 +461,11 @@ impl NgStageA {
                 .units
                 .first()
                 .and_then(|&u| program.unit(u).path.as_ref());
-            if main.and_then(|x| std::fs::canonicalize(x).ok()).as_ref() != Some(p) {
+            if main
+                .and_then(|x| dartforge_elements::config::canonicalize(x).ok())
+                .as_ref()
+                != Some(p)
+            {
                 return None;
             }
             if !in_package_dirs(&canon_root, p) {
@@ -498,7 +502,7 @@ impl NgStageA {
             else {
                 continue;
             };
-            let Ok(c) = std::fs::canonicalize(p) else {
+            let Ok(c) = dartforge_elements::config::canonicalize(p) else {
                 continue;
             };
             let generated = c.to_string_lossy().ends_with(".template.dart");
@@ -622,8 +626,8 @@ impl NgStageA {
             let own = in_package_dirs(root, p) || in_package_dirs(&canon_root, p);
             match library_of.get(&k) {
                 Some(uri) if !own => {
-                    let reaches =
-                        std::fs::canonicalize(p).is_ok_and(|c| reaching_outside.contains(&c));
+                    let reaches = dartforge_elements::config::canonicalize(p)
+                        .is_ok_and(|c| reaching_outside.contains(&c));
                     if reaches {
                         ctx.register(Query::LibrarySource(uri.to_string()));
                     }
@@ -654,12 +658,10 @@ impl NgStageA {
         // event; on Windows they may have different roots (links/short
         // names). The shortcut is only allowed when *all* events are this
         // file.
-        let canon_resource = std::fs::canonicalize(resource).ok()?;
-        if ctx
-            .changed_paths
-            .iter()
-            .any(|p| std::fs::canonicalize(p).ok().as_ref() != Some(&canon_resource))
-        {
+        let canon_resource = dartforge_elements::config::canonicalize(resource).ok()?;
+        if ctx.changed_paths.iter().any(|p| {
+            dartforge_elements::config::canonicalize(p).ok().as_ref() != Some(&canon_resource)
+        }) {
             return None;
         }
         let mut cache = self.cache.lock().ok()?;

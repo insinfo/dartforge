@@ -307,16 +307,32 @@ pub fn is_compile_error(message: &str) -> bool {
 
 /// The analyzer compile-time errors the compilers refuse a program on, beyond
 /// [`is_compile_error`]'s: those with no false positive on the valid programs
-/// of the SDK's `tests/language` suite. The others stay warnings for now — with
-/// all of them, 134 valid programs of the suite were refused on 31/10/2026
-/// (`type_argument_not_matching_bounds`, `experiment_not_enabled_off_by_default`,
-/// `invalid_assignment`…; ESTADO.md).
-pub const REJECTING_CODES: &[dartforge_diagnostics::Code] =
-    &[dartforge_diagnostics::codes::compile_time_error::USE_OF_VOID_RESULT];
+/// of the SDK's `tests/language` suite (nor on its 377 helper libraries). The
+/// others stay warnings for now — with all of them, 134 valid programs of the
+/// suite were refused on 31/10/2026 (`type_argument_not_matching_bounds`,
+/// `experiment_not_enabled_off_by_default`, `invalid_assignment`…; ESTADO.md).
+///
+/// - `use_of_void_result`: a `void` value used, which would run as `null`;
+/// - `undefined_super_{getter,setter,method,operator}`: `super.x` with no
+///   such member above (the CFE's "Superclass has no setter named 'foo'",
+///   `deferred/super_dependency`);
+/// - `undefined_named_parameter`: a call with a named argument the target
+///   does not declare (`value_class/creates_*`, where `@valueClass` makes no
+///   constructor without the experiment).
+pub const REJECTING_CODES: &[dartforge_diagnostics::Code] = {
+    use dartforge_diagnostics::codes::compile_time_error as c;
+    &[
+        c::USE_OF_VOID_RESULT,
+        c::UNDEFINED_SUPER_GETTER,
+        c::UNDEFINED_SUPER_SETTER,
+        c::UNDEFINED_SUPER_METHOD,
+        c::UNDEFINED_SUPER_OPERATOR,
+        c::UNDEFINED_NAMED_PARAMETER,
+    ]
+};
 
 /// The diagnostic rejects compilation, as the CFE does: one of
-/// [`is_compile_error`]'s, or one of [`REJECTING_CODES`] at error severity
-/// (`use_of_void_result`: a `void` value used, which would run as `null`). The
+/// [`is_compile_error`]'s, or one of [`REJECTING_CODES`] at error severity. The
 /// compilers (`compile-js`, `aot`, `run`, `dev`) refuse the program on it.
 ///
 /// ```

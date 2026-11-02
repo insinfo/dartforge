@@ -12,7 +12,7 @@ markers, `// [analyzer]`, `// [cfe]` or `// [web]` annotations), outside
 usage:
   run-language-suite.py setup --checkout DIR [--tag 3.6.2] [--meta DIR] [--collection DIR]
   run-language-suite.py setup --packages-only [--checkout DIR] [--tag 3.6.2] [--meta DIR] [--collection DIR]
-  run-language-suite.py vm|dartaot|ddc|dart2wasm|forge|wasm|native [--jobs N] [--out NAME]
+  run-language-suite.py vm|dartaot|ddc|dart2wasm|forge|wasm|native|jit [--jobs N] [--out NAME]
         [--list FILE] [--ref NAME] [--alt NAME] [filter...]
   run-language-suite.py compare [--forge|--native|--wasm|--dartaot] [--ref NAME] [--alt NAME] OLD NEW
         (by result name: regressions, fixes and the moves between "equal" and
@@ -27,14 +27,19 @@ the results merge into an existing <name>.json.
 Packages: the suite's `.dart_tool/package_config.json` has `expect`,
 `async_helper` and `tests`, and also `meta` (`pkg/meta`: the three
 `type_promotion/closure_runtime*` tests) and `collection`
-(`regress/regress14348`). At the tag, `pkg/meta` is in the checkout's git
-tree (`git archive`); `collection` is a DEPS dependency outside it,
-`third_party/pkg/collection` after `gclient sync` (or
-`third_party/pkg/core/pkgs/collection` in later checkouts). `--meta DIR` and
-`--collection DIR` copy a package from a directory instead;
+(`regress/regress14348`), at the versions the 3.6.2 SDK pins (PINNED below:
+its `pkg/meta` is meta 1.16.0, and its DEPS `collection_rev` 24b75d85 is
+collection 1.19.0). They come from the pub cache
+(`$PUB_CACHE/hosted/pub.dev/<name>-<version>`) when it has them, else from the
+pub.dev archive (`https://pub.dev/api/archives/<name>-<version>.tar.gz`);
+`--meta DIR` and `--collection DIR` copy a package from a directory instead.
 `--packages-only` adds the two packages and rewrites the package config
 without extracting the suite again. A package's language version is the lower
 bound of its pubspec's `sdk:` constraint, as pub writes it.
+
+`jit` runs the program in DartForge's JIT (`dartforge run`, the LLVM ORC JIT
+of the same native lowering, built with `--features jit`), with the test's
+experiments, counted like `native`.
 
 `dartaot` is the official AOT compiler: `dart compile exe` (with the test's
 experiments), then the executable; a reference measurement, counted against
@@ -250,6 +255,14 @@ def wasm(test):
     return {"code": c, "out": o, "err": e[-2000:]}
 
 
+def jit(test):
+    # `dartforge run`: the native lowering in the JIT, as `dart run` (asserts
+    # off, like the VM run of vm.json).
+    c, o, e = run([FORGE, "run", "--packages", os.path.join(SDK, ".dart_tool/package_config.json")]
+                  + forge_experiment_flags(test) + [test], SDK, 300)
+    return {"code": c, "out": o, "err": e[-2000:]}
+
+
 def native(test):
     # As `dart compile exe`: asserts off, like the VM run of vm.json.
     d = work_dir("native", test)
@@ -297,6 +310,10 @@ def matches(tool, test, r, ref, alt):
         return "vm"
     if tool in ("forge", "wasm", "native", "dartaot") and test in ref and ref[test]["code"] == 254 and r["code"] == -1000:
         return "rejected"
+    # `jit` compiles and runs in one process: a refusal exits like a compile
+    # error of `dartforge` (1) with no output, after the VM refused too.
+    if tool == "jit" and test in ref and ref[test]["code"] == 254 and r["code"] == 1 and not r["out"]:
+        return "rejected"
     if tool == "wasm" and test in alt and test in ref:
         a = alt[test]
         if same(r, a) or same(r, by_policy(a)) or fails_like(ref[test], a, r):
@@ -335,23 +352,46 @@ def copy_package(source, rel):
         shutil.copy(os.path.join(source, "pubspec.yaml"), target)
 
 
+# The versions of the packages the 3.6.2 SDK pins (see Packages above).
+PINNED = {"meta": ("1.16.0", "pkg/meta"), "collection": ("1.19.0", "third_party/pkg/collection")}
+
+
+def pub_cache():
+    if os.environ.get("PUB_CACHE"):
+        return os.environ["PUB_CACHE"]
+    if sys.platform == "win32":
+        return os.path.join(os.environ.get("LOCALAPPDATA", ""), "Pub", "Cache")
+    return os.path.join(os.path.expanduser("~"), ".pub-cache")
+
+
+def pinned_package(name):
+    """The pinned version of `name`: its pub cache directory, or the pub.dev
+    archive extracted into the work SDK's `.dart_tool/archives`."""
+    version, _ = PINNED[name]
+    cached = os.path.join(pub_cache(), "hosted", "pub.dev", "%s-%s" % (name, version))
+    if os.path.isdir(os.path.join(cached, "lib")):
+        return cached
+    import urllib.request
+    url = "https://pub.dev/api/archives/%s-%s.tar.gz" % (name, version)
+    target = os.path.join(SDK, ".dart_tool", "archives", "%s-%s" % (name, version))
+    shutil.rmtree(target, ignore_errors=True)
+    os.makedirs(target)
+    data = urllib.request.urlopen(url, timeout=60).read()
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+        for member in tar.getmembers():
+            # Only regular files and directories, inside the target.
+            path = os.path.normpath(member.name)
+            if path.startswith("..") or os.path.isabs(path) or not (member.isfile() or member.isdir()):
+                continue
+            tar.extract(member, target)
+    return target
+
+
 def install_packages(checkout, tag, meta, collection):
     """`meta` and `collection` into the work SDK (see Packages above), and the
     package config."""
-    if meta:
-        copy_package(meta, "pkg/meta")
-    elif checkout:
-        archive = subprocess.run(["git", "-C", checkout, "archive", tag, "pkg/meta"],
-                                 check=True, capture_output=True).stdout
-        shutil.rmtree(os.path.join(SDK, "pkg", "meta"), ignore_errors=True)
-        tarfile.open(fileobj=io.BytesIO(archive)).extractall(SDK)
-    if not collection and checkout:
-        for rel in ("third_party/pkg/collection", "third_party/pkg/core/pkgs/collection"):
-            if os.path.isdir(os.path.join(checkout, rel, "lib")):
-                collection = os.path.join(checkout, rel)
-                break
-    if collection:
-        copy_package(collection, "third_party/pkg/collection")
+    copy_package(meta or pinned_package("meta"), PINNED["meta"][1])
+    copy_package(collection or pinned_package("collection"), PINNED["collection"][1])
     for name, rel in (("meta", "pkg/meta"), ("collection", "third_party/pkg/collection")):
         if not os.path.isdir(os.path.join(SDK, rel)):
             print("warning: no `%s` package (%s): the programs that import it are refused" % (name, rel))
@@ -455,7 +495,7 @@ def main():
     args = rest
     if tool == "compare":
         kind_ = "forge"
-        if args[0] in ("--forge", "--native", "--wasm", "--dartaot"):
+        if args[0] in ("--forge", "--native", "--wasm", "--dartaot", "--jit"):
             kind_ = args.pop(0)[2:]
         return compare(args[0], args[1], kind_, ref_name, alt_name)
     jobs = 8
@@ -478,7 +518,7 @@ def main():
     if filters:
         tests = [t for t in tests if any(f in t for f in filters)]
     fn = {"vm": vm, "dartaot": dartaot, "ddc": ddc, "forge": forge, "wasm": wasm, "native": native,
-          "dart2wasm": dart2wasm}[tool]
+          "dart2wasm": dart2wasm, "jit": jit}[tool]
     os.makedirs(RES, exist_ok=True)
     path = os.path.join(RES, out + ".json")
     results = json.load(open(path)) if os.path.exists(path) and (filters or listed) else {}
@@ -499,7 +539,7 @@ def main():
         print("%s: %d/%d equal to the VM" % (tool, count("vm"), len(tests)))
         if tool == "wasm":
             print("%s: %d only equal to dart2wasm" % (tool, count("dart2wasm")))
-        if tool in ("forge", "wasm", "native", "dartaot"):
+        if tool in ("forge", "wasm", "native", "dartaot", "jit"):
             print("%s: %d rejected by both (the VM refuses them too)" % (tool, count("rejected")))
         print("%s: %d failures" % (tool, len(bad)))
         with open(os.path.join(RES, out + ".fail.txt"), "w") as f:

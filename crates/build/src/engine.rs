@@ -395,13 +395,13 @@ fn build_indices(gp: &PackageGraph, graph: &Graph, phase_count: usize) -> Indice
 /// Canonical form of an event path (the file may have been deleted: then
 /// the directory is canonicalized).
 fn canonical(p: &Path) -> Option<PathBuf> {
-    let c = match std::fs::canonicalize(p) {
+    let c = match dartforge_elements::config::canonicalize(p) {
         Ok(c) => c,
-        Err(_) => std::fs::canonicalize(p.parent()?)
+        Err(_) => dartforge_elements::config::canonicalize(p.parent()?)
             .ok()?
             .join(p.file_name()?),
     };
-    Some(key(&dartforge_elements::config::without_verbatim(c)))
+    Some(key(&c))
 }
 
 /// Could the query have changed with these events?
@@ -2815,9 +2815,9 @@ impl Engine {
         // canonicalized.
         if !self.natural_paths_map.values().any(|n| n == &k)
             && let (Some(parent), Some(name)) = (path.parent(), path.file_name())
-            && let Ok(parent) = std::fs::canonicalize(parent)
+            && let Ok(parent) = dartforge_elements::config::canonicalize(parent)
         {
-            k = key(&dartforge_elements::config::without_verbatim(parent).join(name));
+            k = key(&parent.join(name));
         }
         if let Some(c) = self.memory.get(&k) {
             return Some(c.clone());

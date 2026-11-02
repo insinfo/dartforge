@@ -246,9 +246,7 @@ pub(crate) fn is_part(text: &str) -> bool {
 /// Canonical path (without `\\?\`) of the file of a `file:` URI.
 pub(crate) fn uri_file(uri: &str) -> Option<PathBuf> {
     let file = Url::parse(uri).ok()?.to_file_path().ok()?;
-    Some(dartforge_elements::config::without_verbatim(
-        std::fs::canonicalize(&file).unwrap_or(file),
-    ))
+    Some(dartforge_elements::config::canonicalize(&file).unwrap_or(file))
 }
 
 /// Loads the project that contains `uri` (all libraries under the root, as

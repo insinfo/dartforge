@@ -18,8 +18,7 @@ static BUNDLE: OnceLock<PathBuf> = OnceLock::new();
 /// Rejects a missing/incomplete bundle, a foreign runtime revision, or a target
 /// different from the one requested. A process has one immutable selection.
 pub fn select_bundle(path: &Path, target: NativeTarget) -> Result<(), String> {
-    let root = path
-        .canonicalize()
+    let root = dartforge_elements::config::canonicalize(path)
         .map_err(|e| format!("target bundle {}: {e}", path.display()))?;
     let manifest = manifest(&root)?;
     if manifest["schema"] != 1 || manifest["target"] != target.triple() {

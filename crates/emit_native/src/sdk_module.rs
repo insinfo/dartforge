@@ -686,8 +686,8 @@ fn sdk_key_with_overlay(
         files: &mut Vec<PathBuf>,
         visited: &mut std::collections::HashSet<PathBuf>,
     ) -> Result<(), String> {
-        let canonical =
-            std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let canonical = dartforge_elements::config::canonicalize(dir)
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
         if !visited.insert(canonical) {
             return Ok(());
         }

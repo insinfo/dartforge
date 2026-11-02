@@ -278,9 +278,8 @@ impl Session {
     /// covers the case of an edit with the same size within the clock
     /// granularity.
     pub fn file_changed(&mut self, path: &Path) {
-        let p = dartforge_elements::config::without_verbatim(
-            std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
-        );
+        let p =
+            dartforge_elements::config::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         self.units.invalidate(&p);
         self.units.invalidate(path);
         self.dirty.insert(p);

@@ -105,6 +105,12 @@ fn emit(
     emit_generation(input, sdk, packages, None)
 }
 
+/// The language options of this `run` (`--language-version`,
+/// `--enable-experiment`), for every generation of the program.
+#[cfg(feature = "jit")]
+static RUN_LANGUAGE: std::sync::OnceLock<dartforge_elements::sdk::LanguageOptions> =
+    std::sync::OnceLock::new();
+
 /// [`emit`] of a new generation of the running program: `previous` is the IR
 /// of the live generation, whose static layout the new one extends.
 #[cfg(feature = "jit")]
@@ -131,8 +137,11 @@ fn emit_generation(
                     packages: packages.as_deref(),
                     timings: false,
                     optimize: false,
-                    language_version: None,
-                    experiments: Vec::new(),
+                    language_version: RUN_LANGUAGE.get().and_then(|l| l.current_version),
+                    experiments: RUN_LANGUAGE
+                        .get()
+                        .map(|l| l.experiments.clone())
+                        .unwrap_or_default(),
                     debug: false,
                     generator,
                     cpu: None,
@@ -187,7 +196,8 @@ fn sdk_library(ir: &str, sdk: Option<&Path>) -> Result<Option<PathBuf>, String> 
 #[cfg(feature = "jit")]
 pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     crate::native::set_memory_policy("tracing")?;
-    let usage = "usage: dartforge run [--sdk <lib>] [--packages <package_config.json>] [--timings] [--memory=tracing|arc] <input.dart> [--] [<main arguments>…]\n       dartforge run --ir <program.ll> [--timings] [--] [<main arguments>…]";
+    let usage = "usage: dartforge run [--sdk <lib>] [--packages <package_config.json>] [--timings] [--memory=tracing|arc] [--language-version x.y] [--enable-experiment=a,b] <input.dart> [--] [<main arguments>…]\n       dartforge run --ir <program.ll> [--timings] [--] [<main arguments>…]";
+    let mut language = dartforge_elements::sdk::LanguageOptions::default();
     let mut input: Option<PathBuf> = None;
     let mut ready_ir: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
@@ -221,9 +231,20 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
             Some(option) if option.starts_with("--memory=") => {
                 crate::native::set_memory_policy(&option["--memory=".len()..])?;
             }
+            Some(option @ ("--language-version" | "--enable-experiment")) => {
+                let value = it.next().and_then(|v| v.to_str()).ok_or(usage)?;
+                language.read_option(option, &mut std::iter::once(value))?;
+            }
+            Some(option)
+                if option.starts_with("--language-version=")
+                    || option.starts_with("--enable-experiment=") =>
+            {
+                language.read_option(option, &mut std::iter::empty::<&str>())?;
+            }
             _ => input = Some(PathBuf::from(a)),
         }
     }
+    let _ = RUN_LANGUAGE.set(language);
     program_args.extend(explicit_args);
     if let Some(input) = &input {
         publish_package_config(input, packages.as_deref())?;

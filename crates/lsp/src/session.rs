@@ -362,9 +362,7 @@ fn pub_cache_roots() -> &'static [PathBuf] {
         }
         roots
             .into_iter()
-            .map(|r| {
-                dartforge_elements::config::without_verbatim(std::fs::canonicalize(&r).unwrap_or(r))
-            })
+            .map(|r| dartforge_elements::config::canonicalize(&r).unwrap_or(r))
             .collect()
     })
 }

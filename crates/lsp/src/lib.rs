@@ -918,9 +918,7 @@ impl SyntacticAnalyzer {
             .ok()
             .filter(|u| u.scheme() == "file")
             .and_then(|u| u.to_file_path().ok())
-            .map(|p| {
-                dartforge_elements::config::without_verbatim(std::fs::canonicalize(&p).unwrap_or(p))
-            });
+            .map(|p| dartforge_elements::config::canonicalize(&p).unwrap_or(p));
         let pattern = path
             .as_deref()
             .and_then(|p| {

@@ -404,7 +404,7 @@ fn resolve(base: &Url, literal: &StringLit) -> Option<String> {
     if !target.is_file() {
         return None;
     }
-    let canonical = std::fs::canonicalize(target).ok()?;
+    let canonical = dartforge_elements::config::canonicalize(&target).ok()?;
     Url::from_file_path(canonical).ok().map(|u| u.to_string())
 }
 

@@ -1002,17 +1002,29 @@ fn link_target(p: &std::path::Path) -> IoResult<Vec<u8>> {
 
 /// `File::GetCanonicalPath` (`realpath`).
 fn canonical_path(p: &std::path::Path) -> IoResult<Vec<u8>> {
+    Ok(path_bytes_of(&plain_canonicalize(p)?))
+}
+
+/// `std::fs::canonicalize` in the form the VM gives (`file_win.cc`): on
+/// Windows `std` returns the extended path (`\\?\C:\…`, `\\?\UNC\srv\share\…`)
+/// and the VM removes the prefix (`C:\…`, `\\srv\share\…`). The runtime cannot
+/// depend on `dartforge-elements`; the rule is the one of its
+/// `config::without_verbatim`, for the paths the VM can produce. Elsewhere
+/// the path is unchanged.
+pub(crate) fn plain_canonicalize(p: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
     let c = std::fs::canonicalize(p)?;
-    let b = path_bytes_of(&c);
-    // On Windows, `std` returns the extended path (`\\?\C:\…`); the VM removes the
-    // prefix.
     #[cfg(windows)]
-    if let Some(without) = b.strip_prefix(br"\\?\") {
-        if !without.starts_with(b"UNC\\") {
-            return Ok(without.to_vec());
+    if let Some(s) = c.to_str() {
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            return Ok(std::path::PathBuf::from(format!(r"\\{rest}")));
+        }
+        if let Some(rest) = s.strip_prefix(r"\\?\")
+            && rest.as_bytes().get(1) == Some(&b':')
+        {
+            return Ok(std::path::PathBuf::from(rest));
         }
     }
-    Ok(b)
+    Ok(c)
 }
 
 /// `File::AreIdentical`: the same device and the same node (without following

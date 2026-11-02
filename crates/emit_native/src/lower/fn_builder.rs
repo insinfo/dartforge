@@ -196,6 +196,10 @@ pub struct FnBuilder<'a, 'c> {
     /// extension's type arguments as inference solved them
     /// (`UnitBodyTypes::extension_arguments`, `rti.rs`).
     pub extension_access: Option<ExprId>,
+    /// While a constructor initializes the fields of a mixin it applies:
+    /// the mixin and its application (counted from the base), whose own
+    /// slots the initializers write (`members::mixin_field_indices`).
+    pub field_application: Option<(dartforge_elements::model::ClassId, usize)>,
     /// Inside a constant context (a `const` initializer, a default value,
     /// arguments of a `const C(…)`): `C(…)`, `[…]` and `{…}` are constants.
     pub in_const_context: bool,
@@ -489,6 +493,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             wildcard_formals: HashMap::new(),
             application_of: None,
             extension_access: None,
+            field_application: None,
             in_const_context: false,
             local_const_keys: HashMap::new(),
             refutable_pattern: false,

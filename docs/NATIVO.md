@@ -398,10 +398,18 @@ cópia não basta.
 - **Identidade do *tear-off*.** O *tear-off* de um membro copiado é o da cópia que o receptor roda
   (a entrada `g:` da classe dele, que destaca a cópia de forma exata): igual ao `super.m` daquela
   aplicação e diferente do de outra (`closure/identity_equality_tearoff`).
-- **Fora do desenho: o *layout*.** Os campos de um *mixin* aplicado duas vezes continuam com uma
-  posição só no objeto (a da primeira ocorrência na `linearization`); a VM dá a cada aplicação os
-  seus campos. Igualar exige posições por aplicação (`mixin_field_indices` por `(classe, campo,
-  aplicação)`) e que as cópias leiam os campos da sua aplicação — não feito.
+- **Campos: uma posição por aplicação (02/11/2026).** O *layout* de uma classe segue a
+  `full_linearization` da base para a folha: `class E extends D with B` com `D extends R with B` é
+  `R`, `B`, `D`, `B`, `E`, e cada aplicação de `B` tem as suas posições. Antes ele vinha da
+  `linearization` sem repetição, que punha `B` depois de `D` em `E` — e os campos de `D` mudavam de
+  posição entre `D` e `E`, quebrando a regra de que o *layout* da subclasse estende o da
+  superclasse (`D(5,…)` lia lixo num `E`). Uma leitura ou escrita de um campo do *mixin* passa
+  pelos acessores implícitos, que são virtuais: vai à posição da aplicação mais externa da classe
+  do objeto, a que a busca de membros acha — também dentro do código do *mixin*, como na VM, em que
+  as duas aplicações veem o campo da externa. Só o construtor de cada aplicação inicializa as suas
+  próprias posições (`FnBuilder::field_application` em `call_super`, a aplicação contada pela
+  ocorrência do *mixin* na cadeia). Fica de fora o `super.x` de um campo da aplicação interna lido
+  de dentro da externa (cai na posição externa).
 
 ---
 

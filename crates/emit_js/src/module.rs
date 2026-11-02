@@ -2884,6 +2884,44 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     w.line(&head);
     w.push_raw(&cw.out);
     w.line("};");
+    // A class (not a `mixin`) that some class applies as a mixin and whose
+    // members use `super` (`class B { toString() => 'B(${super.toString()})'; }`
+    // in a 2.19 library, `class D extends R with B`): `applyMixin` copies the
+    // methods with their `super` bound to `B`'s own superclass, so the
+    // application also gets a `mixinOn` class with the same members, whose
+    // `super` is the application's superclass (`mixin/super_2`).
+    if !is_mixin
+        && !ext_in_mixin
+        && ctx.is_mixed_in(c)
+        && (cw.out.contains("super[") || cw.out.contains("super."))
+    {
+        w.line(&format!(
+            "{cref}[dart.mixinOn] = {cid}$mixin_super => {{\nconst {cid}$m = class {cid} extends {cid}$mixin_super {{"
+        ));
+        w.push_raw(&cw.out);
+        w.line("};");
+        // The native interface aliases (`[$toString]`…) of the copy, as the
+        // `mixin` case does: otherwise `applyMixin` keeps those of `B`
+        // itself, whose `super` is `B`'s superclass.
+        if !ext_methods.is_empty() {
+            let items: Vec<String> = ext_methods.iter().map(|n| js::string_literal(n)).collect();
+            w.line(&format!(
+                "dart.defineExtensionMethods({cid}$m, [{}]);",
+                items.join(", ")
+            ));
+        }
+        if !ext_accessors.is_empty() {
+            let items: Vec<String> = ext_accessors
+                .iter()
+                .map(|n| js::string_literal(n))
+                .collect();
+            w.line(&format!(
+                "dart.defineExtensionAccessors({cid}$m, [{}]);",
+                items.join(", ")
+            ));
+        }
+        w.line(&format!("return {cid}$m;\n}};"));
+    }
     // One call per class: `dart.lateFields(C.prototype, {finals}, {others})`,
     // with the key as a property of the object literal (`_x$1c: "_x"`, which
     // property renaming shortens together with the `this._x$1c` accesses) or

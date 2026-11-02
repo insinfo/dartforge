@@ -269,8 +269,8 @@ impl Listing {
             #[cfg(windows)]
             {
                 // A link to an ancestor of the listing is a cycle.
-                if let Ok(c) = std::fs::canonicalize(&p) {
-                    if self.stack.iter().any(|n| std::fs::canonicalize(path_from_bytes(&n.prefix)).is_ok_and(|a| a == c)) {
+                if let Ok(c) = plain_canonicalize(&p) {
+                    if self.stack.iter().any(|n| plain_canonicalize(&path_from_bytes(&n.prefix)).is_ok_and(|a| a == c)) {
                         return Ok(LIST_LINK);
                     }
                 }

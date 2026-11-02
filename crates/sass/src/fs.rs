@@ -49,8 +49,56 @@ impl Fs for StdFs {
 
     #[inline]
     fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
-        std::fs::canonicalize(path)
+        std::fs::canonicalize(path).map(without_verbatim)
     }
+}
+
+/// The plain form of a Windows verbatim path (`\\?\C:\x` is `C:\x`,
+/// `\\?\UNC\srv\share` is `\\srv\share`), which `std::fs::canonicalize`
+/// returns there, so that the canonical paths of imports compare with the
+/// paths the caller passes and show as the user wrote them. The same rule
+/// as `dartforge_elements::config::without_verbatim` (this crate stays
+/// without dependencies on the rest of DartForge): kept verbatim when the
+/// plain form would name another file (over `MAX_PATH`, a reserved device
+/// name, a component ending in a dot or a space, a `/`). A no-op elsewhere.
+fn without_verbatim(p: PathBuf) -> PathBuf {
+    let Some(s) = p.to_str() else {
+        return p;
+    };
+    let plain = if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        let b = rest.as_bytes();
+        if b.len() < 3 || !b[0].is_ascii_alphabetic() || b[1] != b':' || b[2] != b'\\' {
+            return p;
+        }
+        rest.to_string()
+    } else {
+        return p;
+    };
+    if plain.len() >= 260 || plain.contains('/') {
+        return p;
+    }
+    let reserved = |c: &str| {
+        let stem = c
+            .split('.')
+            .next()
+            .unwrap_or("")
+            .trim_end()
+            .to_ascii_uppercase();
+        matches!(
+            stem.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+        ) || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+    };
+    for c in plain.trim_start_matches('\\').split('\\').skip(1) {
+        if !c.is_empty() && (reserved(c) || c.ends_with('.') || c.ends_with(' ')) {
+            return p;
+        }
+    }
+    PathBuf::from(plain)
 }
 
 /// A file system implementation that acts like it’s completely empty.

@@ -1265,11 +1265,13 @@ fn key_of(p: &Path) -> std::borrow::Cow<'_, Path> {
 /// loading sees the files; for a file that does not exist yet (an unsaved
 /// document), its directory's canonical path with the name.
 fn canonical(p: &Path) -> PathBuf {
-    let c = std::fs::canonicalize(p).ok().or_else(|| {
-        let parent = p.parent()?.canonicalize().ok()?;
-        Some(parent.join(p.file_name()?))
-    });
-    dartforge_elements::config::without_verbatim(c.unwrap_or_else(|| p.to_path_buf()))
+    let c = dartforge_elements::config::canonicalize(p)
+        .ok()
+        .or_else(|| {
+            let parent = dartforge_elements::config::canonicalize(p.parent()?).ok()?;
+            Some(parent.join(p.file_name()?))
+        });
+    c.unwrap_or_else(|| p.to_path_buf())
 }
 
 /// Is the file a part (`part of`)? Looks at the directives before the first

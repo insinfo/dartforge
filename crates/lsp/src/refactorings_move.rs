@@ -182,7 +182,8 @@ fn path_uri(path: &Path) -> String {
     let configuration = dartforge_elements::config::PackageConfig::discover(path)
         .and_then(|p| dartforge_elements::config::PackageConfig::load(&p).ok());
     let canonical = match (
-        path.parent().and_then(|p| p.canonicalize().ok()),
+        path.parent()
+            .and_then(|p| dartforge_elements::config::canonicalize(p).ok()),
         path.file_name(),
     ) {
         (Some(folder), Some(name)) => {

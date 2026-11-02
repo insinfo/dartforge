@@ -222,7 +222,11 @@ pub fn application_found(ctx: &Context, fid: usize, lin: &[ClassId], pos: usize)
 /// runtime does not have the SDK objects in our layout. The fields of a mixin
 /// sit between those of the superclass and those of the class that applies it.
 pub fn layout(ctx: &Context, cid: ClassId) -> Vec<VariableId> {
-    let chain = linearization(ctx, cid);
+    // Every application of a mixin has its slots, base first: `class E
+    // extends D with B` with `D extends R with B` is `R`, `B`, `D`, `B`, `E`,
+    // so the layout of `E` extends that of `D` (the deduplicated
+    // `linearization` put `B` after `D` and moved `D`'s fields).
+    let chain = full_linearization(ctx, cid);
     let mut fields = Vec::new();
     for c in chain.into_iter().rev() {
         for &vid in &ctx.program.classes[c.0 as usize].fields {
@@ -475,7 +479,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// The index of a mixin field in each concrete class that applies it.
+    ///
+    /// A mixin applied more than once has one slot per application. A read or
+    /// write goes through the implicit accessors, which are virtual: it is the
+    /// slot of the outermost application of the object's class, the one the
+    /// member lookup finds (inside the mixin too, as in the VM). Only the
+    /// constructor of an application initializes that application's own slot
+    /// (`field_application`).
     fn mixin_field_indices(&self, vid: VariableId) -> Vec<(i64, usize)> {
+        let owner = self.ctx.program.variables[vid.0 as usize].class;
+        let application = self
+            .field_application
+            .filter(|&(m, _)| Some(m) == owner)
+            .map(|(_, j)| j);
         let mut exit = Vec::new();
         for (k, class_ref) in self.ctx.program.classes.iter().enumerate() {
             let kid = ClassId(k as u32);
@@ -483,10 +499,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 continue;
             }
             let base = super::enums::layout_base(self.ctx, kid);
-            if let (Some(id), Some(i)) = (
-                self.ctx.class_id_of(kid),
-                layout(self.ctx, kid).iter().position(|&v| v == vid),
-            ) {
+            let slots: Vec<usize> = layout(self.ctx, kid)
+                .iter()
+                .enumerate()
+                .filter(|&(_, &v)| v == vid)
+                .map(|(i, _)| i)
+                .collect();
+            let slot = match application {
+                Some(j) => slots.get(j - 1).or(slots.last()).copied(),
+                None => slots.last().copied(),
+            };
+            if let (Some(id), Some(i)) = (self.ctx.class_id_of(kid), slot) {
                 exit.push((id.into(), i + base));
             }
         }
@@ -2581,12 +2604,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // application `S with M` is a class whose constructor initializes `M`
         // and calls that of `S`).
         let mixins: Vec<ClassId> = applied_mixins(self.ctx, cid);
+        let chain = full_linearization(self.ctx, cid);
         for m in mixins.into_iter().rev() {
             if self
                 .ctx
                 .compiled_library(self.ctx.program.classes[m.0 as usize].library)
             {
+                // `cid`'s application of `m` is the outermost one of its
+                // chain: its number is the count of `m` in the chain.
+                let application = chain.iter().filter(|&&c| c == m).count().max(1);
+                let saved = self.field_application.replace((m, application));
                 self.initialize_fields(m);
+                self.field_application = saved;
             }
         }
         let Some(sup) = self.ctx.program.classes[cid.0 as usize].supertype_class else {
