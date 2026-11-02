@@ -124,6 +124,8 @@ pub struct ElementIndex {
     pub library_variables: Vec<Vec<VariableId>>,
     /// The variables whose node ([`VariableRef`]) is in each unit.
     pub unit_variables: Vec<Vec<VariableId>>,
+    /// The classes of each library ([`ClassElement::library`]).
+    pub library_classes: Vec<Vec<ClassId>>,
     /// The class declared by each declaration node, by unit.
     pub unit_classes: Vec<HashMap<DeclId, ClassId>>,
     /// The typedef declared by each declaration node, by unit.
@@ -547,6 +549,7 @@ impl Program {
                 library_functions: vec![Vec::new(); self.libraries.len()],
                 library_variables: vec![Vec::new(); self.libraries.len()],
                 unit_variables: vec![Vec::new(); self.units.len()],
+                library_classes: vec![Vec::new(); self.libraries.len()],
                 unit_classes: vec![HashMap::new(); self.units.len()],
                 unit_typedefs: vec![HashMap::new(); self.units.len()],
                 unit_extensions: vec![HashMap::new(); self.units.len()],
@@ -558,6 +561,9 @@ impl Program {
             }
             // The first element of each node, like a `position` over the arena.
             for (i, c) in self.classes.iter().enumerate() {
+                if let Some(l) = x.library_classes.get_mut(c.library.0 as usize) {
+                    l.push(ClassId(i as u32));
+                }
                 if let Some(d) = c.decl
                     && let Some(m) = x.unit_classes.get_mut(d.unit.0 as usize)
                 {

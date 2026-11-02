@@ -240,7 +240,10 @@ pub fn missing_super_call(
     let Some(sym) = interner.lookup("mustCallSuper") else {
         return output;
     };
-    for (i, class) in program.classes.iter().enumerate() {
+    for (i, class) in program.index().library_classes[lib.0 as usize]
+        .iter()
+        .map(|&e| (e.0 as usize, program.class(e)))
+    {
         if class.library != lib
             || !matches!(
                 class.kind,

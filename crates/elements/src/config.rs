@@ -206,10 +206,43 @@ impl PackageConfig {
 
     /// Loads and validates the `.dart_tool/package_config.json` v2 file.
     ///
+    /// A file loaded before comes from a cache of the process while its date
+    /// and size, and whether the `build_runner` generated directory exists,
+    /// are the same: reading it canonicalizes every package directory (one
+    /// system call each), and a long LSP session reads it at every analysis.
+    ///
     /// # Errors
     /// Returns a message on I/O failure, invalid JSON or a `configVersion`
     /// other than 2.
     pub fn load(path: &Path) -> Result<Self, String> {
+        type Cache = HashMap<PathBuf, (crate::unit_cache::FileStamp, bool, PackageConfig)>;
+        static CACHE: std::sync::OnceLock<std::sync::Mutex<Cache>> = std::sync::OnceLock::new();
+        let stamp = crate::unit_cache::FileStamp::read(path);
+        let generated = path
+            .parent()
+            .is_some_and(|d| d.join("build").join("generated").is_dir());
+        let cache = CACHE.get_or_init(Default::default);
+        if let Some(stamp) = stamp
+            && let Some((s, g, c)) = cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(path)
+            && *s == stamp
+            && *g == generated
+        {
+            return Ok(c.clone());
+        }
+        let loaded = Self::load_uncached(path)?;
+        if let Some(stamp) = stamp {
+            cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(path.to_path_buf(), (stamp, generated, loaded.clone()));
+        }
+        Ok(loaded)
+    }
+
+    fn load_uncached(path: &Path) -> Result<Self, String> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("could not read {}: {e}", path.display()))?;
         let json: serde_json::Value = serde_json::from_str(&text)

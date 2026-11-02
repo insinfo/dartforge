@@ -167,27 +167,33 @@ pub fn variance(
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
     let units = &program.library(lib).units;
+    let index = program.index();
+    // The elements of the library's units only, in id order (a later element
+    // of the same node wins, as in a walk of the whole arena).
     let mut functions: HashMap<(UnitId, u32), usize> = HashMap::new();
-    for (i, e) in program.functions.iter().enumerate() {
-        if let FunctionRef::Function { unit, function } = e.node
-            && units.contains(&unit)
-        {
-            functions.insert((unit, function.0), i);
-        }
-    }
     let mut fields: HashMap<(UnitId, u32), usize> = HashMap::new();
-    for (i, v) in program.variables.iter().enumerate() {
-        if let VariableRef::Field {
-            unit,
-            member,
-            index: 0,
-        } = v.node
-            && units.contains(&unit)
-        {
-            fields.insert((unit, member.0), i);
+    for &u in units {
+        for &id in index.unit_functions.get(u.0 as usize).into_iter().flatten() {
+            if let FunctionRef::Function { unit, function } = program.function(id).node
+                && units.contains(&unit)
+            {
+                functions.insert((unit, function.0), id.0 as usize);
+            }
+        }
+        for &id in index.unit_variables.get(u.0 as usize).into_iter().flatten() {
+            if let VariableRef::Field {
+                unit,
+                member,
+                index: 0,
+            } = program.variable(id).node
+                && units.contains(&unit)
+            {
+                fields.insert((unit, member.0), id.0 as usize);
+            }
         }
     }
-    for (i, cls) in program.classes.iter().enumerate() {
+    for &cid in &index.library_classes[lib.0 as usize] {
+        let (i, cls) = (cid.0 as usize, program.class(cid));
         if cls.library != lib {
             continue;
         }
@@ -451,7 +457,8 @@ pub fn non_covariant_positions_in_representation(
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
-    for (i, k) in program.classes.iter().enumerate() {
+    for &cid in &program.index().library_classes[lib.0 as usize] {
+        let (i, k) = (cid.0 as usize, program.class(cid));
         if k.library != lib || k.kind != dartforge_elements::model::ClassKind::ExtensionType {
             continue;
         }

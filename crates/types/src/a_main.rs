@@ -29,7 +29,9 @@ pub fn main_function(
     let Some(sym_main) = interner.lookup("main") else {
         return output;
     };
-    for (i, f) in program.functions.iter().enumerate() {
+    // The library's functions only (in id order, as a walk of the arena).
+    for &id in &program.index().library_functions[lib.0 as usize] {
+        let (i, f) = (id.0 as usize, program.function(id));
         // Only the top-level function: a class method `main` does not count, nor
         // does a getter (which has no parameter list).
         if f.library != lib

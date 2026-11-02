@@ -1575,7 +1575,10 @@ pub fn inheritance_verifier_proceeds(
     let version = consumer.features.version();
     let enhanced_enums = (version.major, version.minor) >= (2, 17);
     let mut v = Vec::new();
-    for (i, class) in program.classes.iter().enumerate() {
+    for (i, class) in program.index().library_classes[lib.0 as usize]
+        .iter()
+        .map(|&e| (e.0 as usize, program.class(e)))
+    {
         if class.library != lib {
             continue;
         }
@@ -1685,7 +1688,10 @@ pub fn check(program: &Program, lib: LibraryId, names: &Interner) -> Vec<(UnitId
     let l = Reader { program, names };
     let consumer = program.library(lib);
     let mut out = Vec::new();
-    for (i, class) in program.classes.iter().enumerate() {
+    for (i, class) in program.index().library_classes[lib.0 as usize]
+        .iter()
+        .map(|&e| (e.0 as usize, program.class(e)))
+    {
         if class.library != lib {
             continue;
         }

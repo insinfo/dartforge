@@ -109,7 +109,20 @@ pub fn body_at_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyRe
     use dartforge_elements::model::FunctionRef;
     let a = &program.unit(u).ast;
     let mut best: Option<(usize, BodyRef)> = None;
-    for (i, fe) in program.functions.iter().enumerate() {
+    // The unit's elements, in id order (as a walk of the whole arena).
+    let index = program.index();
+    let unit_functions = index
+        .unit_functions
+        .get(u.0 as usize)
+        .map_or(&[][..], |l| &l[..]);
+    let unit_variables = index
+        .unit_variables
+        .get(u.0 as usize)
+        .map_or(&[][..], |l| &l[..]);
+    for (i, fe) in unit_functions
+        .iter()
+        .map(|&e| (e.0 as usize, program.function(e)))
+    {
         let span = match fe.node {
             FunctionRef::Function { unit, function } if unit == u => a.function(function).span,
             FunctionRef::Constructor { unit, member } if unit == u => a.member(member).span,
@@ -125,7 +138,10 @@ pub fn body_at_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyRe
             ));
         }
     }
-    for (i, v) in program.variables.iter().enumerate() {
+    for (i, v) in unit_variables
+        .iter()
+        .map(|&e| (e.0 as usize, program.variable(e)))
+    {
         let span = match v.node {
             VariableRef::TopLevel { unit, decl, .. } if unit == u => a.decl(decl).span,
             VariableRef::Field { unit, member, .. } if unit == u => a.member(member).span,
@@ -157,7 +173,16 @@ pub fn unit_bodies(
 ) -> Vec<BodyRef> {
     use dartforge_elements::model::FunctionRef;
     let mut v = Vec::new();
-    for (i, var) in program.variables.iter().enumerate() {
+    // The unit's variables and its library's functions (a synthetic function
+    // has no node of its own), in id order, as a walk of the whole arena.
+    let index = program.index();
+    for (i, var) in index
+        .unit_variables
+        .get(u.0 as usize)
+        .into_iter()
+        .flatten()
+        .map(|&e| (e.0 as usize, program.variable(e)))
+    {
         let unit_id = match var.node {
             VariableRef::TopLevel { unit, .. }
             | VariableRef::Field { unit, .. }
@@ -176,7 +201,11 @@ pub fn unit_bodies(
     if !all {
         return v;
     }
-    for (i, f) in program.functions.iter().enumerate() {
+    let library = program.unit(u).library;
+    for (i, f) in index.library_functions[library.0 as usize]
+        .iter()
+        .map(|&e| (e.0 as usize, program.function(e)))
+    {
         let its = match f.node {
             FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => unit == u,
             // Synthetic ones (implicit constructor, field accessors): through the

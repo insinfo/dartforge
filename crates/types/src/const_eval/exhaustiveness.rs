@@ -1056,7 +1056,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         let program = self.m.program;
         let lib = program.class(sealed).library;
         let mut direct = Vec::new();
-        for (i, k) in program.classes.iter().enumerate() {
+        for (i, k) in program.index().library_classes[lib.0 as usize]
+            .iter()
+            .map(|&e| (e.0 as usize, program.class(e)))
+        {
             let id = ClassId(i as u32);
             if k.library != lib
                 || id == sealed

@@ -285,7 +285,10 @@ pub fn generic_conflicts(
     };
     let mut output = Vec::new();
     let mut seen: HashSet<ClassId> = HashSet::new();
-    for (i, ce) in program.classes.iter().enumerate() {
+    for (i, ce) in program.index().library_classes[lib.0 as usize]
+        .iter()
+        .map(|&e| (e.0 as usize, program.class(e)))
+    {
         let id = ClassId(i as u32);
         if ce.library != lib || !seen.insert(id) {
             continue;

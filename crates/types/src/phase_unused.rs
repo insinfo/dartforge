@@ -503,12 +503,17 @@ pub fn unused_elements(
         .collect();
     let decl_class = |u: UnitId, d: ast::DeclId| program.class_of_decl(u, d);
     let node_function = |u: UnitId, f: ast::FunctionId| program.function_of_node(u, f);
+    // The first constructor element of the member, among the unit's functions
+    // (in id order, as a search of the whole arena).
+    let index = program.index();
     let member_constructor = |u: UnitId, m: ast::MemberId| {
-        program
-            .functions
-            .iter()
-            .position(|e| matches!(e.node, dartforge_elements::model::FunctionRef::Constructor { unit, member } if unit == u && member == m))
-            .map(|i| FunctionElementId(i as u32))
+        index
+            .unit_functions
+            .get(u.0 as usize)
+            .into_iter()
+            .flatten()
+            .copied()
+            .find(|&id| matches!(program.function(id).node, dartforge_elements::model::FunctionRef::Constructor { unit, member } if unit == u && member == m))
     };
 
     for &u in &units {
@@ -1144,11 +1149,11 @@ pub fn unused_elements(
             table: &mut *table,
         };
         let mut candidates: Vec<El> = Vec::new();
-        for (i, k) in program.classes.iter().enumerate() {
+        for &c in &index.library_classes[lib.0 as usize] {
+            let k = program.class(c);
             if k.library != lib || k.decl.is_none() {
                 continue;
             }
-            let c = ClassId(i as u32);
             for &f in k.instance_members.values().chain(k.constructors.values()) {
                 candidates.push(cx.of_function(f));
             }

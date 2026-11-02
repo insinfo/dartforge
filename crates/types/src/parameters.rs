@@ -263,8 +263,8 @@ pub fn unused_parameters(
         }
     }
     // Initializers (`super(...)`, `this(...)`), `super.x` and enum constants.
-    for (ci, k) in program.classes.iter().enumerate() {
-        let c = ClassId(ci as u32);
+    for &c in &program.index().library_classes[lib.0 as usize] {
+        let k = program.class(c);
         if k.library != lib {
             continue;
         }
@@ -394,8 +394,8 @@ pub fn unused_parameters(
     }
 
     let mut output = Vec::new();
-    for (fi, fe) in program.functions.iter().enumerate() {
-        let f = FunctionElementId(fi as u32);
+    for &f in &program.index().library_functions[lib.0 as usize] {
+        let fe = program.function(f);
         if fe.library != lib {
             continue;
         }
@@ -426,7 +426,7 @@ pub fn unused_parameters(
             continue;
         }
         // Generic executable, or constructor of a generic class.
-        if !outline.functions[fi].type_params.is_empty() {
+        if !outline.functions[f.0 as usize].type_params.is_empty() {
             continue;
         }
         if constructor_

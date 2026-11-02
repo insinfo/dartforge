@@ -112,7 +112,10 @@ fn the_declarations(
     lib: LibraryId,
 ) -> Vec<(UnitId, ast::DeclId, Option<ClassId>)> {
     let mut classes: HashMap<(UnitId, ast::DeclId), ClassId> = HashMap::new();
-    for (i, c) in program.classes.iter().enumerate() {
+    for (i, c) in program.index().library_classes[lib.0 as usize]
+        .iter()
+        .map(|&e| (e.0 as usize, program.class(e)))
+    {
         if c.library == lib
             && let Some(d) = c.decl
         {

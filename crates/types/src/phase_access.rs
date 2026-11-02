@@ -293,7 +293,10 @@ pub fn invalid_accesses(
     }
     // `_checkForInvalidSealedSuperclass`: class, mixin application and mixin
     // of this unit.
-    for (i, class) in program.classes.iter().enumerate() {
+    for (i, class) in program.index().library_classes[lib.0 as usize]
+        .iter()
+        .map(|&e| (e.0 as usize, program.class(e)))
+    {
         if class.library != lib || !matches!(class.kind, ClassKind::Class | ClassKind::Mixin) {
             continue;
         }

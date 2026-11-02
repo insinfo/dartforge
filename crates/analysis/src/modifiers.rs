@@ -156,7 +156,10 @@ pub fn outside_library(
         lib,
     };
     let mut out = Vec::new();
-    for (i, class_of) in program.classes.iter().enumerate() {
+    for (i, class_of) in program.index().library_classes[lib.0 as usize]
+        .iter()
+        .map(|&e| (e.0 as usize, program.class(e)))
+    {
         if class_of.library != lib {
             continue;
         }

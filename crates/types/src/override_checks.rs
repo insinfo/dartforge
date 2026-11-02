@@ -536,11 +536,28 @@ pub fn invalid_overrides(
     let mut by_function: HashMap<(UnitId, u32), FunctionElementId> = HashMap::new();
     type Accessors = (Option<FunctionElementId>, Option<FunctionElementId>);
     let mut by_variable: HashMap<(UnitId, u32, usize), Accessors> = HashMap::new();
-    for (i, f) in program.functions.iter().enumerate() {
+    // The functions of the needed classes' libraries, in id order (as a walk
+    // of the whole arena, which cost a pass over every function of the
+    // program per library).
+    let index = program.index();
+    let mut libraries: Vec<dartforge_elements::model::LibraryId> = needed
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| **n)
+        .map(|(c, _)| program.class(ClassId(c as u32)).library)
+        .collect();
+    libraries.sort();
+    libraries.dedup();
+    let mut ids: Vec<FunctionElementId> = libraries
+        .iter()
+        .flat_map(|l| index.library_functions[l.0 as usize].iter().copied())
+        .collect();
+    ids.sort();
+    for id in ids {
+        let f = program.function(id);
         if f.static_ || !f.class.is_some_and(|c| needed[c.0 as usize]) {
             continue;
         }
-        let id = FunctionElementId(i as u32);
         match f.node {
             FunctionRef::Function { unit, function } => {
                 by_function.insert((unit, function.0), id);
@@ -2166,9 +2183,9 @@ pub fn conflicting_members(
         library: dartforge_elements::model::LibraryId(0),
     };
     let mut output = Vec::new();
-    for (ci, cls) in program.classes.iter().enumerate() {
+    for &cid in &program.index().library_classes[lib.0 as usize] {
+        let cls = program.class(cid);
         cx.library = cls.library;
-        let cid = ClassId(ci as u32);
         if cls.library != lib || !matches!(cls.kind, K::Class | K::Mixin | K::ExtensionType) {
             continue;
         }
@@ -2396,7 +2413,8 @@ pub fn enum_statics(
         library: lib,
     };
     let mut output = Vec::new();
-    for (ci, cls) in program.classes.iter().enumerate() {
+    for &cid in &program.index().library_classes[lib.0 as usize] {
+        let (ci, cls) = (cid.0 as usize, program.class(cid));
         if cls.library != lib || cls.kind != K::Enum {
             continue;
         }
@@ -2493,12 +2511,16 @@ pub fn enum_statics(
         // same-named enum in the same unit (the `augment enum E` that 3.6.2 reads
         // as another declaration, or a repeated `enum E`), 3.6.2 reports nothing,
         // in any order: both elements are equal by location.
-        let same_name = program.classes.iter().enumerate().any(|(j, k)| {
-            j != ci
-                && k.kind == K::Enum
-                && k.name == cls.name
-                && k.decl.is_some_and(|x| x.unit == decl.unit)
-        });
+        // The classes of the same unit are the library's.
+        let same_name = program.index().library_classes[lib.0 as usize]
+            .iter()
+            .map(|&j| (j.0 as usize, program.class(j)))
+            .any(|(j, k)| {
+                j != ci
+                    && k.kind == K::Enum
+                    && k.name == cls.name
+                    && k.decl.is_some_and(|x| x.unit == decl.unit)
+            });
         if same_name {
             continue;
         }

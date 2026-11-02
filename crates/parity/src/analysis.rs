@@ -35,6 +35,10 @@ pub struct Engine {
     /// Every `dart:` library the analyzer knows: those of any section of
     /// `libraries.json` (the analyzer is not limited to DDC).
     sdk_libraries: BTreeSet<String>,
+    /// The tree lint rules run only where the `analysis_options.yaml` that
+    /// applies to the file enables them ([`Engine::lint_rules_from_options`]);
+    /// otherwise every rule runs and whoever publishes filters.
+    lints_from_options: bool,
 }
 
 /// What a resident analysis process keeps between analyses
@@ -84,6 +88,11 @@ pub struct Resident {
     /// Per package root, the sizes of its programs that decide whether the
     /// whole package pays ([`Resident::context_pays`]).
     program_bytes: HashMap<PathBuf, ProgramBytes>,
+    /// The kept units whose file changed on the disk, scanned once per
+    /// analysis ([`Resident::disk_changed`]): each scan is one `stat` per
+    /// kept unit (~3,600 on `new_sali`), and a load over a cut asked four
+    /// times.
+    disk_scan: std::cell::OnceCell<Vec<PathBuf>>,
 }
 
 /// One structure of what a [`Resident`] keeps, as
@@ -314,6 +323,13 @@ impl Resident {
         Resident::default()
     }
 
+    /// The kept units whose file changed on the disk since they were read
+    /// (`AnalyzedUnitCache::changed`), scanned once per analysis: the scan
+    /// starts again at the next [`Resident::take_world`].
+    fn disk_changed(&self) -> &[PathBuf] {
+        self.disk_scan.get_or_init(|| self.units.changed())
+    }
+
     /// The source bytes of the units kept.
     pub fn source_bytes(&self) -> usize {
         self.units.source_bytes()
@@ -343,6 +359,7 @@ impl Resident {
         files: &[PathBuf],
         texts: &HashMap<PathBuf, String>,
     ) -> Taken {
+        self.disk_scan = std::cell::OnceCell::new();
         let Some(mut world) = self.world.take() else {
             return Taken::Nothing;
         };
@@ -390,7 +407,7 @@ impl Resident {
             t.hash(&mut h);
             h.finish()
         };
-        let mut changed: HashSet<PathBuf> = self.units.changed().iter().map(|p| key(p)).collect();
+        let mut changed: HashSet<PathBuf> = self.disk_changed().iter().map(|p| key(p)).collect();
         changed.extend(
             texts
                 .iter()
@@ -447,7 +464,7 @@ impl Resident {
             return false;
         }
         let outside = |k: &Path| !key(k).starts_with(root);
-        if self.units.changed().iter().any(|p| outside(p)) {
+        if self.disk_changed().iter().any(|p| outside(p)) {
             return false;
         }
         let digest = |t: &str| {
@@ -478,7 +495,7 @@ impl Resident {
             return false;
         }
         // Nothing read from the disk changed.
-        if !self.units.changed().is_empty() {
+        if !self.disk_changed().is_empty() {
             return false;
         }
         let batch: HashSet<PathBuf> = files.iter().map(|f| key(f)).collect();
@@ -885,7 +902,9 @@ impl Resident {
         };
         let now: HashMap<PathBuf, u64> =
             texts.iter().map(|(k, t)| (k.clone(), digest(t))).collect();
-        let mut stale: Vec<PathBuf> = self.units.changed();
+        let mut stale: Vec<PathBuf> = self.disk_changed().to_vec();
+        // The scan's units are invalidated below: the next analysis scans again.
+        self.disk_scan = std::cell::OnceCell::new();
         stale.extend(
             self.texts
                 .iter()
@@ -998,6 +1017,55 @@ impl PhaseTimes {
             eprintln!("engine: {name}: {:.3} s", t.elapsed().as_secs_f64());
             self.last = Some(std::time::Instant::now());
         }
+    }
+}
+
+/// The `analysis_options.yaml` that decides which tree lint rules run for
+/// each file ([`Engine::lint_rules_from_options`]), read once per analysis:
+/// the nearest one below the root, else the root's (the publication's rule,
+/// [`crate::json_diagnostics`]).
+struct LintRules {
+    root: PathBuf,
+    on: bool,
+    root_options: Option<std::rc::Rc<crate::filters::AnalysisOptions>>,
+    by_file: HashMap<PathBuf, std::rc::Rc<crate::filters::AnalysisOptions>>,
+}
+
+impl LintRules {
+    fn new(root: &Path, on: bool) -> LintRules {
+        LintRules {
+            root: root.to_path_buf(),
+            on,
+            root_options: None,
+            by_file: HashMap::new(),
+        }
+    }
+
+    /// The options that apply to the file at `path`; `None` when every rule
+    /// runs.
+    fn of(&mut self, path: Option<&Path>) -> Option<std::rc::Rc<crate::filters::AnalysisOptions>> {
+        if !self.on {
+            return None;
+        }
+        if let Some(file) =
+            path.and_then(|p| crate::filters::AnalysisOptions::from_subfolder(p, &self.root))
+        {
+            return Some(
+                self.by_file
+                    .entry(file.clone())
+                    .or_insert_with(|| {
+                        std::rc::Rc::new(crate::filters::AnalysisOptions::read_file(&file))
+                    })
+                    .clone(),
+            );
+        }
+        Some(
+            self.root_options
+                .get_or_insert_with(|| {
+                    std::rc::Rc::new(crate::filters::AnalysisOptions::read(&self.root))
+                })
+                .clone(),
+        )
     }
 }
 
@@ -1379,7 +1447,21 @@ impl Engine {
                 }
             }
         }
-        Ok(Engine { sdk, sdk_libraries })
+        Ok(Engine {
+            sdk,
+            sdk_libraries,
+            lints_from_options: false,
+        })
+    }
+
+    /// Runs the tree lint rules of each file only where the
+    /// `analysis_options.yaml` that applies to it (the nearest one below
+    /// `root`, else `root`'s) enables them, as the publication filters them
+    /// ([`crate::json_diagnostics`]): the LSP publishes nothing else, and on
+    /// a package with a few rules enabled most of the ~300 rules' walks go
+    /// away. [`FileAnalysis::lint_reports`] then has only the enabled rules'.
+    pub fn lint_rules_from_options(&mut self, on: bool) {
+        self.lints_from_options = on;
     }
 
     /// The SDK from `DARTFORGE_SDK_LIB`/`DART_SDK`/`PATH`, or the machine's
@@ -1496,6 +1578,7 @@ impl Engine {
     ) -> Option<AnalysisResult> {
         let mut analysis = AnalysisResult::default();
         let mut times = PhaseTimes::from_env();
+        let mut lint_rules = LintRules::new(root, self.lints_from_options);
         let mut own: BTreeMap<PathBuf, String> = BTreeMap::new();
         let mut imports = String::new();
         // The libraries the entry imports, for the kept world's key.
@@ -2504,7 +2587,8 @@ impl Engine {
                 .collect();
             let mut non_nullable: std::collections::HashMap<(usize, usize), bool> =
                 std::collections::HashMap::new();
-            for (vi, var) in program.variables.iter().enumerate() {
+            for &v_id in &program.index().library_variables[lib.0 as usize] {
+                let (vi, var) = (v_id.0 as usize, program.variable(v_id));
                 if var.library != *lib || var.static_ {
                     continue;
                 }
@@ -2908,8 +2992,24 @@ impl Engine {
                     );
                 }
                 // The tree lint rules, over the program's tree and with the
-                // engine's semantics.
+                // engine's semantics (only the enabled ones, when the engine
+                // reads the options).
+                let rules = lint_rules.of(program.unit(u).path.as_deref());
+                if rules
+                    .as_ref()
+                    .is_some_and(|r| !r.rules.values().any(|on| *on))
                 {
+                    if let Some(p) = &program.unit(u).path
+                        && let Some(a) = analysis.files.get_mut(&key(p))
+                    {
+                        a.lint_reports = Some(Vec::new());
+                    }
+                } else {
+                    let enabled = |rule: &str| {
+                        rules
+                            .as_ref()
+                            .is_none_or(|r| r.rules.get(rule).copied().unwrap_or(false))
+                    };
                     let can_be_const = dartforge_types::typed_lints6::can_be_const(
                         program,
                         interner,
@@ -2937,7 +3037,7 @@ impl Engine {
                         source: &un.source,
                     };
                     let reports =
-                        dartforge_analysis::lints::run_with(tree, interner, &|_| true, Some(&sem));
+                        dartforge_analysis::lints::run_with(tree, interner, &enabled, Some(&sem));
                     if let Some(p) = &un.path
                         && let Some(a) = analysis.files.get_mut(&key(p))
                     {

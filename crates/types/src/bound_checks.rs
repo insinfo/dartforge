@@ -289,7 +289,10 @@ pub fn enum_instantiated_to_bounds(
     lib: dartforge_elements::model::LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
-    for (i, ce) in program.classes.iter().enumerate() {
+    for (i, ce) in program.index().library_classes[lib.0 as usize]
+        .iter()
+        .map(|&e| (e.0 as usize, program.class(e)))
+    {
         if ce.library != lib || ce.kind != dartforge_elements::model::ClassKind::Enum {
             continue;
         }

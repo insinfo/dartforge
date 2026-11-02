@@ -577,7 +577,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             )
         };
         if engine.is_none() {
-            match Engine::new(sdk_lib) {
+            match lsp_engine(sdk_lib) {
                 Ok(m) => engine = Some(m),
                 Err(error) => {
                     eprintln!("[dartforge-lsp] typed diagnostics disabled: {error}");
@@ -920,7 +920,7 @@ pub fn typed_analysis_child() -> i32 {
         .name("dartforge-lsp-typed".into())
         .stack_size(1 << 30)
         .spawn(move || {
-            let engine = match Engine::new(&job.sdk_lib) {
+            let engine = match lsp_engine(&job.sdk_lib) {
                 Ok(engine) => engine,
                 Err(error) => {
                     eprintln!("[dartforge-lsp] typed diagnostics disabled: {error}");
@@ -1255,7 +1255,7 @@ fn resident_child() -> i32 {
                     continue;
                 };
                 if engine.as_ref().is_none_or(|(sdk, _)| *sdk != job.sdk_lib) {
-                    match Engine::new(&job.sdk_lib) {
+                    match lsp_engine(&job.sdk_lib) {
                         Ok(e) => engine = Some((job.sdk_lib.clone(), e)),
                         Err(error) => {
                             eprintln!("[dartforge-lsp] typed diagnostics disabled: {error}");
@@ -1720,6 +1720,14 @@ fn merge(
         facts: None,
     }));
     output
+}
+
+/// The engine of the typed analysis: it runs only the tree lint rules that
+/// the files' `analysis_options.yaml` enables, the only ones published.
+fn lsp_engine(sdk_lib: &Path) -> std::result::Result<Engine, String> {
+    let mut engine = Engine::new(sdk_lib)?;
+    engine.lint_rules_from_options(true);
+    Ok(engine)
 }
 
 /// Analyzes the files of `job` (its open documents and the other files of the

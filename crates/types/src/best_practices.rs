@@ -130,7 +130,8 @@ pub fn unnecessary_no_such_method(
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
-    for f in program.functions.iter() {
+    for &id in &program.index().library_functions[lib.0 as usize] {
+        let f = program.function(id);
         if f.library != lib
             || interner.resolve(f.name) != "noSuchMethod"
             || f.kind != FunctionKind::Function

@@ -171,7 +171,10 @@ pub fn normalize(
     };
     let library_id = LibraryId(index as u32);
     let mut classes = HashMap::new();
-    for (id, class) in program.classes.iter().enumerate() {
+    for (id, class) in program.index().library_classes[library_id.0 as usize]
+        .iter()
+        .map(|&e| (e.0 as usize, program.class(e)))
+    {
         if class.library != library_id {
             continue;
         }
