@@ -90,6 +90,12 @@ struct Universe {
     rules: HashMap<i64, Vec<(i64, i64)>>,
     /// Name and number of type parameters of each class (RTI id).
     classes: HashMap<i64, (String, usize)>,
+    /// The declaration-site variance of the parameters of a class of the
+    /// `variance` experiment (`class C<in T, inout U>`), one per parameter:
+    /// 0 covariant (also `out` and the legacy default), 2 contravariant
+    /// (`in`), 3 invariant (`inout`) — the codes of DDC's
+    /// `addTypeParameterVariances`. A class without an entry is covariant.
+    variances: HashMap<i64, Vec<u8>>,
     /// RTI class of a heap class id that is not the same number (the
     /// runtime's error classes 1000–1012).
     from_heap: HashMap<i64, i64>,
@@ -845,7 +851,14 @@ impl Universe {
                 let Some(seen) = self.as_supertype(c1, &a1, c2) else {
                     return false;
                 };
-                seen.iter().zip(a2.iter()).all(|(&x, &y)| self.sub(x, y))
+                let variances = self.variances.get(&c2).cloned();
+                seen.iter().zip(a2.iter()).enumerate().all(|(i, (&x, &y))| {
+                    match variances.as_ref().and_then(|v| v.get(i)) {
+                        Some(2) => self.sub(y, x),
+                        Some(3) => self.sub(x, y) && self.sub(y, x),
+                        _ => self.sub(x, y),
+                    }
+                })
             }
             (Type::Function { .. }, Type::Interface(c2, _)) => c2 == self.rt.function,
             (Type::Record { .. }, Type::Interface(c2, _)) => c2 == self.rt.record,
@@ -1616,8 +1629,9 @@ pub(crate) fn copied_list_type(origin: i64, concrete_class: Option<i64>) -> Opti
 
 /// The program's RTI registrations in a table (`lower/rti.rs`): one line
 /// per registration — `C<id> <parameters> <name>` (the class name),
-/// `R<id> <recipe>` (a supertype rule) and `F<shape> <id>` (the class of
-/// a runtime shape) —, read in order. The large table comes compressed
+/// `R<id> <recipe>` (a supertype rule), `F<shape> <id>` (the class of
+/// a runtime shape) and `V<id> <digits>` (the variance of each parameter,
+/// `Universe::variances`) —, read in order. The large table comes compressed
 /// (`rti_table`).
 ///
 /// # Safety
@@ -1654,6 +1668,14 @@ pub unsafe extern "C" fn dartforge_rti_init_table(data: *const i64, len: i64) {
                 dartforge_rti_rule(id, model);
             }
             "F" => dartforge_rti_runtime_class(id, b.parse().expect("RTI id")),
+            // The variance of each parameter of a class of the `variance`
+            // experiment, one digit per parameter (`Universe::variances`).
+            "V" => RTI.with(|u| {
+                let mut u = u.borrow_mut();
+                u.variances.insert(id, b.bytes().map(|d| d.wrapping_sub(b'0')).collect());
+                u.cache_sub.clear();
+                u.forget_memos();
+            }),
             // The library and the declared name of the class (`dart:mirrors`).
             "B" => {
                 let (uri, name) = b.split_once(' ').unwrap_or((b, ""));

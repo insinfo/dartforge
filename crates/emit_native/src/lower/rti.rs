@@ -2749,6 +2749,29 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             .get(c.0 as usize)
             .map_or(0, |d| d.type_params.len());
         table.push_str(&format!("C{id} {n} {name_str}\n"));
+        // Declaration-site variance (`class C<in T, inout U>`, the `variance`
+        // experiment): the runtime compares those arguments the other way
+        // (`in`) or both ways (`inout`); the codes of DDC's
+        // `addTypeParameterVariances`.
+        let variances: Vec<u8> = ctx
+            .outline
+            .classes
+            .get(c.0 as usize)
+            .map(|d| {
+                d.type_params
+                    .iter()
+                    .map(|p| match ctx.table.param(*p).variance {
+                        dartforge_types::table::Variance::Contravariant => 2,
+                        dartforge_types::table::Variance::Invariant => 3,
+                        _ => 0,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if variances.iter().any(|v| *v != 0) {
+            let digits: String = variances.iter().map(|v| char::from(b'0' + v)).collect();
+            table.push_str(&format!("V{id} {digits}\n"));
+        }
         // The library that declares the class and the declared name, for the
         // `reflectClass` of `dart:mirrors` (`runtime/src/mirrors.rs`).
         let class = &ctx.program.classes[c.0 as usize];
