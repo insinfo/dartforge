@@ -715,6 +715,55 @@ pub fn word_hash(word: &str) -> u64 {
     h.finish()
 }
 
+/// The [`word_hash`]es of the identifier-like words of a unit's signatures:
+/// [`text_words`] of its text without the bodies [`api_digest`] leaves out
+/// (comments and strings in the signatures count), sorted and without
+/// repetitions. The words [`api_digest`]'s declarations have, or more,
+/// without lexing the text.
+///
+/// ```
+/// use dartforge_elements::incremental::{signature_words, word_hash};
+/// let text = "int f(String s) { return g(); }\n";
+/// let mut names = dartforge_intern::Interner::new();
+/// let parsed = dartforge_frontend::parser::parse(text, &mut names);
+/// let w = signature_words(text, &parsed.ast);
+/// assert!(w.contains(&word_hash("String")));
+/// assert!(!w.contains(&word_hash("g")));
+/// ```
+pub fn signature_words(text: &str, a: &Ast) -> Vec<u64> {
+    let mut bodies: Vec<Span> = regions(a, false)
+        .iter()
+        .map(|r| {
+            if r.strict {
+                // A block's braces stay in the signature.
+                Span {
+                    start: r.span.start + 1,
+                    end: r.span.end.saturating_sub(1).max(r.span.start + 1),
+                }
+            } else {
+                r.span
+            }
+        })
+        .collect();
+    bodies.sort_by_key(|s| s.start);
+    let mut words = Vec::new();
+    let mut at = 0;
+    for b in bodies {
+        if b.start > at
+            && let Some(piece) = text.get(at..b.start)
+        {
+            words.extend(text_words(piece));
+        }
+        at = at.max(b.end);
+    }
+    if let Some(piece) = text.get(at..) {
+        words.extend(text_words(piece));
+    }
+    words.sort_unstable();
+    words.dedup();
+    words
+}
+
 /// The [`word_hash`]es of every identifier-like word of `text` (letters,
 /// digits, `_` and `$`), comments and strings included, sorted and without
 /// repetitions: an over-approximation of the names a file can refer to.

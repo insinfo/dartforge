@@ -46,14 +46,17 @@ pub fn key(path: &Path) -> PathBuf {
 /// key of every unit of the program at each analysis, to look it up).
 pub fn key_of(path: &Path) -> std::borrow::Cow<'_, Path> {
     #[cfg(unix)]
-    if let Some(s) = path.to_str()
-        && s.starts_with('/')
-        && !s.ends_with('/')
-        && s[1..]
-            .split('/')
-            .all(|c| !c.is_empty() && c != "." && c != "..")
     {
-        return std::borrow::Cow::Borrowed(path);
+        let b = path.as_os_str().as_encoded_bytes();
+        if b.first() == Some(&b'/')
+            && b.last() != Some(&b'/')
+            && b[1..]
+                .split(|&c| c == b'/')
+                .all(|c| !c.is_empty() && c != b"." && c != b"..")
+            && path.to_str().is_some()
+        {
+            return std::borrow::Cow::Borrowed(path);
+        }
     }
     std::borrow::Cow::Owned(crate::config::without_verbatim(crate::load::normalize(
         path,

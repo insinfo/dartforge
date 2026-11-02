@@ -275,6 +275,27 @@ fn edit_and_compare(name: &str, in_child: bool) {
             "int unusedApi() => 0;",
             "int unusedApi() => 1;\nint another() => 2;",
         ),
+        // A declaration appended and removed in a file others depend on: after
+        // its first API change it comes after them, and these reload it in
+        // place, keeping the dependents.
+        (
+            "API edit in place: a declaration appended",
+            "lib/model.dart",
+            "  return m.twice();\n}\n",
+            "  return m.twice();\n}\n\nString appended() => 3;\n",
+        ),
+        (
+            "API edit in place: the declaration removed",
+            "lib/model.dart",
+            "  return m.twice();\n}\n\nString appended() => 3;\n",
+            "  return m.twice();\n}\n",
+        ),
+        (
+            "API edit in place: a signature nobody names",
+            "lib/model.dart",
+            "int another() => 2;",
+            "String another() => '2';",
+        ),
     ];
     for (step, (label, relative, from, to)) in steps.iter().enumerate() {
         let before = p.server.typed_analyzed_files();

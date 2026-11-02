@@ -97,7 +97,13 @@ pub struct Resident {
     skip_disk_scan: bool,
     /// When the disk was last scanned.
     last_disk_scan: std::cell::Cell<Option<std::time::Instant>>,
+    /// The files whose API changed in the last loads over a cut and that
+    /// other libraries depend on, oldest first (`Program::layout_hot`).
+    hot: Vec<PathBuf>,
 }
+
+/// How many recently changed files the layout keeps last ([`Resident::hot`]).
+const HOT_FILES: usize = 4;
 
 /// How long the resident goes without scanning the disk when its caller says
 /// nothing changed there ([`Resident::disk_unchanged`]): a change that no
@@ -209,7 +215,14 @@ enum Taken {
     /// The kept world, whose program lost what came after its frozen prefix
     /// (the units went back to the unit cache): the analysis loads the rest
     /// over the prefix and resolves its outline over the prefix's.
-    Onto(World, dartforge_elements::frozen::Checkpoint),
+    /// With a reload in place planned (`crate::in_place`): the kept
+    /// libraries before the cut that depend on what it reloads stay, if the
+    /// reload keeps the ids they hold.
+    Onto(
+        World,
+        dartforge_elements::frozen::Checkpoint,
+        Option<crate::in_place::Plan>,
+    ),
 }
 
 /// How many loads over a cut a world takes before a full reload: none by
@@ -253,6 +266,22 @@ struct World {
     syntax_known: HashSet<PathBuf>,
     /// The loads over the program's frozen prefix since the last full load.
     onto_loads: usize,
+    /// The signature words of the kept units, for the reload in place.
+    words: crate::in_place::Words,
+    /// The body tables of the frozen prefix's libraries whose constants an
+    /// analysis cited, kept while the type table is not collected: those
+    /// libraries never change while the world lives, and an edit of a
+    /// component cites the same ones every time.
+    cited: CitedBodies,
+}
+
+/// [`World::cited`].
+#[derive(Default)]
+struct CitedBodies {
+    /// The type table's collections when the tables were inferred (a
+    /// collection renumbers the types they hold).
+    collections: usize,
+    by_library: HashMap<LibraryId, Vec<(usize, dartforge_types::resolved::UnitBodyTypes)>>,
 }
 
 /// Where an old offset of a text goes in a new one that differs from it in
@@ -415,6 +444,46 @@ impl Resident {
                     frozen.libraries
                 );
             }
+            // A changed file other libraries depend on goes after them in
+            // the next layouts (`Program::layout_hot`), so that its next
+            // change cuts at it alone; the kept libraries that point past
+            // a cut stay through a reload in place, or the cut moves before
+            // them.
+            let changed_keys: HashSet<PathBuf> = changed.iter().cloned().collect();
+            for k in
+                crate::in_place::depended_on(&world.program, frozen.libraries, &changed_keys, &key)
+            {
+                self.hot.retain(|h| *h != k);
+                self.hot.push(k);
+            }
+            if self.hot.len() > HOT_FILES {
+                let extra = self.hot.len() - HOT_FILES;
+                self.hot.drain(..extra);
+            }
+            let in_place = std::env::var_os("DARTFORGE_IN_PLACE").is_none_or(|v| v != "0");
+            let (at, plan) = match crate::in_place::plan(
+                &world.program,
+                at.libraries,
+                frozen,
+                &changed_keys,
+                &key,
+            ) {
+                Ok(Some(plan)) if in_place => (at, Some(plan)),
+                Ok(Some(plan)) => (plan.fallback, None),
+                Ok(None) => (at, None),
+                Err(start) => (world.program.checkpoint_at(start).unwrap_or(frozen), None),
+            };
+            if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
+                eprintln!(
+                    "engine: load from library {}{}",
+                    at.libraries,
+                    if plan.is_some() { " in place" } else { "" }
+                );
+            }
+            if let Some(plan) = &plan {
+                plan.detach(&mut world.program);
+            }
+            world.words.truncate(at.units);
             let after: Vec<dartforge_elements::model::Unit> =
                 world.program.units.drain(at.units..).collect();
             self.units.reclaim_units(after);
@@ -422,7 +491,8 @@ impl Resident {
             // What changed goes last in the reload's layout, with what
             // depends on it: the next change of the same files cuts there.
             world.program.layout_last = changed;
-            return Taken::Onto(world, at);
+            world.program.layout_hot = self.hot.clone();
+            return Taken::Onto(world, at, plan);
         }
         self.units.reclaim(world.program);
         Taken::Nothing
@@ -1770,7 +1840,7 @@ impl Engine {
             .map(|r| r.take_world(root, packages, &import_set, files, texts))
         {
             Some(Taken::Swapped(w)) => (Some(w), None),
-            Some(Taken::Onto(w, at)) => (None, Some((w, at))),
+            Some(Taken::Onto(w, at, plan)) => (None, Some((w, at, plan))),
             _ => (None, None),
         };
         // The libraries that do not change in an editing session (the SDK and
@@ -1837,16 +1907,52 @@ impl Engine {
                 let (program, load_diags, prefix) = match prefix {
                     Some(mut w) => {
                         let base = std::mem::take(&mut w.0.program);
-                        let (p, d) = dartforge_elements::load::load_lenient_onto(
+                        let also = w.2.as_ref().map(|p| p.files()).unwrap_or_default();
+                        let also: Vec<&Path> = also.iter().map(PathBuf::as_path).collect();
+                        let (mut p, mut d) = dartforge_elements::load::load_lenient_onto(
                             base,
                             w.1,
                             &entry,
+                            &also,
                             &self.sdk,
                             packages,
                             interner,
                             units.as_deref_mut(),
-                            generation,
+                            generation.clone(),
                         );
+                        // A reload in place keeps the kept libraries that
+                        // depend on what it reloaded only if it gave them back
+                        // the ids they hold; otherwise, the load again from
+                        // before all of them.
+                        if let Some(plan) = w.2.take() {
+                            let kept =
+                                crate::in_place::settle(&plan, &mut p, interner, &mut w.0.words);
+                            if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
+                                eprintln!(
+                                    "engine: reload in place {}",
+                                    if kept {
+                                        "kept the dependents"
+                                    } else {
+                                        "refused"
+                                    }
+                                );
+                            }
+                            if !kept {
+                                w.1 = plan.fallback;
+                                w.0.words.truncate(plan.fallback.units);
+                                (p, d) = dartforge_elements::load::load_lenient_onto(
+                                    p,
+                                    plan.fallback,
+                                    &entry,
+                                    &[],
+                                    &self.sdk,
+                                    packages,
+                                    interner,
+                                    units.as_deref_mut(),
+                                    generation,
+                                );
+                            }
+                        }
                         (p, d, Some(w))
                     }
                     None => (program, load_diags, None),
@@ -1877,95 +1983,115 @@ impl Engine {
                 let onto_loads = prefix.as_ref().map_or(0, |w| w.0.onto_loads + 1);
                 let mut load_diags = load_diags;
                 let mut syntax_known: HashSet<PathBuf> = own.iter().cloned().collect();
-                let (table, core, outline, outline_diags, outline_units, bounds) = match prefix {
-                    // The prefix's types, hierarchy and inferred initializers
-                    // stay; only the outline after it is resolved. The kept
-                    // libraries' diagnostics stay too.
-                    Some((w, at)) => {
-                        let mut table = w.table;
-                        let mut core = w.core;
-                        // What stays of the outline, with only the types it
-                        // reaches left in the table: the earlier loads'
-                        // outlines and bodies go away.
-                        let mut kept = w.outline;
-                        kept.truncate(&at);
-                        if std::env::var_os("DARTFORGE_TYPE_PARAMS_KEPT").is_some() {
-                            // Measurement: every type parameter stays.
-                            dartforge_types::collect_types(&mut table, &mut kept, &mut core);
-                        } else {
-                            dartforge_types::collect_types_at(
-                                &mut table, &mut kept, &mut core, &at,
-                            );
-                        }
-                        let (outline, diags, units) = dartforge_types::resolve_outline_onto(
-                            &program, interner, &mut table, &core, kept, at,
-                        );
-                        if let Some(r) = &mut resident_counter {
-                            **r += 1;
-                        }
-                        let kept: HashSet<String> = program.units[..at.units]
-                            .iter()
-                            .filter_map(|u| u.path.as_ref().map(|p| p.display().to_string()))
-                            .collect();
-                        let mut all_diags = Vec::with_capacity(diags.len());
-                        let mut all_units = Vec::with_capacity(units.len());
-                        for (d, u) in w.outline_diags.into_iter().zip(w.outline_units) {
-                            if (u.0 as usize) < at.units {
-                                all_diags.push(d);
-                                all_units.push(u);
+                let (table, core, outline, outline_diags, outline_units, bounds, (words, cited)) =
+                    match prefix {
+                        // The prefix's types, hierarchy and inferred initializers
+                        // stay; only the outline after it is resolved. The kept
+                        // libraries' diagnostics stay too.
+                        Some((w, at, _)) => {
+                            let mut table = w.table;
+                            let mut core = w.core;
+                            // What stays of the outline, with only the types it
+                            // reaches left in the table: the earlier loads'
+                            // outlines and bodies go away.
+                            let mut kept = w.outline;
+                            kept.truncate(&at);
+                            if std::env::var_os("DARTFORGE_TYPE_PARAMS_KEPT").is_some() {
+                                // Measurement: every type parameter stays.
+                                dartforge_types::collect_types(&mut table, &mut kept, &mut core);
+                            } else {
+                                dartforge_types::collect_types_at(
+                                    &mut table, &mut kept, &mut core, &at,
+                                );
                             }
-                        }
-                        all_diags.extend(diags);
-                        all_units.extend(units);
-                        let mut old: Vec<Diagnostic> = w
-                            .load_diags
-                            .into_iter()
-                            .filter(|d| {
-                                d.message
-                                    .split_once(':')
-                                    .is_some_and(|(p, _)| kept.contains(p))
-                            })
-                            .collect();
-                        old.append(&mut load_diags);
-                        load_diags = old;
-                        // By the keys of the kept units, computed once (a key
-                        // asks the file system).
-                        let kept_keys: HashSet<PathBuf> = program.units[..at.units]
-                            .iter()
-                            .filter(|u| {
-                                u.path.as_deref().is_some_and(|p| {
-                                    w.syntax_known
-                                        .iter()
-                                        .any(|k| k.ends_with(p.file_name().unwrap_or_default()))
+                            let (outline, diags, units) = dartforge_types::resolve_outline_onto(
+                                &program, interner, &mut table, &core, kept, at,
+                            );
+                            if let Some(r) = &mut resident_counter {
+                                **r += 1;
+                            }
+                            let kept: HashSet<String> = program.units[..at.units]
+                                .iter()
+                                .filter_map(|u| u.path.as_ref().map(|p| p.display().to_string()))
+                                .collect();
+                            let mut all_diags = Vec::with_capacity(diags.len());
+                            let mut all_units = Vec::with_capacity(units.len());
+                            for (d, u) in w.outline_diags.into_iter().zip(w.outline_units) {
+                                if (u.0 as usize) < at.units {
+                                    all_diags.push(d);
+                                    all_units.push(u);
+                                }
+                            }
+                            all_diags.extend(diags);
+                            all_units.extend(units);
+                            let mut old: Vec<Diagnostic> = w
+                                .load_diags
+                                .into_iter()
+                                .filter(|d| {
+                                    d.message
+                                        .split_once(':')
+                                        .is_some_and(|(p, _)| kept.contains(p))
                                 })
-                            })
-                            .filter_map(|u| u.path.as_deref().map(key))
-                            .collect();
-                        syntax_known
-                            .extend(w.syntax_known.into_iter().filter(|k| kept_keys.contains(k)));
-                        // `computeSimplyBounded`: the kept declarations cite
-                        // nothing after the cut, so only the new ones.
-                        let bounds = dartforge_analysis::simple_bounds::compute_onto(
-                            &program,
-                            w.simple_bounds,
-                            at.classes,
-                            at.typedefs,
-                        );
-                        (table, core, outline, all_diags, all_units, bounds)
-                    }
-                    None => {
-                        let mut table = dartforge_types::TypeTable::new();
-                        // Messages with the `typedef` alias and the `Never?` as written (C9).
-                        table.preserve_decoration = true;
-                        let core = dartforge_types::CoreTypes::init(&mut table, &program, interner);
-                        let (outline, diags, units) = dartforge_types::resolve_outline_with_units(
-                            &program, interner, &mut table, &core,
-                        );
-                        // `computeSimplyBounded`, once for the program.
-                        let bounds = dartforge_analysis::simple_bounds::compute(&program);
-                        (table, core, outline, diags, units, bounds)
-                    }
-                };
+                                .collect();
+                            old.append(&mut load_diags);
+                            load_diags = old;
+                            // By the keys of the kept units, computed once (a key
+                            // asks the file system).
+                            let kept_keys: HashSet<PathBuf> = program.units[..at.units]
+                                .iter()
+                                .filter(|u| {
+                                    u.path.as_deref().is_some_and(|p| {
+                                        w.syntax_known
+                                            .iter()
+                                            .any(|k| k.ends_with(p.file_name().unwrap_or_default()))
+                                    })
+                                })
+                                .filter_map(|u| u.path.as_deref().map(key))
+                                .collect();
+                            syntax_known.extend(
+                                w.syntax_known.into_iter().filter(|k| kept_keys.contains(k)),
+                            );
+                            // `computeSimplyBounded`: the kept declarations cite
+                            // nothing after the cut, so only the new ones.
+                            let bounds = dartforge_analysis::simple_bounds::compute_onto(
+                                &program,
+                                w.simple_bounds,
+                                at.classes,
+                                at.typedefs,
+                            );
+                            (
+                                table,
+                                core,
+                                outline,
+                                all_diags,
+                                all_units,
+                                bounds,
+                                (w.words, w.cited),
+                            )
+                        }
+                        None => {
+                            let mut table = dartforge_types::TypeTable::new();
+                            // Messages with the `typedef` alias and the `Never?` as written (C9).
+                            table.preserve_decoration = true;
+                            let core =
+                                dartforge_types::CoreTypes::init(&mut table, &program, interner);
+                            let (outline, diags, units) =
+                                dartforge_types::resolve_outline_with_units(
+                                    &program, interner, &mut table, &core,
+                                );
+                            // `computeSimplyBounded`, once for the program.
+                            let bounds = dartforge_analysis::simple_bounds::compute(&program);
+                            (
+                                table,
+                                core,
+                                outline,
+                                diags,
+                                units,
+                                bounds,
+                                (crate::in_place::Words::default(), CitedBodies::default()),
+                            )
+                        }
+                    };
                 let simple_bounds = bounds;
                 World {
                     program,
@@ -1982,6 +2108,8 @@ impl Engine {
                     imports: import_set.clone(),
                     syntax_known,
                     onto_loads,
+                    words,
+                    cited,
                 }
             }
         };
@@ -4236,6 +4364,107 @@ mod tests {
                 assert_eq!(pair[0], pair[1], "{sizes:?}");
             }
         }
+        let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A file that others depend on, edited over and over (an API change and
+    /// its undo): after its first change it is laid out after its
+    /// dependents (`Program::layout_hot`), and the next changes reload it in
+    /// place, keeping the dependents, when they do not name what changed;
+    /// otherwise the load cuts before them. Each analysis publishes what a
+    /// fresh one does.
+    #[test]
+    fn resident_reloads_in_place_what_its_dependents_do_not_name() {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-agent/engine-in-place-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(base.join("pkg")).unwrap();
+        let base = std::fs::canonicalize(&base).unwrap();
+        std::fs::write(
+            base.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            base.join("sdk/lib/core/core.dart"),
+            "class Object {} class bool {} class num {} class int extends num {} \
+             class String {} class Null {}",
+        )
+        .unwrap();
+        let root = base.join("pkg");
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        let c = root.join("c.dart");
+        let d = root.join("d.dart");
+        let x = root.join("x.dart");
+        let original = "class B { int v = 0; }\nint fb() => 1;\n";
+        std::fs::write(&b, original).unwrap();
+        std::fs::write(
+            &a,
+            "import 'b.dart';\nint fa(B b) => b.v;\nbool ga() => fb();\n",
+        )
+        .unwrap();
+        // A barrel, and a library that sees `b.dart` through it.
+        std::fs::write(&c, "export 'b.dart';\n").unwrap();
+        std::fs::write(&d, "import 'c.dart';\nvar dv = fb();\nString gd() => dv;\n").unwrap();
+        std::fs::write(&x, "int fx() => true;\n").unwrap();
+        let engine = Engine::new(&base.join("sdk/lib")).unwrap();
+        let mut resident = Resident::new();
+        let all = vec![a.clone(), b.clone(), c.clone(), d.clone(), x.clone()];
+        let shown = |r: &AnalysisResult, f: &Path| {
+            let mut v: Vec<(usize, usize, String)> = r.files[&key(f)]
+                .diags
+                .iter()
+                .map(|d| (d.span.start, d.span.end, d.message.clone()))
+                .collect();
+            v.sort();
+            v
+        };
+        engine
+            .analyze_resident(&mut resident, &root, &all, None, &HashMap::new(), &|| false)
+            .unwrap();
+        let settled = |r: &Resident| r.world.as_ref().map_or(0, |w| w.words.settled);
+        let mut kept_in_place = Vec::new();
+        for version in [
+            // A declaration appended, then removed, then another one.
+            "class B { int v = 0; }\nint fb() => 1;\nint fb2() => 2;\n",
+            original,
+            "class B { int v = 0; }\nint fb() => 1;\nint fb3() => '3';\n",
+            original,
+            // A signature that `d.dart`'s inferred variable names.
+            "class B { int v = 0; }\nString fb() => '1';\n",
+            original,
+            // A member added in the middle: the ids after it move.
+            "class B { int v = 0; int w = 1; }\nint fb() => 1;\n",
+            original,
+        ] {
+            let before = settled(&resident);
+            let texts = HashMap::from([(key(&b), version.to_string())]);
+            let kept = engine
+                .analyze_resident(&mut resident, &root, &all, None, &texts, &|| false)
+                .unwrap();
+            kept_in_place.push(settled(&resident) > before);
+            let fresh = engine
+                .analyze_with(&root, &all, None, &texts, &|| false)
+                .unwrap();
+            for f in &all {
+                assert_eq!(shown(&kept, f), shown(&fresh, f), "{version} {f:?}");
+            }
+        }
+        // The first change lays `b.dart` out last; the undo and the next
+        // appended declaration (and its undo) are reloaded in place; the
+        // signature that `d.dart` names is not, nor the member that moves
+        // the ids.
+        assert_eq!(
+            kept_in_place,
+            [false, true, true, true, false, false, false, false],
+            "{kept_in_place:?}"
+        );
         let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&base).unwrap();

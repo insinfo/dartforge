@@ -153,7 +153,9 @@ pub(crate) fn lay_out(
     for (new, &old) in unit_order.iter().enumerate() {
         unit_map[old] = UnitId(new as u32);
     }
-    let lib = |l: LibraryId| library_map[l.0 as usize];
+    // An id past the libraries is a kept library's pointer that a reload in
+    // place detached (the resident points it again after the load).
+    let lib = |l: LibraryId| library_map.get(l.0 as usize).copied().unwrap_or(l);
     let unit = |u: UnitId| unit_map[u.0 as usize];
 
     let mut old_units: Vec<Option<crate::model::Unit>> = std::mem::take(&mut program.units)
@@ -216,6 +218,13 @@ pub(crate) fn lay_out(
 /// change being edited, a wave of generated files, which nothing imports)
 /// only they and what depends on them are reloaded, not every library that
 /// happened to come after them.
+///
+/// A group with a file of `Program::layout_hot` (an API that changed
+/// recently) and with dependents goes after all the others, and its
+/// dependents do not wait for it: the order is no longer a dependency order
+/// there. The next change of that file cuts at it alone; the libraries
+/// before the cut that depend on it stay only if its elements keep their
+/// ids (the resident checks it, and cuts before them otherwise).
 fn prefer_order(program: &Program, order: &[usize], starts: &[usize]) -> (Vec<usize>, Vec<usize>) {
     use std::cmp::Reverse;
     use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -223,6 +232,48 @@ fn prefer_order(program: &Program, order: &[usize], starts: &[usize]) -> (Vec<us
         return (order.to_vec(), starts.to_vec());
     }
     let last: HashSet<&std::path::Path> = program.layout_last.iter().map(|p| p.as_path()).collect();
+    let hot_files: HashSet<&std::path::Path> =
+        program.layout_hot.iter().map(|p| p.as_path()).collect();
+    let is_hot = |l: usize| {
+        !hot_files.is_empty()
+            && program.libraries[l].units.iter().any(|u| {
+                program.units[u.0 as usize]
+                    .path
+                    .as_deref()
+                    .is_some_and(|p| hot_files.contains(crate::generated::key(p).as_path()))
+            })
+    };
+    // A hot library leaves its group (libraries that import each other) and
+    // becomes a group of its own, after the rest of it: the rest does not
+    // wait for it either.
+    let (order, starts): (Vec<usize>, Vec<usize>) = if hot_files.is_empty() {
+        (order.to_vec(), starts.to_vec())
+    } else {
+        let (mut o, mut s) = (
+            Vec::with_capacity(order.len()),
+            Vec::with_capacity(order.len()),
+        );
+        let mut i = 0;
+        while i < order.len() {
+            let mut j = i;
+            while j < order.len() && starts[j] == starts[i] {
+                j += 1;
+            }
+            let group = &order[i..j];
+            let start = o.len();
+            for &l in group.iter().filter(|&&l| !is_hot(l)) {
+                o.push(l);
+                s.push(start);
+            }
+            for &l in group.iter().filter(|&&l| is_hot(l)) {
+                s.push(o.len());
+                o.push(l);
+            }
+            i = j;
+        }
+        (o, s)
+    };
+    let (order, starts) = (&order[..], &starts[..]);
     // The groups, as ranges of `order`.
     let mut groups: Vec<std::ops::Range<usize>> = Vec::new();
     for i in 0..order.len() {
@@ -262,19 +313,26 @@ fn prefer_order(program: &Program, order: &[usize], starts: &[usize]) -> (Vec<us
             dependents[h].push(g);
         }
     }
-    let changed: Vec<bool> = groups
-        .iter()
-        .map(|r| {
-            order[r.clone()].iter().any(|&l| {
+    let has = |r: &std::ops::Range<usize>, set: &HashSet<&std::path::Path>| {
+        !set.is_empty()
+            && order[r.clone()].iter().any(|&l| {
                 program.libraries[l].units.iter().any(|u| {
                     program.units[u.0 as usize]
                         .path
                         .as_deref()
-                        .is_some_and(|p| last.contains(crate::generated::key(p).as_path()))
+                        .is_some_and(|p| set.contains(crate::generated::key(p).as_path()))
                 })
             })
-        })
+    };
+    let changed: Vec<bool> = groups.iter().map(|r| has(r, &last)).collect();
+    // A hot group with dependents goes after everything else, its dependents
+    // included: they do not wait for it.
+    let hot: Vec<bool> = groups
+        .iter()
+        .enumerate()
+        .map(|(g, r)| !dependents[g].is_empty() && has(r, &hot_files))
         .collect();
+    let waits = |g: usize, h: usize| !hot[h] || hot[g];
     // Groups come after everything they depend on: in the old order, so a
     // group's "depends on a changed one" is known when it is reached.
     let mut reaches_changed = changed.clone();
@@ -283,20 +341,35 @@ fn prefer_order(program: &Program, order: &[usize], starts: &[usize]) -> (Vec<us
             reaches_changed[g] = true;
         }
     }
-    let key = |g: usize| (reaches_changed[g], dependents[g].is_empty(), changed[g], g);
-    let mut waiting: Vec<usize> = depends.iter().map(HashSet::len).collect();
-    let mut ready: BinaryHeap<Reverse<(bool, bool, bool, usize)>> = (0..n)
+    let key = |g: usize| {
+        (
+            hot[g],
+            reaches_changed[g],
+            dependents[g].is_empty(),
+            changed[g],
+            g,
+        )
+    };
+    let mut waiting: Vec<usize> = depends
+        .iter()
+        .enumerate()
+        .map(|(g, d)| d.iter().filter(|&&h| waits(g, h)).count())
+        .collect();
+    let mut ready: BinaryHeap<Reverse<(bool, bool, bool, bool, usize)>> = (0..n)
         .filter(|&g| waiting[g] == 0)
         .map(|g| Reverse(key(g)))
         .collect();
     let (mut new_order, mut new_starts) = (Vec::with_capacity(order.len()), Vec::new());
-    while let Some(Reverse((_, _, _, g))) = ready.pop() {
+    while let Some(Reverse((_, _, _, _, g))) = ready.pop() {
         let start = new_order.len();
         for &l in &order[groups[g].clone()] {
             new_order.push(l);
             new_starts.push(start);
         }
         for &d in &dependents[g] {
+            if !waits(d, g) {
+                continue;
+            }
             waiting[d] -= 1;
             if waiting[d] == 0 {
                 ready.push(Reverse(key(d)));
@@ -583,7 +656,7 @@ mod tests {
         // The index of the kept prefix survives the load and is extended.
         let _ = first.index();
         let (onto, _) =
-            crate::load::load_lenient_onto(first, at, &a, &sdk, None, &mut names, None, None);
+            crate::load::load_lenient_onto(first, at, &a, &[], &sdk, None, &mut names, None, None);
         assert!(onto.index_kept.lock().unwrap().is_some());
         assert_eq!(*onto.index(), index_from_nothing(&onto));
         assert_eq!(onto.frozen, Some(at));
@@ -625,7 +698,7 @@ mod tests {
         )
         .unwrap();
         let (again, _) =
-            crate::load::load_lenient_onto(onto, cut, &a, &sdk, None, &mut names, None, None);
+            crate::load::load_lenient_onto(onto, cut, &a, &[], &sdk, None, &mut names, None, None);
         assert_eq!(*again.index(), index_from_nothing(&again));
         assert_eq!(names.resolve(again.classes[class_b].name), "B");
         let fresh = frozen_load(&a, &ext, &mut names);

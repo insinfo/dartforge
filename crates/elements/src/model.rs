@@ -121,6 +121,14 @@ pub struct Program {
     /// next load over the program, which cuts at the first library whose
     /// text changed, reloads only them when the same files change again.
     pub layout_last: Vec<std::path::PathBuf>,
+    /// Files (by [`crate::generated::key`]) whose API changed recently and
+    /// that other libraries depend on: their groups go after everything
+    /// else, even after the libraries that depend on them
+    /// ([`crate::frozen::lay_out`]). The next API change of one of them then
+    /// cuts at it alone, and the libraries before the cut that depend on it
+    /// keep their elements when its elements keep their ids (the LSP
+    /// resident's reload in place).
+    pub layout_hot: Vec<std::path::PathBuf>,
 }
 
 /// The program's elements grouped by unit and by library, each list in

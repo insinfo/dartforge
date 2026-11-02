@@ -229,11 +229,16 @@ pub fn load_lenient_frozen(
 /// `at` is where `base` is cut: its frozen prefix, or later, at the start of a
 /// group of [`Program::groups`] (the libraries before it depend on nothing
 /// after it). The libraries after `at` are laid out in dependency order too.
+///
+/// `also`: files to load besides what `entry` reaches, when the libraries
+/// that import them were kept (a reload in place: the kept libraries that
+/// depend on a reloaded one are not walked again).
 #[allow(clippy::too_many_arguments)]
 pub fn load_lenient_onto(
     mut base: Program,
     at: crate::frozen::Checkpoint,
     entry: &Path,
+    also: &[&Path],
     sdk: &SdkLayout,
     package_config_path: Option<&Path>,
     interner: &mut Interner,
@@ -242,8 +247,9 @@ pub fn load_lenient_onto(
 ) -> (Program, Vec<Diagnostic>) {
     assert!(base.frozen.is_some(), "a program with a frozen prefix");
     base.truncate(&at);
+    let entries: Vec<&Path> = std::iter::once(entry).chain(also.iter().copied()).collect();
     load_lenient_(
-        &[entry],
+        &entries,
         sdk,
         package_config_path,
         interner,

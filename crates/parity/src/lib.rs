@@ -16,6 +16,7 @@
 //! only goes to the scoreboard.
 
 pub mod analysis;
+mod in_place;
 pub mod bridge;
 pub mod corpus;
 pub mod filters;
