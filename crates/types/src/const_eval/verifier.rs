@@ -1100,9 +1100,12 @@ impl Verifier<'_, '_> {
     }
 
     /// The declared class that contains member `mid` (through the constructors).
+    /// The unit's functions, in id order: the first match, as over the arena.
     fn class_of(&self, _a: &ast::Ast, mid: ast::MemberId) -> Option<ClassId> {
-        for (i, f) in self.m.program.functions.iter().enumerate() {
-            let _ = i;
+        let program = self.m.program;
+        let functions = program.index().unit_functions.get(self.unit.0 as usize)?;
+        for &id in functions {
+            let f = program.function(id);
             if let dartforge_elements::model::FunctionRef::Constructor { unit, member } = f.node
                 && unit == self.unit
                 && member == mid
