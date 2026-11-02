@@ -65,6 +65,18 @@ a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
+**Andamento (01/11, 23h), item 3:**
+- O mimalloc com *purge* no residente foi testado com `--long 150` e **descartado**:
+  - recém-aberto → fim: 310 → 410 MiB com o alocador do sistema;
+  - 319 → 420 MiB com o mimalloc (os mesmos +100 MiB);
+  - Dart: 528 → 682 MiB.
+- A medição da onda no *driver* (1.513 ms) é artefato: as janelas de espera somadas ao
+  *debounce* de 250 ms. Precisa ser corrigida antes de comparar ondas.
+- Ainda não feitos:
+  - os contadores de dado vivo por estrutura;
+  - o modelo de análise preguiçosa do Dart.
+- Detalhes em `docs/LSP.md`, "Décima rodada".
+
 **Andamento (01/11, 22h), item 3, diagnóstico dos +49%** (residente em repouso,
 `vmmap`; recém-aberto 319,6 MiB → sessão longa 494,1 MiB, +174,5 MiB):
 - Dado vivo do `malloc`: **+89,5 MiB**.

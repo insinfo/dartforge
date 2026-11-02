@@ -1402,6 +1402,43 @@ o servidor aberto sobre os mesmos arquivos finais. Em MiB:
   (mimalloc/jemalloc), o que pede trocar o alocador global do residente.
 - **Corrigir o custo da onda**, e rodar de novo o `--long 150` dos dois servidores.
 
+#### Décima rodada (2026-11-01): mimalloc no residente, testado e descartado
+
+**mimalloc com *purge*.** Experimento: mimalloc 0.1.52 (licença MIT, já no cache do
+registro) como alocador global do binário `dartforge-lsp`, com `mi_collect(true)` no
+residente depois de cada análise. A/B com `--long 150` revezado, carga 17–132. Uma
+validação completa de outro agente rodava ao mesmo tempo, então os tempos estão muito
+distorcidos. *Footprint* de todos os processos, em MiB:
+
+| | sistema (`r19`) | mimalloc + *purge* (`r20`) | Dart |
+|---|---:|---:|---:|
+| recém-aberto | 310,5 | 319,2 | 528,5 |
+| fim da sessão longa (1 min quieto) | 410,3 | 420,0 | 682,3 |
+| fim ÷ recém-aberto | 1,32× | 1,32× | 1,29× |
+
+O repouso não caiu: os mesmos +100 MiB com os dois alocadores. Pelo critério da rodada (só
+fica se o repouso cair sem piorar os tempos), o mimalloc **não foi integrado**. Os tempos
+por carga do `r19` (corpo 1.138 ms, API 13,3 s) correram com carga 60–130, contra 17–58 do
+`r20`, e não servem de comparação.
+
+**A onda de 1.513 ms é artefato do *driver*.** Nas três sessões dos dois binários, a onda
+deu exatamente 1.513 ms. O *driver* espera até 500 ms o início da análise (`wait_start`) e
+depois 1 s de quietude (`settle`). Com o *debounce* de 250 ms do servidor, a análise começa
+depois dessas janelas, e o tempo medido é a soma delas, não a análise. Nesta sessão o Dart
+deu 244 ms por onda, não os 10 ms da rodada anterior: o número dele também depende da
+carga. Antes de comparar ondas, o *driver* precisa esperar o início da análise além do
+*debounce*.
+
+**O que não foi feito nesta rodada:**
+- **Item 1:** nenhuma redução de memória integrada. O mimalloc foi revertido.
+- **Item 2:** o modelo do Dart (análise preguiçosa dos arquivos fora da prioridade) não foi
+  verificado no código dele. A medição da onda no *driver* não foi corrigida, e o custo real
+  de recarregar os 40 arquivos não foi perfilado.
+- **Item 3:** os contadores por estrutura no residente não foram escritos. Os +89,5 MiB de
+  dado vivo continuam sem divisão.
+- **Item 4:** com o *driver* ainda medindo a onda errado, a tabela de tempo por carga desta
+  rodada não é confiável.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
