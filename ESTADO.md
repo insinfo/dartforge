@@ -368,6 +368,12 @@ testes de `pub_get` incluídos (o Modo de Desenvolvedor está ligado lá, então
 foi o exercitado). Os `canonicalize` de outros crates (`runtime`, `lsp`, `build`, `parity`,
 `emit_native`, `sass`) não foram mexidos.
 
+**Windows inteiro em `fe855176` (02/11, notebook i3-1215U, Windows 11 x64, `E:\Temp\winval`):**
+`cargo test --release --workspace` com **3133 passados, 0 falhas** (195 ignorados, 33 min, `-j 4`);
+diferencial nativo de `corpus/native` rodado no próprio Windows (não cruzado), contra o `dart run`
+3.6.2: **164/164** em desenvolvimento (276 s) e **164/164** com `--optimize` (5326 s, `--jobs 3`).
+O tempo do `--optimize` (19× o de desenvolvimento) é a mesma lacuna do tempo de compilação do AOT.
+
 ### Correções do backend nesta rodada
 
 Na ordem pedida:
