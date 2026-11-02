@@ -419,6 +419,8 @@ fn download(url: &str, accept: Option<&str>, server: &str) -> Result<Vec<u8>, ur
         .timeout_global(Some(std::time::Duration::from_secs(120)))
         .https_only(url.starts_with("https:"))
         .user_agent("Dart pub 3.6.2")
+        // Pub's client sends no `Accept` unless the request names one.
+        .accept(ureq::config::AutoHeaderValue::None)
         .build()
         .into();
     let mut request = agent.get(url);
