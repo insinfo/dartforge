@@ -43,11 +43,9 @@ pub(super) fn package_directory(
     if !directory.is_dir() {
         return Err(not_found());
     }
-    let canonical = directory
-        .canonicalize()
+    let canonical = dartforge_elements::config::canonicalize(&directory)
         .map_err(|error| format!("SDK package {package}: {error}"))?;
-    let canonical_root = root
-        .canonicalize()
+    let canonical_root = dartforge_elements::config::canonicalize(root)
         .map_err(|error| format!("{}: {error}", root.display()))?;
     if !canonical.starts_with(&canonical_root) {
         return Err(SourceError::Fatal(format!(

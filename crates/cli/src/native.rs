@@ -187,7 +187,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     // The CLI option selects ARC; an inherited environment does not change the default.
     set_memory_policy("tracing")?;
     set_subsystem("console")?;
-    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--enable-asserts] [--debug] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--sdk <lib>] [--packages <package_config.json>]
+    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--enable-asserts] [--debug] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--sdk <lib>] [--packages <package_config.json>] [--language-version x.y] [--enable-experiment=a,b]
   --target <triple> --target-bundle <directory>  cross compilation (see export-target)
   --optimize        production: asserts off and dart.vm.product true (dart compile exe)
   --enable-asserts  keeps the asserts on with --optimize (dart compile exe --enable-asserts)";
@@ -204,10 +204,24 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     let mut packages: Option<PathBuf> = None;
     let mut cpu: Option<dartforge_emit_native::generator::Cpu> = None;
     let mut contracts = dartforge_emit_native::contracts::ContractMode::Verify;
+    let mut language = dartforge_elements::sdk::LanguageOptions::default();
     let mut flags = args[3..].iter();
     while let Some(flag) = flags.next() {
         match flag.to_str() {
             Some("--optimize") => optimize = true,
+            Some("--language-version" | "--enable-experiment") => {
+                let value = flags.next().and_then(|v| v.to_str()).ok_or(usage)?;
+                language.read_option(
+                    flag.to_str().unwrap_or_default(),
+                    &mut std::iter::once(value),
+                )?;
+            }
+            Some(option)
+                if option.starts_with("--language-version=")
+                    || option.starts_with("--enable-experiment=") =>
+            {
+                language.read_option(option, &mut std::iter::empty::<&str>())?;
+            }
             Some("--enable-asserts") => enable_asserts = true,
             Some("--debug") => debug = true,
             Some("--timings") => timings = true,
@@ -310,8 +324,8 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
                     packages: packages.as_deref(),
                     timings,
                     optimize,
-                    language_version: None,
-                    experiments: Vec::new(),
+                    language_version: language.current_version,
+                    experiments: language.experiments,
                     debug,
                     generator,
                     cpu,

@@ -578,7 +578,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // arguments are evaluated, as in the VM.
                 use super::inheritance::SuperMember;
                 let is_value = |s: &Self, m: SuperMember| match m {
-                    SuperMember::Function(f) => {
+                    SuperMember::Function(f) | SuperMember::Application(f, _) => {
                         s.ctx.program.functions[f].kind
                             == dartforge_elements::model::FunctionKind::Getter
                     }
@@ -615,12 +615,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // evaluated (an instance getter of a class is read after them).
                 let f = &self.ctx.program.functions[member.0 as usize];
                 if f.kind == dartforge_elements::model::FunctionKind::Getter && !f.static_ {
+                    self.extension_access = Some(*target);
                     let v = self.read_extension(recv_op, member.0 as usize, receiver, expr.span);
+                    self.extension_access = None;
                     let evaluated = self.evaluate_args(ast, &arguments.args);
                     return self.call_function_value(v, &evaluated);
                 }
                 let evaluated = self.evaluate_args(ast, &arguments.args);
-                return self.call_extension(
+                self.extension_access = Some(*target);
+                let r = self.call_extension(
                     recv_op,
                     member.0 as usize,
                     &evaluated,
@@ -628,6 +631,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Some((expr_id, arguments)),
                     expr.span,
                 );
+                self.extension_access = None;
+                return r;
             }
 
             // Extension type member: static, through the non-erased type

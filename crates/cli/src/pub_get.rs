@@ -249,8 +249,7 @@ impl Settings {
         let sdk_lib = sdk_lib.or_else(dartforge_elements::sdk::SdkLayout::discover);
         let sdk_root = sdk_lib
             .map(|lib| {
-                let lib = lib
-                    .canonicalize()
+                let lib = dartforge_elements::config::canonicalize(&lib)
                     .map_err(|error| format!("{}: {error}", lib.display()))?;
                 if !lib.join("libraries.json").is_file() {
                     return Err("--sdk must select the SDK lib directory".to_string());
@@ -413,10 +412,10 @@ fn parent_dirs(path: &str, cwd: &Path) -> Vec<(String, PathBuf)> {
 impl Entrypoint {
     /// `Entrypoint._loadWorkspace`.
     pub fn load(directory: &str, settings: &Settings) -> Result<Self, Failure> {
-        let cwd = std::env::current_dir()
-            .map_err(|e| e.to_string())?
-            .canonicalize()
-            .map_err(|e| e.to_string())?;
+        let cwd = dartforge_elements::config::canonicalize(
+            &std::env::current_dir().map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         let mut met: Vec<(PathBuf, Manifest)> = Vec::new();
         for (shown, absolute) in parent_dirs(directory, &cwd) {
             if !absolute.join("pubspec.yaml").is_file() {

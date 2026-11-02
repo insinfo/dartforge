@@ -810,10 +810,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.set_block(body_b);
                 // The explicit stack trace belongs to the pending exception. Read it
                 // before `clear`, which releases the slot and the runtime root.
-                let st_val = clause
-                    .stack_trace
-                    .as_ref()
-                    .map(|_| self.pending_stack_trace());
+                // A `rethrow` in the clause throws again with the original
+                // stack trace (also without a `catch (e, s)` variable, or
+                // with a wildcard one): it is read here too.
+                let rethrows = {
+                    let span = ast.stmt(clause.body).span;
+                    self.ctx
+                        .program
+                        .unit(self.unit_id)
+                        .source
+                        .get(span.start..span.end)
+                        .is_some_and(|t| t.contains("rethrow"))
+                };
+                let st_val =
+                    (clause.stack_trace.is_some() || rethrows).then(|| self.pending_stack_trace());
                 self.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_exception_clear".to_string(),
@@ -832,11 +842,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         ex_bits.clone(),
                     );
                 }
-                if let (Some(st_name), Some(st_val)) = (&clause.stack_trace, st_val) {
+                if let (Some(st_name), Some(st_val)) = (&clause.stack_trace, st_val.clone()) {
                     self.declare_variable(st_name.sym, st_name.span.start, Type::Ref, st_val);
                 }
 
                 self.active_catch_stack.push((ex_bits.clone(), 3));
+                self.catch_stack_traces.push(st_val.filter(|_| rethrows));
                 if let Some(p) = landing_pad {
                     self.exception_targets.push(p);
                 }
@@ -846,6 +857,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.close_scope();
                 self.active_catch_stack.pop();
+                self.catch_stack_traces.pop();
 
                 if !self.is_terminated() {
                     if let Some((entry, _, _, _)) = fin_info {

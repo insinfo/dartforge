@@ -14,6 +14,7 @@ dartforge-intern = { path = "../intern" }
 dartforge-frontend = { path = "../frontend" }
 dartforge-elements = { path = "../elements" }
 dartforge-types = { path = "../types" }
+dartforge-analysis = { path = "../analysis" }
 dartforge-macros-host = { path = "../macros_host" }
 
 sha2 = "0.10"

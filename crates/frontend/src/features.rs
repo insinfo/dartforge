@@ -223,6 +223,35 @@ impl Feature {
         Feature::ALL.into_iter().find(|f| f.name() == name)
     }
 
+    /// The experiments that 3.6.2 had already released, at or below the 3.6
+    /// floor, and that are not tracked here: they are on in every library
+    /// compiled at the current version, so `--enable-experiment` accepts them
+    /// and does nothing, as the 3.6.2 tools do with a released flag
+    /// (`experiments.g.dart`, `releaseVersion`).
+    pub const RELEASED_AT_FLOOR: [&'static str; 16] = [
+        "constant-update-2018",
+        "constructor-tearoffs",
+        "control-flow-collections",
+        "digit-separators",
+        "enhanced-enums",
+        "extension-methods",
+        "inline-class",
+        "named-arguments-anywhere",
+        "non-nullable",
+        "patterns",
+        "records",
+        "set-literals",
+        "spread-collections",
+        "super-parameters",
+        "triple-shift",
+        "unnamed-libraries",
+    ];
+
+    /// `name` is one of [`Feature::RELEASED_AT_FLOOR`].
+    pub fn released_at_floor(name: &str) -> bool {
+        Feature::RELEASED_AT_FLOOR.contains(&name)
+    }
+
     const fn bit(self) -> u32 {
         1 << (self as u8)
     }

@@ -194,7 +194,7 @@ a curva de memória dos dois servidores.
   - os corpos dos dependentes (~2 s de CPU × 110 ms no frontend);
   - o item 2 inteiro: o índice de referências (passo 5).
 
-## Painel: DartForge × Dart oficial (atualizado em 01/11/2026)
+## Painel: DartForge × Dart oficial (atualizado em 02/11/2026)
 
 Resumo de cada ferramenta contra a oficial correspondente (SDK 3.6.2), com a medição mais
 recente e a data dela. "Não medido" significa que não existe número. A última coluna diz quem
@@ -217,7 +217,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 
 | Ferramenta | Resultado | Lacunas abertas |
 |---|---|---|
-| **Suíte `tests/language`** (2.863 programas) | JS dev **2756 (96,3%)** (DDC: 2744). Wasm: **2722 iguais à VM, 2783 (97,2%)** contando a divergência legítima da web e os programas recusados pelos dois. **Nativo AOT** (`dartforge aot --optimize`): primeira medição 31/10, 2721 iguais à VM, 2775 (96,9%) contando os 54 que os dois recusam; depois de quatro rodadas de correções do backend (31/10 e 01/11, medidas nas falhas e nos programas das áreas tocadas): **2778 iguais, 2832 (98,9%)** na projeção, wasm **2836 (99,1%)**. JS produção: não medido | JS dev: as 107 falhas são divergências da web que o DDC também tem. Wasm: 80 falhas (*tear-off* sob *forwarding stub*, RTI de função genérica, programas que a VM recusa e nós aceitamos). Nativo: 88 → 57 → 48 → 35 → **31 falhas** (wasm: 80 → 51 → 42 → 29 → 27): pilhas simbólicas e *hashes* (11: o AOT sai com `--stack-trace none`), 10 programas que a VM recusa e nós aceitamos, *mixin* aplicado duas vezes (precisa de uma cópia por aplicação), `void` que devolve valor (ABI), avulsos |
+| **Suíte `tests/language`** (2.863 programas) | Medição de 02/11 com os experimentos de cada teste (`SharedOptions`), os pacotes `meta`/`collection` e "recusados pelos dois" à parte em toda ferramenta (referência `vm-r5`, conferida com a VM oficial no Windows): **JS dev 2780 iguais, 13 recusados pelos dois, 70 falhas**; **nativo AOT** (`dartforge aot --optimize`, projeção) **2810 iguais, 13 recusados, 40 falhas (98,6%)**; **wasm 2815 iguais (5 só ao dart2wasm), 13 recusados, 35 falhas (98,8%)**. Com a referência antiga (v19, sem experimentos) eram JS 2756/47/60, nativo 2778/54/31, wasm 2782/54/27: 46 dos "recusados pelos dois" eram testes de experimento que a VM recusava sem a flag. JS produção: não medido | Dos 40 do nativo, 23 são de experimento (22 de `variance`, que não implementamos e recusamos com o nome; `augmentation_libraries`, em que o CFE quebra) e 17 reais: 9 de pilha simbólica (o AOT sai com `--stack-trace none`), 2 de *hash*, 5 que a VM recusa ou em que falha e nós rodamos, `typedef/aliased_constructor_tear_off`. Wasm: os mesmos menos 4 de pilha. JS dev: 47 fora dos experimentos (divergências da web e `mixin/super_2` ×2) |
 | **`analyze`** | corpus do analisador **99,95%** (23.001/23.012), 14/10 e de novo em 31/10. Erros a mais em `tests/language`: **231 → 107 → 20** (de 70 para 7 arquivos), 31/10, sem novos falsos negativos (os erros dos 1.460 programas de erro ficaram idênticos) | 12 são do *parser*: declarações `augment` sem o experimento `macros`. 6 são *wildcards* fora do modo *wildcard*: com `_` duplicado, o analisador liga à primeira declaração e nós à última. 2 vêm de `X1 extends FutureOr<X1>`, em que o próprio 3.6.2 não diagnostica |
 | **`pub`** | solucionador **PubGrub** portado do Pub 3.6.2. `pub get` idêntico ao oficial em **51/51** projetos reais (lockfile byte a byte, `package_config.json`, saída e código), com e sem lockfile. `add`, `remove`, `upgrade`, `downgrade`, `deps` e `outdated` idênticos em 42 cenários (31/10) | sugestões depois de falha de resolução; avisos de segurança no `outdated`; `cache`, `global`, `publish`, `token`, `login`; `--precompile`; SDKs Flutter e Fuchsia. Matriz em `docs/PUB-E-TEST.md` |
 | **`test`** | igual ao `dart test` em **22/22** execuções diferenciais; aceita `dart_test.yaml` e as anotações; relator `expanded` no formato do `dart test` (31/10) | `-r json` com eventos próprios; só a plataforma `vm`; sem *coverage*, *watch*, `--fail-fast`, `compact` e `github` |
@@ -233,11 +233,209 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | JS dev: subir de um checkout limpo sem `build_runner`; edição de template | concluído em 31/10 (29,6 × 212,5 s; template 3,3 × 7,6 s) |
 | JS produção: `jsonEncode` no máximo igual ao `dart2js -O4` (`async_await` e o gzip dos programas pequenos resolvidos em 01/11) | pausado em 01/11: perfil do `jsonEncode` sem ponto concentrado (1,0–1,2×); falta provar no mundo fechado que `withIndent` não é alcançado |
 | `pub` (PubGrub, `add`/`remove`/`upgrade`/`outdated`/`deps`) e `test` (relator `expanded`) | concluído em 31/10 (seção abaixo) |
-| Backend nativo (AOT e wasm): as 31 falhas restantes da suíte `tests/language` (de 88) | agente backend nativo (quarta rodada concluída em 01/11) |
-| Régua da suíte `tests/language`: Dart oficial medido em 01/11 no notebook Windows (i3-1215U, SDK 3.6.2, `upstream_suite.py` em `/Volumes/ssd_dock/tmp/language-suite`, resultados `vm-win*.json` e `aot-win-flags.json`). **JIT sem opções**: igual ao `vm.json` do Mac em 2857/2863 (os 6 diferem só em caminhos de pilha e *hashes*). **JIT com os `--enable-experiment` de cada teste**: **2821/2863 (98,5%)** saem com 0; 40 recusados viram aprovados; sobram 42 (8 `macros`, 5 `test_runner` feitos para falhar, avulsos). **AOT** (`dart compile exe`, mesmas opções): **2822/2863 (98,6%)**; difere do JIT oficial em 32, dos quais 22 são recusados pelos dois, 6 só caminho/*hash*/tempo e **4 diferenças reais** (2 de pilha em `stack_trace/`, 2 de `static_weak_reference`, que só o AOT implementa). Achado: o `package_config` da suíte não tem `meta` nem `collection`, e 4 programas são recusados por isso em todas as ferramentas. Falta: o modo `dartaot` dentro do `scripts/run-language-suite.py`, um modo para o nosso JIT e comparar nosso AOT/JIT com o oficial com as mesmas opções (depende da leitura de `SharedOptions` em andamento no agente do backend nativo) | medição do oficial feita em 01/11; integração ao script e comparação pendentes |
+| Backend nativo (AOT e wasm): as 17 falhas reais restantes da suíte `tests/language` (de 88; mais os 23 de experimento) | agente backend nativo (quinta rodada concluída em 02/11, com a medição nova e os caminhos do Windows) |
+| Régua da suíte `tests/language`: Dart oficial medido em 01/11 no notebook Windows (i3-1215U, SDK 3.6.2, `upstream_suite.py` em `/Volumes/ssd_dock/tmp/language-suite`, resultados `vm-win*.json` e `aot-win-flags.json`). **JIT sem opções**: igual ao `vm.json` do Mac em 2857/2863 (os 6 diferem só em caminhos de pilha e *hashes*). **JIT com os `--enable-experiment` de cada teste**: **2821/2863 (98,5%)** saem com 0; 40 recusados viram aprovados; sobram 42 (8 `macros`, 5 `test_runner` feitos para falhar, avulsos). **AOT** (`dart compile exe`, mesmas opções): **2822/2863 (98,6%)**; difere do JIT oficial em 32, dos quais 22 são recusados pelos dois, 6 só caminho/*hash*/tempo e **4 diferenças reais** (2 de pilha em `stack_trace/`, 2 de `static_weak_reference`, que só o AOT implementa). Achado: o `package_config` da suíte não tem `meta` nem `collection`, e 4 programas são recusados por isso em todas as ferramentas. Falta: o modo `dartaot` dentro do `scripts/run-language-suite.py`, um modo para o nosso JIT e comparar nosso AOT/JIT com o oficial com as mesmas opções (depende da leitura de `SharedOptions` em andamento no agente do backend nativo) | medição do oficial feita em 01/11; modo `dartaot` e leitura de `SharedOptions` integrados ao script em 02/11 (quinta rodada do agente backend nativo); falta o modo do nosso JIT |
 | AOT nativo: tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`) e tamanho (1,37×); próximo: mapa de campo, `$c`/`$g`/`$tc`, `$async` | em rodízio: agentes de desempenho um por vez desde 01/11 (ordem LSP → ARC → AOT); seção de 31/10 abaixo |
 | ARC real: 2,5× os ciclos do tracing no HTTP `dart:io` e 1,7× no cru (eram 3× e 2,2×); próximos passos na seção de 01/11 | em rodízio: agentes de desempenho um por vez (fila: LSP prioridade → AOT → ARC) |
 | LSP: *outline* incremental (passos 1–3 feitos em 01/11: prefixo congelado; falta o passo 4, as bibliotecas do pacote que não dependem da editada), corpos dos dependentes, índice de referências resolvidas (passo 5), memória do residente e da busca | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
+
+## 02/11/2026 (madrugada): backend nativo — quinta rodada; medição da suíte com experimentos, pacotes e "recusados pelos dois"
+
+### Medição da suíte `tests/language` (scripts/run-language-suite.py)
+
+Correções na medição, pedidas pelo proprietário, antes dos itens da rodada:
+
+- **"Recusado pelos dois" também no JS** (`forge`): um programa que a VM recusa (254) e o DartForge
+  também (-1000) conta à parte, como já faziam `native` e `wasm`. O resumo de toda ferramenta
+  imprime separados: iguais à VM, só iguais ao dart2wasm (`wasm`), recusados pelos dois e falhas.
+  `compare --forge|--native|--wasm|--dartaot` lista regressões, correções (quantas viraram iguais e
+  quantas viraram recusadas pelos dois) e os movimentos entre igual e recusado, nos dois sentidos.
+- **Experimentos**: as linhas `// SharedOptions=` e `// VMOptions=` de cada teste pedem
+  `--enable-experiment=a,b`; a VM, o DDC, o dart2wasm, o `dart compile exe` e o DartForge recebem os
+  experimentos. O DartForge recebe também `--language-version=3.6`: um experimento só vale numa
+  biblioteca cuja versão padrão é a atual da ferramenta, e o pacote da suíte está em 3.6, a versão
+  atual da VM 3.6.2 (a nossa é 3.13). Um experimento que o DartForge não conhece é recusado na linha
+  de comando com o nome dele (`--enable-experiment: unknown experiment 'variance'`) e aparece como
+  falha de compilação — uma lacuna visível, não um "recusado pelos dois". Um experimento já lançado
+  até a 3.6 (`digit-separators`, `records`, `patterns`…, `Feature::RELEASED_AT_FLOOR`) é aceito e
+  não muda nada, como nas ferramentas 3.6.2. Conferido contra a medição do Dart oficial no Windows
+  (`vm-win-flags.json`, mesmo `list.txt`): códigos de saída idênticos nos 2863 programas, exceto os 4
+  dos pacotes abaixo (o Windows ainda não os tinha) e `closure/cycles_test` (tempo esgotado lá); a
+  saída difere só em 2 (`hashCode` e caminhos). O modo novo `dartaot` (`dart compile exe` com os
+  experimentos, depois o executável) dá os mesmos códigos que `aot-win-flags.json` nos 62 programas
+  com experimento ou pacote, de novo exceto os 4 dos pacotes.
+- **Pacotes `meta` e `collection`**: o `package_config.json` da suíte não os tinha, e quatro
+  programas eram recusados por todas as ferramentas, a VM inclusive (`regress/regress14348`, por
+  `collection`; os três `type_promotion/closure_runtime*`, por `meta`). O `setup` agora extrai
+  `pkg/meta` da tag (`git archive`) e copia `collection` de `third_party/pkg/collection` (o lugar da
+  dependência do DEPS na 3.6.2 depois do `gclient sync`) ou de `third_party/pkg/core/pkgs/collection`;
+  `--meta DIR`/`--collection DIR` copiam de um diretório e `--packages-only` só acrescenta os dois
+  pacotes, sem extrair a suíte de novo. A versão de linguagem de cada pacote é o limite inferior do
+  `sdk:` do pubspec, como o pub escreve. Nesta máquina vieram do checkout em
+  `/Volumes/ssd_dock/dart-sdk-src/sdk` (`pkg/meta` 1.18.3 e `core/pkgs/collection` 1.20.0-wip, mais
+  novos que os da 3.6.2: os quatro testes só usam `meta.virtual`, que nem existe mais, num `show`, e
+  `collection/equality.dart`). Os quatro passam a rodar na VM e são iguais à VM no JS, no nativo e no
+  wasm.
+- **Referências novas, sem sobrescrever as da v19**: `vm-r5.json` (a `vm.json` da v19 com os 62
+  programas de experimento e de pacote rodados de novo) e `dart2wasm-r5.json`; `--ref`/`--alt`
+  escolhem a referência (padrão `vm.json`/`dart2wasm.json`, que continuam as da v19). Resultados
+  novos: `jsdev-r5c`, `f17` (nativo), `f17-wasm`.
+
+Regras de contagem, para toda ferramenta que não é a VM (estão também na docstring do script):
+**igual** = mesmo código de saída e mesma saída padrão que a referência da VM; **só igual ao
+dart2wasm** (só no `wasm`) = igual ao dart2wasm onde a plataforma web o faz diferir da VM;
+**recusado pelos dois** = a VM recusa compilar (254) e a ferramenta também (-1000), um programa com
+erro estático que o filtro não tirou — não é falha; **falha** = todo o resto, inclusive um programa
+que a VM recusa e nós aceitamos, e um experimento que não conhecemos.
+
+**Totais novos** (referência `vm-r5`; nativo e wasm em projeção: a medição completa de 31/10 com
+as rodadas por cima, a última em 860 programas — as falhas, todas as áreas tocadas e
+`exception/`, `stack_trace/`, `async*/`, `sync_star/`, coleções):
+
+| | iguais à VM | só dart2wasm | recusados pelos dois | falhas reais |
+|---|---:|---:|---:|---:|
+| JS dev (`forge`), v19 com as regras antigas de contagem | 2 756 | — | (dentro das falhas) | 107 |
+| JS dev, v19 com as regras novas e a referência antiga | 2 756 | — | 47 | 60 |
+| **JS dev agora** (`jsdev-r5c`) | **2 780** | — | **13** | **70** |
+| nativo, fim da quarta rodada (referência antiga) | 2 778 | — | 54 | 31 |
+| **nativo agora** (`f17`) | **2 810** | — | **13** | **40** |
+| wasm, fim da quarta rodada (referência antiga) | 2 778 | 4 | 54 | 27 |
+| **wasm agora** (`f17-wasm`) | **2 810** | **5** | **13** | **35** |
+
+O delta, por causa:
+
+- **os 58 programas com experimento** (`variance` 22, `wildcard-variables` 20, `macros` 10,
+  `inference-using-bounds` 3, `null-aware-elements` 2, `digit-separators` 1): com a referência
+  antiga a VM recusava 46 deles (254) por falta do experimento, e nós também — eram "recusados
+  pelos dois" que não testavam nada; 6 eram falhas (a VM recusava e nós aceitávamos, os
+  *wildcards*). Agora, no nativo: **26 iguais** (os 20 de *wildcard*, os 3 de
+  *inference-using-bounds*, os 2 de *null-aware-elements*, `digit-separators`), **9 recusados
+  pelos dois** (os 8 de `macros` e `test_runner/imported_augmentation_library_failure`: a própria
+  VM recusa) e **23 falhas**: os 22 de `variance` (experimento que não implementamos, recusado com o
+  nome dele) e `augmentation_libraries/class_augmentation` (o CFE 3.6.2 quebra com 252). No JS, os
+  mesmos 26/9/23;
+- **os 4 programas dos pacotes** `meta`/`collection`: de recusados pelos dois para **iguais**, no JS,
+  no nativo e no wasm;
+- **correções desta rodada** no nativo: 8 programas de falha para igual
+  (`closure/identity_equality_tearoff`, `extension_methods/static_extension_inference`,
+  `extension_type/regress_53607`, `inference_update_2` ×2, `mixin/super_2`,
+  `mixin_legacy/super_2`, `void/void_check`), além dos de experimento que dependiam delas
+  (*wildcards*, *null-aware*, *rethrow*); nenhuma regressão nos 860. No wasm, os mesmos 8, também sem regressão;
+  dos 58 de experimento, 27 iguais (`augmentation_libraries/class_augmentation` conta como igual ao dart2wasm, que
+  também o recusa), 9 recusados
+  pelos dois e 22 falhas.
+- **o que sobra de falha real fora dos experimentos**: nativo **17** (eram 31): 9 de pilha
+  simbólica (o AOT sai com `--stack-trace none`: os 6 `stack_trace/*`, `regress21795`,
+  `private/mixin_exception_throw` e `private/private3`, que imprimem a pilha), 2 de *hash*
+  (`savannah`, `non_interface_object_pattern`), 5 em que a VM recusa ou falha e nós rodamos
+  (`deferred/super_dependency` e `value_class` ×2 com 254, `least_upper_bound_greatest_closure_2`
+  com 252, `string/interpolation_and_buffer` com 255) e 1 real, `typedef/aliased_constructor_tear_off`.
+  Wasm **13**: os mesmos, menos 4 de `stack_trace/*` que no wasm já saem como a VM. JS **47**, as mesmas de antes (divergências da web e os dois `super_2` do *mixin* aplicado duas
+  vezes).
+
+### Windows: caminhos `\\?\` no `pub` e no `test` (os 4 testes que falhavam em `b5145d31`)
+
+`cargo test --release --workspace` no Windows 11 x64 dava 3126 passados e 4 falhas. Causa comum de
+três delas: `std::fs::canonicalize` devolve no Windows caminhos *verbatim* (`\\?\E:\…`), e com eles o
+`pubspec.yaml` de um membro de *workspace* não era achado, o caminho relativo mostrado ao usuário saía
+`../../../../../../\\?\E:/\/Temp/…` e o `git clone --mirror` recusava o destino. Correção na raiz:
+uma função só, `dartforge_elements::config::canonicalize`, que tira o prefixo quando a forma comum
+nomeia o mesmo arquivo (a regra do `dunce`: `\\?\C:\x` vira `C:\x`, `\\?\UNC\srv\share` vira
+`\\srv\share`; fica *verbatim* acima de `MAX_PATH`, com nome reservado como `NUL`/`COM1`, componente
+terminado em ponto ou espaço, ou com `/`). Todos os `canonicalize` do `crates/cli` (`pub`, `test`,
+`pack`, `jit`) e do `crates/elements` (`config`, `load`, `frozen`, `distribution`,
+`sdk_discovery`) passam por ela; o `without_verbatim` antigo, que tirava o prefixo de qualquer
+caminho, agora segue a mesma regra. O `relative_path` da saída do `pub`, com raízes diferentes (dois
+discos), devolve o caminho inteiro, como o `p.relative`.
+
+- `workspaces_resolve_together_and_respect_pub_rules`: além do prefixo, o teste esperava `pkgs/*`;
+  o `dart pub get` 3.6.2 no Windows (medido na máquina) diz `in "E:\Temp\dfglob\pkgs\*"`, com o
+  separador da plataforma, e o teste agora espera o caminho normalizado da plataforma;
+- `relative_local_git_repositories_resolve_like_pub`: o destino do `git clone` sai sem `\\?\`;
+- `archives_keep_inner_links_and_skip_escaping_ones`: o Pub 3.6.2 extrai um *symlink* (e um
+  *hard link*, que vira *symlink*) com `Link(path).createSync(relativo)`, que no Windows é
+  `CreateSymbolicLinkW` com o alvo relativo (de diretório quando o alvo já é um diretório). O
+  `unpack` faz o mesmo (`symlink_dir`/`symlink_file`, que pedem o modo sem privilégio) em vez de
+  recusar; sem o privilégio (sem o Modo de Desenvolvedor e sem elevação) a extração falha, como no
+  Pub, e o teste verifica a falha nesse caso em vez de ser desligado;
+- `frozen::tests::a_load_onto_the_frozen_prefix_is_a_full_load` (`crates/elements`; falhou na
+  máquina Windows antes desta correção, provavelmente a quarta da lista): o teste canonicalizava a raiz com o prefixo e comparava com caminhos sem ele; agora usa a mesma
+  função.
+
+Verificado na máquina Windows (`ssh dfwin-isaque`, cópia em `E:\Temp`, removida depois; nada no
+checkout): `cargo test --release -j 4 -p dartforge-cli -p dartforge-elements` sem falhas, os 12
+testes de `pub_get` incluídos (o Modo de Desenvolvedor está ligado lá, então o caminho com *symlink*
+foi o exercitado). Os `canonicalize` de outros crates (`runtime`, `lsp`, `build`, `parity`,
+`emit_native`, `sass`) não foram mexidos.
+
+### Correções do backend nesta rodada
+
+Na ordem pedida:
+
+1. ***Mixin* aplicado duas vezes** (`mixin/super_2`, `mixin_legacy/super_2`,
+   `closure/identity_equality_tearoff`): uma cópia por aplicação dos membros que usam `super`, com
+   entradas, tabelas e desvirtualização por cópia; desenho em `docs/NATIVO.md` §6. O *layout* não
+   mudou (os campos de um *mixin* aplicado duas vezes continuam com uma posição só).
+2. **`void` que devolve valor** (`void/void_check`): um `void` de corpo em bloco com `return e`, ou
+   cuja sobrescrita devolve valor, devolve `Ref`; desenho e a prova de que vale no wasm e no JS em
+   `docs/NATIVO.md` §7 (famílias de sobrescrita mistas, nas duas direções, conferidas contra a VM no
+   nativo, no wasm e no JS).
+3. **Inferência de literal de mapa sem tipo**: a causa era o inicializador de um campo/variável de
+   topo sem tipo ser inferido uma vez só, sem contexto. O CFE infere de novo o inicializador com o
+   tipo inferido como contexto; agora nós também (`infer_untyped_variable_type`), e
+   `final t = {0: {60: [1]}, 1: {}}` dá `t[0]` como `Map<dynamic, dynamic>` como na VM, no nativo
+   e no JS (dev e produção).
+4. Avulsos, os mais relevantes para produção primeiro:
+   - **`rethrow` perdia a pilha original** (nativo e wasm): um `rethrow` lança de novo com a pilha da
+     exceção capturada (§17.11) também sem a variável `s` do `catch` (ou com um `_`); antes saía com
+     uma pilha nova. Medido contra a VM com `Error.throwWithStackTrace` e `catch (e)`, `on T {}`,
+     `catch (a, b)`;
+   - **entrada de mapa *null-aware*** (`{?k: v}`, `{k: ?v}`, 3.8) no nativo e no wasm: era recusada
+     como construção não suportada;
+   - **`_` com *wildcard variables*** (3.7, padrão do código novo): o parâmetro de tipo `_` não
+     liga nome no corpo, na assinatura nem no supertipo (`class B<_> extends A<_>` usa o `typedef _`
+     da biblioteca); um parâmetro `_` comum não é local, e `this._`/`super._` são lidos pela posição
+     (`C.withPositional(this._, _)` e `M(this._, super._, super._)`);
+   - **recusa de `_` repetido abaixo da 3.7**: numa biblioteca sem *wildcard variables* (versão < 3.7
+     e sem o experimento), dois parâmetros, variáveis de `catch`, locais ou parâmetros de tipo `_`
+     no mesmo escopo, campo de registro `_` e membro `_` em conflito com parâmetro de tipo `_` são
+     erros, como no CFE (`dartforge_analysis::wildcards`, chamado pelo `emit_native` e pelo
+     `emit_js`): antes o JS e partes do nativo aceitavam;
+   - ***inference-using-bounds*** com dependência da direita para a esquerda
+     (`class A<Y, X extends Iterable<Y>>`, `A(<num>[])` é `A<dynamic, List<num>>`): os parâmetros
+     são escolhidos em ordem, e a restrição que o limite de `X` põe sobre o `Y` já escolhido é
+     descartada, como no `_chooseTypes` do analisador;
+   - **inferência de argumentos de tipo de extensão** por menor limite superior, registrada por
+     acesso (`static_extension_inference`), o *factory* redirecionado de tipo de extensão para o
+     construtor primário (`regress_53607`), *stubs* que lançam para privados inacessíveis no lugar
+     de *forwarders* de `noSuchMethod` (`inference_update_2` ×2).
+
+### Validação
+
+- suíte: JS dev completa (2 863, `jsdev-r5c`); nativo e wasm em 860 programas (`f17`, `f17-wasm`:
+  as falhas, os 58 de experimento, os 4 dos pacotes e todas as áreas tocadas), com a projeção acima;
+  nenhuma regressão;
+- harness nativo no binário final: dev, `--optimize`, `--optimize --gc-stress` e `--wasm`
+  **164/164** cada (`--jobs 3`; no wasm, 40 iguais ao dart2wasm);
+- `cargo test --release` de `analysis`, `types`, `elements`, `frontend`, `emit-js`, `emit-native`,
+  `runtime`, `world` e `cli` sem falhas no macOS; `cli` e `elements` também no Windows; o teste do
+  inventário com `embedded-llvm` passa; clippy `-D warnings` e `rustfmt` limpos;
+- diferencial do JS (desenvolvimento e produção) no `corpus/js` inteiro: **277/277** e **277/277**
+  (a inferência mudou em `crates/types`);
+- `native_sdk` não mudou nesta rodada: o manifesto do SDK selecionado não precisou ser regenerado.
+
+### Ficou, com o motivo
+
+- pilhas simbólicas e *hashes* (o AOT sai com `--stack-trace none`): os 9 de pilha e os 2 de *hash*
+  da lista acima;
+- o experimento `variance` (22 programas, recusados com o nome do experimento), os 8 de `macros` e
+  `augmentation_libraries/class_augmentation` (o próprio CFE 3.6.2 quebra com 252);
+- os 5 que a VM recusa (ou em que falha) e nós rodamos;
+- os campos de um *mixin* aplicado duas vezes (uma posição por aplicação no objeto): o desenho do
+  §6 não muda o *layout*;
+- `typedef/aliased_constructor_tear_off` (não tentado);
+- no JS, o *mixin* aplicado duas vezes (`mixin/super_2`, `mixin_legacy/super_2`) continua entre as
+  47 falhas: a cópia por aplicação foi feita só no backend nativo.
 
 ## 01/11/2026 (noite): backend nativo — quarta rodada: inventário do SDK selecionado e mais 4 da suíte
 

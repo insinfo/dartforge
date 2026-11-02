@@ -89,6 +89,131 @@ fn push_mixin(ctx: &Context, m: ClassId, exit: &mut Vec<ClassId>) {
     }
 }
 
+/// The linearization of `cid` with every mixin application, a mixin applied
+/// twice included twice (`class E extends D with B` where `D extends R with
+/// B`: `E`, `B`, `D`, `B`, `R`). [`linearization`] keeps the first occurrence
+/// only, which is enough for member lookup and for the layout; `super` inside
+/// a mixin needs the application it runs in (`mixin_application`).
+pub fn full_linearization(ctx: &Context, cid: ClassId) -> Vec<ClassId> {
+    fn push_all(ctx: &Context, m: ClassId, exit: &mut Vec<ClassId>, depth: usize) {
+        let class_ref = &ctx.program.classes[m.0 as usize];
+        if depth > 64 || !ctx.compiled_library(class_ref.library) {
+            return;
+        }
+        exit.push(m);
+        for &inner in class_ref.mixin_classes.iter().rev() {
+            push_all(ctx, inner, exit, depth + 1);
+        }
+    }
+    let mut exit = Vec::new();
+    let mut classes = Vec::new();
+    let mut current = Some(cid);
+    while let Some(c) = current {
+        let class_ref = &ctx.program.classes[c.0 as usize];
+        if !ctx.compiled_library(class_ref.library) || classes.contains(&c) {
+            break;
+        }
+        classes.push(c);
+        exit.push(c);
+        for &m in class_ref.mixin_classes.iter().rev() {
+            push_all(ctx, m, &mut exit, 0);
+        }
+        current = class_ref.supertype_class;
+    }
+    exit
+}
+
+/// The application of the mixin at position `pos` of a [`full_linearization`],
+/// counted from the base of the chain (1: the application closest to `Object`).
+/// It is the same in every subclass, whose chain only grows at the leaf.
+pub fn application_at(lin: &[ClassId], pos: usize) -> usize {
+    1 + lin[pos + 1..].iter().filter(|&&c| c == lin[pos]).count()
+}
+
+/// The position in `lin` of the `application`-th application of `mixin`
+/// (counted from the base).
+pub fn position_of_application(
+    lin: &[ClassId],
+    mixin: ClassId,
+    application: usize,
+) -> Option<usize> {
+    (0..lin.len()).find(|&p| lin[p] == mixin && application_at(lin, p) == application)
+}
+
+/// The mixins applied more than once in the chain of some concrete class of
+/// the program, with the largest number of applications.
+pub fn repeated_mixins<'a>(ctx: &'a Context<'_>) -> &'a std::collections::HashMap<ClassId, usize> {
+    ctx.repeated_mixins.get_or_init(|| {
+        let mut out: std::collections::HashMap<ClassId, usize> = Default::default();
+        for (i, class) in ctx.program.classes.iter().enumerate() {
+            let cid = ClassId(i as u32);
+            if !ctx.compiled_library(class.library)
+                || class.modifiers.abstract_
+                || is_mixin(ctx, cid)
+            {
+                continue;
+            }
+            let lin = full_linearization(ctx, cid);
+            for (p, &c) in lin.iter().enumerate() {
+                if fields_positioned_by_application(ctx, c) {
+                    let n = application_at(&lin, p);
+                    if n > 1 {
+                        let e = out.entry(c).or_insert(1);
+                        *e = (*e).max(n);
+                    }
+                }
+            }
+        }
+        out
+    })
+}
+
+/// How many copies of the mixin member `fid` the program needs: one per
+/// application when its mixin is applied more than once in some chain and its
+/// body uses `super` (the target depends on the application); 1 otherwise.
+/// Copy `j` is the body of the `j`-th application counted from the base
+/// ([`application_symbol`]).
+pub fn applications_of(ctx: &Context, fid: usize) -> usize {
+    let f = &ctx.program.functions[fid];
+    let Some(c) = f.class else { return 1 };
+    if f.static_ || f.variable.is_some() {
+        return 1;
+    }
+    let Some(&n) = repeated_mixins(ctx).get(&c) else {
+        return 1;
+    };
+    let FunctionRef::Function { unit, function } = f.node else {
+        return 1;
+    };
+    let span = ctx.program.unit(unit).ast.function(function).span;
+    let source = &ctx.program.unit(unit).source;
+    let uses_super = source
+        .get(span.start..span.end)
+        .is_some_and(|text| text.contains("super"));
+    if uses_super { n } else { 1 }
+}
+
+/// The symbol of copy `application` of `fid` (`symbol_of` for the first).
+pub fn application_symbol(ctx: &Context, fid: usize, application: usize) -> String {
+    let base = super::symbol_of(ctx, fid);
+    if application <= 1 {
+        base
+    } else {
+        format!("{base}$app{application}")
+    }
+}
+
+/// The application of the mixin member `fid` that class `kid` reaches when
+/// it finds `fid` at position `pos` of its [`full_linearization`] `lin`: 1
+/// unless `fid` has copies.
+pub fn application_found(ctx: &Context, fid: usize, lin: &[ClassId], pos: usize) -> usize {
+    if applications_of(ctx, fid) > 1 {
+        application_at(lin, pos)
+    } else {
+        1
+    }
+}
+
 /// **Instance** fields of the whole user linearization (superclasses and mixins),
 /// from the root to the leaf (R7).
 ///
@@ -1646,6 +1771,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.ctx.hir_return(fid)
     }
 
+    /// The symbol a direct call or tear-off of `fid` reaches: the copy chosen
+    /// by `application_of` for a mixin member with copies, else `symbol_of`.
+    pub fn target_symbol(&self, fid: usize) -> String {
+        match self.application_of {
+            Some((f, application)) if f == fid => application_symbol(self.ctx, fid, application),
+            _ => super::symbol_of(self.ctx, fid),
+        }
+    }
+
     /// Direct call to a user function, with `this` when it is a member.
     pub fn call_direct(
         &mut self,
@@ -1685,7 +1819,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.call_external(fid, this.clone(), &args) {
             return r;
         }
-        let symbol = super::symbol_of(self.ctx, fid);
+        let symbol = self.target_symbol(fid);
         let ret_ty = self.return_repr(fid);
         let mut all = Vec::with_capacity(args.len() + 2);
         all.extend(this);
@@ -1751,7 +1885,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 continue;
             }
             let mut found = false;
-            for c in crate::lower::members::linearization(self.ctx, kid) {
+            let lin = full_linearization(self.ctx, kid);
+            for (pos, &c) in lin.iter().enumerate() {
                 let cl = &ctx.program.classes[c.0 as usize];
                 if let Some(&f) = cl.instance_members.get(&name_str) {
                     let f = f.0 as usize;
@@ -1759,6 +1894,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         continue;
                     }
                     if super::user_function(ctx, f) && has_body(ctx, f) {
+                        // A copy of a mixin member is reached through the table.
+                        open |= application_found(ctx, f, &lin, pos) > 1;
                         if let Some(id) = ctx.class_id_of(kid) {
                             exit.push((id, f));
                         }
@@ -2530,7 +2667,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.initialize_fields(cid);
 
         // 2. `this.x` parameters.
-        for p in ctor.parameters.iter() {
+        for (i, p) in ctor.parameters.iter().enumerate() {
             if !p.this_ {
                 continue;
             }
@@ -2539,7 +2676,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.unsupported("this.x parameter without a field", p.span);
                 continue;
             };
-            let v = self.read_local_by_name(n.sym).expect("declared parameter");
+            let v = match self.wildcard_formals.get(&i).cloned() {
+                Some(v) => v,
+                None => self.read_local_by_name(n.sym).expect("declared parameter"),
+            };
             self.store_field(this.clone(), vid, v, p.span);
         }
 
@@ -2579,9 +2719,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // 4. `super(…)`: explicit or implicit, plus the `super.x` ones.
         let (super_name, mut evaluated, span_super) =
             explicit_super.unwrap_or((None, Vec::new(), span_ctor));
-        for p in ctor.parameters.iter().filter(|p| p.super_) {
+        for (i, p) in ctor.parameters.iter().enumerate().filter(|(_, p)| p.super_) {
             let Some(n) = p.name else { continue };
-            let v = self.read_local_by_name(n.sym).expect("declared parameter");
+            let v = match self.wildcard_formals.get(&i).cloned() {
+                Some(v) => v,
+                None => self.read_local_by_name(n.sym).expect("declared parameter"),
+            };
             let name_str = if p.kind == ParameterKind::Named {
                 Some(n.sym)
             } else {

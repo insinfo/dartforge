@@ -183,6 +183,16 @@ pub(crate) fn record_type(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: T
 }
 
 pub(crate) fn resolver(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, r: Resolved) {
+    if let Resolved::ExtensionMember { extension, member } = &r
+        && let Some((x, f, args)) = &inf.last_extension_arguments
+        && x == extension
+        && f == member
+    {
+        let args = args.clone();
+        inf.body_types.units[cx.unit.0 as usize]
+            .extension_arguments
+            .insert(e, args);
+    }
     let table = &mut inf.body_types.units[cx.unit.0 as usize];
     if inf.record_locals
         && let Resolved::Local(id) = &r

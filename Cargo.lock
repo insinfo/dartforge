@@ -581,6 +581,7 @@ dependencies = [
 name = "dartforge-emit-js"
 version = "0.1.0"
 dependencies = [
+ "dartforge-analysis",
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-frontend",
@@ -630,6 +631,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "dartforge-abi",
+ "dartforge-analysis",
  "dartforge-diagnostics",
  "dartforge-elements",
  "dartforge-frontend",

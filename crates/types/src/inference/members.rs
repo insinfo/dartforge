@@ -871,6 +871,9 @@ impl<'a> BodyInferrer<'a> {
         let data = self.outline.extensions[e.0 as usize].clone();
         let map = self.map(&data.type_params, &args);
         let t = self.subst(t, &map);
+        if !args.is_empty() {
+            self.last_extension_arguments = Some((e, f, args.clone().into_boxed_slice()));
+        }
         Some(InterfaceMember {
             resolved: Resolved::ExtensionMember {
                 extension: e,
@@ -951,6 +954,9 @@ impl<'a> BodyInferrer<'a> {
         let data = self.outline.extensions[e.0 as usize].clone();
         let t = if data.type_params.len() == args.len() {
             let map = self.map(&data.type_params, args);
+            if !args.is_empty() {
+                self.last_extension_arguments = Some((e, f, args.to_vec().into_boxed_slice()));
+            }
             self.subst(t, &map)
         } else {
             t

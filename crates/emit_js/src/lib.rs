@@ -851,6 +851,15 @@ pub fn compile_with_options<R>(
             elements_diags.len()
         ));
     }
+    // A repeated `_` in a library without wildcard variables (before 3.7, or
+    // without the experiment) is a duplicate definition, as in the CFE.
+    let wildcards = dartforge_analysis::wildcards::repeated_without_wildcards(&program, &interner);
+    if !wildcards.is_empty() {
+        for d in &wildcards {
+            eprintln!("error: {d}");
+        }
+        return Err(format!("{} error(s) loading the program", wildcards.len()));
+    }
     // Macros (docs/MACROS-PROTOCOLO.md): only if the program declares some
     // `macro` class — without a pending application we do not start an executor.
     // By default the Dart VM runs our API; with `DARTFORGE_MACROS_NATIVE` (a

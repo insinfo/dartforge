@@ -64,7 +64,7 @@ fn runtime_package_config(
                 .parent()
                 .filter(|p| !p.as_os_str().is_empty())
                 .unwrap_or(Path::new("."));
-            let parent = dartforge_elements::config::without_verbatim(parent.canonicalize()?);
+            let parent = dartforge_elements::config::canonicalize(parent)?;
             Ok(parent.join(path.file_name().expect("a file has a basename")))
         })
         .transpose()
@@ -843,17 +843,13 @@ mod argument_tests {
         std::fs::write(&discovered, "{\"configVersion\":2,\"packages\":[]}\n").unwrap();
         assert_eq!(
             runtime_package_config(&input, None).unwrap(),
-            Some(dartforge_elements::config::without_verbatim(
-                discovered.canonicalize().unwrap()
-            ))
+            Some(dartforge_elements::config::canonicalize(&discovered).unwrap())
         );
         let explicit = root.join("explicit.json");
         std::fs::write(&explicit, "{\"configVersion\":2,\"packages\":[]}\n").unwrap();
         assert_eq!(
             runtime_package_config(&input, Some(&explicit)).unwrap(),
-            Some(dartforge_elements::config::without_verbatim(
-                explicit.canonicalize().unwrap()
-            ))
+            Some(dartforge_elements::config::canonicalize(&explicit).unwrap())
         );
         assert!(runtime_package_config(&input, Some(&root.join("missing.json"))).is_err());
         assert!(runtime_package_config(&input, Some(&root)).is_err());
@@ -880,21 +876,21 @@ mod argument_tests {
             .unwrap();
         assert_eq!(
             published,
-            selected
-                .parent()
-                .unwrap()
-                .canonicalize()
+            dartforge_elements::config::canonicalize(selected.parent().unwrap())
                 .unwrap()
                 .join("package_config.json")
         );
-        assert_ne!(published, selected.canonicalize().unwrap());
+        assert_ne!(
+            published,
+            dartforge_elements::config::canonicalize(&selected).unwrap()
+        );
         let packages = dartforge_elements::config::PackageConfig::load(&published).unwrap();
         assert_eq!(
             packages.packages["resource_package"]
                 .package_uri
                 .to_file_path()
                 .unwrap(),
-            root.join("dependency/lib").canonicalize().unwrap()
+            dartforge_elements::config::canonicalize(&root.join("dependency/lib")).unwrap()
         );
         std::fs::remove_dir_all(root).unwrap();
     }

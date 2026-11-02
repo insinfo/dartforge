@@ -25,6 +25,9 @@ enum SuperAccess {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuperMember {
     Function(usize),
+    /// Copy `.1` (≥ 2, counted from the base of the chain) of the mixin member
+    /// `.0` (`members::applications_of`): the member of that application.
+    Application(usize, usize),
     Field(VariableId),
     /// The lookup reached the SDK.
     Sdk,
@@ -56,23 +59,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if super::members::fields_positioned_by_application(self.ctx, cid) {
             return SuperMember::OfMixin;
         }
-        self.search_after(cid, cid, name, key)
+        let lin = super::members::full_linearization(self.ctx, cid);
+        self.search_after(cid, &lin, 0, name, key)
     }
 
-    /// Looks `name` up (`key`: the name or the setter's) in the linearization of
-    /// `class`, after `after`.
+    /// Looks `name` up (`key`: the name or the setter's) in `lin`, the
+    /// [`super::members::full_linearization`] of `class`, after position
+    /// `pos`. A mixin member with a copy per application answers with the
+    /// copy of the application found ([`SuperMember::Application`]).
     fn search_after(
         &self,
         class: dartforge_elements::model::ClassId,
-        after: dartforge_elements::model::ClassId,
+        lin: &[dartforge_elements::model::ClassId],
+        pos: usize,
         name: SymbolId,
         key: Option<SymbolId>,
     ) -> SuperMember {
-        let lin = super::members::linearization(self.ctx, class);
-        let Some(pos) = lin.iter().position(|c| *c == after) else {
-            return SuperMember::Sdk;
-        };
-        for &c in lin.iter().skip(pos + 1) {
+        for (p, &c) in lin.iter().enumerate().skip(pos + 1) {
             let cl = &self.ctx.program.classes[c.0 as usize];
             if let Some(&f) = key.and_then(|k| cl.instance_members.get(&k)) {
                 let f = f.0 as usize;
@@ -80,7 +83,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return SuperMember::Field(v);
                 }
                 if has_body(self.ctx, f) {
-                    return SuperMember::Function(f);
+                    let application = super::members::application_found(self.ctx, f, lin, p);
+                    return if application > 1 {
+                        SuperMember::Application(f, application)
+                    } else {
+                        SuperMember::Function(f)
+                    };
                 }
             }
             if let Some(&v) = cl.fields.iter().find(|&&v| {
@@ -133,10 +141,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let Some(id) = self.ctx.class_id_of(kid) else {
                 continue;
             };
-            if !super::members::linearization(self.ctx, kid).contains(&mixin) {
+            // The application this body is (a copy per application, counted
+            // from the base): its `super` is what follows it in the chain.
+            let lin = super::members::full_linearization(self.ctx, kid);
+            let Some(pos) =
+                super::members::position_of_application(&lin, mixin, self.mixin_application)
+            else {
                 continue;
-            }
-            exit.push((i64::from(id), self.search_after(kid, mixin, name, key)));
+            };
+            exit.push((i64::from(id), self.search_after(kid, &lin, pos, name, key)));
         }
         exit
     }
@@ -160,6 +173,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
         use_site: &mut dyn FnMut(&mut Self, SuperMember, Operand) -> Operand,
     ) -> Operand {
+        // The copy of an application is the member itself for the use site,
+        // with the direct call and the tear-off reaching that copy
+        // (`application_of`, `target_symbol`).
+        let mut use_site = |s: &mut Self, target: SuperMember, this: Operand| match target {
+            SuperMember::Application(f, application) => {
+                let saved = s.application_of.replace((f, application));
+                let r = use_site(s, SuperMember::Function(f), this);
+                s.application_of = saved;
+                r
+            }
+            target => use_site(s, target, this),
+        };
         let target = self.super_member(name, setter);
         if target != SuperMember::OfMixin {
             return use_site(self, target, this);
@@ -253,7 +278,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let x = s.read_field_with_late_direct(this, v, span);
                     s.call_function_value(x, evaluated)
                 }
-                SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
+                SuperMember::OfMixin | SuperMember::Application(..) => {
+                    s.unsupported("`super` inside a mixin", span)
+                }
                 SuperMember::Enum(c) if s.ctx.symbol_name(name) == "toString" => {
                     s.enum_value_text(c, this)
                 }
@@ -293,7 +320,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
                 SuperMember::Field(v) => s.read_field_with_late_direct(this, v, span),
-                SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
+                SuperMember::OfMixin | SuperMember::Application(..) => {
+                    s.unsupported("`super` inside a mixin", span)
+                }
                 SuperMember::Enum(c) if s.ctx.symbol_name(name) == "index" => {
                     let this = s.coerce(this, Type::Ref);
                     s.enum_member(c, "index", this).expect("enum")
@@ -326,7 +355,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     s.store_field(this, v, v2.clone(), span);
                     v2.clone()
                 }
-                SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
+                SuperMember::OfMixin | SuperMember::Application(..) => {
+                    s.unsupported("`super` inside a mixin", span)
+                }
                 SuperMember::Sdk | SuperMember::Enum(_) => {
                     s.super_beyond_program(
                         this,

@@ -52,6 +52,7 @@ pub mod publication;
 pub mod records;
 pub mod simple_bounds;
 pub mod todos;
+pub mod wildcards;
 
 use dartforge_frontend::ast::{Ast, CompilationUnit};
 

@@ -10,14 +10,58 @@ markers, `// [analyzer]`, `// [cfe]` or `// [web]` annotations), outside
 `dart:html`, `dart:js` or private `dart:_` library.
 
 usage:
-  run-language-suite.py setup --checkout DIR [--tag 3.6.2]
-  run-language-suite.py vm|ddc|dart2wasm|forge|wasm|native [--jobs N] [--out NAME] [filter...]
-  run-language-suite.py compare [--wasm] OLD NEW   (regressions and fixes, by result name;
-                                    --wasm also accepts dart2wasm's results)
+  run-language-suite.py setup --checkout DIR [--tag 3.6.2] [--meta DIR] [--collection DIR]
+  run-language-suite.py setup --packages-only [--checkout DIR] [--tag 3.6.2] [--meta DIR] [--collection DIR]
+  run-language-suite.py vm|dartaot|ddc|dart2wasm|forge|wasm|native [--jobs N] [--out NAME]
+        [--list FILE] [--ref NAME] [--alt NAME] [filter...]
+  run-language-suite.py compare [--forge|--native|--wasm|--dartaot] [--ref NAME] [--alt NAME] OLD NEW
+        (by result name: regressions, fixes and the moves between "equal" and
+         "rejected by both"; --wasm also accepts dart2wasm's results)
 
 A tool's results go to <work>/results/<name>.json as {test: {code, out, err}};
-the other tools compare against vm.json and write <name>.fail.txt. With
-filters only the matching programs run and the results merge into the file.
+the other tools compare against the VM's reference (`--ref`, default
+`vm.json`; `--alt`, dart2wasm's for `wasm`, default `dart2wasm.json`) and
+write <name>.fail.txt. With filters or `--list` only those programs run and
+the results merge into an existing <name>.json.
+
+Packages: the suite's `.dart_tool/package_config.json` has `expect`,
+`async_helper` and `tests`, and also `meta` (`pkg/meta`: the three
+`type_promotion/closure_runtime*` tests) and `collection`
+(`regress/regress14348`). At the tag, `pkg/meta` is in the checkout's git
+tree (`git archive`); `collection` is a DEPS dependency outside it,
+`third_party/pkg/collection` after `gclient sync` (or
+`third_party/pkg/core/pkgs/collection` in later checkouts). `--meta DIR` and
+`--collection DIR` copy a package from a directory instead;
+`--packages-only` adds the two packages and rewrites the package config
+without extracting the suite again. A package's language version is the lower
+bound of its pubspec's `sdk:` constraint, as pub writes it.
+
+`dartaot` is the official AOT compiler: `dart compile exe` (with the test's
+experiments), then the executable; a reference measurement, counted against
+the VM like the DartForge tools.
+
+Experiments: a test's `// SharedOptions=` and `// VMOptions=` lines may ask
+for `--enable-experiment=a,b` (`variance`, `wildcard-variables`, `macros`…).
+Every tool gets them: the VM (`dart --enable-experiment=…`), DDC, dart2wasm and
+DartForge (`--language-version=3.6 --enable-experiment=…`, the per-program
+language flags of `compile-js`, `compile-wasm` and `aot`: an experiment only
+applies to a library at the tool's current version, and the suite's package
+is at 3.6, the 3.6.2 VM's current version). An experiment DartForge does not
+know is refused at the command line with a diagnostic that names it, so it
+shows as a compile failure (a real, visible gap). Other VM options
+(optimization thresholds, `-D` defines) are not passed.
+
+Counting, for every tool other than `vm`, each program is exactly one of:
+  - equal: same exit code and same stdout as the VM (`vm.json`);
+  - only dart2wasm (`wasm` only): equal to dart2wasm where the web platform
+    makes it differ from the VM (cast messages read as the VM's, or the VM's
+    output up to an uncaught error with dart2wasm's message);
+  - rejected by both: the VM refuses to compile it (exit 254) and DartForge
+    refuses it too (compile failure, -1000) — a program with a static error
+    the runner did not filter out; it is not a failure;
+  - failure: anything else (`<name>.fail.txt`), including a program the VM
+    refuses and DartForge accepts.
+The summary prints the four numbers separately.
 
 `native` compiles with `dartforge aot --optimize` (as `dart compile exe`: asserts
 off, like the VM run) and runs the executable; a program the VM refuses (254)
@@ -39,7 +83,7 @@ target/language-suite), DART_SDK (default: `dart` on PATH), NODE (default:
 `node` on PATH), FORGE (default target/release/dartforge), WASM_RUN (default
 dartforge-wasm-run next to FORGE).
 """
-import json, os, subprocess, sys, hashlib, shutil, tarfile, io, concurrent.futures as cf
+import json, os, re, subprocess, sys, hashlib, shutil, tarfile, io, concurrent.futures as cf
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.environ.get("DARTFORGE_LANG_WORK", os.path.join(ROOT, "target", "language-suite"))
@@ -63,12 +107,41 @@ RES = os.path.join(HERE, "results")
 TIMEOUT = 30
 EXCLUDED_IMPORTS = ("dart:io", "dart:isolate", "dart:mirrors", "dart:ffi", "dart:_", "dart:html", "dart:js")
 STATIC_ERROR_MARKERS = ("//#", "// [analyzer", "// [cfe", "// [web]")
-PACKAGE_CONFIG = """{"configVersion":2,"packages":[
-{"name":"expect","rootUri":"../pkg/expect","packageUri":"lib/","languageVersion":"3.0"},
-{"name":"async_helper","rootUri":"../pkg/async_helper","packageUri":"lib/","languageVersion":"3.0"},
-{"name":"tests","rootUri":"../tests","packageUri":"lib/","languageVersion":"3.6"}
-]}
-"""
+# The packages of the suite: name, directory under the work SDK, and the
+# language version when the directory has no pubspec to read it from.
+PACKAGES = (
+    ("expect", "pkg/expect", "3.0"),
+    ("async_helper", "pkg/async_helper", "3.0"),
+    ("meta", "pkg/meta", None),
+    ("collection", "third_party/pkg/collection", None),
+    ("tests", "tests", "3.6"),
+)
+
+
+def pubspec_language_version(directory):
+    """The lower bound of the pubspec's `sdk:` constraint as `x.y` (`^3.4.0`,
+    `>=2.12.0 <4.0.0`), or None."""
+    try:
+        text = open(os.path.join(directory, "pubspec.yaml"), encoding="utf-8").read()
+    except OSError:
+        return None
+    m = re.search(r"^\s+sdk:\s*['\"]?(?:\^|>=)\s*(\d+)\.(\d+)", text, re.M)
+    return "%s.%s" % (m.group(1), m.group(2)) if m else None
+
+
+def package_config(sdk):
+    """The package config of the work SDK: every package of PACKAGES whose
+    directory exists (`expect`, `async_helper` and `tests` keep the language
+    versions they always had)."""
+    entries = []
+    for name, rel, version in PACKAGES:
+        directory = os.path.join(sdk, rel)
+        if not os.path.isdir(directory):
+            continue
+        version = version or pubspec_language_version(directory) or "3.0"
+        entries.append('{"name":"%s","rootUri":"../%s","packageUri":"lib/","languageVersion":"%s"}'
+                       % (name, rel, version))
+    return '{"configVersion":2,"packages":[\n' + ",\n".join(entries) + "\n]}\n"
 
 MAIN_MJS = """process.on('uncaughtException', (e) => {{
   console.error('Unhandled exception:\\n' + e);
@@ -77,6 +150,41 @@ MAIN_MJS = """process.on('uncaughtException', (e) => {{
 import {{ {exp} as m }} from './{mod}.js';
 m.main();
 """
+
+
+def experiments(test):
+    """The `--enable-experiment=` names the test asks for in its
+    `// SharedOptions=` and `// VMOptions=` lines, in order."""
+    names = []
+    try:
+        text = open(os.path.join(SDK, test), encoding="utf-8", errors="replace").read()
+    except OSError:
+        return names
+    for line in text.splitlines():
+        line = line.strip()
+        for key in ("// SharedOptions=", "// VMOptions="):
+            if line.startswith(key):
+                for opt in line[len(key):].split():
+                    if opt.startswith("--enable-experiment="):
+                        for n in opt[len("--enable-experiment="):].split(","):
+                            if n and n not in names:
+                                names.append(n)
+    return names
+
+
+def experiment_flags(test):
+    names = experiments(test)
+    return ["--enable-experiment=" + ",".join(names)] if names else []
+
+
+def forge_experiment_flags(test):
+    """DartForge's flags for the test's experiments. An experiment only
+    applies to a library whose default version is the tool's current one, and
+    the suite's package is at 3.6, the current version of the 3.6.2 VM it is
+    compared against: DartForge (current 3.13) gets `--language-version=3.6`
+    with them, so the experiments apply as in the VM."""
+    flags = experiment_flags(test)
+    return ["--language-version=3.6"] + flags if flags else []
 
 
 def run(cmd, cwd, timeout=TIMEOUT):
@@ -104,13 +212,25 @@ def work_dir(tool, test):
 
 
 def vm(test):
-    c, o, e = run([DART, "--packages=" + os.path.join(SDK, ".dart_tool/package_config.json"), test], SDK)
+    c, o, e = run([DART] + experiment_flags(test) + ["--packages=" + os.path.join(SDK, ".dart_tool/package_config.json"), test], SDK)
+    return {"code": c, "out": o, "err": e[-2000:]}
+
+
+def dartaot(test):
+    # The official AOT compiler, as the Windows measurement's runner does it.
+    d = work_dir("dartaot", test)
+    exe = os.path.join(d, "main.exe")
+    c, o, e = run([DART, "compile", "exe"] + experiment_flags(test)
+                  + ["--packages=" + os.path.join(SDK, ".dart_tool/package_config.json"), test, "-o", exe], SDK, 300)
+    if c != 0 or not os.path.exists(exe):
+        return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
+    c, o, e = run([exe], d)
     return {"code": c, "out": o, "err": e[-2000:]}
 
 
 def forge(test):
     d = work_dir("forge", test)
-    c, o, e = run([FORGE, "compile-js", test, "-o", d, "--packages", os.path.join(SDK, ".dart_tool/package_config.json")], SDK, 120)
+    c, o, e = run([FORGE, "compile-js", test, "-o", d, "--packages", os.path.join(SDK, ".dart_tool/package_config.json")] + forge_experiment_flags(test), SDK, 120)
     if c != 0 or not os.path.exists(os.path.join(d, "main.mjs")):
         return {"code": -1000, "out": "", "err": ("[compile] %d " % c + e)[-2000:]}
     c, o, e = run([NODE, "main.mjs"], d)
@@ -120,7 +240,7 @@ def forge(test):
 def wasm(test):
     d = work_dir("wasm", test)
     module = os.path.join(d, "main.wasm")
-    c, o, e = run([FORGE, "compile-wasm", test, "-o", module, "--packages", os.path.join(SDK, ".dart_tool/package_config.json")], SDK, 300)
+    c, o, e = run([FORGE, "compile-wasm", test, "-o", module, "--packages", os.path.join(SDK, ".dart_tool/package_config.json")] + forge_experiment_flags(test), SDK, 300)
     if c != 0 or not os.path.exists(module):
         return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
     if os.path.exists(os.path.join(d, "main.mjs")):
@@ -134,7 +254,7 @@ def native(test):
     # As `dart compile exe`: asserts off, like the VM run of vm.json.
     d = work_dir("native", test)
     exe = os.path.join(d, "main")
-    c, o, e = run([FORGE, "aot", test, exe, "--optimize", "--packages", os.path.join(SDK, ".dart_tool/package_config.json")], SDK, 300)
+    c, o, e = run([FORGE, "aot", test, exe, "--optimize", "--packages", os.path.join(SDK, ".dart_tool/package_config.json")] + forge_experiment_flags(test), SDK, 300)
     if c != 0 or not os.path.exists(exe):
         return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
     c, o, e = run([exe], d)
@@ -144,7 +264,7 @@ def native(test):
 def dart2wasm(test):
     d = work_dir("dart2wasm", test)
     module = os.path.join(d, "main.wasm")
-    c, o, e = run([DART, "compile", "wasm", test, "-o", module], SDK, 300)
+    c, o, e = run([DART, "compile", "wasm"] + experiment_flags(test) + [test, "-o", module], SDK, 300)
     if c != 0:
         return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
     c, o, e = run([NODE, os.path.join(ROOT, "runtime", "wasm", "run_dart2wasm.mjs"), os.path.join(d, "main.mjs"), module], d)
@@ -170,12 +290,12 @@ def fails_like(vm_r, d2w, r):
 
 
 def matches(tool, test, r, ref, alt):
-    """`vm`, `dart2wasm` (only the web reference), `rejected` (`wasm`: a
-    program the VM refuses to compile, 254, that DartForge refuses too), or
-    None."""
+    """`vm`, `dart2wasm` (only the web reference), `rejected` (a program the
+    VM refuses to compile, 254, that the tool refuses too: `forge`, `wasm`,
+    `native` and `dartaot`), or None (a failure)."""
     if test in ref and same(r, ref[test]):
         return "vm"
-    if tool in ("wasm", "native") and test in ref and ref[test]["code"] == 254 and r["code"] == -1000:
+    if tool in ("forge", "wasm", "native", "dartaot") and test in ref and ref[test]["code"] == 254 and r["code"] == -1000:
         return "rejected"
     if tool == "wasm" and test in alt and test in ref:
         a = alt[test]
@@ -190,8 +310,8 @@ def ddc(test):
     js = os.path.join(d, mod + ".js")
     c, o, e = run([DART, os.path.join(DART_SDK, "bin/snapshots/dartdevc.dart.snapshot"),
                    "--modules=es6",
-                   "--packages=" + os.path.join(SDK, ".dart_tool/package_config.json"),
-                   "-o", js, test], SDK, 120)
+                   "--packages=" + os.path.join(SDK, ".dart_tool/package_config.json")]
+                  + experiment_flags(test) + ["-o", js, test], SDK, 120)
     if c != 0:
         return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
     sdkjs = os.path.join(ROOT, "runtime", "ddc", "dart_sdk.js")
@@ -206,14 +326,55 @@ def ddc(test):
     return {"code": c, "out": o, "err": e[-2000:]}
 
 
+def copy_package(source, rel):
+    """`source`'s `lib/` and pubspec into `rel` of the work SDK."""
+    target = os.path.join(SDK, rel)
+    shutil.rmtree(target, ignore_errors=True)
+    shutil.copytree(os.path.join(source, "lib"), os.path.join(target, "lib"))
+    if os.path.exists(os.path.join(source, "pubspec.yaml")):
+        shutil.copy(os.path.join(source, "pubspec.yaml"), target)
+
+
+def install_packages(checkout, tag, meta, collection):
+    """`meta` and `collection` into the work SDK (see Packages above), and the
+    package config."""
+    if meta:
+        copy_package(meta, "pkg/meta")
+    elif checkout:
+        archive = subprocess.run(["git", "-C", checkout, "archive", tag, "pkg/meta"],
+                                 check=True, capture_output=True).stdout
+        shutil.rmtree(os.path.join(SDK, "pkg", "meta"), ignore_errors=True)
+        tarfile.open(fileobj=io.BytesIO(archive)).extractall(SDK)
+    if not collection and checkout:
+        for rel in ("third_party/pkg/collection", "third_party/pkg/core/pkgs/collection"):
+            if os.path.isdir(os.path.join(checkout, rel, "lib")):
+                collection = os.path.join(checkout, rel)
+                break
+    if collection:
+        copy_package(collection, "third_party/pkg/collection")
+    for name, rel in (("meta", "pkg/meta"), ("collection", "third_party/pkg/collection")):
+        if not os.path.isdir(os.path.join(SDK, rel)):
+            print("warning: no `%s` package (%s): the programs that import it are refused" % (name, rel))
+    os.makedirs(os.path.join(SDK, ".dart_tool"), exist_ok=True)
+    open(os.path.join(SDK, ".dart_tool", "package_config.json"), "w").write(package_config(SDK))
+
+
 def setup(args):
-    checkout, tag = None, "3.6.2"
+    checkout, tag, meta, collection, only = None, "3.6.2", None, None, False
     while args:
         a = args.pop(0)
         if a == "--checkout":
             checkout = args.pop(0)
         elif a == "--tag":
             tag = args.pop(0)
+        elif a == "--meta":
+            meta = args.pop(0)
+        elif a == "--collection":
+            collection = args.pop(0)
+        elif a == "--packages-only":
+            only = True
+    if only:
+        return install_packages(checkout, tag, meta, collection)
     if not checkout:
         sys.exit("setup needs --checkout <Dart SDK source checkout>")
     shutil.rmtree(SDK, ignore_errors=True)
@@ -222,8 +383,7 @@ def setup(args):
         ["git", "-C", checkout, "archive", tag, "tests/language", "pkg/expect", "pkg/async_helper"],
         check=True, capture_output=True).stdout
     tarfile.open(fileobj=io.BytesIO(archive)).extractall(SDK)
-    os.makedirs(os.path.join(SDK, ".dart_tool"), exist_ok=True)
-    open(os.path.join(SDK, ".dart_tool", "package_config.json"), "w").write(PACKAGE_CONFIG)
+    install_packages(checkout, tag, meta, collection)
     tests = []
     for d, _, files in os.walk(os.path.join(SDK, "tests", "language")):
         for f in files:
@@ -242,27 +402,65 @@ def setup(args):
     print("%d programs from %s at %s" % (len(tests), checkout, tag))
 
 
-def compare(old, new, tool="forge"):
-    vm = json.load(open(os.path.join(RES, "vm.json")))
+def kind(tool, test, results, ref, alt):
+    """`equal` (the VM, or dart2wasm for `wasm`), `rejected` (by both),
+    `failure`, or None when `results` lacks the program."""
+    if test not in results:
+        return None
+    m = matches(tool, test, results[test], ref, alt)
+    if m is None:
+        return "failure"
+    return "rejected" if m == "rejected" else "equal"
+
+
+def compare(old, new, tool="forge", ref_name="vm", alt_name="dart2wasm"):
+    """Each program present in both result files, by its kind in each: a
+    regression goes from equal or rejected to a failure, a fix the other way;
+    a move between equal and rejected by both (the VM's reference or a
+    refusal changed) is listed apart."""
+    vm = json.load(open(os.path.join(RES, ref_name + ".json")))
     a = json.load(open(os.path.join(RES, old + ".json")))
     b = json.load(open(os.path.join(RES, new + ".json")))
-    alt_path = os.path.join(RES, "dart2wasm.json")
+    alt_path = os.path.join(RES, alt_name + ".json")
     alt = json.load(open(alt_path)) if tool == "wasm" and os.path.exists(alt_path) else {}
-    eq = lambda r, t: t in r and matches(tool, t, r[t], vm, alt) is not None
-    print("regressions:", [t for t in vm if eq(a, t) and not eq(b, t)])
-    print("fixed:", len([t for t in vm if not eq(a, t) and eq(b, t)]))
+    moves = {}
+    for t in vm:
+        ka, kb = kind(tool, t, a, vm, alt), kind(tool, t, b, vm, alt)
+        if ka is None or kb is None or ka == kb:
+            continue
+        moves.setdefault((ka, kb), []).append(t)
+    print("regressions:", sorted(moves.get(("equal", "failure"), []) + moves.get(("rejected", "failure"), [])))
+    print("fixed:", len(moves.get(("failure", "equal"), [])) + len(moves.get(("failure", "rejected"), [])),
+          "(%d now equal, %d now rejected by both)" % (
+              len(moves.get(("failure", "equal"), [])), len(moves.get(("failure", "rejected"), []))))
+    for (ka, kb), ts in sorted(moves.items()):
+        if "failure" not in (ka, kb):
+            print("%s -> %s: %s" % (ka, kb, sorted(ts)))
 
 def main():
     args = sys.argv[1:]
     tool = args.pop(0)
     if tool == "setup":
         return setup(args)
+    ref_name, alt_name = "vm", "dart2wasm"
+    rest = []
+    while args:
+        a = args.pop(0)
+        if a == "--ref":
+            ref_name = args.pop(0)
+        elif a == "--alt":
+            alt_name = args.pop(0)
+        else:
+            rest.append(a)
+    args = rest
     if tool == "compare":
-        if args[0] == "--wasm":
-            return compare(args[1], args[2], "wasm")
-        return compare(args[0], args[1])
+        kind_ = "forge"
+        if args[0] in ("--forge", "--native", "--wasm", "--dartaot"):
+            kind_ = args.pop(0)[2:]
+        return compare(args[0], args[1], kind_, ref_name, alt_name)
     jobs = 8
     lst = os.path.join(HERE, "list.txt")
+    listed = False
     out = tool
     filters = []
     while args:
@@ -271,6 +469,7 @@ def main():
             jobs = int(args.pop(0))
         elif a == "--list":
             lst = args.pop(0)
+            listed = True
         elif a == "--out":
             out = args.pop(0)
         else:
@@ -278,12 +477,13 @@ def main():
     tests = [l.strip() for l in open(lst) if l.strip()]
     if filters:
         tests = [t for t in tests if any(f in t for f in filters)]
-    fn = {"vm": vm, "ddc": ddc, "forge": forge, "wasm": wasm, "native": native, "dart2wasm": dart2wasm}[tool]
+    fn = {"vm": vm, "dartaot": dartaot, "ddc": ddc, "forge": forge, "wasm": wasm, "native": native,
+          "dart2wasm": dart2wasm}[tool]
     os.makedirs(RES, exist_ok=True)
     path = os.path.join(RES, out + ".json")
-    results = json.load(open(path)) if os.path.exists(path) and filters else {}
-    ref = json.load(open(os.path.join(RES, "vm.json"))) if tool != "vm" else {}
-    alt_path = os.path.join(RES, "dart2wasm.json")
+    results = json.load(open(path)) if os.path.exists(path) and (filters or listed) else {}
+    ref = json.load(open(os.path.join(RES, ref_name + ".json"))) if tool != "vm" else {}
+    alt_path = os.path.join(RES, alt_name + ".json")
     alt = json.load(open(alt_path)) if tool == "wasm" and os.path.exists(alt_path) else {}
     with cf.ThreadPoolExecutor(jobs) as ex:
         for t, r in zip(tests, ex.map(fn, tests)):
@@ -295,14 +495,13 @@ def main():
         kinds = {t: matches(tool, t, results[t], ref, alt) for t in tests}
         ok = [t for t in tests if kinds[t]]
         bad = [t for t in tests if t not in ok]
-        print("%s: %d/%d equal to the VM" % (tool, len([t for t in ok if kinds[t] == "vm"]), len(tests)))
-        if tool == "native":
-            print("%s: %d/%d equal to the VM or rejected by both (%d rejected)" % (
-                tool, len(ok), len(tests), len([t for t in ok if kinds[t] == "rejected"])))
+        count = lambda k: len([t for t in ok if kinds[t] == k])
+        print("%s: %d/%d equal to the VM" % (tool, count("vm"), len(tests)))
         if tool == "wasm":
-            print("%s: %d/%d equal to the VM or to dart2wasm (%d only to dart2wasm, %d rejected by both)" % (
-                tool, len(ok), len(tests), len([t for t in ok if kinds[t] == "dart2wasm"]),
-                len([t for t in ok if kinds[t] == "rejected"])))
+            print("%s: %d only equal to dart2wasm" % (tool, count("dart2wasm")))
+        if tool in ("forge", "wasm", "native", "dartaot"):
+            print("%s: %d rejected by both (the VM refuses them too)" % (tool, count("rejected")))
+        print("%s: %d failures" % (tool, len(bad)))
         with open(os.path.join(RES, out + ".fail.txt"), "w") as f:
             for t in bad:
                 f.write(t + "\n")

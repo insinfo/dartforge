@@ -367,3 +367,66 @@ Um global com inicializador distingue três estados (`0` pendente, `2` em
 avaliação, `1` pronto). A leitura reentrante constrói `StackOverflowError`
 do SDK, que é o erro capturável observado na VM, e uma exceção durante a
 avaliação restaura o estado pendente para a próxima leitura.
+
+---
+
+## 6. *Mixin* aplicado mais de uma vez na mesma cadeia
+
+`class D extends R with B` e `class E extends D with B`: a cadeia de `E` é `E`, `B`, `D`, `B`, `R`,
+e cada aplicação de `B` tem a sua superclasse (especificação §12.3). O código de um *mixin* é
+compilado uma vez e o `super` dentro dele resolve pela classe dinâmica (`switch` no id da classe,
+`lower/inheritance.rs`); com duas aplicações a classe dinâmica é a mesma nas duas, então uma só
+cópia não basta.
+
+**Desenho (01/11/2026).**
+
+- **Aplicação contada a partir da base.** `members::full_linearization` lista a cadeia com todas as
+  aplicações (a `linearization` de sempre fica com a primeira ocorrência, para a busca de membros e
+  o *layout*). A aplicação `j` de um *mixin* é contada a partir de `Object`
+  (`members::application_at`): é a mesma em toda subclasse, porque a cadeia só cresce na folha.
+- **Cópias só onde o alvo muda.** Um membro de instância de um *mixin* que alguma classe concreta
+  aplica mais de uma vez e cujo corpo usa `super` (`members::applications_of`) tem uma cópia por
+  aplicação: a 1 é o símbolo de sempre e a `j ≥ 2` é `<símbolo>$app<j>`, cada uma com as suas
+  entradas (`$c`, `$g`, `$tc`…). Dentro da cópia `j`, o `super` resolve depois da `j`-ésima
+  aplicação na cadeia da classe dinâmica. Todo o resto do programa não muda (sem *mixin* repetido,
+  nenhuma cópia).
+- **Quem chama qual cópia.** A tabela de métodos de cada classe aponta para a cópia da aplicação que
+  a cadeia acha primeiro; o `super.m` de uma classe (ou de outra cópia) que chega a um membro
+  copiado chama a cópia daquela aplicação (`SuperMember::Application`); a desvirtualização não
+  escolhe uma cópia `j ≥ 2` (`Implementation::Application` só entra no `switch` por classe com a
+  cópia certa; nos outros casos a chamada vai pelo seletor).
+- **Identidade do *tear-off*.** O *tear-off* de um membro copiado é o da cópia que o receptor roda
+  (a entrada `g:` da classe dele, que destaca a cópia de forma exata): igual ao `super.m` daquela
+  aplicação e diferente do de outra (`closure/identity_equality_tearoff`).
+- **Fora do desenho: o *layout*.** Os campos de um *mixin* aplicado duas vezes continuam com uma
+  posição só no objeto (a da primeira ocorrência na `linearization`); a VM dá a cada aplicação os
+  seus campos. Igualar exige posições por aplicação (`mixin_field_indices` por `(classe, campo,
+  aplicação)`) e que as cópias leiam os campos da sua aplicação — não feito.
+
+---
+
+## 7. `void` que devolve valor
+
+Na VM, o resultado de uma função `void` é um valor como outro qualquer: `void foo() { return
+bar(); }`, com `bar` `void` e sobrescrito numa subclasse por `int bar() => 1`, devolve `1` a
+quem chama `foo` dinamicamente (`void/void_check`). Na ABI nativa, uma função `void` de corpo em
+bloco não devolvia nada.
+
+**Desenho (01/11/2026).** `Context::hir_return` dá `Ref` (em vez de `Void`) a uma função ou
+método do programa, síncrono, de tipo de retorno `void`, quando:
+
+- o corpo em bloco tem um `return e;` (busca textual: um `return e` dentro de uma função aninhada
+  também conta, o que só alarga o retorno), ou
+- é um método de instância e alguma sobrescrita dele no programa (`sdk_source::implementations`)
+  tem retorno que não é `void`, corpo `=>` ou `return e`.
+
+O `void f() => e` e o `void f() async` já devolviam `Ref` (`arrow_void`). Ficam de fora o `main`,
+os membros de extensão e o SDK. Uma família de sobrescritas pode misturar as duas formas (a base
+devolve `Ref` e uma folha `{}` não devolve nada, ou o contrário): a chamada direta e o `switch`
+por classe da desvirtualização usam o tipo de cada alvo (um alvo `Void` dá `null`, convertido
+para o tipo de quem chama, `class_dispatch`), e a chamada pelo seletor passa pelas entradas
+uniformes de cada função. Medido no nativo, no wasm e no JS com
+as duas direções (base com `return e` e folha `{}`, base `{}` e folha `int`), chamada estática,
+dinâmica e por *tear-off*: saída idêntica à VM. No wasm, em que um tipo de função errado numa
+chamada indireta é armadilha, o mesmo programa roda sem erro. O JS nunca precisou de nada: uma
+função JS sempre devolve o valor do `return`.

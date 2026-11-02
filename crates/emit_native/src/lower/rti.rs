@@ -1488,7 +1488,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let extension = self.receiver_pattern(fid);
         let n_ext = extension.map_or(0, |(n, _)| n);
         let mut found_items: Vec<Option<TypeId>> = vec![None; params.len()];
-        if let (Some((_, on)), Some(r)) = (extension, receiver) {
+        // The extension's type arguments as inference solved them for the
+        // access (the least upper bound when the `on` type mentions a parameter
+        // twice, `E4<T> on Pair<T, T>` with a `Pair<int, double>` gives `num`);
+        // without them, matched against the receiver's type.
+        let solved = self.extension_access.take().and_then(|e| {
+            self.ctx.bodies.units[self.unit_id.0 as usize]
+                .extension_arguments
+                .get(&e)
+                .filter(|a| a.len() == n_ext)
+                .cloned()
+        });
+        if let Some(solved) = solved {
+            for (i, t) in solved.iter().enumerate() {
+                found_items[i] = Some(*t);
+            }
+        } else if let (Some((_, on)), Some(r)) = (extension, receiver) {
             self.unify(on, r, &params, &mut found_items);
         }
         let data = &self.ctx.outline.functions[fid];

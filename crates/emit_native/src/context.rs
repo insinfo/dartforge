@@ -107,6 +107,10 @@ pub struct Context<'a> {
     pub with_source_body: std::sync::OnceLock<std::collections::HashSet<String>>,
     /// `dart:ffi`: the layout of the structs and unions of the program (`lower::ffi::composites`).
     pub ffi_composites: std::sync::OnceLock<Option<crate::lower::ffi::Composites>>,
+    /// The mixins that some concrete class applies more than once, with the
+    /// largest number of applications (`lower::members::applied_more_than_once`).
+    pub repeated_mixins:
+        std::sync::OnceLock<std::collections::HashMap<dartforge_elements::model::ClassId, usize>>,
     /// The erased extension types (`erasure.rs`), computed before the
     /// context; empty without an extension type.
     pub te: crate::erasure::ExtensionTypes,
@@ -140,6 +144,8 @@ pub struct Context<'a> {
     /// after the construction of the context.
     pub implementations_memo:
         std::sync::RwLock<std::collections::HashMap<DispatchKey, Implementations>>,
+    /// `Context::void_returns_value`, by function.
+    pub void_value_memo: std::sync::RwLock<std::collections::HashMap<usize, bool>>,
     /// The subtypes of each class (`Context::subtypes`), computed on the
     /// first query.
     pub subtypes_memo: std::sync::RwLock<
@@ -416,7 +422,9 @@ impl<'a> Context<'a> {
             uses_dart_async: false,
             with_source_body: std::sync::OnceLock::new(),
             ffi_composites: std::sync::OnceLock::new(),
+            repeated_mixins: std::sync::OnceLock::new(),
             implementations_memo: Default::default(),
+            void_value_memo: Default::default(),
             world: None,
             subtypes_memo: Default::default(),
             implementations_by_class_memo: Default::default(),
@@ -921,11 +929,106 @@ impl<'a> Context<'a> {
             return crate::hir::Type::Ref;
         };
         let t = self.to_hir_type(d.return_type);
-        if t == crate::hir::Type::Void && self.arrow_void(fid) {
+        if t == crate::hir::Type::Void && (self.arrow_void(fid) || self.void_returns_value(fid)) {
             crate::hir::Type::Ref
         } else {
             t
         }
+    }
+
+    /// A `void` function or method whose value the VM still hands back (a
+    /// `void` result is a value, the one of the `return e` that reached it):
+    /// its block body has a `return e;`, or — for an instance method — an
+    /// override in the program has a non-`void` return type or such a body.
+    /// It returns `Ref`, so that a caller typed by the declaration gets the
+    /// value of the override that ran (`void/void_check`: `void foo() { return
+    /// bar(); }` with `int bar()` in a subclass, seen as `dynamic`).
+    fn void_returns_value(&self, fid: usize) -> bool {
+        if let Some(&r) = self
+            .void_value_memo
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&fid)
+        {
+            return r;
+        }
+        let r = self.void_returns_value_without_memo(fid);
+        self.void_value_memo
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(fid, r);
+        r
+    }
+
+    fn void_returns_value_without_memo(&self, fid: usize) -> bool {
+        let f = &self.program.functions[fid];
+        if f.kind != dartforge_elements::model::FunctionKind::Function
+            || (f.class.is_none() && self.symbol_name(f.name) == "main")
+            || f.extension.is_some()
+            || self.program.library(f.library).is_sdk
+        {
+            return false;
+        }
+        if self.returns_expression(fid) {
+            return true;
+        }
+        let Some(class) = f.class.filter(|_| !f.static_) else {
+            return false;
+        };
+        let name = self.symbol_name(f.name).to_string();
+        crate::lower::sdk_source::implementations(self, class, &name)
+            .into_iter()
+            .any(|i| match i {
+                crate::lower::sdk_source::Implementation::Function(g)
+                | crate::lower::sdk_source::Implementation::Application(g, _) => {
+                    g != fid
+                        && (self.outline.functions.get(g).is_some_and(|d| {
+                            self.to_hir_type(d.return_type) != crate::hir::Type::Void
+                        }) || self.arrow_void(g)
+                            || self.returns_expression(g))
+                }
+                _ => false,
+            })
+    }
+
+    /// The block body of `fid` has a `return e;` (a textual check: a `return`
+    /// with an operand inside a nested function counts too, which only widens
+    /// the return to `Ref`).
+    fn returns_expression(&self, fid: usize) -> bool {
+        let f = &self.program.functions[fid];
+        let dartforge_elements::model::FunctionRef::Function { unit, function } = f.node else {
+            return false;
+        };
+        let u = self.program.unit(unit);
+        let func_decl = u.ast.function(function);
+        if !matches!(
+            func_decl.body,
+            dartforge_frontend::ast::FunctionBody::Block(_)
+        ) || func_decl.modifier != dartforge_frontend::ast::AsyncModifier::None
+        {
+            return false;
+        }
+        let Some(text) = u.source.get(func_decl.span.start..func_decl.span.end) else {
+            return false;
+        };
+        let bytes = text.as_bytes();
+        let mut from = 0;
+        while let Some(i) = text[from..].find("return") {
+            let at = from + i;
+            let before = at.checked_sub(1).map(|j| bytes[j]);
+            let after = text[at + 6..].trim_start().bytes().next();
+            let word = before
+                .is_none_or(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'$'))
+                && text[at + 6..]
+                    .bytes()
+                    .next()
+                    .is_none_or(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'$'));
+            if word && after.is_some_and(|b| b != b';') {
+                return true;
+            }
+            from = at + 6;
+        }
+        false
     }
 
     /// A synchronous `void f() => e;` or a `void f() async`, an ordinary function or

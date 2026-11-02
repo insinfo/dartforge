@@ -2339,14 +2339,30 @@ pub(crate) fn infer_untyped_variable_type(inf: &mut BodyInferrer<'_>, vid: Varia
     }
     match inf.initializer(vid) {
         Some((unit, init)) => {
+            let diagnostics = inf.diagnostics.len();
             let mut cx = Body::to_variable(inf, vid, unit);
             let u = inf.core.unknown;
             let t = infer(inf, &mut cx, init, u);
-            if matches!(inf.table.get(t), Type::Null) {
+            let t = if matches!(inf.table.get(t), Type::Null) {
                 inf.core.dynamic_
             } else {
                 t
+            };
+            // The type comes from the initializer without a context (top-level
+            // inference); the initializer itself is then inferred again with
+            // the variable's type as its context, as the CFE builds the body of
+            // a field (and the analyzer resolves it against the element's
+            // type): `final t = {0: {60: [1]}, 1: {}}` gives `t[0]` the context
+            // `Map<dynamic, dynamic>`, so the nested literal is a
+            // `Map<dynamic, dynamic>` too. The diagnostics are the second
+            // pass's. A cycle keeps the first pass (its type is `dynamic`).
+            if !inf.in_cycle.contains(&vid) {
+                inf.diagnostics.truncate(diagnostics);
+                inf.warning_units.truncate(diagnostics);
+                let mut cx = Body::to_variable(inf, vid, unit);
+                infer(inf, &mut cx, init, t);
             }
+            t
         }
         None => match v.node {
             // The constant's type comes from the outline (the written instantiation

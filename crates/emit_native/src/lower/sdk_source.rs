@@ -579,9 +579,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.read_field_with_late_direct(recv.clone(), vid, span)
                 }
                 (Implementation::NoSuchMethod, _) => unreachable!("dispatch by selector"),
-                (Implementation::Function(target), _) => {
+                (Implementation::Function(target), _)
+                | (Implementation::Application(target, _), _) => {
+                    let saved = self.application_of;
+                    if let Implementation::Application(f, application) = *i {
+                        self.application_of = Some((f, application));
+                    }
                     let args = self.match_args(target, evaluated);
                     let r = self.call_direct(target, Some(recv.clone()), args);
+                    self.application_of = saved;
                     if matches!(self.return_repr(target), Type::Void) {
                         Operand::Constant(Constant::Null)
                     } else {
@@ -1737,6 +1743,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 pub enum Implementation {
     /// Method, getter, setter or operator (with a body, a patch or a native).
     Function(usize),
+    /// Copy `.1` (≥ 2) of the mixin member `.0`, the member of that
+    /// application (`members::applications_of`).
+    Application(usize, usize),
     /// Field (the implicit getter/setter).
     Field(VariableId),
     /// A concrete class without the member (it implements the interface
@@ -1783,25 +1792,40 @@ fn implementations_without_memo(
         {
             continue;
         }
-        let found = linearization(ctx, kid).into_iter().find_map(|c| {
-            let &f = ctx.program.classes[c.0 as usize]
-                .instance_members
-                .get(&sym)?;
-            let f = f.0 as usize;
-            if origin.is_some_and(|o| ctx.program.functions[f].library != o) {
-                return None;
-            }
-            implemented(ctx, f).then(|| match ctx.program.functions[f].variable {
-                Some(v) => Implementation::Field(v),
-                None => Implementation::Function(f),
-            })
-        });
+        let found = found_implementation(ctx, kid, sym, origin);
         let i = found.unwrap_or(Implementation::NoSuchMethod);
         if !exit.contains(&i) {
             exit.push(i);
         }
     }
     exit
+}
+
+/// The implementation of `sym` that the chain of the concrete class `kid`
+/// finds first (a copy of a mixin member is [`Implementation::Application`]).
+fn found_implementation(
+    ctx: &Context,
+    kid: ClassId,
+    sym: dartforge_intern::SymbolId,
+    origin: Option<LibraryId>,
+) -> Option<Implementation> {
+    let lin = super::members::full_linearization(ctx, kid);
+    lin.iter().enumerate().find_map(|(pos, c)| {
+        let &f = ctx.program.classes[c.0 as usize]
+            .instance_members
+            .get(&sym)?;
+        let f = f.0 as usize;
+        if origin.is_some_and(|o| ctx.program.functions[f].library != o) {
+            return None;
+        }
+        implemented(ctx, f).then(|| match ctx.program.functions[f].variable {
+            Some(v) => Implementation::Field(v),
+            None => match super::members::application_found(ctx, f, &lin, pos) {
+                1 => Implementation::Function(f),
+                application => Implementation::Application(f, application),
+            },
+        })
+    })
 }
 
 /// For a library-private name, the library whose members it names: that of
@@ -1865,19 +1889,7 @@ fn implementations_by_class_without_memo(
         {
             continue;
         }
-        let found = linearization(ctx, kid).into_iter().find_map(|c| {
-            let &f = ctx.program.classes[c.0 as usize]
-                .instance_members
-                .get(&sym)?;
-            let f = f.0 as usize;
-            if origin.is_some_and(|o| ctx.program.functions[f].library != o) {
-                return None;
-            }
-            implemented(ctx, f).then(|| match ctx.program.functions[f].variable {
-                Some(v) => Implementation::Field(v),
-                None => Implementation::Function(f),
-            })
-        });
+        let found = found_implementation(ctx, kid, sym, origin);
         let i = found.unwrap_or(Implementation::NoSuchMethod);
         exit.push((i64::from(ctx.class_id_of(kid)?), i));
     }
@@ -1948,7 +1960,7 @@ pub(super) fn implemented(ctx: &Context, fid: usize) -> bool {
 pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
     let mut seen_set = std::collections::HashSet::new();
     let mut exit = Vec::new();
-    let mut chain = linearization(ctx, cid);
+    let mut chain = super::members::full_linearization(ctx, cid);
     // The hierarchy of certain synthetic elements (notably enums) does not
     // include `Object` in `supertype_class`. Their members keep inheriting
     // `Object.==`, `hashCode` and the other accessors in Dart semantics.
@@ -1957,7 +1969,7 @@ pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
     {
         chain.push(object);
     }
-    for c in chain {
+    for (pos, &c) in chain.iter().enumerate() {
         let class = &ctx.program.classes[c.0 as usize];
         let mut members: Vec<(&str, usize)> = class
             .instance_members
@@ -2011,7 +2023,11 @@ pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
                 }
                 continue;
             }
-            let base = super::symbol_of(ctx, fid);
+            let base = super::members::application_symbol(
+                ctx,
+                fid,
+                super::members::application_found(ctx, fid, &chain, pos),
+            );
             match f.kind {
                 FunctionKind::Setter => by(AccessKind::Write, Adapter::Write, &base),
                 FunctionKind::Getter => {
@@ -2104,6 +2120,51 @@ fn members_to_forward(
         }
     }
     exit
+}
+
+/// A private member `fid` of another library that no class of `cid`'s chain
+/// in that library brings into its interface: the class cannot declare its
+/// `noSuchMethod` forwarder (the member is not accessible there), so the VM
+/// gives it a stub that throws `NoSuchMethodError` without calling
+/// `noSuchMethod` (`inference_update_2/no_such_method_restriction`).
+fn private_member_inaccessible(ctx: &Context, cid: ClassId, fid: usize) -> bool {
+    let f = &ctx.program.functions[fid];
+    if !ctx.symbol_name(f.name).starts_with('_') {
+        return false;
+    }
+    let Some(owner) = f.class else { return false };
+    !linearization(ctx, cid).into_iter().any(|k| {
+        ctx.program.classes[k.0 as usize].library == f.library
+            && (k == owner
+                || ctx
+                    .outline
+                    .hierarchy
+                    .get(k)
+                    .is_some_and(|d| d.supertypes.contains_key(&owner)))
+    })
+}
+
+/// The entry of an inaccessible private member of a class with its own
+/// `noSuchMethod` (`private_member_inaccessible`): it throws
+/// `NoSuchMethodError`.
+fn generate_throwing_stub(
+    ctx: &Context,
+    module: &mut Module,
+    unit: UnitId,
+    symbol: &str,
+    fid: usize,
+) {
+    let name_str = ctx.symbol_name(ctx.program.functions[fid].name).to_string();
+    let mut b = FnBuilder::new(ctx, unit, symbol.to_string(), name_str.clone(), Type::Ref);
+    b.add_param("this".to_string(), Type::Ref);
+    b.add_param_vector(DartEntryVector::Arguments);
+    b.add_param_vector(DartEntryVector::Descriptor);
+    b.declare_arc_uniform_return();
+    b.throw_nsm(&name_str);
+    if !b.is_terminated() {
+        b.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
+    }
+    b.finish(module);
 }
 
 /// The `noSuchMethod` forwarder of the member `fid` (uniform entry):
@@ -2278,6 +2339,13 @@ fn generate_nsm_forwarder(
 
 /// The uniform entries of an instance member (or field) of the module.
 pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
+    for application in 1..=super::members::applications_of(ctx, fid) {
+        lower_function_adapters_at(ctx, module, fid, application);
+    }
+}
+
+/// The entries of copy `application` of `fid` (`members::applications_of`).
+fn lower_function_adapters_at(ctx: &Context, module: &mut Module, fid: usize, application: usize) {
     let f = &ctx.program.functions[fid];
     if f.static_ || f.class.is_none() || !implemented(ctx, fid) {
         return;
@@ -2292,7 +2360,7 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
     if f.variable.is_some() {
         return;
     }
-    let base = super::symbol_of(ctx, fid);
+    let base = super::members::application_symbol(ctx, fid, application);
     let adapters: &[Adapter] = match f.kind {
         FunctionKind::Setter => &[Adapter::Write],
         FunctionKind::Getter => &[Adapter::Read, Adapter::Call],
@@ -2326,6 +2394,11 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
         );
         b.in_adapter = true;
         b.guaranteed_arity = typed;
+        // A member with copies: each entry is that of its copy (the first
+        // included, so that its `g:` entry tears it off exactly).
+        if super::members::applications_of(ctx, fid) > 1 {
+            b.application_of = Some((fid, application));
+        }
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
         // All member adapters receive the same nominal instance as the source
         // body. Preserve that origin when a getter is inlined into its adapter.
@@ -3108,7 +3181,11 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                         crate::context::escape_str(ctx.symbol_name(class.name)),
                         crate::context::escape_str(&selector)
                     );
-                    generate_nsm_forwarder(ctx, module, decl.unit, &symbol, fid, ty);
+                    if private_member_inaccessible(ctx, cid, fid) {
+                        generate_throwing_stub(ctx, module, decl.unit, &symbol, fid);
+                    } else {
+                        generate_nsm_forwarder(ctx, module, decl.unit, &symbol, fid, ty);
+                    }
                     table.push((selector, symbol));
                 }
             }

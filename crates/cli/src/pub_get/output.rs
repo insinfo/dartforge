@@ -57,8 +57,17 @@ pub(crate) fn quote(text: &str) -> String {
 /// `path` relative to `base` with `/` separators (Pub's `p.relative` on
 /// POSIX); both are absolute and normalized.
 pub(crate) fn relative_path(path: &Path, base: &Path) -> String {
+    let whole = path;
     let path: Vec<_> = path.components().collect();
     let base: Vec<_> = base.components().collect();
+    // Different roots (two Windows drives): `p.relative` keeps the path.
+    let prefix = |c: &[std::path::Component<'_>]| match c.first() {
+        Some(std::path::Component::Prefix(p)) => Some(p.as_os_str().to_ascii_uppercase()),
+        _ => None,
+    };
+    if prefix(&path) != prefix(&base) {
+        return whole.display().to_string();
+    }
     let shared = path.iter().zip(&base).take_while(|(a, b)| a == b).count();
     let mut parts = vec!["..".to_string(); base.len() - shared];
     parts.extend(

@@ -71,7 +71,8 @@ impl LanguageOptions {
     ///
     /// # Errors
     /// A version not in the `x.y` format, above the current one or below 2.12,
-    /// and an unknown experiment.
+    /// and an unknown experiment (a released one,
+    /// [`Feature::RELEASED_AT_FLOOR`], is accepted and changes nothing).
     pub fn read_option<'a>(
         &mut self,
         arg: &str,
@@ -106,6 +107,10 @@ impl LanguageOptions {
                     .to_string(),
             };
             for name_ in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+                if Feature::from_name(name_).is_none() && Feature::released_at_floor(name_) {
+                    // Released before the floor: always on, nothing to enable.
+                    continue;
+                }
                 let f = Feature::from_name(name_)
                     .ok_or_else(|| format!("--enable-experiment: unknown experiment '{name_}'"))?;
                 if !self.experiments.contains(&f) {

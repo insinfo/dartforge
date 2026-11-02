@@ -209,7 +209,7 @@ impl Search<'_> {
         }
         let Some(dir) = std::env::current_exe()
             .ok()
-            .map(|e| e.canonicalize().unwrap_or(e))
+            .map(|e| crate::config::canonicalize(&e).unwrap_or(e))
             .and_then(|e| e.parent().map(Path::to_path_buf))
         else {
             return false;
@@ -254,7 +254,7 @@ impl Search<'_> {
                 }
                 candidates.push(dir.join(".."));
                 candidates.push(dir.join("cache").join("dart-sdk"));
-                if let Ok(real) = std::fs::canonicalize(&file)
+                if let Ok(real) = crate::config::canonicalize(&file)
                     && let Some(real_bin) = real.parent()
                 {
                     if let Some(root) = real_bin.parent() {
@@ -280,7 +280,7 @@ impl Search<'_> {
                 }
                 let source = format!("flutter on the PATH ({})", file.display());
                 let mut candidates = vec![dir.join("cache").join("dart-sdk")];
-                if let Ok(real) = std::fs::canonicalize(&file)
+                if let Ok(real) = crate::config::canonicalize(&file)
                     && let Some(real_bin) = real.parent()
                 {
                     candidates.push(real_bin.join("cache").join("dart-sdk"));
@@ -301,7 +301,7 @@ impl Search<'_> {
         let mut tried: Vec<PathBuf> = Vec::new();
         for c in candidates {
             if let Ok(lib) = sdk_lib(c) {
-                let key = lib.canonicalize().unwrap_or_else(|_| lib.clone());
+                let key = crate::config::canonicalize(&lib).unwrap_or_else(|_| lib.clone());
                 if tried.contains(&key) {
                     continue;
                 }

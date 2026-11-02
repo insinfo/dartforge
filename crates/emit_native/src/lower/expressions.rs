@@ -1434,7 +1434,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     && crate::lower::user_function(self.ctx, member.0 as usize)
                 {
                     let receiver = self.ctx.get_type_raw(self.unit_id, *target);
-                    return self.read_extension(target_op, member.0 as usize, receiver, span);
+                    self.extension_access = Some(expr_id);
+                    let r = self.read_extension(target_op, member.0 as usize, receiver, span);
+                    self.extension_access = None;
+                    return r;
                 }
                 // `r.$1`/`r.name`: a field of a record (a runtime positional
                 // one, or one of a shape with a named field).

@@ -22,7 +22,7 @@ impl Fixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&path).unwrap();
-        Self(path.canonicalize().unwrap())
+        Self(dartforge_elements::config::canonicalize(&path).unwrap())
     }
 
     fn package(&self, path: &str, text: &str) -> PathBuf {
@@ -30,6 +30,23 @@ impl Fixture {
         std::fs::create_dir_all(path.join("lib")).unwrap();
         std::fs::write(path.join("pubspec.yaml"), text).unwrap();
         path
+    }
+}
+
+/// Can this process create a symbolic link in `directory`? Always on Unix;
+/// on Windows only with Developer Mode or elevation.
+fn symlinks_allowed(directory: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let probe = directory.join("symlink-probe");
+        let made = std::os::windows::fs::symlink_file("missing", &probe).is_ok();
+        let _ = std::fs::remove_file(&probe);
+        made
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = directory;
+        true
     }
 }
 
@@ -337,19 +354,29 @@ fn archives_keep_inner_links_and_skip_escaping_ones() {
     );
     let destination = fixture.0.join("x");
     std::fs::create_dir(&destination).unwrap();
-    hosted::unpack(&bytes, &destination).unwrap();
-    assert_eq!(
-        std::fs::read_link(destination.join("lib/b.dart")).unwrap(),
-        PathBuf::from("a.dart")
-    );
-    assert_eq!(
-        std::fs::read_link(destination.join("lib/c.dart")).unwrap(),
-        PathBuf::from("a.dart")
-    );
-    assert!(
-        !destination.join("lib/out.dart").exists()
-            && destination.join("lib/out.dart").symlink_metadata().is_err()
-    );
+    // On Windows a symbolic link needs Developer Mode or an elevated
+    // process; without it Pub's `Link.createSync` fails and so does the
+    // extraction, which is what `unpack` must do then.
+    let links_allowed = symlinks_allowed(&fixture.0);
+    let unpacked = hosted::unpack(&bytes, &destination);
+    if links_allowed {
+        unpacked.unwrap();
+        assert_eq!(
+            std::fs::read_link(destination.join("lib/b.dart")).unwrap(),
+            PathBuf::from("a.dart")
+        );
+        assert_eq!(
+            std::fs::read_link(destination.join("lib/c.dart")).unwrap(),
+            PathBuf::from("a.dart")
+        );
+        assert!(
+            !destination.join("lib/out.dart").exists()
+                && destination.join("lib/out.dart").symlink_metadata().is_err()
+        );
+    } else {
+        let error = unpacked.unwrap_err();
+        assert!(error.contains("b.dart"), "{error}");
+    }
     // A GNU long name in an archive with the POSIX magic.
     let long = format!("lib/{}.dart", "n".repeat(120));
     let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
@@ -434,7 +461,16 @@ fn workspaces_resolve_together_and_respect_pub_rules() {
         "name: glob\nenvironment:\n  sdk: ^3.5.0\nworkspace:\n  - pkgs/*\n",
     );
     let error = get(&glob, &settings, SolveType::Get, &[]).err().unwrap();
-    assert!(error.message.contains("pkgs/*"), "{}", error.message);
+    // The normalized path, with the platform's separators: Pub 3.6.2 on
+    // Windows says `in "E:\…\glob\pkgs\*"`.
+    let shown = glob.join("pkgs").join("*");
+    assert!(
+        error
+            .message
+            .contains(&format!("in \"{}\".", shown.display())),
+        "{}",
+        error.message
+    );
     let old = fixture.package(
         "old",
         "name: old\nenvironment:\n  sdk: ^3.4.0\nworkspace:\n  - a\n",

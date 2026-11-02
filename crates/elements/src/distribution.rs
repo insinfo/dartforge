@@ -28,7 +28,7 @@ pub fn root() -> Option<PathBuf> {
         return Some(PathBuf::from(d));
     }
     let exe = std::env::current_exe().ok()?;
-    let exe = exe.canonicalize().unwrap_or(exe);
+    let exe = crate::config::canonicalize(&exe).unwrap_or(exe);
     let root = exe.parent()?.parent()?;
     root.join("lib")
         .join(MARKER)

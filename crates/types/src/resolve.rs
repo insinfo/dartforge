@@ -2251,8 +2251,17 @@ impl<'a> OutlineResolver<'a> {
                 if name.len() == 1 {
                     let sym = name[0].sym;
 
-                    // 1. Check the scope of the current type parameters
-                    if let Some(&param_id) = type_param_scope.get(&sym) {
+                    // 1. Check the scope of the current type parameters (with
+                    //    wildcard variables, a type parameter `_` binds
+                    //    nothing: `class B<_> extends A<_>` names the `_` of
+                    //    the library).
+                    let wildcard = self.interner.lookup("_") == Some(sym)
+                        && self
+                            .program
+                            .library(self.program.unit(unit_id).library)
+                            .features
+                            .has(dartforge_frontend::Feature::WildcardVariables);
+                    if let Some(&param_id) = type_param_scope.get(&sym).filter(|_| !wildcard) {
                         if !args.is_empty() {
                             self.warn(
                                 unit_id,

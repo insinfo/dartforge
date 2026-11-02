@@ -673,11 +673,24 @@ pub(crate) fn join_arc_facts(dest: &mut Module, origin: &mut Module) {
         .extend(std::mem::take(&mut origin.instantiation_entries));
 }
 
-/// Lowers a function (top-level, method, constructor) into the module.
+/// Lowers a function (top-level, method, constructor) into the module: once,
+/// and once more per further application of its mixin when the member needs
+/// a copy per application (`members::applications_of`).
 pub fn lower_function(ctx: &Context, module: &mut Module, f_idx: usize) {
+    for application in 1..=members::applications_of(ctx, f_idx) {
+        lower_function_application(ctx, module, f_idx, application);
+    }
+}
+
+fn lower_function_application(
+    ctx: &Context,
+    module: &mut Module,
+    f_idx: usize,
+    application: usize,
+) {
     let start = module.functions.len();
-    let symbol = symbol_of(ctx, f_idx);
-    lower_one_function(ctx, module, f_idx);
+    let symbol = members::application_symbol(ctx, f_idx, application);
+    lower_one_function(ctx, module, f_idx, application);
     // The patch supplies the body, while the public SDK declaration can supply
     // the request. A prohibition wins if both declarations carry a request.
     let public = ctx
@@ -731,7 +744,7 @@ pub fn lower_function(ctx: &Context, module: &mut Module, f_idx: usize) {
     }
 }
 
-fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
+fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize, application: usize) {
     let func_elem = &ctx.program.functions[f_idx];
     if func_elem.external {
         // `external` (constructor included): the body is that of the patch or the
@@ -752,7 +765,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
     }
     {
         let name = ctx.symbol_name(func_elem.name);
-        let symbol = symbol_of(ctx, f_idx);
+        let symbol = members::application_symbol(ctx, f_idx, application);
 
         match func_elem.node {
             FunctionRef::Function { unit, function } => {
@@ -795,6 +808,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                 }
 
                 if let Some(c_id) = func_elem.class
+                    && application == 1
                     && name == "toString"
                     && !func_elem.static_
                     && let Some(id) = ctx.class_id_of(c_id)
@@ -813,6 +827,7 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
 
                 let mut builder =
                     fn_builder::FnBuilder::new(ctx, unit, symbol, name.to_string(), ret_ty);
+                builder.mixin_application = application;
                 // Only this versioned package declaration has a native body;
                 // other libraries and unrecognized versions retain their Dart fallback.
                 if ast_func.type_params.is_empty()
@@ -1064,10 +1079,18 @@ fn lower_one_function(ctx: &Context, module: &mut Module, f_idx: usize) {
                             }
                             // `factory E.x(R v) = E;` for the primary one of an
                             // extension type: the argument itself.
+                            // (`= Ext1.name0` is read as a two-part type name.)
                             None if ctx.is_extension_type(cid)
                                 && extension_types::primary_name(ctx, cid)
                                     == r.constructor
                                         .map(|n| n.sym)
+                                        .or_else(|| match &ast.ty(r.ty).kind {
+                                            dartforge_frontend::ast::TypeKind::Named {
+                                                name,
+                                                ..
+                                            } if name.len() == 2 => Some(name[1].sym),
+                                            _ => None,
+                                        })
                                         .or_else(|| ctx.interner.lookup(""))
                                 && let Some(v) = ctx.outline.functions[f_idx]
                                     .parameters

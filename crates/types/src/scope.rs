@@ -210,6 +210,9 @@ impl ScopeStack {
 
     /// Registers a type parameter of a generic function in the scope.
     pub fn add_function_type_param(&mut self, name: SymbolId, param_id: TypeParamId) {
+        if self.wildcard == Some(name) {
+            return;
+        }
         self.function_type_params.insert(name, param_id);
     }
 

@@ -605,6 +605,19 @@ impl GenericInferrer {
                 self.constraints.truncate(mark);
             } else {
                 self.discard_fixed(mark);
+                // The parameters are chosen in order (`_chooseTypes`), each
+                // right after its bound adds constraints: those the bound of
+                // `i` puts on an earlier parameter come after its choice
+                // (`class A<Y, X extends Iterable<Y>>`, `A(<num>[])` is
+                // `A<dynamic, List<num>>`).
+                let mut k = mark;
+                while k < self.constraints.len() {
+                    if self.constraints[k].param < i {
+                        self.constraints.remove(k);
+                    } else {
+                        k += 1;
+                    }
+                }
             }
         }
     }

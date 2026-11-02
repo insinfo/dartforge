@@ -919,7 +919,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 null_aware_value,
             } => {
                 if *null_aware_key || *null_aware_value {
-                    self.unsupported("null-aware map entry", span);
+                    // Null-aware elements (3.8): `?k: v` skips the entry,
+                    // without evaluating `v`, when `k` is null; `k: ?v` skips
+                    // it when `v` is null (`k` already evaluated).
+                    let value_then_entry = |s: &mut Self, k: Operand| {
+                        if *null_aware_value {
+                            let v = s.lower_expr(ast, *value);
+                            s.if_non_null(v, |s, v| s.append_entry(target.clone(), k, v));
+                        } else {
+                            let v = s.lower_literal_element(ast, *value, expected.get(1).copied());
+                            s.append_entry(target.clone(), k, v);
+                        }
+                    };
+                    if *null_aware_key {
+                        let k = self.lower_expr(ast, *key);
+                        self.if_non_null(k, value_then_entry);
+                    } else {
+                        let k = self.lower_literal_element(ast, *key, expected.first().copied());
+                        value_then_entry(self, k);
+                    }
                     return;
                 }
                 let k = self.lower_literal_element(ast, *key, expected.first().copied());

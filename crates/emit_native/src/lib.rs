@@ -529,6 +529,16 @@ fn emit_ir_internal(
         }
         return Err(msg);
     }
+    // A repeated `_` in a library without wildcard variables (before 3.7, or
+    // without the experiment) is a duplicate definition, as in the CFE.
+    let wildcards = dartforge_analysis::wildcards::repeated_without_wildcards(&program, &interner);
+    if let Some((first_one, rest)) = wildcards.split_first() {
+        let mut msg = format!("error loading the program: {first_one}");
+        for d in rest {
+            msg.push_str(&format!("\nerror: {d}"));
+        }
+        return Err(msg);
+    }
     // The SDK libraries compiled from source (P5c) are separate modules, in the
     // cache: the program does not lower them again; a used `dart:async` turns on the event
     // loop.
@@ -1261,7 +1271,7 @@ void main() {
         sdk_tests();
         let dir = tempfile::tempdir().unwrap();
         let entry = dir.path().join("main.dart");
-        std::fs::write(&entry, "void main() {\n  int? k = 1;\n  var a = {?k: 1};\n  var b = {?k: 2};\n  print(a.length + b.length);\n}\n").unwrap();
+        std::fs::write(&entry, "void main() {\n  var a = {1: 2, 3};\n  var b = {4: 5, 6};\n  print(a.length + b.length);\n}\n").unwrap();
         let options = CompileOptions {
             contracts: crate::contracts::ContractMode::Verify,
             sdk: Some(sdk_tests()),
@@ -1280,25 +1290,26 @@ void main() {
             .unwrap()
             .join()
             .unwrap()
-            .expect_err("null-aware map entry is rejected in native");
+            .expect_err("an expression in a map literal is rejected in native");
         let lines: Vec<&str> = error.lines().collect();
         assert_eq!(
-            lines[0], "compile error: not supported by the native backend: null-aware map entry",
+            lines[0],
+            "compile error: not supported by the native backend: expression in a map literal",
             "{error}"
         );
         assert_eq!(
             lines[1],
-            "  not supported by the native backend: null-aware map entry (main.dart:3:11)",
+            "  not supported by the native backend: expression in a map literal (main.dart:2:11)",
             "{error}"
         );
         assert_eq!(
             lines[2],
-            "  not supported by the native backend: null-aware map entry (main.dart:4:11)",
+            "  not supported by the native backend: expression in a map literal (main.dart:3:11)",
             "{error}"
         );
         assert_eq!(
             error_constructs(&error),
-            ["null-aware map entry", "null-aware map entry"]
+            ["expression in a map literal", "expression in a map literal"]
         );
     }
 

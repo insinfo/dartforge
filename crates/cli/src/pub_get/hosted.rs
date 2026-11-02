@@ -533,10 +533,25 @@ pub(crate) fn unpack(bytes: &[u8], destination: &Path) -> Result<(), String> {
             #[cfg(unix)]
             std::os::unix::fs::symlink(relative_to(&target, &parent), &path)
                 .map_err(|e| format!("{}: {e}", path.display()))?;
-            #[cfg(not(unix))]
+            // Pub's `createSymlink` is `Link(symlink).createSync(relative)`,
+            // which on Windows is `CreateSymbolicLinkW` with the relative
+            // target, a directory link when the target already is a directory
+            // (`File::CreateLink`, file_win.cc). Without the privilege
+            // (no Developer Mode, not elevated) it fails, and so does `get`.
+            #[cfg(windows)]
+            {
+                let relative = relative_to(&target, &parent);
+                let made = if target.is_dir() {
+                    std::os::windows::fs::symlink_dir(&relative, &path)
+                } else {
+                    std::os::windows::fs::symlink_file(&relative, &path)
+                };
+                made.map_err(|e| format!("{}: {e}", path.display()))?;
+            }
+            #[cfg(not(any(unix, windows)))]
             {
                 let _ = target;
-                return Err("archive links are only supported on Unix".into());
+                return Err("archive links are not supported on this platform".into());
             }
         }
     }

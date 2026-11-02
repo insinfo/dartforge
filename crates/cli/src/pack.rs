@@ -247,7 +247,7 @@ fn locate(p: &Path) -> Option<PathBuf> {
             .map(|d| d.join(p))
             .find(|c| c.is_file())
     }?;
-    Some(found.canonicalize().unwrap_or(found))
+    Some(dartforge_elements::config::canonicalize(&found).unwrap_or(found))
 }
 
 /// Copies a file, following symbolic links, with its permissions.
@@ -280,8 +280,7 @@ fn copy_sdk_packages(source: &Path, destination: &Path) -> Result<(), String> {
         Err(error) => return Err(format!("{}: {error}", config.display())),
         Ok(_) => {}
     }
-    let root = source
-        .canonicalize()
+    let root = dartforge_elements::config::canonicalize(source)
         .map_err(|error| format!("{}: {error}", source.display()))?;
     let packages = crate::pub_get::sdk_package_paths(source)?;
     for (name, relative) in packages {
@@ -313,8 +312,7 @@ fn copy_sdk_tree(
     root: &Path,
     active: &mut std::collections::HashSet<PathBuf>,
 ) -> Result<(), String> {
-    let canonical = source
-        .canonicalize()
+    let canonical = dartforge_elements::config::canonicalize(source)
         .map_err(|error| format!("{}: {error}", source.display()))?;
     if !canonical.starts_with(root) {
         return Err(format!(

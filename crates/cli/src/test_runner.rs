@@ -167,15 +167,13 @@ fn reporter(value: &str) -> Result<bool, String> {
 /// `dart test` uses the package configuration of the working directory.
 fn package_config(cwd: &Path, explicit: Option<&Path>) -> Result<PathBuf, String> {
     if let Some(path) = explicit {
-        return path
-            .canonicalize()
+        return dartforge_elements::config::canonicalize(path)
             .map_err(|e| format!("test: {}: {e}", path.display()));
     }
     for ancestor in cwd.ancestors() {
         let path = ancestor.join(".dart_tool/package_config.json");
         if path.is_file() {
-            return path
-                .canonicalize()
+            return dartforge_elements::config::canonicalize(&path)
                 .map_err(|e| format!("test: {}: {e}", path.display()));
         }
     }
@@ -817,7 +815,7 @@ pub(crate) fn run(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Err
     if !cfg!(feature = "native") {
         return Err("dartforge test requires a CLI built with --features native".into());
     }
-    let cwd = std::env::current_dir()?.canonicalize()?;
+    let cwd = dartforge_elements::config::canonicalize(&std::env::current_dir()?)?;
     let config = package_config(&cwd, options.packages.as_deref())?;
     check_packages(&config)?;
     let planner = planner_binary(&config, options.sdk.as_deref())?;
@@ -843,7 +841,7 @@ pub(crate) fn run(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Err
         std::env::temp_dir().join(format!("dartforge-test-{}-{unique}", std::process::id()));
     fs::create_dir(&directory)?;
     let workspace = Workspace {
-        path: directory.canonicalize()?,
+        path: dartforge_elements::config::canonicalize(&directory)?,
         keep: options.keep,
     };
     if options.keep {
@@ -908,7 +906,7 @@ pub(crate) fn run(args: &[OsString]) -> Result<ExitCode, Box<dyn std::error::Err
                 let binary = match binaries.get(path) {
                     Some(binary) => binary.clone(),
                     None => {
-                        let suite_path = cwd.join(path).canonicalize()?;
+                        let suite_path = dartforge_elements::config::canonicalize(&cwd.join(path))?;
                         let output = workspace.path.join(binaries.len().to_string());
                         fs::create_dir(&output)?;
                         let worker = output.join("worker.dart");
@@ -1069,7 +1067,7 @@ mod tests {
 
     #[test]
     fn relative_import_and_dart_escaping_preserve_literal_path() {
-        let base = std::env::temp_dir().canonicalize().unwrap();
+        let base = dartforge_elements::config::canonicalize(&std::env::temp_dir()).unwrap();
         let from = base.join("workers/0");
         let suite = base.join("project/test/quote'$__DARTFORGE_SUITE_URI___test.dart");
         let relative = relative_import(&from, &suite).unwrap();
@@ -1104,7 +1102,10 @@ mod tests {
         )
         .unwrap();
         let found = package_config(&path.join("test/nested"), None).unwrap();
-        assert_eq!(found, config.canonicalize().unwrap());
+        assert_eq!(
+            found,
+            dartforge_elements::config::canonicalize(&config).unwrap()
+        );
         assert!(
             check_packages(&found)
                 .unwrap_err()

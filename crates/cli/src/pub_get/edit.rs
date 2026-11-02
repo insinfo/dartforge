@@ -573,7 +573,7 @@ pub(super) fn remove(args: &[String]) -> Result<u8, Failure> {
                     "Package \"{name}\" was not found in {}!",
                     super::output::relative_path(
                         &pubspec_path,
-                        &cwd.canonicalize().unwrap_or(cwd.clone())
+                        &dartforge_elements::config::canonicalize(&cwd).unwrap_or(cwd.clone())
                     )
                 );
             }

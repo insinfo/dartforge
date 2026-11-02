@@ -114,6 +114,12 @@ pub struct UnitBodyTypes {
     /// The type of the extension property read by an object pattern field
     /// (`ExtensionKey`), by the field's subpattern.
     pub extension_fields: std::collections::HashMap<ast::PatternId, TypeId>,
+    /// The type arguments of the extension of each access resolved to a
+    /// member of a generic extension (`pair.argList4` with `E4<T> on Pair<T,
+    /// T>` and a `Pair<int, double>` gives `T = num`): what inference
+    /// solved, which a backend reifies instead of matching the `on` type
+    /// itself.
+    pub extension_arguments: std::collections::HashMap<ast::ExprId, Box<[TypeId]>>,
     /// Patterns whose written type does not resolve (`InvalidType`): the
     /// analyzer does not check the exhaustiveness of the `switch` that contains
     /// them.
@@ -190,6 +196,7 @@ impl UnitBodyTypes {
             tearoff_instantiations: std::collections::HashMap::new(),
             pattern_types: std::collections::HashMap::new(),
             extension_fields: std::collections::HashMap::new(),
+            extension_arguments: std::collections::HashMap::new(),
             invalid_patterns: std::collections::HashSet::new(),
             matched_types: std::collections::HashMap::new(),
             non_constant_name_patterns: std::collections::HashSet::new(),

@@ -400,9 +400,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("ext")).unwrap();
         std::fs::create_dir_all(root.join("pkg")).unwrap();
-        // The form the loader records the units' paths in (on Windows, without
-        // the verbatim prefix `std::fs::canonicalize` returns).
-        let root = crate::config::canonical_path(&root).unwrap();
+        let root = crate::config::canonicalize(&root).unwrap();
         let ext = root.join("ext");
         let pkg = root.join("pkg");
         std::fs::write(ext.join("e.dart"), "class E {}\nint e = 0;\n").unwrap();

@@ -54,31 +54,61 @@ pub struct PackageConfig {
     pub hidden: Option<Arc<std::collections::HashSet<PathBuf>>>,
 }
 
-/// The path as the file system spells it (`std::fs::canonicalize`: case and
-/// links resolved), without Windows' verbatim prefix: the form of every path
-/// the loader records in a [`crate::model::Program`] (units, libraries), the
-/// one a caller compares them with.
-///
-/// ```
-/// let dir = std::env::temp_dir();
-/// let c = dartforge_elements::config::canonical_path(&dir).unwrap();
-/// assert!(!c.to_string_lossy().starts_with(r"\\?\"));
-/// ```
-///
-/// # Errors
-///
-/// When the path does not exist or cannot be resolved.
-pub fn canonical_path(p: &Path) -> std::io::Result<PathBuf> {
-    std::fs::canonicalize(p).map(without_verbatim)
+/// The plain form of a Windows verbatim path, as `canonicalize` returns them
+/// (`\\?\C:\x`, `\\?\UNC\server\share\x`), when the plain form names the same
+/// file: `C:\x` and `\\server\share\x` (the `dunce` rule). Kept verbatim when
+/// it would not: longer than `MAX_PATH`, a component that is a reserved
+/// device name (`CON`, `NUL`, `COM1`…) or ends in a dot or a space, or a `/`
+/// (a separator only outside verbatim paths). Any other path is unchanged, so
+/// this is a no-op outside Windows. Plain paths are what `strip_prefix`,
+/// comparisons with other paths, globs, relative paths shown to the user and
+/// other programs' arguments (`git` refuses `\\?\`) need.
+pub fn without_verbatim(p: PathBuf) -> PathBuf {
+    let Some(s) = p.to_str() else {
+        return p;
+    };
+    let plain = if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = s.strip_prefix(r"\\?\") {
+        let b = rest.as_bytes();
+        if b.len() < 3 || !b[0].is_ascii_alphabetic() || b[1] != b':' || b[2] != b'\\' {
+            return p;
+        }
+        rest.to_string()
+    } else {
+        return p;
+    };
+    // `MAX_PATH` counts the terminating NUL.
+    if plain.len() >= 260 || plain.contains('/') {
+        return p;
+    }
+    let reserved = |c: &str| {
+        let stem = c
+            .split('.')
+            .next()
+            .unwrap_or("")
+            .trim_end()
+            .to_ascii_uppercase();
+        matches!(
+            stem.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+        ) || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+    };
+    let components = plain.trim_start_matches('\\').split('\\').skip(1);
+    for c in components.filter(|c| !c.is_empty()) {
+        if reserved(c) || c.ends_with('.') || c.ends_with(' ') {
+            return p;
+        }
+    }
+    PathBuf::from(plain)
 }
 
-/// Strips the `\\?\` verbatim prefix `canonicalize` returns on Windows, so
-/// that `strip_prefix` and comparisons with plain paths work.
-pub fn without_verbatim(p: PathBuf) -> PathBuf {
-    match p.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
-        Some(r) => PathBuf::from(r),
-        None => p,
-    }
+/// `std::fs::canonicalize` without the Windows verbatim prefix
+/// ([`without_verbatim`]): the one way the tools canonicalize a path.
+pub fn canonicalize(path: &Path) -> std::io::Result<PathBuf> {
+    std::fs::canonicalize(path).map(without_verbatim)
 }
 
 impl PackageConfig {
@@ -196,7 +226,7 @@ impl PackageConfig {
 
         let canonical_dir = path
             .parent()
-            .and_then(|p| p.canonicalize().ok())
+            .and_then(|p| canonicalize(p).ok())
             .unwrap_or_else(|| path.parent().unwrap_or(Path::new(".")).to_path_buf());
         let base_url = Url::from_directory_path(&canonical_dir)
             .map_err(|_| format!("invalid path for URL: {}", canonical_dir.display()))?;
@@ -260,7 +290,7 @@ impl PackageConfig {
             .values()
             .filter_map(|pkg| {
                 let dir = pkg.root_uri.to_file_path().ok()?;
-                let dir = without_verbatim(std::fs::canonicalize(&dir).unwrap_or(dir));
+                let dir = canonicalize(&dir).unwrap_or(dir);
                 Some((pkg.name.clone(), dir))
             })
             .collect();
@@ -275,7 +305,7 @@ impl PackageConfig {
             .values()
             .filter_map(|pkg| {
                 let dir = pkg.package_uri.to_file_path().ok()?;
-                let dir = without_verbatim(std::fs::canonicalize(&dir).unwrap_or(dir));
+                let dir = canonicalize(&dir).unwrap_or(dir);
                 Some((pkg.name.clone(), dir))
             })
             .collect();
@@ -292,7 +322,7 @@ impl PackageConfig {
             .parent()
             .map(|dart_tool| dart_tool.join("build").join("generated"))
             .filter(|g| g.is_dir())
-            .map(|g| without_verbatim(std::fs::canonicalize(&g).unwrap_or(g)));
+            .map(|g| canonicalize(&g).unwrap_or(g));
 
         Ok(Self {
             origin: Some(path.to_path_buf()),
@@ -355,7 +385,7 @@ impl PackageConfig {
                                 {
                                     let candidate = path.join("lib").join(rel_path);
                                     if candidate.exists() {
-                                        return candidate.canonicalize().or(Ok(candidate));
+                                        return canonicalize(&candidate).or(Ok(candidate));
                                     }
                                 }
                             }
@@ -371,5 +401,41 @@ impl PackageConfig {
                 .unwrap_or_else(|| "configuration not found".to_string());
             Err(format!("package '{pkg_name}' not mapped in {origin}"))
         }
+    }
+}
+
+#[cfg(test)]
+mod verbatim_tests {
+    use super::without_verbatim;
+    use std::path::PathBuf;
+
+    fn plain(s: &str) -> String {
+        without_verbatim(PathBuf::from(s))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn a_drive_or_unc_verbatim_path_becomes_plain() {
+        assert_eq!(plain(r"\\?\E:\Temp\x\pkgs"), r"E:\Temp\x\pkgs");
+        assert_eq!(plain(r"\\?\UNC\server\share\x"), r"\\server\share\x");
+        assert_eq!(plain("/tmp/x"), "/tmp/x");
+        assert_eq!(plain(r"E:\Temp"), r"E:\Temp");
+    }
+
+    #[test]
+    fn a_path_the_plain_form_would_change_stays_verbatim() {
+        for s in [
+            r"\\?\E:\Temp\nul",
+            r"\\?\E:\Temp\com1.txt",
+            r"\\?\E:\Temp\dot.",
+            r"\\?\E:\Temp\space ",
+            r"\\?\E:\a/b",
+            r"\\?\Volume{0}\x",
+        ] {
+            assert_eq!(plain(s), s);
+        }
+        let long = format!(r"\\?\E:\{}", "a".repeat(300));
+        assert_eq!(plain(&long), long);
     }
 }

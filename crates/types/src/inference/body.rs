@@ -356,7 +356,10 @@ impl Body {
             let ps = inf.outline.classes[c.0 as usize].type_params.clone();
             for p in ps.iter() {
                 let name = inf.table.param(*p).name;
-                cx.scopes[0].push((name, MemberName::TypeParam(*p)));
+                // With wildcard variables a type parameter `_` binds nothing.
+                if cx.wildcard != Some(name) {
+                    cx.scopes[0].push((name, MemberName::TypeParam(*p)));
+                }
             }
             if !static_ {
                 cx.this_type = Some(inf.class_this_type(c));
@@ -365,7 +368,9 @@ impl Body {
             let ps = inf.outline.extensions[e.0 as usize].type_params.clone();
             for p in ps.iter() {
                 let name = inf.table.param(*p).name;
-                cx.scopes[0].push((name, MemberName::TypeParam(*p)));
+                if cx.wildcard != Some(name) {
+                    cx.scopes[0].push((name, MemberName::TypeParam(*p)));
+                }
             }
             if !static_ {
                 cx.this_type = Some(inf.outline.extensions[e.0 as usize].on);
@@ -500,6 +505,9 @@ impl Body {
     }
 
     pub fn declare_type_param(&mut self, name: SymbolId, p: TypeParamId) {
+        if self.wildcard == Some(name) {
+            return;
+        }
         if let Some(e) = self.scopes.last_mut() {
             e.push((name, MemberName::TypeParam(p)));
         }

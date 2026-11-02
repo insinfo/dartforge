@@ -15,6 +15,7 @@ dartforge-intern = { path = "../intern" }
 dartforge-frontend = { path = "../frontend" }
 dartforge-elements = { path = "../elements" }
 dartforge-types = { path = "../types" }
+dartforge-analysis = { path = "../analysis" }
 # The closed world (RTA) of the program: what the lowering prunes (`src/native_world.rs`).
 dartforge-world = { path = "../world" }
 dartforge-runtime = { path = "../runtime" }

@@ -389,6 +389,13 @@ pub struct BodyInferrer<'a> {
     ),
     /// Extension ambiguity of the last member lookup: `(name, list)`.
     pub(crate) extension_ambiguity: Option<ExtensionAmbiguity>,
+    /// The extension member the last lookup chose, with the type arguments
+    /// of its extension (`expr::resolver` records them for the access).
+    pub(crate) last_extension_arguments: Option<(
+        dartforge_elements::model::ExtensionId,
+        dartforge_elements::model::FunctionElementId,
+        Box<[TypeId]>,
+    )>,
     /// The annotation being resolved is in a static method or field.
     pub(crate) in_static_member: bool,
     /// The `InheritanceManager3` (the classes' interfaces), with the types of
@@ -625,6 +632,7 @@ impl<'a> BodyInferrer<'a> {
             locals_as_type: HashMap::new(),
             type_container: (None, None),
             extension_ambiguity: None,
+            last_extension_arguments: None,
             in_static_member: false,
         }
     }

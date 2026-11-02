@@ -111,6 +111,9 @@ pub struct FnBuilder<'a, 'c> {
     pub exception_targets: Vec<BlockId>,
     pub finally_scopes: Vec<FinallyScope>,
     pub active_catch_stack: Vec<(Operand, u8)>,
+    /// For each clause of `active_catch_stack`: the stack trace of the caught
+    /// exception, when the clause has a `rethrow` (`emit_rethrow`).
+    pub catch_stack_traces: Vec<Option<Operand>>,
     pub terminated_blocks: std::collections::HashSet<BlockId>,
     pub extra_functions: Vec<Function>,
     /// Per-body frame ABI, transported with separately lowered functions.
@@ -178,6 +181,21 @@ pub struct FnBuilder<'a, 'c> {
     /// canonical getter builds (`constants.rs`): its plain elements go into the
     /// data without hashing (`literals.rs`, `_dfConstAdd`).
     pub const_source_span: Option<dartforge_diagnostics::Span>,
+    /// The application (counted from the base of the chain) whose copy of a
+    /// mixin member this function is (`members::applications_of`): `super`
+    /// resolves after that application of the mixin. 1 outside a copy.
+    pub mixin_application: usize,
+    /// With wildcard variables, the value of each `this._`/`super._`
+    /// parameter, by its position in the declaration: several may share the
+    /// name, so the constructor reads them by position.
+    pub wildcard_formals: HashMap<usize, Operand>,
+    /// While lowering a call or tear-off of a mixin member with copies: the
+    /// member and the copy (`call_direct`, `method_tearoff`).
+    pub application_of: Option<(usize, usize)>,
+    /// The access (`r.m`) whose extension member is being called or read: its
+    /// extension's type arguments as inference solved them
+    /// (`UnitBodyTypes::extension_arguments`, `rti.rs`).
+    pub extension_access: Option<ExprId>,
     /// Inside a constant context (a `const` initializer, a default value,
     /// arguments of a `const C(…)`): `C(…)`, `[…]` and `{…}` are constants.
     pub in_const_context: bool,
@@ -438,6 +456,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             exception_targets: Vec::new(),
             finally_scopes: Vec::new(),
             active_catch_stack: Vec::new(),
+            catch_stack_traces: Vec::new(),
             terminated_blocks: std::collections::HashSet::new(),
             extra_functions: Vec::new(),
             async_frame_layouts: Vec::new(),
@@ -466,6 +485,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             extra_globals: Vec::new(),
             constant_in_progress: None,
             const_source_span: None,
+            mixin_application: 1,
+            wildcard_formals: HashMap::new(),
+            application_of: None,
+            extension_access: None,
             in_const_context: false,
             local_const_keys: HashMap::new(),
             refutable_pattern: false,
@@ -662,7 +685,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     .or_default()
                     .insert(vid);
             }
-            if let Some(sym) = p.name {
+            // With wildcard variables, a parameter `_` binds nothing (only
+            // `this._` and `super._` still pass their value, read by position
+            // through `wildcard_formals`): it is not a local.
+            let wildcard_name = p.name.is_some_and(|s| self.ctx.symbol_name(s) == "_")
+                && program
+                    .library(program.functions[fid].library)
+                    .features
+                    .has(dartforge_frontend::Feature::WildcardVariables);
+            let formal = ast_params.get(i).is_some_and(|a| a.this_ || a.super_);
+            if wildcard_name && formal {
+                self.wildcard_formals.insert(i, Operand::Val(vid));
+            }
+            let wildcard = wildcard_name && !formal;
+            if let Some(sym) = p.name.filter(|_| !wildcard) {
                 match ast_params.get(i).and_then(|a| a.name) {
                     Some(n) => self.declare_variable(sym, n.span.start, p_ty, Operand::Val(vid)),
                     None => self.declare_local_with_value(sym, p_ty, Operand::Val(vid)),
@@ -1445,7 +1481,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     pub fn emit_rethrow(&mut self) -> Operand {
         if let Some((ex_op, _)) = self.active_catch_stack.last().cloned() {
-            self.emit_throw_value(ex_op, None);
+            // §17.11: the same exception with the same stack trace.
+            let stack_trace = self.catch_stack_traces.last().cloned().flatten();
+            self.emit_throw_value(ex_op, stack_trace);
         }
         let curr_b = self.current_block;
         if let Some(&exc_target) = self.exception_targets.last() {

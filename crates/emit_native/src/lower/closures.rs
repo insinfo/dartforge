@@ -1748,8 +1748,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // A member nothing overrides tears off the same entry with and without
         // `super.`: `super.m == m` holds, as in the VM (the same function and
         // receiver).
-        let exact = exact && self.tearoff_by_selector(fid);
-        let target = super::symbol_of(self.ctx, fid);
+        // A mixin member with a copy per application (`members::applications_of`):
+        // the tear-off is that of the copy the receiver runs, which the `g:`
+        // entry of its class makes (the VM tears off the implementation:
+        // equal to `super.m` of that application, not to another copy's).
+        // Inside that entry, or for `super.m` (`application_of`), the copy is
+        // torn off exactly.
+        let copy = matches!(self.application_of, Some((f, _)) if f == fid);
+        if !exact && !copy && super::members::applications_of(self.ctx, fid) > 1 {
+            let f = &self.ctx.program.functions[fid];
+            let selector = super::sdk_source::selector_string(
+                self.ctx,
+                super::sdk_source::AccessKind::Read,
+                self.ctx.symbol_name(f.name),
+                f.library,
+            );
+            let recv = self.coerce(recv, Type::Ref);
+            return self.call_by_selector(recv, selector, &[]);
+        }
+        let exact = copy || (exact && self.tearoff_by_selector(fid));
+        let target = self.target_symbol(fid);
         let symbol_ent = if exact {
             format!("{target}$tears")
         } else {
@@ -1767,6 +1785,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .symbol_name(self.ctx.program.functions[fid].name)
                 .to_string();
             let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), name, Type::Ref);
+            e.application_of = self.application_of;
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
             let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
