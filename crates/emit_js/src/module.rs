@@ -297,6 +297,68 @@ pub fn emit(ctx: &Ctx) -> Result<Emitted, Vec<Diagnostic>> {
     emit_filtered(ctx, None)
 }
 
+/// An `external` member outside JS interop is a compile-time error on the
+/// web, as in DDC and dart2js (the CFE's `JsInteropChecks`: "Only JS interop
+/// members may be 'external'."): the VM throws `NoSuchMethodError` when one
+/// runs, and nothing could implement it in JavaScript. Kept to the user
+/// libraries that import nothing of the web interop (`dart:js*`, `dart:_js*`,
+/// `dart:html`, `dart:ui*`, `package:js/`, `package:web/`), where a member
+/// could get its JS meaning from an annotation the emitter does not see, and
+/// to members that are not interop by [`Ctx::is_js_member`] /
+/// [`Ctx::is_js_var`].
+fn check_external_members(ctx: &Ctx) {
+    let program = ctx.program;
+    let web_free = |lib: LibraryId| {
+        let library = program.library(lib);
+        !ctx.libs[lib.0 as usize].is_sdk
+            && !ctx.js_libs.contains_key(&lib)
+            && library.imports.iter().all(|i| {
+                let uri = &program.library(i.library).uri;
+                !["dart:js", "dart:_js", "dart:html", "dart:ui", "package:js/", "package:web/"]
+                    .iter()
+                    .any(|p| uri.starts_with(p))
+            })
+    };
+    let interop_class = |c: Option<ClassId>| {
+        c.is_some_and(|c| ctx.is_js_class(c) || ctx.interop_ext_types.contains(&c))
+    };
+    let mut found: Vec<(LibraryId, String)> = Vec::new();
+    for (i, f) in program.functions.iter().enumerate() {
+        let fid = dartforge_elements::model::FunctionElementId(i as u32);
+        if f.external
+            && f.variable.is_none()
+            && f.patched_by.is_none()
+            && web_free(f.library)
+            && !interop_class(f.class)
+            && !ctx.is_js_member(fid)
+        {
+            found.push((f.library, ctx.interner.resolve(f.name).to_string()));
+        }
+    }
+    for (i, v) in program.variables.iter().enumerate() {
+        let vid = dartforge_elements::model::VariableId(i as u32);
+        if v.external && web_free(v.library) && !interop_class(v.class) && !ctx.is_js_var(vid) {
+            found.push((v.library, ctx.interner.resolve(v.name).to_string()));
+        }
+    }
+    for (lib, name) in found {
+        let file = program
+            .library(lib)
+            .units
+            .first()
+            .and_then(|u| program.unit(*u).path.as_ref())
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        ctx.errors.borrow_mut().push(Diagnostic::new(
+            format!(
+                "{}{file}: '{name}': Only JS interop members may be 'external'.",
+                dartforge_types::codes::LANGUAGE_ERROR
+            ),
+            dartforge_diagnostics::Span { start: 0, end: 0 },
+        ));
+    }
+}
+
 /// Like [`emit`], emitting the text only of the modules that contain one of the
 /// libraries in `only` (resident session: the rest stays valid from the previous
 /// compilation). `None` emits everything.
@@ -355,6 +417,7 @@ pub fn emit_with_cache(
     if let Some(c) = &ctx.type_check {
         c.borrow().report();
     }
+    check_external_members(ctx);
     let errors = std::mem::take(&mut *ctx.errors.borrow_mut());
     if !errors.is_empty() {
         return Err(errors);
