@@ -58,6 +58,28 @@ pub fn key_of(path: &Path) -> std::borrow::Cow<'_, Path> {
             return std::borrow::Cow::Borrowed(path);
         }
     }
+    // On Windows, a drive path with `\` separators only (`C:\a\b.dart`, as the
+    // loader records them): the rebuild below gives it back unchanged. Without
+    // this, every key of a resident analysis was rebuilt component by
+    // component, and a body edit in `new_sali` spent ~4x macOS's time in the
+    // phases that look units up by key (docs/LSP.md, "Décima sexta rodada").
+    #[cfg(windows)]
+    {
+        let b = path.as_os_str().as_encoded_bytes();
+        if b.len() > 3
+            && b[0].is_ascii_alphabetic()
+            && b[1] == b':'
+            && b[2] == b'\\'
+            && b.last() != Some(&b'\\')
+            && !b.contains(&b'/')
+            && b[3..]
+                .split(|&c| c == b'\\')
+                .all(|c| !c.is_empty() && c != b"." && c != b"..")
+            && path.to_str().is_some()
+        {
+            return std::borrow::Cow::Borrowed(path);
+        }
+    }
     std::borrow::Cow::Owned(crate::config::without_verbatim(crate::load::normalize(
         path,
     )))
@@ -220,6 +242,29 @@ impl OrEmpty for Result<Arc<Generation>, Vec<String>> {
 
 #[cfg(test)]
 mod tests {
+    /// A Windows drive path that already is a key is borrowed, and the
+    /// borrowed key is the one the rebuild gives.
+    #[cfg(windows)]
+    #[test]
+    fn windows_key_is_borrowed_when_already_normal() {
+        use std::path::Path;
+        let p = Path::new(r"E:\Work\df-lsp\new_sali\frontend\lib\a.dart");
+        assert!(matches!(super::key_of(p), std::borrow::Cow::Borrowed(_)));
+        let rebuilt = crate::config::without_verbatim(crate::load::normalize(p));
+        assert!(super::key_of(p).as_ref() == rebuilt.as_path());
+        for odd in [
+            r"E:\a\..\b.dart",
+            r"E:\a\.\b.dart",
+            r"E:/a/b.dart",
+            r"\\?\E:\a\b.dart",
+        ] {
+            assert!(matches!(
+                super::key_of(Path::new(odd)),
+                std::borrow::Cow::Owned(_)
+            ));
+        }
+    }
+
     use super::*;
 
     #[test]
