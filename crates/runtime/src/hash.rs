@@ -90,9 +90,11 @@ pub use compact::Entry;
 /// A hash map and set with a small code footprint (WebAssembly modules).
 ///
 /// The entries live in insertion order in a vector, with their hashes in
-/// another; an open-addressing index of `u32` (linear probing, backward-shift
-/// deletion) maps a hash to its entry. Everything that moves the index only
-/// reads the hashes, so it is compiled once for every key and value type;
+/// another; an open-addressing index (linear probing, backward-shift deletion)
+/// of 64-bit slots, each with an entry's hash and position, maps a hash to its
+/// entry: a search reads the slots and only the entry whose hash matches.
+/// Everything that moves the index only reads the hashes, so it is compiled
+/// once for every key and value type;
 /// each type only instantiates the key comparison and the vector moves. The
 /// standard `HashMap` (hashbrown) compiled its rehash and insertion again for
 /// each of the runtime's ~25 map types (~40 KB of a module). Removal moves the
@@ -114,9 +116,23 @@ pub mod compact {
         (h.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) as u32
     }
 
+    /// A slot of the index: the entry's hash in the high half and its position
+    /// plus one in the low half (0 is an empty slot). The hash in the slot lets
+    /// a search skip the other keys without reading the entries.
+    #[inline]
+    fn slot(hash: u32, i: usize) -> u64 {
+        (u64::from(hash) << 32) | (i as u64 + 1)
+    }
+
+    /// The entry of a non-empty slot.
+    #[inline]
+    fn entry_of(s: u64) -> usize {
+        (s as u32) as usize - 1
+    }
+
     /// The first slot of `hash` in an index of `slots.len()` (a power of two).
     #[inline]
-    fn home(hash: u32, slots: &[u32]) -> usize {
+    fn home(hash: u32, slots: &[u64]) -> usize {
         // `slots.len()` ≥ 8: the shift is at most 29.
         (hash >> (32 - slots.len().trailing_zeros())) as usize
     }
@@ -124,26 +140,21 @@ pub mod compact {
     /// The index for `hashes` with room for `capacity` entries: every entry
     /// placed again (non-generic).
     #[inline(never)]
-    fn rebuild(slots: &mut Vec<u32>, hashes: &[u32], capacity: usize) {
+    fn rebuild(slots: &mut Vec<u64>, hashes: &[u32], capacity: usize) {
         let mut n = 8;
         while n * 3 < capacity * 4 {
             n *= 2;
         }
         slots.clear();
         slots.resize(n, 0);
-        let mask = n - 1;
         for (i, &h) in hashes.iter().enumerate() {
-            let mut p = home(h, slots);
-            while slots[p] != 0 {
-                p = (p + 1) & mask;
-            }
-            slots[p] = i as u32 + 1;
+            place(slots, h, i);
         }
     }
 
     /// Room in the index for one more entry than `hashes` has.
     #[inline]
-    fn reserve_one(slots: &mut Vec<u32>, hashes: &[u32]) {
+    fn reserve_one(slots: &mut Vec<u64>, hashes: &[u32]) {
         if (hashes.len() + 1) * 4 > slots.len() * 3 {
             rebuild(slots, hashes, (hashes.len() + 1) * 2);
         }
@@ -151,20 +162,20 @@ pub mod compact {
 
     /// Places entry `i` (of hash `hash`) in the index (non-generic).
     #[inline(never)]
-    fn place(slots: &mut [u32], hash: u32, i: usize) {
+    fn place(slots: &mut [u64], hash: u32, i: usize) {
         let mask = slots.len() - 1;
         let mut p = home(hash, slots);
         while slots[p] != 0 {
             p = (p + 1) & mask;
         }
-        slots[p] = i as u32 + 1;
+        slots[p] = slot(hash, i);
     }
 
-    /// The slot of entry `i`, of hash `hashes[i]` (non-generic).
-    fn slot_of(slots: &[u32], hashes: &[u32], i: usize) -> usize {
+    /// The slot of entry `i`, of hash `hash` (non-generic).
+    fn slot_of(slots: &[u64], hash: u32, i: usize) -> usize {
         let mask = slots.len() - 1;
-        let mut p = home(hashes[i], slots);
-        while slots[p] != i as u32 + 1 {
+        let mut p = home(hash, slots);
+        while slots[p] != slot(hash, i) {
             p = (p + 1) & mask;
         }
         p
@@ -173,14 +184,14 @@ pub mod compact {
     /// Takes entry `i` out of the index, and points the slot of the last entry
     /// to `i` (the entry vectors then `swap_remove(i)`); non-generic.
     #[inline(never)]
-    fn unindex(slots: &mut [u32], hashes: &[u32], i: usize) {
+    fn unindex(slots: &mut [u64], hashes: &[u32], i: usize) {
         let mask = slots.len() - 1;
-        let mut hole = slot_of(slots, hashes, i);
+        let mut hole = slot_of(slots, hashes[i], i);
         // Backward shift: each following entry that may move closer to its home
         // fills the hole.
         let mut p = (hole + 1) & mask;
         while slots[p] != 0 {
-            let h = home(hashes[slots[p] as usize - 1], slots);
+            let h = home((slots[p] >> 32) as u32, slots);
             // `p` may move into `hole` when its home is not in (hole, p].
             if (p.wrapping_sub(h) & mask) >= (p.wrapping_sub(hole) & mask) {
                 slots[hole] = slots[p];
@@ -191,8 +202,8 @@ pub mod compact {
         slots[hole] = 0;
         let last = hashes.len() - 1;
         if i != last {
-            let s = slot_of(slots, hashes, last);
-            slots[s] = i as u32 + 1;
+            let s = slot_of(slots, hashes[last], last);
+            slots[s] = slot(hashes[last], i);
         }
     }
 
@@ -200,7 +211,7 @@ pub mod compact {
     pub struct Map<K, V> {
         entries: Vec<(K, V)>,
         hashes: Vec<u32>,
-        slots: Vec<u32>,
+        slots: Vec<u64>,
     }
 
     impl<K, V> Default for Map<K, V> {
@@ -305,11 +316,17 @@ pub mod compact {
             self.hashes.swap_remove(i);
             self.entries.swap_remove(i)
         }
-        /// Appends an entry whose key is not in the map.
-        fn push(&mut self, hash: u32, k: K, v: V) -> usize {
-            reserve_one(&mut self.slots, &self.hashes);
+        /// Appends an entry whose key is not in the map: `vacancy` is the empty
+        /// slot where the search for it stopped ([`Map::find`]), which takes it
+        /// unless the index must grow first.
+        fn push(&mut self, hash: u32, vacancy: usize, k: K, v: V) -> usize {
             let i = self.entries.len();
-            place(&mut self.slots, hash, i);
+            if vacancy == usize::MAX || (i + 1) * 4 > self.slots.len() * 3 {
+                reserve_one(&mut self.slots, &self.hashes);
+                place(&mut self.slots, hash, i);
+            } else {
+                self.slots[vacancy] = slot(hash, i);
+            }
             self.hashes.push(hash);
             self.entries.push((k, v));
             i
@@ -317,27 +334,30 @@ pub mod compact {
     }
 
     impl<K: Hash + Eq, V> Map<K, V> {
-        /// The entry of `k` and its hash.
+        /// The entry of `k`, or the empty slot where its search stopped
+        /// (`usize::MAX` without an index), and its hash.
         #[inline]
-        fn find<Q>(&self, k: &Q) -> (Option<usize>, u32)
+        fn find<Q>(&self, k: &Q) -> (Result<usize, usize>, u32)
         where
             K: Borrow<Q>,
             Q: Hash + Eq + ?Sized,
         {
             let hash = hash_of(k);
             if self.slots.is_empty() {
-                return (None, hash);
+                return (Err(usize::MAX), hash);
             }
             let mask = self.slots.len() - 1;
             let mut p = home(hash, &self.slots);
             loop {
                 let s = self.slots[p];
                 if s == 0 {
-                    return (None, hash);
+                    return (Err(p), hash);
                 }
-                let i = s as usize - 1;
-                if self.hashes[i] == hash && self.entries[i].0.borrow() == k {
-                    return (Some(i), hash);
+                if (s >> 32) as u32 == hash {
+                    let i = entry_of(s);
+                    if self.entries[i].0.borrow() == k {
+                        return (Ok(i), hash);
+                    }
                 }
                 p = (p + 1) & mask;
             }
@@ -347,14 +367,14 @@ pub mod compact {
             K: Borrow<Q>,
             Q: Hash + Eq + ?Sized,
         {
-            self.find(k).0.map(|i| &self.entries[i].1)
+            self.find(k).0.ok().map(|i| &self.entries[i].1)
         }
         pub fn get_key_value<Q>(&self, k: &Q) -> Option<(&K, &V)>
         where
             K: Borrow<Q>,
             Q: Hash + Eq + ?Sized,
         {
-            self.find(k).0.map(|i| {
+            self.find(k).0.ok().map(|i| {
                 let (k, v) = &self.entries[i];
                 (k, v)
             })
@@ -364,20 +384,20 @@ pub mod compact {
             K: Borrow<Q>,
             Q: Hash + Eq + ?Sized,
         {
-            self.find(k).0.map(|i| &mut self.entries[i].1)
+            self.find(k).0.ok().map(|i| &mut self.entries[i].1)
         }
         pub fn contains_key<Q>(&self, k: &Q) -> bool
         where
             K: Borrow<Q>,
             Q: Hash + Eq + ?Sized,
         {
-            self.find(k).0.is_some()
+            self.find(k).0.is_ok()
         }
         pub fn insert(&mut self, k: K, v: V) -> Option<V> {
             match self.find(&k) {
-                (Some(i), _) => Some(std::mem::replace(&mut self.entries[i].1, v)),
-                (None, hash) => {
-                    self.push(hash, k, v);
+                (Ok(i), _) => Some(std::mem::replace(&mut self.entries[i].1, v)),
+                (Err(vacancy), hash) => {
+                    self.push(hash, vacancy, k, v);
                     None
                 }
             }
@@ -394,15 +414,16 @@ pub mod compact {
             K: Borrow<Q>,
             Q: Hash + Eq + ?Sized,
         {
-            let i = self.find(k).0?;
+            let i = self.find(k).0.ok()?;
             Some(self.take_at(i))
         }
         pub fn entry(&mut self, k: K) -> Entry<'_, K, V> {
             match self.find(&k) {
-                (Some(i), _) => Entry::Occupied(OccupiedEntry { map: self, i }),
-                (None, hash) => Entry::Vacant(VacantEntry {
+                (Ok(i), _) => Entry::Occupied(OccupiedEntry { map: self, i }),
+                (Err(vacancy), hash) => Entry::Vacant(VacantEntry {
                     map: self,
                     hash,
+                    vacancy,
                     key: k,
                 }),
             }
@@ -520,6 +541,7 @@ pub mod compact {
     pub struct VacantEntry<'a, K, V> {
         map: &'a mut Map<K, V>,
         hash: u32,
+        vacancy: usize,
         key: K,
     }
 
@@ -588,7 +610,7 @@ pub mod compact {
             self.key
         }
         pub fn insert(self, v: V) -> &'a mut V {
-            let i = self.map.push(self.hash, self.key, v);
+            let i = self.map.push(self.hash, self.vacancy, self.key, v);
             &mut self.map.entries[i].1
         }
     }
@@ -647,9 +669,9 @@ pub mod compact {
     impl<K: Hash + Eq> Set<K> {
         pub fn insert(&mut self, k: K) -> bool {
             match self.0.find(&k) {
-                (Some(_), _) => false,
-                (None, hash) => {
-                    self.0.push(hash, k, ());
+                (Ok(_), _) => false,
+                (Err(vacancy), hash) => {
+                    self.0.push(hash, vacancy, k, ());
                     true
                 }
             }
@@ -772,7 +794,7 @@ pub mod compact {
                 // Aligned keys, as handles are.
                 let k = ((x % 512) as i64) * 16;
                 match step % 7 {
-                    0 | 1 | 2 => assert_eq!(ours.insert(k, step), std_map.insert(k, step)),
+                    0..=2 => assert_eq!(ours.insert(k, step), std_map.insert(k, step)),
                     3 => assert_eq!(ours.remove(&k), std_map.remove(&k)),
                     4 => {
                         *ours.entry(k).or_insert(0) += 1;
