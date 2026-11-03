@@ -741,13 +741,25 @@ fn global_activation_writes_pub_lockfile_config_and_bin_stubs() {
     let config = std::fs::read_to_string(directory.join(".dart_tool/package_config.json")).unwrap();
     assert!(config.contains("\"name\": \"tool\""), "{config}");
     assert!(!config.contains("pub global activate"), "{config}");
-    let stub = std::fs::read_to_string(cache.join("bin/t2")).unwrap();
-    assert!(stub.starts_with("#!/usr/bin/env sh\n# This file was created by pub v3.6.2.\n# Package: tool\n# Version: 1.0.0\n# Executable: t2\n# Script: other\n"), "{stub}");
+    // Pub names the stubs `<executable>.bat` on Windows, with `rem` comments.
+    let (suffix, header) = if cfg!(windows) {
+        (
+            ".bat",
+            "@echo off\nrem This file was created by pub v3.6.2.\nrem Package: tool\nrem Version: 1.0.0\nrem Executable: t2\nrem Script: other\n",
+        )
+    } else {
+        (
+            "",
+            "#!/usr/bin/env sh\n# This file was created by pub v3.6.2.\n# Package: tool\n# Version: 1.0.0\n# Executable: t2\n# Script: other\n",
+        )
+    };
+    let stub = std::fs::read_to_string(cache.join(format!("bin/t2{suffix}"))).unwrap();
+    assert!(stub.starts_with(header), "{stub}");
     assert_eq!(
         global::stub_property(&stub, "Script").as_deref(),
         Some("other")
     );
-    assert!(cache.join("bin/tool").is_file());
+    assert!(cache.join(format!("bin/tool{suffix}")).is_file());
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -779,7 +791,7 @@ fn global_activation_writes_pub_lockfile_config_and_bin_stubs() {
         "{lock}"
     );
     assert!(lock.ends_with("sdks:\n  dart: any\n"), "{lock}");
-    assert!(!cache.join("bin/loc").exists());
+    assert!(!cache.join(format!("bin/loc{suffix}")).exists());
     let names: Vec<String> = global::active_packages(&settings)
         .unwrap()
         .into_iter()
@@ -789,7 +801,10 @@ fn global_activation_writes_pub_lockfile_config_and_bin_stubs() {
 
     global::deactivate_package(&settings, "tool").unwrap();
     assert!(!directory.exists());
-    assert!(!cache.join("bin/tool").exists() && !cache.join("bin/t2").exists());
+    assert!(
+        !cache.join(format!("bin/tool{suffix}")).exists()
+            && !cache.join(format!("bin/t2{suffix}")).exists()
+    );
     assert_eq!(
         global::deactivate_package(&settings, "tool")
             .unwrap_err()

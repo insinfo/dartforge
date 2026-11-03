@@ -1503,6 +1503,10 @@ fn compiled_metadata_startup_preserves_nominal_queries_with_gc_stress() {
             let declaration = "declare void @df.register.dart$3atest()\n";
             assert_eq!(emitted.matches(declaration).count(), 1);
             let emitted = emitted.replacen(declaration, ir, 1);
+            // The startup also calls the record's tear-off registration.
+            let tearoffs = "declare void @df.register.dart$3atest.tearoffs()\n";
+            assert_eq!(emitted.matches(tearoffs).count(), 1);
+            let emitted = emitted.replacen(tearoffs, "define void @df.register.dart$3atest.tearoffs() {\n ret void\n}\n", 1);
             let wrapper = "define i32 @main() {\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
             assert_eq!(emitted.matches(wrapper).count(), 1);
             // Use the runtime-owned C main. Add an observation-only oracle at
