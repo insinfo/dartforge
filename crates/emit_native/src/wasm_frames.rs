@@ -30,7 +30,8 @@ pub const FRAME_BASE: u32 = 64;
 pub const FRAME_SLOT: u32 = 8;
 
 /// The five bytes of `value` as a signed LEB128 (padded: WebAssembly accepts
-/// any encoding up to the five bytes of an `i32`).
+/// any encoding up to the five bytes of an `i32`; the last byte carries the
+/// sign in its unused bits).
 fn leb5(value: i32) -> [u8; 5] {
     let v = value as u32;
     [
@@ -38,7 +39,7 @@ fn leb5(value: i32) -> [u8; 5] {
         ((v >> 7) & 0x7f) as u8 | 0x80,
         ((v >> 14) & 0x7f) as u8 | 0x80,
         ((v >> 21) & 0x7f) as u8 | 0x80,
-        ((v >> 28) & 0x7f) as u8,
+        ((value >> 28) & 0x7f) as u8,
     ]
 }
 
@@ -107,6 +108,9 @@ pub fn patch_frame_costs(bytes: &[u8]) -> Result<Option<Vec<u8>>, String> {
     }
     let mut mark = vec![0x41u8];
     mark.extend(leb5(FRAME_COST_MARK));
+    // Binaryen writes `x - C` as `x + -C` (`linker_wasm::optimize`).
+    let mut negated = vec![0x41u8];
+    negated.extend(leb5(-FRAME_COST_MARK));
     let mut out = bytes.to_vec();
     let mut params_of_type: Vec<u32> = Vec::new();
     let mut function_types: Vec<u32> = Vec::new();
@@ -189,8 +193,13 @@ pub fn patch_frame_costs(bytes: &[u8]) -> Result<Option<Vec<u8>>, String> {
                     let mut cost = None;
                     while let Some(i) = body[at..]
                         .windows(mark.len())
-                        .position(|w| w == mark.as_slice())
+                        .position(|w| w == mark.as_slice() || w == negated.as_slice())
                     {
+                        let sign = if body[at + i..at + i + mark.len()] == negated[..] {
+                            -1
+                        } else {
+                            1
+                        };
                         let cost = match cost {
                             Some(c) => c,
                             None => {
@@ -204,7 +213,7 @@ pub fn patch_frame_costs(bytes: &[u8]) -> Result<Option<Vec<u8>>, String> {
                             }
                         };
                         let p = instructions + at + i + 1;
-                        out[p..p + 5].copy_from_slice(&leb5(cost));
+                        out[p..p + 5].copy_from_slice(&leb5(sign * cost));
                         patched = true;
                         at += i + mark.len();
                     }
@@ -216,6 +225,20 @@ pub fn patch_frame_costs(bytes: &[u8]) -> Result<Option<Vec<u8>>, String> {
         r.at = end;
     }
     Ok(patched.then_some(out))
+}
+
+/// No multiple of [`FRAME_COST_MARK`] other than itself and its negation
+/// appears as an `i32.const`: an optimizer that folded two prologues into one
+/// constant (`x - 2C`) left a frame [`patch_frame_costs`] cannot recognize,
+/// and its module is not used (`linker_wasm::optimize`).
+pub fn marks_intact(bytes: &[u8]) -> bool {
+    (2..=16i32).all(|k| {
+        [k, -k].iter().all(|&m| {
+            let mut pattern = vec![0x41u8];
+            pattern.extend(leb5(FRAME_COST_MARK.wrapping_mul(m)));
+            !bytes.windows(pattern.len()).any(|w| w == pattern.as_slice())
+        })
+    })
 }
 
 #[cfg(test)]
@@ -293,6 +316,8 @@ mod tests {
         assert_eq!(m[4] & 0x80, 0);
         assert!(m[..4].iter().all(|b| b & 0x80 != 0));
         assert_eq!(sleb(&leb5(136)), 136);
+        assert_eq!(sleb(&leb5(-136)), -136);
+        assert_eq!(sleb(&leb5(-FRAME_COST_MARK)), -FRAME_COST_MARK);
     }
 
     #[test]
@@ -319,6 +344,22 @@ mod tests {
             .filter(|(a, b)| a != b)
             .count();
         assert!(diff <= 10, "{diff}");
+    }
+
+    /// The negated mark (Binaryen's `x + -C`) gets the negated cost; a folded
+    /// multiple of the mark is caught.
+    #[test]
+    fn the_negated_mark_gets_the_negated_cost_and_folded_ones_are_caught() {
+        let mut m = module();
+        let mark: Vec<u8> = std::iter::once(0x41).chain(leb5(FRAME_COST_MARK)).collect();
+        let at = m.windows(6).position(|w| w == mark.as_slice()).unwrap();
+        m[at + 1..at + 6].copy_from_slice(&leb5(-FRAME_COST_MARK));
+        assert!(marks_intact(&m));
+        let patched = patch_frame_costs(&m).unwrap().unwrap();
+        let cost = (FRAME_BASE + FRAME_SLOT * (2 + 3)) as i32;
+        assert_eq!(sleb(&patched[at + 1..at + 6]), -cost);
+        m[at + 1..at + 6].copy_from_slice(&leb5(FRAME_COST_MARK.wrapping_mul(-2)));
+        assert!(!marks_intact(&m));
     }
 
     #[test]

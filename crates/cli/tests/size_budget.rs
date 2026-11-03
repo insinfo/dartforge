@@ -8,8 +8,12 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The budget of the hello world's module: 1.29 MB on 31/10/2026.
-const HELLO_WASM_BUDGET: u64 = 1_400_000;
+/// The budget of the hello world's module, as LLVM leaves it (without
+/// Binaryen's `wasm-opt`, which the test turns off so that the number does not
+/// depend on the machine): 1.30 MB on 02/11/2026, 0.91 MB on 03/11/2026 once
+/// `noSuchMethod` stays only for programs that invoke dynamically
+/// (`lower/dynamic_invocation.rs`).
+const HELLO_WASM_BUDGET: u64 = 1_000_000;
 
 /// The budget of the hello world's executable: 3.49 MB on Windows on
 /// 02/11/2026, under the ~5.8 MB of `dart compile exe` on every host.
@@ -36,6 +40,7 @@ fn hello_world_wasm_stays_small_and_without_javascript_interop() {
     let source = hello(&dir);
     let module = dir.join("hello.wasm");
     let output = Command::new(env!("CARGO_BIN_EXE_dartforge"))
+        .env("DARTFORGE_WASM_OPT", "0")
         .arg("compile-wasm")
         .arg(&source)
         .arg("-o")

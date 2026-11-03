@@ -169,9 +169,118 @@ pub fn link(l: &Linkage<'_>) -> Result<(), String> {
             lines.join("\n")
         ));
     }
+    // Binaryen, when there is one, before the engine frames are written: its
+    // inlining and its locals change the frame of each function, which
+    // `finish_module` measures in the module it leaves.
+    if !l.debug_info
+        && let Some(wasm_opt) = binaryen()
+    {
+        optimize(&wasm_opt, l.output)?;
+    }
     // The JavaScript interop: short import names and the companion `.mjs`.
     crate::js_interop::finish_module(l.output)?;
     check(l.output)
+}
+
+/// The oldest Binaryen that reads the modules of the profile (`exnref`
+/// exceptions): the one the Dart 3.6.2 SDK ships for dart2wasm.
+const BINARYEN_MIN_VERSION: u32 = 118;
+
+/// The features of the `wasm32-linear` profile, as `wasm-opt` names them: the
+/// optimizer may use nothing else, so its module stays inside the profile.
+const BINARYEN_FEATURES: &[&str] = &[
+    "--enable-tail-call",
+    "--enable-simd",
+    "--enable-exception-handling",
+    "--enable-reference-types",
+    "--enable-bulk-memory",
+    "--enable-mutable-globals",
+    "--enable-sign-ext",
+    "--enable-nontrapping-float-to-int",
+    "--enable-multivalue",
+    "--enable-extended-const",
+];
+
+/// Binaryen's `wasm-opt` for production modules: `DARTFORGE_WASM_OPT` (its
+/// path; `0` turns the step off), otherwise `wasm-opt` on `PATH`, otherwise
+/// the one of the Dart SDK of the `dart` on `PATH` (`bin/utils/wasm-opt`,
+/// dart2wasm's) — when it is at least [`BINARYEN_MIN_VERSION`]. `None`: the
+/// module stays as LLVM left it.
+pub fn binaryen() -> Option<PathBuf> {
+    if let Some(v) = std::env::var_os("DARTFORGE_WASM_OPT") {
+        return (v != "0" && !v.is_empty()).then(|| PathBuf::from(v));
+    }
+    let exe = if cfg!(windows) { ".exe" } else { "" };
+    let on_path = |name: &str| {
+        std::env::split_paths(&std::env::var_os("PATH")?)
+            .map(|d| d.join(format!("{name}{exe}")))
+            .find(|p| p.is_file())
+    };
+    let candidates = [
+        on_path("wasm-opt"),
+        on_path("dart").and_then(|d| {
+            let d = std::fs::canonicalize(d).ok()?;
+            Some(d.parent()?.join("utils").join(format!("wasm-opt{exe}")))
+        }),
+    ];
+    candidates
+        .into_iter()
+        .flatten()
+        .find(|p| p.is_file() && binaryen_version(p).is_some_and(|v| v >= BINARYEN_MIN_VERSION))
+}
+
+/// The version of a `wasm-opt` (`wasm-opt version 123 (…)`).
+fn binaryen_version(wasm_opt: &Path) -> Option<u32> {
+    let out = Command::new(wasm_opt).arg("--version").output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let rest = text.trim().strip_prefix("wasm-opt version ")?;
+    rest.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+}
+
+/// `wasm-opt -Oz` over the linked module, in place: −19% of the bytes of a
+/// hello world on top of LLVM's code. The name section stays with
+/// `DARTFORGE_KEEP_SYMBOLS=1`. When the optimizer folded the frame marks of
+/// two prologues into one constant (`wasm_frames::marks_intact`), the module
+/// LLVM left stays.
+///
+/// # Errors
+/// `wasm-opt` does not run or fails (its message).
+fn optimize(wasm_opt: &Path, module: &Path) -> Result<(), String> {
+    let mut optimized = module.as_os_str().to_owned();
+    optimized.push(".opt");
+    let optimized = PathBuf::from(optimized);
+    let mut cmd = Command::new(wasm_opt);
+    cmd.args(BINARYEN_FEATURES)
+        .arg("-Oz")
+        .args(["--strip-producers", "--strip-target-features"]);
+    if crate::linker::keep_symbols() {
+        cmd.arg("-g");
+    }
+    let out = cmd
+        .arg(module)
+        .arg("-o")
+        .arg(&optimized)
+        .output()
+        .map_err(|e| format!("failed to run {}: {e}", wasm_opt.display()))?;
+    if !out.status.success() {
+        let _ = std::fs::remove_file(&optimized);
+        return Err(format!(
+            "{} failed on {} ({}): {}",
+            wasm_opt.display(),
+            module.display(),
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let bytes = std::fs::read(&optimized)
+        .map_err(|e| format!("cannot read {}: {e}", optimized.display()))?;
+    if crate::wasm_frames::marks_intact(&bytes) {
+        std::fs::rename(&optimized, module)
+            .map_err(|e| format!("cannot write {}: {e}", module.display()))
+    } else {
+        std::fs::remove_file(&optimized)
+            .map_err(|e| format!("cannot remove {}: {e}", optimized.display()))
+    }
 }
 
 /// The gate of a linked module: the `wasm32-linear` profile, imports only from
