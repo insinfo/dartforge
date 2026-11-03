@@ -1338,6 +1338,45 @@ pub(crate) fn package_folders(root: &Path) -> Vec<PathBuf> {
     output
 }
 
+/// The generated file `uri` (imported or exported by `unit`) points to, when
+/// it is a `build_runner` output: a `package:` URI of a package in
+/// `generated` (name, `lib/` folder, generated `lib/` folder) whose file is
+/// not in the package's `lib/` but is under the generated one, or a relative
+/// URI from a generated file to another one.
+fn generated_target(
+    unit: &Path,
+    uri: &str,
+    generated: &[(String, PathBuf, PathBuf)],
+) -> Option<PathBuf> {
+    if let Some(rest) = uri.strip_prefix("package:") {
+        let (name, path) = rest.split_once('/')?;
+        let (_, lib, out) = generated.iter().find(|(n, ..)| n == name)?;
+        if lib.join(path).is_file() {
+            return None;
+        }
+        let g = out.join(path);
+        return g.is_file().then_some(g);
+    }
+    if uri.contains(':') {
+        return None;
+    }
+    // A relative URI: from a generated file, or from a package file to an
+    // output next to it.
+    let folder = unit.parent()?;
+    let target = dartforge_elements::generated::key(&folder.join(uri));
+    if target.is_file() {
+        return generated
+            .iter()
+            .any(|(_, _, out)| target.starts_with(out))
+            .then_some(target);
+    }
+    let (_, lib, out) = generated
+        .iter()
+        .find(|(_, lib, _)| folder.starts_with(lib))?;
+    let g = out.join(target.strip_prefix(lib).ok()?);
+    g.is_file().then_some(g)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1407,43 +1446,4 @@ mod tests {
             10
         );
     }
-}
-
-/// The generated file `uri` (imported or exported by `unit`) points to, when
-/// it is a `build_runner` output: a `package:` URI of a package in
-/// `generated` (name, `lib/` folder, generated `lib/` folder) whose file is
-/// not in the package's `lib/` but is under the generated one, or a relative
-/// URI from a generated file to another one.
-fn generated_target(
-    unit: &Path,
-    uri: &str,
-    generated: &[(String, PathBuf, PathBuf)],
-) -> Option<PathBuf> {
-    if let Some(rest) = uri.strip_prefix("package:") {
-        let (name, path) = rest.split_once('/')?;
-        let (_, lib, out) = generated.iter().find(|(n, ..)| n == name)?;
-        if lib.join(path).is_file() {
-            return None;
-        }
-        let g = out.join(path);
-        return g.is_file().then_some(g);
-    }
-    if uri.contains(':') {
-        return None;
-    }
-    // A relative URI: from a generated file, or from a package file to an
-    // output next to it.
-    let folder = unit.parent()?;
-    let target = dartforge_elements::generated::key(&folder.join(uri));
-    if target.is_file() {
-        return generated
-            .iter()
-            .any(|(_, _, out)| target.starts_with(out))
-            .then_some(target);
-    }
-    let (_, lib, out) = generated
-        .iter()
-        .find(|(_, lib, _)| folder.starts_with(lib))?;
-    let g = out.join(target.strip_prefix(lib).ok()?);
-    g.is_file().then_some(g)
 }

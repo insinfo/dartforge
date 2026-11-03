@@ -1421,13 +1421,11 @@ impl Derived {
                 .map(|c| (c.key, c.written.clone()))
                 .collect()
         };
-        let pairs = |r: &FileRecord| -> (Vec<(u32, u32)>, Vec<(u32, u32, u32)>) {
-            (r.function_variables.clone(), r.accessors.clone())
-        };
         if old.library != new.library
             || keys(old) != keys(new)
             || classes(old) != classes(new)
-            || pairs(old) != pairs(new)
+            || old.function_variables != new.function_variables
+            || old.accessors != new.accessors
             || old.ambiguous != new.ambiguous
             || old.patch_declarations != new.patch_declarations
         {
