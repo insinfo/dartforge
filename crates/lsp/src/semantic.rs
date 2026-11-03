@@ -859,8 +859,16 @@ pub(crate) fn references_in(
     uri: &str,
     offset: usize,
 ) -> Option<References> {
+    references_at(project, project.uri_unit(uri)?, offset)
+}
+
+/// [`references_in`] at `offset` of `unit`.
+pub(crate) fn references_at(
+    project: &crate::project::Project,
+    unit: UnitId,
+    offset: usize,
+) -> Option<References> {
     {
-        let unit = project.uri_unit(uri)?;
         let d = project.identify(unit, offset).ok()??;
         if let crate::project::Target::Prefix { library, name } = d.target {
             let (declaration, uses) = project.prefix_references(unit, offset, library, name)?;
@@ -2068,9 +2076,13 @@ impl SemanticAnalyzer {
         }
         let debug = std::env::var_os("DARTFORGE_LSP_DEBUG").is_some();
         let started = std::time::Instant::now();
-        // The document's library, from the session, when it covers them all.
+        // The document's library, from the session when it holds it and it
+        // covers them all (a load here would leave its pages with this
+        // process's allocator: a child does it otherwise).
         let mut done = false;
-        if let Some(library) = self.library(documents, uri)
+        let held = crate::project::uri_file(uri).is_some_and(|f| self.session.holds_library(&f));
+        if held
+            && let Some(library) = self.library(documents, uri)
             && let Some(unit) = library.uri_unit(uri)
         {
             let p = library.program();

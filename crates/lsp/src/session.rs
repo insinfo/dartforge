@@ -123,6 +123,18 @@ impl Session {
         self.budget
     }
 
+    /// The session holds a program that serves a query on `file`'s library
+    /// (its library's entry, or its project's).
+    pub(crate) fn holds_library(&self, file: &Path) -> bool {
+        self.entry
+            .as_ref()
+            .is_some_and(|(key, _)| match &key.scope {
+                Scope::Library(f) => f == file,
+                Scope::Project(root) => file.starts_with(root),
+                Scope::Search { .. } => false,
+            })
+    }
+
     /// Discards the entry (a text changed). The program drops here, not later.
     pub(crate) fn invalidate(&mut self) {
         if self.entry.take().is_some() {

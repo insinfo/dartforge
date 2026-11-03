@@ -1226,11 +1226,35 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
     let mut idents = Vec::new();
     let mut prepare_facts: HashMap<PrepareFact, u32> = HashMap::new();
     let mut prepares = Vec::new();
-    for o in 0..b.len() {
-        if !ident(b[o]) || b[o].is_ascii_digit() || (o > 0 && ident(b[o - 1])) {
+    let cx = crate::refactorings::Context::new(project, u);
+    // The identifier tokens and the parts of the documentation references: an
+    // identifier elsewhere (a comment, a string) has no fact, and the query
+    // identifies it in the library as before.
+    let mut positions: Vec<usize> = match dartforge_frontend::lexer::lex(source) {
+        Ok(tokens) => tokens
+            .iter()
+            .filter(|t| t.kind == dartforge_frontend::token::Kind::Ident)
+            .map(|t| t.span.start)
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    if source.contains('[') {
+        for c in project.unit_comments(u).iter() {
+            for r in &c.references {
+                positions.extend(r.iter().map(|(s, _)| s.start));
+            }
+        }
+    }
+    positions.sort_unstable();
+    positions.dedup();
+    for o in positions {
+        if o >= b.len() || !ident(b[o]) || b[o].is_ascii_digit() || (o > 0 && ident(b[o - 1])) {
             continue;
         }
-        let prepare = match crate::rename::prepare_in(project, u, o) {
+        let Ok(Some(d)) = project.identify(u, o) else {
+            continue;
+        };
+        let prepare = match crate::rename::prepare_with(project, &cx, u, o) {
             Ok(None) => PrepareFact::Nothing,
             Ok(Some((s, old))) => PrepareFact::Range {
                 start: s.start as u32,
@@ -1241,9 +1265,6 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
         };
         let n = prepare_facts.len() as u32;
         prepares.push((o as u32, *prepare_facts.entry(prepare).or_insert(n)));
-        let Ok(Some(d)) = project.identify(u, o) else {
-            continue;
-        };
         let fact = match target_of(project, u, tables, &d) {
             Some(t) => Some(IdentFact::Target(t)),
             None => {
@@ -1262,7 +1283,7 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
                     }
                     continue;
                 }
-                let answer = crate::semantic::references_in(project, &r.uri, o).and_then(|a| {
+                let answer = crate::semantic::references_at(project, u, o).and_then(|a| {
                     let here = |x: &(String, Span)| x.0 == r.uri;
                     (a.declaration.as_ref().is_none_or(here) && a.uses.iter().all(here)).then(
                         || IdentFact::Local {

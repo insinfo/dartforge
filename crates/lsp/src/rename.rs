@@ -280,10 +280,15 @@ impl Project {
 
     /// `getElementOfNode` + `getElementToRename` + `RenameRefactoring.create`.
     fn rename_request(&self, unit: UnitId, offset: usize) -> Option<Request> {
+        let cx = Context::new(self, unit);
+        self.rename_request_in(&cx, unit, offset)
+    }
+
+    /// [`Project::rename_request`] with the unit's [`Context`] already built.
+    fn rename_request_in(&self, cx: &Context<'_>, unit: UnitId, offset: usize) -> Option<Request> {
         let p = self.program();
         let u = p.unit(unit);
         let source = u.source.as_str();
-        let cx = Context::new(self, unit);
         let n = cx.tree.locate(offset, offset)?;
         let node_kind = cx.kind(n);
         let node = &cx.tree.nodes[n];
@@ -2438,7 +2443,22 @@ pub(crate) fn prepare_in(
     unit: dartforge_elements::model::UnitId,
     offset: usize,
 ) -> Result<Option<(Span, String)>, String> {
-    let Some(request) = project.rename_request(unit, offset) else {
+    prepare_with(project, &Context::new(project, unit), unit, offset)
+}
+
+/// [`prepare_in`] with the unit's [`Context`] already built (the reference
+/// index asks at every identifier of a unit).
+///
+/// # Errors
+///
+/// `checkInitialConditions` fatal: the message.
+pub(crate) fn prepare_with(
+    project: &Project,
+    cx: &Context<'_>,
+    unit: dartforge_elements::model::UnitId,
+    offset: usize,
+) -> Result<Option<(Span, String)>, String> {
+    let Some(request) = project.rename_request_in(cx, unit, offset) else {
         return Ok(None);
     };
     let initial = project.initial_conditions(&request);
