@@ -1274,10 +1274,20 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
                 {
                     continue;
                 }
-                // The prefix's answer depends on where its use is (§11.5).
-                let shared = !matches!(d.target, Target::Prefix { .. });
-                let label = format!("{:?}", d.target);
-                if shared && let Some(known) = locals.get(&label) {
+                // A prefix's answer depends on where its use is (§11.5): in an
+                // expression, in a type, or the `as p` of its directive.
+                let label = match d.target {
+                    Target::Prefix { .. } => {
+                        let in_directive = unit
+                            .unit
+                            .directives
+                            .iter()
+                            .any(|x| x.span.start <= o && o < x.span.end);
+                        format!("{:?} {} {in_directive}", d.target, d.expr.is_some())
+                    }
+                    _ => format!("{:?}", d.target),
+                };
+                if let Some(known) = locals.get(&label) {
                     if let Some(i) = known {
                         idents.push((o as u32, *i));
                     }
@@ -1296,18 +1306,15 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
                         },
                     )
                 });
-                if shared {
-                    let i = answer.clone().map(|f| {
-                        let n = facts.len() as u32;
-                        *facts.entry(f).or_insert(n)
-                    });
-                    locals.insert(label, i);
-                    if let Some(i) = i {
-                        idents.push((o as u32, i));
-                    }
-                    continue;
+                let i = answer.map(|f| {
+                    let n = facts.len() as u32;
+                    *facts.entry(f).or_insert(n)
+                });
+                locals.insert(label, i);
+                if let Some(i) = i {
+                    idents.push((o as u32, i));
                 }
-                answer
+                continue;
             }
         };
         if let Some(f) = fact {

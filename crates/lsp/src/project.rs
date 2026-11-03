@@ -3932,7 +3932,7 @@ impl Project {
             // `[p.x]` in the documentation: the index also cites the import.
             if fx.contains('[') {
                 let prefix_text = self.name(name_);
-                for c in dartdoc::comments(fx) {
+                for c in self.unit_comments(x).iter() {
                     for r in &c.references {
                         if r.len() >= 2
                             && r[0].1 == prefix_text
