@@ -583,6 +583,8 @@ impl SemanticAnalyzer {
 
     /// [`SemanticAnalyzer::check_reference_index`] with the index this
     /// analyzer has (refreshed before each answer), without building it.
+    /// `DARTFORGE_INDEX_CHECK_DUMP=<offset>` adds both answers at that offset
+    /// to the report.
     #[doc(hidden)]
     pub fn compare_with_current_index(
         &mut self,
@@ -660,6 +662,14 @@ impl SemanticAnalyzer {
                 let strip =
                     |r: Option<References>| -> Answer { r.map(|r| (r.declaration, r.uses)) };
                 let (new, old) = (strip(new), strip(old));
+                if std::env::var("DARTFORGE_INDEX_CHECK_DUMP")
+                    .is_ok_and(|o| o == offset.to_string())
+                {
+                    let _ = writeln!(
+                        report,
+                        "dump {uri}:{offset} {target}\nindex {new:?}\nsearch {old:?}"
+                    );
+                }
                 let sorted = |mut v: Vec<(String, Span)>| {
                     v.sort_by(|a, b| {
                         (a.0.as_str(), a.1.start, a.1.end).cmp(&(b.0.as_str(), b.1.start, b.1.end))
