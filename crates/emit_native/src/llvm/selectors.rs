@@ -336,7 +336,16 @@ impl LlvmEmitter<'_> {
             )
             .unwrap();
         }
-        for class in &module.classes {
+        // The runtime reads a class's name only for one of its instances
+        // (`Instance of 'C'`, the class of a thrown object): on WebAssembly a
+        // class without a method table (abstract, a mixin) registers none, and
+        // its text leaves the module.
+        let instantiable = |cid: u32| {
+            !crate::target::is_wasm()
+                || module.table_functions.contains_key(&cid)
+                || module.method_tables.iter().any(|(c, _, _)| *c == cid)
+        };
+        for class in module.classes.iter().filter(|c| instantiable(c.id)) {
             let idx = self.string_const_index(class.name.as_bytes()).unwrap_or(0);
             writeln!(
                 body,
