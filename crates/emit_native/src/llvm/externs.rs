@@ -1444,6 +1444,15 @@ pub const EXTERNS: &[Extern] = &[
         },
     },
     Extern {
+        // The same, of a compressed table.
+        decl: "declare void @dartforge_rti_init_table_compressed(ptr, i64)",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
+    Extern {
         decl: "declare i64 @dartforge_list_from_table(ptr, i64)",
         effects: Effects {
             allocates: true,

@@ -1140,6 +1140,34 @@ pub struct ArcExternalAncestry {
     pub parent_edges: Vec<(u32, u32)>,
 }
 
+/// The RTI table of the program entry (`lower::rti::register_universe`), kept
+/// by class, so the HIR pruning can write it again with only the classes the
+/// live code can meet (`pruning::prune_rti_table`).
+#[derive(Debug, Default, Clone)]
+pub struct RtiTable {
+    /// The `F` lines of the runtime shapes, read first.
+    pub head: String,
+    /// The classes, in table order.
+    pub classes: Vec<RtiClass>,
+    /// The `F` lines of the runtime's error classes, read last.
+    pub tail: String,
+    /// The classes that stay whatever the pruning finds: those of the `F`
+    /// lines, `Object` and the classes with a fixed cid, which the runtime
+    /// allocates without any code of the program.
+    pub roots: Vec<i64>,
+}
+
+/// One class of an [`RtiTable`].
+#[derive(Debug, Default, Clone)]
+pub struct RtiClass {
+    pub id: i64,
+    /// Its `C`, `V`, `B` and `R` lines.
+    pub lines: String,
+    /// The classes its lines cite: every supertype and the classes of their
+    /// type arguments.
+    pub cites: Vec<i64>,
+}
+
 /// Complete HIR module representing a compilable Dart program.
 #[derive(Debug, Default, Clone)]
 pub struct Module {
@@ -1388,6 +1416,9 @@ pub struct Module {
     /// RTI: the function that registers the type universe before `main`
     /// (`lower::rti::register_universe`); `None` without recipes.
     pub start_rti: Option<String>,
+    /// The table that [`Module::start_rti`] registers, by class; `None`
+    /// without it.
+    pub rti_table: Option<RtiTable>,
 }
 
 impl Module {

@@ -476,6 +476,7 @@ fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
                         | "dartforge_value_class"
                         | "dartforge_list_append"
                         | "dartforge_rti_init_table"
+                        | "dartforge_rti_init_table_compressed"
                         | "dartforge_ffi_closure_address"
                         | "dartforge_ffi_pointer_address"
                         | "dartforge_ffi_compound_address"

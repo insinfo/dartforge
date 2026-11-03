@@ -1418,7 +1418,7 @@ void main() {
             la2.len(),
             "the same program in another directory gives the same IR"
         );
-        let rti_table = |l: &str| l.contains("@dartforge_rti_init_table(");
+        let rti_table = |l: &str| l.contains("@dartforge_rti_init_table");
         for (x, y) in la.iter().zip(&la2) {
             if x != y {
                 assert!(

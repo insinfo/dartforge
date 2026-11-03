@@ -847,6 +847,7 @@ dartforge_rti_e_cache	0	0	0
 dartforge_rti_eval	0	0	0
 dartforge_rti_eval_cache	0	0	0
 dartforge_rti_init_table	0	0	0
+dartforge_rti_init_table_compressed	0	0	0
 dartforge_rti_instantiation_bounds	1	1	0
 dartforge_rti_named_record	1	0	0
 dartforge_rti_object_type	1	1	0

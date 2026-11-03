@@ -1114,6 +1114,13 @@ impl<'a> LlvmEmitter<'a> {
         if crate::pruning::universal_parent::declared(self.module) {
             self.out.push_str("; df.universal-parent 0\n");
         }
+        // The RTI table by class, which the link writes again with only the
+        // live classes (`pruning::rti_table`, WebAssembly).
+        if crate::target::is_wasm()
+            && let Some(t) = &self.module.rti_table
+        {
+            self.out.push_str(&crate::pruning::rti_table::comments(t));
+        }
         let mut nominal_classes: Vec<_> = self.module.pruning_class_ids.iter().copied().collect();
         nominal_classes.sort_unstable();
         for cid in nominal_classes {

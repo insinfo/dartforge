@@ -23,10 +23,11 @@ pub(crate) mod arc_ports;
 pub(crate) mod assembled_registration;
 mod class_reachability;
 pub(crate) mod receiver_provenance;
+pub mod rti_table;
 pub(crate) mod universal_parent;
 
 /// First line of a summary; the number changes with the format.
-const HEADER: &str = "dartforge-poda\t9";
+const HEADER: &str = "dartforge-poda\t10";
 
 /// Selectors that live in every live class, without a call in the IR (§3.6):
 /// `c:call` the runtime looks up by text (`dartforge_closure_entry`, the
@@ -417,7 +418,10 @@ pub struct Summary {
     pub externals: Vec<u32>,
     /// The RTI recipes with a function type (`F<…>`) and the node that has them (the
     /// function, or the constant of the text in the IR): where the native signatures
-    /// that the program may ask of the runtime come from (§3.14).
+    /// that the program may ask of the runtime come from (§3.14). Any other
+    /// constant text of the IR that cites classes (`C<id>`) is here too, as only
+    /// those citations ([`class_citation_text`]): the classes the RTI table
+    /// keeps for the live code (`prune_rti_table`).
     pub recipes: Vec<(u32, String)>,
     /// Calls on a declared SDK `this`: (calling definition, selector, receiver cone).
     /// Every other call remains in `Definition::calls` and is unrestricted.
@@ -941,6 +945,20 @@ impl Summary {
     }
 }
 
+/// The [`Summary::recipes`] text of a constant that is not a function type
+/// recipe: only the classes it cites (`C1 C2`), which is what the RTI table
+/// reads of it, and never a tab or a line break of the original text.
+fn class_citation_text(cited: &[i64]) -> String {
+    let mut s = String::new();
+    for c in cited {
+        if !s.is_empty() {
+            s.push(' ');
+        }
+        write!(s, "C{c}").unwrap();
+    }
+    s
+}
+
 /// The summary of a module from its IR (§3.3). `module` is the prefix
 /// of the local names; `externals` are the tables that the module cites, but does not
 /// define (the production SDK, with `with_tables_at_link`): `(cid,
@@ -1011,6 +1029,13 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
                 // `F<` in the IR: `F\3C` in the private strings
                 // (`emit_string_constants`), `F<` in the static objects.
                 recipes.push((n, t.trim_end_matches('\0').to_string()));
+            } else if let Some(t) = constant_text(l) {
+                // Any other text that may be a recipe: only the classes it
+                // cites, which the RTI table keeps (`prune_rti_table`).
+                let cited = crate::lower::rti::class_citations(&t);
+                if !cited.is_empty() {
+                    recipes.push((n, class_citation_text(&cited)));
+                }
             }
         }
     }
@@ -1781,6 +1806,12 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     let mut all: Vec<&Summary> = summaries.to_vec();
     all.push(&program);
     let reachability = reach(&all, prune);
+    // The RTI table with only the classes the live code meets (WebAssembly).
+    let rti = if prune {
+        rti_table::rewrite(ir, &all, &reachability)
+    } else {
+        None
+    };
     let index: HashMap<&str, u32> = reachability
         .names
         .iter()
@@ -1869,6 +1900,15 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
                 skipping = false;
             }
             continue;
+        }
+        if let Some(r) = &rti {
+            if l.starts_with("; df.rti-") {
+                continue;
+            }
+            if rti_table::is_table_call(l) {
+                exit.push_str(&r.call(l));
+                continue;
+            }
         }
         if let Some(d) = without_end.strip_prefix("declare ") {
             if let Some(n) = d.find('@').and_then(|i| cited(&d[i..]).next()) {
@@ -1989,6 +2029,12 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
         );
     }
     arc_ports::assemble(&mut exit, &all, &reachability, prune, &mut declared_set)?;
+    if let Some(r) = rti {
+        exit.push_str(&r.global);
+        if declared_set.insert(r.entry.to_string()) {
+            writeln!(exit, "declare void @{}(ptr, i64)", r.entry).unwrap();
+        }
+    }
     st.time = t0.elapsed();
     Ok(Assembly {
         ir: exit,

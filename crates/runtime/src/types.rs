@@ -1632,23 +1632,37 @@ pub(crate) fn copied_list_type(origin: i64, concrete_class: Option<i64>) -> Opti
 /// per registration — `C<id> <parameters> <name>` (the class name),
 /// `R<id> <recipe>` (a supertype rule), `F<shape> <id>` (the class of
 /// a runtime shape) and `V<id> <digits>` (the variance of each parameter,
-/// `Universe::variances`) —, read in order. The large table comes compressed
-/// (`rti_table`).
+/// `Universe::variances`) —, read in order. A large table comes compressed,
+/// to [`dartforge_rti_init_table_compressed`].
 ///
 /// # Safety
 /// `data` points to the words of the module's constant vector, with at least
-/// `len` readable bytes (packed in little-endian): the UTF-8 text or its
-/// compressed form. The vector lives for the whole process.
+/// `len` readable bytes (packed in little-endian) of UTF-8 text. The vector
+/// lives for the whole process.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dartforge_rti_init_table(data: *const i64, len: i64) {
     // SAFETY: guaranteed by the caller (a module constant).
     let bytes: &'static [u8] =
         unsafe { std::slice::from_raw_parts(data.cast::<u8>(), usize::try_from(len).unwrap_or(0)) };
-    let bytes = if bytes.starts_with(crate::rti_table::HEADER) {
-        crate::rti_table::decompressed(bytes)
-    } else {
-        bytes
-    };
+    register_rti_table(bytes);
+}
+
+/// [`dartforge_rti_init_table`] of a table in the compressed form of
+/// `rti_table`: a separate entry, so the decompressor only enters the modules
+/// whose table is large.
+///
+/// # Safety
+/// As [`dartforge_rti_init_table`], with the compressed form in the bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_rti_init_table_compressed(data: *const i64, len: i64) {
+    // SAFETY: guaranteed by the caller (a module constant).
+    let bytes: &'static [u8] =
+        unsafe { std::slice::from_raw_parts(data.cast::<u8>(), usize::try_from(len).unwrap_or(0)) };
+    register_rti_table(crate::rti_table::decompressed(bytes));
+}
+
+/// Reads the lines of an RTI table (see [`dartforge_rti_init_table`]).
+fn register_rti_table(bytes: &[u8]) {
     let text = std::str::from_utf8(bytes).expect("RTI table in UTF-8");
     for line in text.lines() {
         let (ty, rest) = line.split_at(1);

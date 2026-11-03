@@ -12,6 +12,7 @@ dartforge_arc_string_join_owned_v1	ptr:native,i64:scalar	ref:owned	0	1	normal
 dartforge_arc_rti_string_owned_v1	i64:native	ref:owned	0	1	normal
 dartforge_arc_rti_object_type_owned_v1	i64:native	ref:owned	0	1	normal
 dartforge_rti_init_table	ptr:native,i64:scalar	void:scalar	0	0	normal
+dartforge_rti_init_table_compressed	ptr:native,i64:scalar	void:scalar	0	0	normal
 dartforge_ffi_closure_address	ref:borrow	i64:scalar	0	1	pending
 # Scalar means no managed Ref ownership here; late-return bits may be a native pointer.
 dartforge_ffi_callback_late_calls	-	i64:scalar	0	0	normal

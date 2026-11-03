@@ -2654,25 +2654,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             }
         }
     }
-    let mut cited: BTreeSet<i64> = BTreeSet::new();
-    for r in &recipes {
-        let b = r.as_bytes();
-        let mut i = 0;
-        while i < b.len() {
-            if b[i] == b'C' && i + 1 < b.len() && (b[i + 1].is_ascii_digit() || b[i + 1] == b'-') {
-                let mut j = i + 1;
-                while j < b.len() && (b[j].is_ascii_digit() || b[j] == b'-') {
-                    j += 1;
-                }
-                if let Ok(n) = r[i + 1..j].parse::<i64>() {
-                    cited.insert(n);
-                }
-                i = j;
-            } else {
-                i += 1;
-            }
-        }
-    }
+    let cited: BTreeSet<i64> = recipes.iter().flat_map(|r| class_citations(r)).collect();
     // The runtime shapes.
     let core = ctx.core;
     let shapes: Vec<(i64, Option<ClassId>)> = vec![
@@ -2729,7 +2711,7 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     // of thousands of instructions that LLVM compiled on every `dartforge run`,
     // every JIT reload and every AOT link. One line per registration:
     // `C<id> <parameters> <name>`, `R<id> <recipe>`, `F<shape> <id>`.
-    let mut table = String::new();
+    let mut table = RtiTable::default();
     let mut b = FnBuilder::new(ctx, u, RTI_START.to_string(), "rti".to_string(), Type::Void);
     // The runtime shapes first: reading a rule normalizes its types, and
     // `FutureOr<Null>` is `Future<Null>?` only once the runtime knows which
@@ -2737,18 +2719,25 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     // I<Future<Null>?>`).
     for (shape, c) in &shapes {
         if let Some(c) = c {
-            table.push_str(&format!("F{shape} {}\n", ctx.id_rti(*c)));
+            table
+                .head
+                .push_str(&format!("F{shape} {}\n", ctx.id_rti(*c)));
+            table.roots.push(ctx.id_rti(*c));
         }
     }
     for &c in &classes {
         let id = ctx.id_rti(c);
+        let mut entry = RtiClass {
+            id,
+            ..Default::default()
+        };
         let name_str = visible_name(ctx, c);
         let n = ctx
             .outline
             .classes
             .get(c.0 as usize)
             .map_or(0, |d| d.type_params.len());
-        table.push_str(&format!("C{id} {n} {name_str}\n"));
+        entry.lines.push_str(&format!("C{id} {n} {name_str}\n"));
         // Declaration-site variance (`class C<in T, inout U>`, the `variance`
         // experiment): the runtime compares those arguments the other way
         // (`in`) or both ways (`inout`); the codes of DDC's
@@ -2770,32 +2759,38 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             .unwrap_or_default();
         if variances.iter().any(|v| *v != 0) {
             let digits: String = variances.iter().map(|v| char::from(b'0' + v)).collect();
-            table.push_str(&format!("V{id} {digits}\n"));
+            entry.lines.push_str(&format!("V{id} {digits}\n"));
         }
         // The library that declares the class and the declared name, for the
         // `reflectClass` of `dart:mirrors` (`runtime/src/mirrors.rs`).
         let class = &ctx.program.classes[c.0 as usize];
         let uri = ctx.program.library(class.library).uri.replace(' ', "%20");
-        table.push_str(&format!("B{id} {uri} {}\n", ctx.symbol_name(class.name)));
-        let Some(d) = ctx.outline.hierarchy.get(c) else {
-            continue;
-        };
-        let mut sups: Vec<(i64, TypeId)> = d
-            .supertypes
-            .iter()
-            .map(|(k, t)| (ctx.id_rti(*k), *t))
-            .collect();
-        sups.sort_by_key(|x| x.0);
-        for (_, t) in sups {
-            // The rule is written in the parameters of the class itself (`P<i>`).
-            let saved = (b.enclosing_class, b.class_by_tuple);
-            b.enclosing_class = Some(c);
-            b.class_by_tuple = false;
-            let r = b.type_recipe(t);
-            b.enclosing_class = saved.0;
-            b.class_by_tuple = saved.1;
-            table.push_str(&format!("R{id} {}\n", r.text));
+        entry
+            .lines
+            .push_str(&format!("B{id} {uri} {}\n", ctx.symbol_name(class.name)));
+        if let Some(d) = ctx.outline.hierarchy.get(c) {
+            let mut sups: Vec<(i64, TypeId)> = d
+                .supertypes
+                .iter()
+                .map(|(k, t)| (ctx.id_rti(*k), *t))
+                .collect();
+            sups.sort_by_key(|x| x.0);
+            for (sup, t) in sups {
+                // The rule is written in the parameters of the class itself (`P<i>`).
+                let saved = (b.enclosing_class, b.class_by_tuple);
+                b.enclosing_class = Some(c);
+                b.class_by_tuple = false;
+                let r = b.type_recipe(t);
+                b.enclosing_class = saved.0;
+                b.class_by_tuple = saved.1;
+                entry.lines.push_str(&format!("R{id} {}\n", r.text));
+                entry.cites.push(sup);
+                entry.cites.extend(class_citations(&r.text));
+            }
         }
+        entry.cites.sort_unstable();
+        entry.cites.dedup();
+        table.classes.push(entry);
     }
     // The error classes that the runtime represents (ids 1000–1012).
     for (heap_id, name_str) in [
@@ -2824,29 +2819,27 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         else {
             continue;
         };
-        table.push_str(&format!("F{heap_id} {}\n", ctx.id_rti(c)));
+        table
+            .tail
+            .push_str(&format!("F{heap_id} {}\n", ctx.id_rti(c)));
+        table.roots.push(ctx.id_rti(c));
     }
-    // The large table goes compressed (`dartforge_runtime::rti_table`): 1.37
-    // MB of text in new_sali/backend, ~260 KB compressed.
-    let bytes = table.into_bytes();
-    let bytes = if bytes.len() >= dartforge_runtime::rti_table::THRESHOLD {
-        dartforge_runtime::rti_table::compress(&bytes)
-    } else {
-        bytes
-    };
-    // The bytes packed into words (little-endian, like all the targets).
-    let words: Vec<i64> = bytes
-        .chunks(8)
-        .map(|c| {
-            let mut w = [0u8; 8];
-            w[..c.len()].copy_from_slice(c);
-            i64::from_le_bytes(w)
-        })
-        .collect();
-    let data = b.emit(Instruction::ConstArray(words), Type::Ptr);
+    // `Object` and the classes with a fixed cid: the runtime makes their
+    // values (lists, strings, boxes, closures, records, typed data) without an
+    // allocation of the program that the pruning could see.
+    table.roots.push(0);
+    table.roots.extend(
+        dartforge_runtime::layout::cid::SDK_CLASSES
+            .iter()
+            .map(|(cid, _, _)| i64::from(*cid)),
+    );
+    table.roots.sort_unstable();
+    table.roots.dedup();
+    let (bytes, compressed) = table_bytes(&table, None, true);
+    let data = b.emit(Instruction::ConstArray(table_words(&bytes)), Type::Ptr);
     b.emit(
         Instruction::CallRuntime {
-            name: "dartforge_rti_init_table".to_string(),
+            name: table_entry(compressed).to_string(),
             args: vec![
                 (data, Type::Ptr),
                 (
@@ -2861,6 +2854,106 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     b.terminate(Terminator::Return(None));
     b.finish(module);
     module.start_rti = Some(RTI_START.to_string());
+    module.rti_table = Some(table);
+}
+
+/// The runtime entry that reads a table in `compressed` form or not: the
+/// decompressor only enters a module whose table is large
+/// (`dartforge_runtime::rti_table::THRESHOLD`).
+pub fn table_entry(compressed: bool) -> &'static str {
+    if compressed {
+        "dartforge_rti_init_table_compressed"
+    } else {
+        "dartforge_rti_init_table"
+    }
+}
+
+/// The bytes of `table` with only the classes of `keep` (all of them without
+/// it) and, unless `libraries`, without the `B` lines (the library of each
+/// class, which only `dart:mirrors` reads), compressed from the threshold on,
+/// and whether they are compressed.
+pub fn table_bytes(
+    table: &RtiTable,
+    keep: Option<&std::collections::HashSet<i64>>,
+    libraries: bool,
+) -> (Vec<u8>, bool) {
+    let mut text = table.head.clone();
+    for c in &table.classes {
+        if keep.is_none_or(|k| k.contains(&c.id)) {
+            if libraries {
+                text.push_str(&c.lines);
+            } else {
+                for l in c.lines.split_inclusive('\n') {
+                    if !l.starts_with('B') {
+                        text.push_str(l);
+                    }
+                }
+            }
+        }
+    }
+    text.push_str(&table.tail);
+    // The large table goes compressed (`dartforge_runtime::rti_table`): 1.37
+    // MB of text in new_sali/backend, ~260 KB compressed. A WebAssembly module
+    // carries the decompressor (~17 KB) only for a table whose compression
+    // saves more than that (a quarter of the text remains).
+    let threshold = if crate::target::is_wasm() {
+        WASM_COMPRESSION_THRESHOLD
+    } else {
+        dartforge_runtime::rti_table::THRESHOLD
+    };
+    let bytes = text.into_bytes();
+    if bytes.len() >= threshold {
+        (dartforge_runtime::rti_table::compress(&bytes), true)
+    } else {
+        (bytes, false)
+    }
+}
+
+/// From this size on a WebAssembly module's RTI table goes compressed: at
+/// about 4:1, the compression saves more than the ~17 KB of the decompressor
+/// it brings in (`miniz_oxide`) from ~24 KB of text on.
+const WASM_COMPRESSION_THRESHOLD: usize = 24 * 1024;
+
+/// `bytes` packed into words (little-endian, like all the targets): the
+/// module constant the table entry reads.
+pub fn table_words(bytes: &[u8]) -> Vec<i64> {
+    bytes
+        .chunks(8)
+        .map(|c| {
+            let mut w = [0u8; 8];
+            w[..c.len()].copy_from_slice(c);
+            i64::from_le_bytes(w)
+        })
+        .collect()
+}
+
+/// The RTI ids a recipe cites (`C<id>`). Any text may be read: one that is
+/// not a recipe only yields more ids, never fewer.
+///
+/// ```
+/// use dartforge_emit_native::lower::rti::class_citations;
+/// assert_eq!(class_citations("F<0;C12<C7?>;1;C-3;>"), vec![12, 7, -3]);
+/// assert!(class_citations("Cat 1").is_empty());
+/// ```
+pub fn class_citations(r: &str) -> Vec<i64> {
+    let b = r.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'C' && i + 1 < b.len() && (b[i + 1].is_ascii_digit() || b[i + 1] == b'-') {
+            let mut j = i + 1;
+            while j < b.len() && (b[j].is_ascii_digit() || b[j] == b'-') {
+                j += 1;
+            }
+            if let Ok(n) = r[i + 1..j].parse::<i64>() {
+                out.push(n);
+            }
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    out
 }
 
 /// The name of a class in `Type.toString()`: the VM's `Class::UserVisibleName`
