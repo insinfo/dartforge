@@ -226,6 +226,24 @@ pub fn sdk_records() -> Vec<String> {
         .collect()
 }
 
+/// [`sdk_records`] of `program`: on WebAssembly, only the libraries the
+/// program loads (its imports, transitively). A library outside them has no
+/// class any code of the program can name, create or receive, and its startup
+/// registration only kept its class names, tables and helpers alive (`dart:io`,
+/// `dart:_http`, the JavaScript types of a hello world). A native executable
+/// keeps them all: its runtime starts `dart:io` by itself.
+pub fn sdk_records_of(program: &dartforge_elements::Program) -> Vec<String> {
+    if !crate::target::is_wasm() {
+        return sdk_records();
+    }
+    source_libraries()
+        .iter()
+        .map(|b| format!("dart:{b}"))
+        .filter(|uri| program.libraries.iter().any(|l| &l.uri == uri))
+        .map(|uri| registration_symbol(&uri))
+        .collect()
+}
+
 /// The class ids (of the source SDK) of the values that the runtime represents,
 /// in the order of `runtime/src/selectors.rs` (`CID_*`).
 pub fn runtime_cids(ctx: &crate::context::Context) -> Vec<i64> {

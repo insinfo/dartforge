@@ -82,6 +82,29 @@ pub struct LinkTimes {
     pub cache_object: bool,
 }
 
+/// The SDK objects of a WebAssembly module: those of the libraries whose
+/// registration the program calls (`sdk_module::sdk_records_of`, the libraries
+/// it loads). An object of another library only carries code no loaded library
+/// can reach, and its `@llvm.used` (the JavaScript exports of
+/// `dart:_js_helper`) would keep part of it. An object that is not one
+/// library's stays.
+fn loaded_sdk_objects(objects: &[PathBuf], llvm_ir: &str) -> Vec<PathBuf> {
+    objects
+        .iter()
+        .filter(|o| {
+            let Some(stem) = o.file_stem().and_then(|s| s.to_str()) else {
+                return true;
+            };
+            if !crate::sdk_module::source_libraries().contains(&stem) {
+                return true;
+            }
+            let record = crate::sdk_module::registration_symbol(&format!("dart:{stem}"));
+            llvm_ir.contains(&format!("@{record}("))
+        })
+        .cloned()
+        .collect()
+}
+
 pub fn compile_and_link(
     llvm_ir: &str,
     output: &Path,
@@ -139,7 +162,7 @@ pub fn compile_and_link(
     let (link_with, sdk_objects): (Linkage, Vec<PathBuf>) = match &sdk {
         Some(s) if production && wasm => (
             Linkage::Production(RuntimeCache::for_wasm()?.lib_path),
-            s.objects.clone(),
+            loaded_sdk_objects(&s.objects, llvm_ir),
         ),
         Some(s) if production => (
             Linkage::Production(crate::cache::RuntimeCache::for_production()?.lib_path),

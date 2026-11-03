@@ -679,7 +679,7 @@ fn emit_ir_internal(
     let mut hir_module = lower::lower_program(&ctx);
     hir_module.program_ids = ctx.program_ids();
     hir_module.program_fields = ctx.program_fields();
-    hir_module.sdk_records = sdk_module::sdk_records();
+    hir_module.sdk_records = sdk_module::sdk_records_of(&ctx.program);
     hir_module.runtime_cids = sdk_module::runtime_cids(&ctx);
     // `Platform.version` is `dart:io`'s, which the WebAssembly target does not have.
     hir_module.sdk_version = if crate::target::is_wasm() {
