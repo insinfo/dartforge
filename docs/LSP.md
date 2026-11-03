@@ -2198,6 +2198,280 @@ Outros dados da sessão:
 - **O Windows:** a máquina está reservada para o agente de corretude. A lentidão do i3 e a
   questão do `mimalloc` ficaram anotadas para o proprietário.
 
+#### Décima quinta rodada (2026-11-03): o índice de referências resolvidas
+
+##### O que a medida mostrou primeiro
+
+**A busca de antes no `new_sali/frontend`.** O *driver* (`editing_latency`) pede
+`references` em 8 identificadores do `processo_filtros_component.dart`: 3 vezes logo depois de
+uma edição de corpo e 16 sem edição (carga 6–15):
+
+| `references` | DartForge antes | Dart |
+|---|---:|---:|
+| `String` (53.897 locais), 1º depois de edição | 9,8 s | 7,7 s |
+| `String`, sem edição | 9,1 s | 1,4 s |
+| campo privado (4 locais) | 2,0 s | 11–20 ms |
+| mediana sem edição | 2,0 s | 15 ms |
+
+- Toda busca não local fazia uma carga ampla num processo filho (o SDK e os pacotes que citam
+  o nome): ~2 s até para 4 locais.
+- **A sessão semântica não guardava a biblioteca do documento.** O programa de um componente
+  do frontend (2.835 bibliotecas) passou do orçamento de 32 MiB de fonte. Cada `hover`,
+  `definition` ou `prepareRename` recarregava tudo (~950 ms), e as cargas passageiras deixavam
+  o servidor em 830 MiB com as páginas do alocador. Com o programa guardado, ficava em
+  570 MiB.
+
+##### O índice (`crates/lsp/src/reference_index.rs`)
+
+**Identidade.** Uma chave é o URI da biblioteca mais o caminho da declaração dentro dela:
+`dart:core#CString`, `…#CString.gisNotEmpty`, `…#CModel.knamed`. Ela sobrevive às recargas,
+porque não usa ids densos. Duas declarações com a mesma chave (uma declaração duplicada)
+tornam a chave *ambígua*, e a busca que a toca volta ao caminho antigo.
+
+**O que cada arquivo guarda.** O registro é calculado sobre um programa com os corpos do
+arquivo inferidos, com **as mesmas funções** da busca:
+- **as relações:** cada nome resolvido de expressão, anotação de tipo, metadado, construtor
+  escrito com o nome da classe e `show`/`hide`, e o que cita construtores e parâmetros
+  `this.x`/`super.x`;
+- **as declarações** (faixa do nome) e os fatos de classe que a família de um membro e o
+  `implementation` pedem: supertipos, supertipos escritos, membros por nome e espécie, campos,
+  `this.x` dos construtores, *mixins*;
+- **as referências `[ref]` da documentação**, cada prefixo resolvido;
+- **os `referencedNames`** (os arquivos candidatos de `_addResults`) e a tabela de linhas (as
+  localizações saem sem reler o arquivo);
+- **nos arquivos do projeto**, o que o `identify` diz de cada identificador, já em chaves; para
+  o que só o arquivo tem (local, parâmetro de tipo, prefixo), a resposta inteira; e a resposta
+  do `prepareRename` em cada identificador.
+
+**Uma implementação só.** A busca de construtores e a parte `this.x` da busca de um campo
+viraram varreduras de uma unidade para todos os construtores de uma vez
+(`unit_constructor_uses`, `unit_parameter_uses`). A busca antiga e o índice usam as mesmas
+varreduras. O mesmo vale para os supertipos escritos (`written_supertypes`), o `this.x` citado
+na documentação (`documented_field_parameter`) e o pivô do `implementation`
+(`implementation_pivot`).
+
+**A pergunta.**
+- A busca lê o registro do documento: o fato do identificador dá o alvo, a família de um
+  membro é percorrida sobre os fatos de classe, e os usos são as relações dos arquivos
+  candidatos. Nada carrega a biblioteca do documento.
+- `implementation` percorre os subtipos escritos dos fatos de classe com o pivô do `identify`.
+- `prepareRename` lê a resposta guardada.
+- Um identificador sem fato vai pelo caminho antigo. É o caso do parâmetro nomeado, cuja busca
+  alcança rótulos de outros arquivos.
+
+**Ciclo de vida.**
+- **Construção:** a primeira busca de uma sessão sem índice dispara a construção num processo
+  filho (`--reference-index`). Ele faz a carga ampla e infere, registra e solta cada biblioteca
+  por vez. No `new_sali/frontend` leva 45 s de CPU e chega a 1,1 GB no filho; o arquivo tem
+  71 MB. Enquanto isso, a busca segue pelo caminho antigo.
+- **Entre sessões:** o índice fica no *cache* do usuário (`~/Library/Caches/dartforge/lsp`). A
+  sessão seguinte o lê se os arquivos do SDK e dos pacotes têm a mesma data e o mesmo tamanho.
+- **Antes de cada resposta:** os arquivos do projeto cujo registro não é do texto atual são
+  registrados de novo. A biblioteca do documento vem da sessão, quando ela a tem; o resto
+  (arquivos novos, os dependentes de uma mudança de API) vem de um filho.
+  - O projeto inteiro só é comparado com o disco quando o *watcher* avisou de uma mudança, ou a
+    cada 30 s (a regra da varredura do residente); senão, só os documentos abertos.
+  - Um arquivo do programa fora da árvore do projeto (os gerados em `.dart_tool/build`) só
+    conta como apagado se sumiu do disco. Antes disso, cada sessão via os 224 dependentes
+    deles como desatualizados.
+- **Filho órfão:** um filho cujo servidor morreu para (antes, um ficou 4 min queimando CPU).
+
+**Custos cortados no caminho.**
+- O `identify` acha a expressão de um nome por um mapa da unidade, não varrendo todas as
+  expressões.
+- A documentação vem do *cache* da unidade, sem um *lexing* do arquivo a cada chamada; o
+  mesmo na busca de prefixos.
+- `node_constructor` olha o índice de elementos, não todas as funções.
+- A resposta de um prefixo é compartilhada entre os usos do mesmo tipo.
+- As cadeias do índice ficam guardadas uma vez só, por *hash*.
+
+**Orçamento da sessão: 32 → 48 MiB de fonte** (`DEFAULT_BUDGET_MIB`). Ver a primeira seção.
+
+##### Igualdade
+
+`crates/lsp/examples/reference_index_check.rs` compara, em todo identificador de cada arquivo
+de um projeto (uma posição por alvo e arquivo), a resposta do índice com a da busca sem ele:
+`references`, `implementation` e `prepareRename`.
+
+A busca sem o índice roda com o projeto inteiro carregado, como na sessão do oráculo:
+
+| projeto | alvos comparados | `references` iguais | `implementation` iguais | `prepareRename` iguais | parâmetros nomeados (caminho antigo) |
+|---|---:|---:|---:|---:|---:|
+| `args` 2.7.0 | 775 | 775 | 775 | 775 | 100 |
+| `path` 1.9.1 | 903 | 903 | 903 | 903 | 33 |
+| `string_scanner` 1.4.1 | 416 | 416 | 416 | 416 | 25 |
+| `app` (erros comuns) | 25 | 25 | 25 | 25 | 1 |
+
+- **O que o oráculo achou primeiro:** a comparação de antes carregava só a biblioteca do
+  documento para a busca antiga.
+  - O oráculo achou duas posições do `args` em que o índice não tinha os locais de tamanho zero
+    dos argumentos de um parâmetro posicional opcional e de um `super.x` em `parser.dart`.
+  - A resposta de um local tinha sido guardada sem os corpos dos outros arquivos.
+- **Correção:**
+  - o índice grava o início de todo argumento posicional opcional de uma chamada, não só o do
+    `this.x` de um construtor. O fato de um parâmetro posicional opcional nomeia essas
+    relações, e a resposta as lê de todos os arquivos;
+  - um parâmetro nomeado vai pelo caminho antigo (rótulos de outros arquivos, homônimos das
+    sobrescritas). Esse caminho, como o de qualquer parâmetro sem fato, agora carrega o projeto
+    inteiro. Com só a biblioteca do documento, os argumentos e os rótulos dos outros arquivos
+    faltavam, a menos que a sessão tivesse o projeto por acaso: um defeito anterior, que o
+    índice deixou à mostra;
+  - a comparação agora carrega o projeto inteiro;
+  - o formato do *cache* subiu para recusar os índices antigos.
+
+O teste `crates/lsp/tests/reference_index.rs` faz o mesmo num projeto com construtores
+nomeados, redirecionados e implícitos, `this.x` e `super.x`, sobrescritas em arquivos
+diferentes, documentação, combinadores e extensões, antes e depois de uma edição de corpo e de
+uma mudança de API.
+
+##### Os pedidos no `new_sali/frontend`
+
+Mesmas 8 posições do `processo_filtros_component.dart`. Cada pedido vai 3 vezes logo depois
+de uma edição de corpo (cada edição diferente das anteriores, `--methods`) e 16 vezes sem
+edição. O DartForge usa o índice do *cache* (uma sessão antes o construiu). Mediana em ms, com
+o pior caso entre parênteses; carga 20–27.
+
+| pedido | DartForge antes (carga 6–15) | DartForge agora | Dart |
+|---|---:|---:|---:|
+| `references`, sem edição | 2.044 (9.163) | **3,7 (106)** | 20,7 (3.339) |
+| `references`, depois de edição | 2.033 (9.764) | 289 (468) | **9,0** (8.662) |
+| `implementation`, sem edição | — | **3,1 (46)** | 12,5 (196) |
+| `implementation`, depois de edição | — | 44,9 (46) | **4,5** (68) |
+| `prepareRename`, sem edição | ~950 | 3,2 (32) | **0,8** (1,3) |
+| `prepareRename`, depois de edição | ~950 | 25,7 (36) | **1,8** (7,8) |
+| `hover`, sem edição | 964 | 10,7 (11,5) | **1,1** (3,6) |
+| `hover`, depois de edição | 966 | **11,5** (1.185) | 35,7 (63) |
+| *footprint* em repouso, todos os processos (MiB) | 824 | 1.082 | **798** |
+| pico, todos os processos (MiB) | 1.836 | 1.221 | **925** |
+
+O resultado por pedido:
+- **`references`:** ganhamos sem edição (3,7 contra 20,7 ms) e no pior caso (`String`: 106 ms
+  contra 3,3 s; depois de edição, 468 ms contra 8,7 s).
+  - Perdemos a mediana depois de uma edição: o registro do documento é refeito pela sessão
+    (~25–45 ms; a primeira edição de uma sessão carrega a biblioteca, ~1,2 s).
+- **`implementation`:** ganhamos sem edição e perdemos depois de edição, pelo mesmo motivo.
+- **`prepareRename` e `hover`:** ainda perdem por alguns ms. Antes passavam de 900 ms.
+- **Memória:** o servidor guarda a biblioteca do documento (~380 MiB) e o índice; o residente,
+  ~512 MiB. O Dart, um processo só, fica em 798 MiB. Perdemos 280 MiB nesta sessão de pedidos.
+  Na sessão longa sem pedidos, que não carrega nem a sessão nem o índice, ganhamos.
+- **Sessão sem *cache*:** as primeiras buscas seguem pelo caminho antigo enquanto o filho
+  constrói o índice (até 30 s com a carga, pico de 1,1 GB no filho).
+  - Depois disso, `implementation` e `prepareRename` já respondem do índice.
+  - O Dart usa o *cache* em disco dele da mesma forma.
+
+##### A sessão longa (macOS)
+
+**Itens 1 e 4: 150 rodadas (510 cargas), dois pares revezados** (o Dart primeiro no par a).
+A carga é a média de 1 minuto no início e no fim de cada sessão; a máquina é compartilhada com
+a validação e o agente de corretude, e nunca ficou calma (30–59). As medianas são até
+assentar, em ms, com a CPU entre parênteses.
+
+| carga | DartForge (par a, carga 52–30) | DartForge (par b, 30–59) | Dart (par a, 48–52) | Dart (par b, 59–20) |
+|---|---:|---:|---:|---:|
+| onda de 40 `.g.dart` | **79 (57)** | **72 (52)** | 155 (247) | 141 (390) |
+| edição de corpo | **33 (26)** | **31 (25)** | 39 (34) | 73 (72) |
+| mudança de API | **51 (46)** | **52 (44)** | 130 (89) | 188 (154) |
+
+- Ganhamos nas três cargas nos dois pares, no relógio e na CPU.
+- A edição de corpo do par a é a mais apertada: 33 contra 39 ms, com 26 contra 34 ms de CPU.
+
+**Item 3: os degraus de memória.**
+- O dado vivo do residente é o mesmo de antes (476,4 MiB nas duas sessões), e os degraus são
+  páginas que o alocador guarda depois dos picos.
+- **Devolver as páginas livres:** depois de cada análise, já com a resposta enviada, o residente
+  pede ao alocador do sistema que devolva as páginas livres (`malloc_zone_pressure_relief`,
+  macOS; `DARTFORGE_LSP_RELIEF=0` desliga).
+
+| *footprint* de todos os processos | com devolução (par a) | com devolução (par b) | sem devolução | Dart (a; b) |
+|---|---:|---:|---:|---:|
+| na carga ~50 → na 510 (MiB) | 568 → 575 | 578 → 583 | 558 → 576 | 566 → 752; 526 → 606 |
+| inclinação por 100 cargas | +1,2 | +0,8 | +4,6 | +39,8; +17,4 |
+| pico (MiB) | 575,7 | 582,8 | 576,3 | 760,0; 615,7 |
+
+- A devolução não muda os tempos (sem ela: 71, 31 e 48 ms).
+- A inclinação cai de +4,6 para +0,8 a +1,2, mas **não chega a ≤ 0** em todas as sessões. No
+  par b a curva fica plana da carga 200 até o fim; no par a ainda sobe em degraus de 1–2 MiB.
+- O que resta não está no residente: é o *footprint* do servidor e do trabalhador, que não
+  pedem a devolução. Não foi atacado nesta rodada.
+- As curvas estão em `bench/results/lsp-long-session/*-r25-*.csv`.
+
+##### Windows: o alocador (decisão do proprietário)
+
+Na mesma máquina da rodada 13 (i3-1215U), compartilhada com o agente de corretude:
+- **cópia do `new_sali`** (frontend e core, com os 117 pacotes e um `package_config.json`
+  reescrito) em `E:\Work\df-lsp`;
+- **antes de cada sessão**, o script esperava não haver `cargo`, `rustc` ou `link` rodando;
+  nenhum rodou durante as sessões. Mas a CPU ficou em 48–100% de carga o tempo todo.
+- **memória:** o *driver* só mede memória no macOS; no Windows, um processo à parte amostrou os
+  bytes privados da árvore do servidor a cada segundo.
+
+**1. Com o alocador do sistema** (o código desta rodada, com o cronômetro corrigido; 150
+rodadas, dois pares revezados):
+
+| carga (mediana até assentar) | DartForge (a; b) | Dart (a; b) |
+|---|---:|---:|
+| onda | **373; 358 ms** | 882; 540 ms |
+| edição de corpo | 143; 139 ms | **76; 75 ms** |
+| mudança de API | **270; 267 ms** | 5.695; 408 ms |
+| bytes privados no fim | **370; 370 MiB** | 1.668; 728 MiB |
+| inclinação por 100 cargas | **+2,8; +0,2** | +177,5; +47,1 |
+
+O DartForge ainda perde a edição de corpo. Por isso vale o passo 2.
+
+**2. Com o `mimalloc`** (só no binário `dartforge-lsp`, só no Windows, `cfg(windows)`):
+
+| carga | DartForge com mimalloc (a; b) | Dart (a; b) |
+|---|---:|---:|
+| onda | **317; 317 ms** | 572; 540 ms |
+| edição de corpo | 124; 125 ms | **75; 75 ms** |
+| mudança de API | **232; 234 ms** | 626; 455 ms |
+| bytes privados no fim | 561; 563 MiB | 723; 724 MiB |
+| inclinação por 100 cargas | +0,5; +2,2 | +43,1; +42,9 |
+
+**Decisão: o `mimalloc` não foi adotado.** O experimento (`f9f28d17`) foi revertido em
+`21843d27`.
+- O critério do proprietário era manter a inclinação no máximo igual à do alocador do sistema
+  e o dado vivo igual.
+- **Ganho:** com o `mimalloc` as cargas ficaram ~12% mais rápidas.
+- **Por que não serve:**
+  - a inclinação não ficou abaixo da do sistema nos dois pares (+2,2 contra +0,2 no par b);
+  - os bytes privados ficaram ~190 MiB acima (561–563 contra 370 MiB no fim; pico 630 contra
+    413 MiB);
+  - a edição de corpo continua perdendo para o Dart com os dois alocadores.
+- **Dado vivo:** no Windows não há estatística do alocador. A contagem das estruturas do censo
+  do residente é a mesma (141.808 elementos, 62.543 nomes; a tabela de tipos varia com a
+  coleta, 45.841–46.551).
+
+##### Validação (binário final)
+
+- **Oráculo de paridade** nos quatro projetos (35 arquivos, 398 posições), duas vezes:
+  - `references`, `implementation` e `definition` a 100%;
+  - *completion* top-5 a 100% e top-1 a 99%;
+  - a mesma tabela da rodada 14.
+- **Igualdade do índice:** a tabela acima (2.119 alvos).
+- **Testes:** VALIDACAO_TESTES
+- **`reference_index`:** o teste novo e o dos `references` passam.
+
+##### O que não foi feito nesta rodada
+
+- **O registro do documento depois de uma edição** sai da sessão, ~25–45 ms, ou de um filho,
+  ~1,3 s, quando a biblioteca não cabe no orçamento.
+  - Por isso a primeira busca depois de uma edição ainda perde para o Dart nas buscas pequenas.
+  - O residente já infere a biblioteca editada. O próximo passo é ele fazer o registro e
+    mandá-lo junto com os diagnósticos.
+- **O parâmetro nomeado** ainda vai pelo caminho antigo (rótulos e homônimos das
+  sobrescritas).
+- **`prepareRename` e `hover`** ainda ficam alguns ms atrás do Dart, e o servidor guarda a
+  biblioteca do documento (~380 MiB) que o residente também tem. Responder do residente é o
+  passo seguinte.
+- **A recarga no lugar casando os elementos por nome** (item 1): não começou. O projeto da
+  rodada 13 continua válido.
+- **A inclinação ≤ 0 em toda sessão longa** (item 3): com a devolução das páginas, a
+  inclinação ficou em +0,8 e +1,2 MiB por 100 cargas. O que sobra é o *footprint* do servidor e
+  do trabalhador.
+- **Windows:** a edição de corpo ainda perde (125–143 contra 75 ms) com os dois alocadores. A
+  causa não foi achada.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,

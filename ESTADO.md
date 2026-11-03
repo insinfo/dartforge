@@ -27,6 +27,10 @@ não no LSP.
      - o residente manter esse índice.
    - **Restrição:** um índice parcial não serve, porque quebraria a paridade de 100% do
      `references` no oráculo.
+   - **Feito na décima quinta rodada** (`crates/lsp/src/reference_index.rs`): `references`,
+     `implementation` e `prepareRename` respondem do índice. No `new_sali/frontend`, sem edição,
+     ficam em 2–3 ms contra 7–20 ms do Dart. Falta o registro do documento editado sair do
+     residente.
 3. **Memória estável em sessões longas.** É o problema que o proprietário vive com o
    servidor oficial no VS Code.
    - **Cenário:** o `new_sali` aberto inteiro, com frontend, core e backend. São cerca de
@@ -64,6 +68,72 @@ Nenhum projeto pode piorar. O item 3 se mede no `new_sali` inteiro, na sessão l
 a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
+
+**Andamento (03/11, 02h), itens 2 e 3 (décima quinta rodada: o índice de referências):**
+- **Item 2, o índice de referências resolvidas** (`crates/lsp/src/reference_index.rs`):
+  - **o que guarda:** o que cada nome resolve, em cada arquivo conhecido (projeto, `lib/` dos
+    pacotes, SDK), por uma chave estável (URI da biblioteca + caminho da declaração). É
+    calculado com as mesmas funções da busca;
+  - **nos arquivos do projeto**, guarda também o que o `identify` diz de cada identificador e a
+    resposta de `prepareRename`. Por isso uma busca não carrega a biblioteca do documento;
+  - **o que responde:** `references`, `implementation` e `prepareRename`. O parâmetro nomeado
+    ainda vai pelo caminho antigo;
+  - **ciclo de vida:** o índice é feito num filho na primeira busca (45 s de CPU no
+    `new_sali/frontend`) e fica no *cache* do usuário entre sessões. Os arquivos do projeto que
+    mudaram são registrados de novo antes de cada resposta;
+  - **sessão semântica:** o orçamento passou de 32 para 48 MiB de fonte. O programa de um
+    componente do frontend tinha passado de 32 MiB, e cada `hover` o recarregava (~950 ms).
+- **Igualdade com a busca sem o índice:** a busca sem o índice e o índice dão a mesma resposta em 2.119 alvos dos quatro
+  projetos do oráculo (`references`, `implementation` e `prepareRename`). Os 159 parâmetros
+  nomeados vão pelo caminho antigo, que agora carrega o projeto inteiro (com só a biblioteca,
+  faltavam os argumentos de outros arquivos).
+- **Medida no `new_sali/frontend`** (8 posições; mediana em ms, sem edição / depois de uma
+  edição; índice já no *cache*; carga 20–27):
+
+  | pedido | DartForge antes | DartForge agora | Dart |
+  |---|---:|---:|---:|
+  | `references` | 2.044 / 2.033 | **3,7** / 289 | 20,7 / **9,0** |
+  | `references`, pior caso (`String`) | 9.163 / 9.764 | **106 / 468** | 3.339 / 8.662 |
+  | `implementation` | — | **3,1** / 44,9 | 12,5 / **4,5** |
+  | `prepareRename` | ~950 | 3,2 / 25,7 | **0,8 / 1,8** |
+  | `hover` | 964 / 966 | 10,7 / **11,5** | **1,1** / 35,7 |
+  | memória em repouso, todos os processos | 824 MiB | 1.082 MiB | **798 MiB** |
+
+  Ganhamos sem edição em `references` e `implementation` e no pior caso de `references`.
+  Perdemos depois de uma edição (o registro do documento é refeito) e, por alguns ms, em
+  `prepareRename` e `hover`.
+- **Sessão longa, 150 rodadas, dois pares revezados** (carga 20–59, nunca calma):
+
+  | carga (mediana até assentar, CPU) | DartForge | Dart |
+  |---|---:|---:|
+  | onda de 40 `.g.dart` | **72–79 ms (52–57)** | 141–155 ms (247–390) |
+  | edição de corpo | **31–33 ms (25–26)** | 39–73 ms (34–72) |
+  | mudança de API | **51–52 ms (44–46)** | 130–188 ms (89–154) |
+
+- **Item 3, memória:**
+  - o dado vivo é o mesmo (476,4 MiB);
+  - depois de cada análise o residente devolve as páginas livres ao sistema
+    (`malloc_zone_pressure_relief`). A inclinação cai de +4,6 para +0,8 e +1,2 MiB por 100
+    cargas (Dart: +17,4 e +39,8);
+  - **a meta ≤ 0 não foi atingida.** O que sobra são degraus de 1–2 MiB do servidor e do
+    trabalhador.
+- **Windows (decisão do proprietário sobre o alocador):**
+  - **alocador do sistema:** ganhamos na onda (358–373 contra 540–882 ms) e na API (267–270
+    contra 408–5.695 ms), mas perdemos na edição de corpo (139–143 contra 75–76 ms);
+  - **com o `mimalloc`:** ficou ~12% mais rápido, mas guardou ~190 MiB a mais, e a inclinação
+    não ficou abaixo da do sistema nos dois pares (+2,2 contra +0,2);
+  - **não foi adotado** (`21843d27` reverte `f9f28d17`);
+  - a máquina ficou em 48–100% de CPU durante as sessões, sem `cargo`, `rustc` ou `link`.
+- **Validação:** VALIDACAO
+- **Ainda não feito:**
+  - **o registro do documento depois de uma edição:** sai da sessão (~20–40 ms quando ela tem a
+    biblioteca) ou de um filho (~1,3–1,6 s quando não tem). O residente já infere a biblioteca
+    editada; fazer o registro dele é o próximo passo;
+  - **o `hover`**, `definition` e `prepareRename` ainda passam do Dart por alguns ms
+    (6 contra 1 ms);
+  - **a recarga no lugar casando os elementos por nome** (item 1): não começou;
+  - **a memória** do servidor e do trabalhador nas sessões longas (degraus de 1–2 MiB).
+- Detalhes em `docs/LSP.md`, "Décima quinta rodada".
 
 **Andamento (02/11, 22h), itens 1 e 3 (décima quarta rodada: a etapa 2 e os custos fixos):**
 - **Erro do *driver*:** o cronômetro de cada edição (corpo e API) começava antes de amostrar a
