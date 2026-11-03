@@ -66,6 +66,13 @@ pub(crate) enum Call {
     ColorPresentation {
         offset: usize,
     },
+    /// `codeAction` over `start..end` with the typed diagnostics published
+    /// for the document.
+    Actions {
+        start: usize,
+        end: usize,
+        published: Vec<dartforge_diagnostics::Diagnostic>,
+    },
     /// The reference index records of the libraries of `files` (canonical
     /// keys), encoded ([`crate::reference_index::ReferenceIndex::encode`]).
     Records {
@@ -102,6 +109,7 @@ pub(crate) enum Answer {
     TypeItem(Option<crate::TypeItem>),
     Colors(Vec<(Span, [u8; 4])>),
     Flag(Option<bool>),
+    Actions(Vec<crate::CodeAction>),
     /// Hexadecimal encoded index (empty: none could be made).
     Records(String),
 }
@@ -145,6 +153,14 @@ pub(crate) fn run(
 ) -> Answer {
     use crate::Analyzer;
     let text = documents.get(uri).unwrap_or("").to_string();
+    if let Call::Actions {
+        start,
+        end,
+        published,
+    } = call
+    {
+        return Answer::Actions(analyzer.actions(documents, uri, *start, *end, published));
+    }
     match *call {
         Call::Hover { offset } => {
             Answer::Hover(analyzer.hover_in_workspace(uri, &text, offset, documents))
@@ -180,8 +196,8 @@ pub(crate) fn run(
         Call::ColorPresentation { offset } => {
             Answer::Flag(analyzer.color_presentation(documents, uri, offset))
         }
-        // Answered over the lent project directly ([`serve`]).
-        Call::Records { .. } => Answer::Unavailable,
+        // Answered over the lent project directly ([`serve`]), or above.
+        Call::Records { .. } | Call::Actions { .. } => Answer::Unavailable,
     }
 }
 

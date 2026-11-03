@@ -21,7 +21,7 @@ use std::collections::BTreeSet;
 use url::Url;
 
 /// A text edit: replace `span` (bytes) of `uri` with `text`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Edit {
     pub uri: String,
     pub span: Span,

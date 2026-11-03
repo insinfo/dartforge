@@ -34,7 +34,7 @@ use std::path::PathBuf;
 use url::Url;
 
 /// A code action offered to the editor.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CodeAction {
     /// Displayed title (`Insert ';'`, `Import library 'dart:math'`).
     pub title: String,
@@ -64,7 +64,7 @@ pub struct CodeAction {
 /// assert!(!l.empty());
 /// assert!(Linked::default().empty());
 /// ```
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Linked {
     /// Offset and length of the selection after the change.
     pub selection: Option<(usize, usize)>,
@@ -151,7 +151,7 @@ impl CodeAction {
 }
 
 /// A linked group (`LinkedEditGroup`): the positions that change together.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LinkedGroup {
     /// Offsets (bytes) of the positions in the final document.
     pub positions: Vec<usize>,

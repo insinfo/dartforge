@@ -1535,6 +1535,18 @@ impl Analyzer for SemanticAnalyzer {
             output.extend(ignore);
             return output;
         };
+        // The whole answer from the resident, which has the library.
+        if let Some(crate::remote::Answer::Actions(actions)) = self.remote(
+            documents,
+            uri,
+            crate::remote::Call::Actions {
+                start,
+                end,
+                published: published_.to_vec(),
+            },
+        ) {
+            return actions;
+        }
         let SemanticAnalyzer {
             session,
             sdk: Some(sdk),
