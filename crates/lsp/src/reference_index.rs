@@ -1214,8 +1214,8 @@ impl Emit<'_> {
 /// The identifier facts of project unit `u` (its record `r`): what
 /// [`Project::identify`] says each identifier denotes, as an [`IndexTarget`];
 /// for a target only the file has, the whole answer of the search (when it
-/// stays in the file). A named parameter's search reaches other files' labels,
-/// and an identifier without a fact is identified at the query.
+/// stays in the file). A parameter's search reaches other files, and an
+/// identifier without a fact is identified at the query.
 fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &mut Tables<'_>) {
     let unit = project.program().unit(u);
     let source = &unit.source;
@@ -1268,9 +1268,12 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
         let fact = match target_of(project, u, tables, &d) {
             Some(t) => Some(IdentFact::Target(t)),
             None => {
+                // A parameter's search reaches other files: the labels of a named
+                // one, the empty references of the arguments of an optional
+                // positional one, the `super.x` that point to it. Their bodies are
+                // not inferred while this library is recorded.
                 if let Target::Local { declaration, .. } = d.target
-                    && crate::project::parameter_in(&unit.ast, declaration)
-                        .is_some_and(|(q, _)| q.kind == ast::ParameterKind::Named)
+                    && crate::project::parameter_in(&unit.ast, declaration).is_some()
                 {
                     continue;
                 }

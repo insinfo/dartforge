@@ -570,6 +570,13 @@ impl SemanticAnalyzer {
         use std::fmt::Write as _;
         type Answer = Option<(Option<(String, Span)>, Vec<(String, Span)>)>;
         let mut report = String::new();
+        // The search without the index is compared with the whole project loaded
+        // (the session then serves the library queries from it): a library's load
+        // misses what other files' bodies say of a local, as an optional positional
+        // parameter's empty references in the calls.
+        if let Some(first) = uris.first() {
+            let _ = self.project(documents, first);
+        }
         let mut compared = 0usize;
         let mut equal = 0usize;
         // Equal, not answered by the index, different.
