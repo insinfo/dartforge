@@ -2356,7 +2356,12 @@ impl<'a> Ctx<'a> {
             .outline
             .classes
             .get(c.0 as usize)
-            .map(|d| d.type_params.iter().map(|p| self.table.param(*p).variance).collect())
+            .map(|d| {
+                d.type_params
+                    .iter()
+                    .map(|p| self.table.param(*p).variance)
+                    .collect()
+            })
             .unwrap_or_default();
         self.class_params[c.0 as usize]
             .iter()

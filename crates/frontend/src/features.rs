@@ -191,9 +191,10 @@ impl Feature {
             Feature::DotShorthands => Some(LanguageVersion::new(3, 10)),
             Feature::PrivateNamedParameters => Some(LanguageVersion::new(3, 12)),
             Feature::PrimaryConstructors => Some(LanguageVersion::new(3, 13)),
-            Feature::Augmentations | Feature::EnhancedParts | Feature::Macros | Feature::Variance => {
-                None
-            }
+            Feature::Augmentations
+            | Feature::EnhancedParts
+            | Feature::Macros
+            | Feature::Variance => None,
             Feature::NonfunctionTypeAliases => Some(LanguageVersion::new(2, 13)),
             Feature::GenericMetadata => Some(LanguageVersion::new(2, 14)),
             Feature::ClassModifiers | Feature::SealedClass => Some(LanguageVersion::new(3, 0)),

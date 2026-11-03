@@ -314,9 +314,16 @@ fn check_external_members(ctx: &Ctx) {
             && !ctx.js_libs.contains_key(&lib)
             && library.imports.iter().all(|i| {
                 let uri = &program.library(i.library).uri;
-                !["dart:js", "dart:_js", "dart:html", "dart:ui", "package:js/", "package:web/"]
-                    .iter()
-                    .any(|p| uri.starts_with(p))
+                ![
+                    "dart:js",
+                    "dart:_js",
+                    "dart:html",
+                    "dart:ui",
+                    "package:js/",
+                    "package:web/",
+                ]
+                .iter()
+                .any(|p| uri.starts_with(p))
             })
     };
     let interop_class = |c: Option<ClassId>| {
@@ -2560,7 +2567,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                         .function(fid)
                         .class
                         .and_then(|owner| {
-                            let Ty::Iface { args, .. } = ctx.as_super(&ctx.this_ty(c), owner)? else {
+                            let Ty::Iface { args, .. } = ctx.as_super(&ctx.this_ty(c), owner)?
+                            else {
                                 return None;
                             };
                             let map: HashMap<u32, Ty> = ctx.class_params[owner.0 as usize]
