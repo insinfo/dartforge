@@ -2311,6 +2311,7 @@ pub(crate) fn target_of(
 
 /// The parent process of an index child when it started
 /// ([`watch_parent`]).
+#[cfg(unix)]
 static PARENT: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 
 /// Remembers the parent of this (child) process: [`orphaned`] then tells when
