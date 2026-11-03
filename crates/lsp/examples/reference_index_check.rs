@@ -7,7 +7,9 @@
 //!
 //! Every `.dart` file of `lib/` and `bin/` is opened; without files after the
 //! project, all of them are checked. The SDK is found as the server finds it
-//! (`DARTFORGE_SDK_LIB`, …).
+//! (`DARTFORGE_SDK_LIB`, …). With `DARTFORGE_INDEX_CHECK_RESIDENT=1` the
+//! checked files' records come from a resident's analyses, as after an edit
+//! in the editor (docs/LSP.md, "Décima sexta rodada").
 use dartforge_lsp::{DocumentStore, SemanticAnalyzer};
 use std::path::{Path, PathBuf};
 
