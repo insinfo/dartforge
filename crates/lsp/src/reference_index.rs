@@ -3355,6 +3355,10 @@ impl ReferenceIndex {
                 1 => &mut index.words,
                 _ => &mut index.paths,
             };
+            // Sized once: growing by doubling left the old tables with the
+            // allocator after the load.
+            strings.ids.reserve(n.min(1 << 24));
+            strings.ends.reserve(n.min(1 << 24));
             for _ in 0..n {
                 let t = r.s()?;
                 strings.id(t);

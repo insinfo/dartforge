@@ -75,6 +75,113 @@ pub(crate) fn log(label: &str) {
     }
 }
 
+/// The bytes of a file, read once and dropped after use: on Unix a
+/// read-only mapping (its pages are the file's, and leave no free pages with
+/// the allocator), elsewhere a read into the heap. The reference index's
+/// cache (~70 MB on `new_sali/frontend`) read into the heap left the
+/// server's footprint ~150 MiB above its live data (docs/LSP.md, "Décima
+/// sétima rodada").
+pub(crate) enum FileBytes {
+    Heap(Vec<u8>),
+    #[cfg(unix)]
+    Mapped(mapping::Mapping),
+}
+
+impl std::ops::Deref for FileBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        match self {
+            FileBytes::Heap(v) => v,
+            #[cfg(unix)]
+            FileBytes::Mapped(m) => m.bytes(),
+        }
+    }
+}
+
+/// The bytes of the file at `path` ([`FileBytes`]).
+pub(crate) fn file_bytes(path: &std::path::Path) -> Option<FileBytes> {
+    #[cfg(unix)]
+    if let Some(m) = mapping::Mapping::of(path) {
+        return Some(FileBytes::Mapped(m));
+    }
+    std::fs::read(path).ok().map(FileBytes::Heap)
+}
+
+#[cfg(unix)]
+#[allow(unsafe_code)]
+pub(crate) mod mapping {
+    use std::ffi::c_void;
+
+    unsafe extern "C" {
+        fn mmap(
+            addr: *mut c_void,
+            len: usize,
+            prot: i32,
+            flags: i32,
+            fd: i32,
+            off: i64,
+        ) -> *mut c_void;
+        fn munmap(addr: *mut c_void, len: usize) -> i32;
+    }
+
+    const PROT_READ: i32 = 1;
+    const MAP_PRIVATE: i32 = 2;
+
+    /// A read-only private mapping of a whole file.
+    pub(crate) struct Mapping {
+        at: *mut c_void,
+        len: usize,
+    }
+
+    // SAFETY: the mapping is read-only and owned; nothing else unmaps it.
+    unsafe impl Send for Mapping {}
+
+    impl Mapping {
+        /// Maps the file at `path`; `None` when it is empty or cannot be mapped
+        /// (the caller reads it instead).
+        pub(crate) fn of(path: &std::path::Path) -> Option<Mapping> {
+            use std::os::fd::AsRawFd;
+            let file = std::fs::File::open(path).ok()?;
+            let len = usize::try_from(file.metadata().ok()?.len()).ok()?;
+            if len == 0 {
+                return None;
+            }
+            // SAFETY: a fresh read-only private mapping of an open descriptor; the
+            // mapping outlives the descriptor, which may close after the call.
+            let at = unsafe {
+                mmap(
+                    std::ptr::null_mut(),
+                    len,
+                    PROT_READ,
+                    MAP_PRIVATE,
+                    file.as_raw_fd(),
+                    0,
+                )
+            };
+            if at.is_null() || at as isize == -1 {
+                return None;
+            }
+            Some(Mapping { at, len })
+        }
+
+        pub(crate) fn bytes(&self) -> &[u8] {
+            // SAFETY: `at` maps `len` readable bytes until `drop`. A file changed
+            // under the mapping changes the bytes, which the decoder checks.
+            unsafe { std::slice::from_raw_parts(self.at.cast::<u8>(), self.len) }
+        }
+    }
+
+    impl Drop for Mapping {
+        fn drop(&mut self) {
+            // SAFETY: unmaps exactly what `of` mapped, once.
+            unsafe {
+                munmap(self.at, self.len);
+            }
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod platform {

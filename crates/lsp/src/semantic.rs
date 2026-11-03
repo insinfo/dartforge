@@ -1433,6 +1433,17 @@ impl Analyzer for SemanticAnalyzer {
         {
             return crate::rename::prepare(&project, uri, offset);
         }
+        // The resident has the library of the new text before the record it
+        // makes of it: it answers without waiting for the record.
+        if !current_record(self)
+            && let Some(crate::remote::Answer::Prepare(r)) = self.remote(
+                documents,
+                uri,
+                crate::remote::Call::PrepareRename { offset },
+            )
+        {
+            return r;
+        }
         // The answer the document's record keeps, when it is of the text.
         if self.ready_index(documents, uri)
             && let Some(index) = &self.reference_index
@@ -2238,7 +2249,7 @@ fn load_cached_index(
     root: &std::path::Path,
     sdk: &std::path::Path,
 ) -> Option<crate::reference_index::ReferenceIndex> {
-    let bytes = std::fs::read(index_cache_path(root, sdk)?).ok()?;
+    let bytes = crate::memory::file_bytes(&index_cache_path(root, sdk)?)?;
     let index = crate::reference_index::ReferenceIndex::decode(&bytes)?;
     if index.root != root {
         return None;
