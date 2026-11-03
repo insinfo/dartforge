@@ -13,8 +13,11 @@ use std::process::Command;
 /// depend on the machine): 1.30 MB on 02/11/2026, 0.78 MB on 03/11/2026 once
 /// `noSuchMethod` stays only for programs that invoke dynamically
 /// (`lower/dynamic_invocation.rs`), only the loaded SDK libraries are linked
-/// and the runtime's zero tables left the data section.
-const HELLO_WASM_BUDGET: u64 = 860_000;
+/// and the runtime's zero tables left the data section; 0.72 MB later on
+/// 03/11/2026, with the RTI table of the live classes only (uncompressed,
+/// without the decompressor) and the runtime's compact map
+/// (`runtime/src/hash.rs`). The budget is that plus ~10%.
+const HELLO_WASM_BUDGET: u64 = 790_000;
 
 /// The budget of the hello world's executable: 3.49 MB on Windows on
 /// 02/11/2026, under the ~5.8 MB of `dart compile exe` on every host.
