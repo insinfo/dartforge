@@ -535,9 +535,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // instantiation to bounds; `dynamic` without a bound or when the bound
         // depends on type variables.
         // A bound that mentions the closure's own earlier parameters takes
-        // their defaults (`T2 extends Map<Q1, T1>`), and one that mentions the
+        // their defaults (`T2 extends Map<Q1, T1>`), one that mentions the
         // enclosing functions' parameters (`M<i>`) is read in the outer tuple
-        // at the entry; one that needs the class's (`P<i>`) stays `dynamic`.
+        // at the entry, and one that mentions the class's (`P<i>`) is read
+        // from the instantiation of the captured `this` (environment slot 0,
+        // already there for every closure created in an instance member).
+        // Without a receiver (no `this` where the closure was created), a
+        // bound over the class's parameters stays `dynamic`.
         let pattern = generic.then(|| {
             let ids: Vec<dartforge_types::table::TypeParamId> = own_set
                 .iter()
@@ -554,7 +558,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let limit = (id.0 != u32::MAX)
                     .then(|| defaults.next())
                     .flatten()
-                    .filter(|r| !r.variables || !r.text.contains('P'));
+                    .filter(|r| with_this || !r.variables || !r.text.contains('P'));
                 if let Some(r) = &limit {
                     variables |= r.variables;
                 }
@@ -564,6 +568,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             super::rti::Recipe { text, variables }
         });
         if let Some(vals) = e.unpack(&infos, args.clone(), desc.clone()) {
+            // The receiver of the creator, which the class's type variables
+            // of the defaults (`P<i>`) read; the checks below reuse it (a
+            // generic closure never has a direct environment).
+            if with_this && generic {
+                e.this_param = Some(e.emit(
+                    Instruction::EnvGet {
+                        env: env_e.clone(),
+                        index: 0,
+                    },
+                    Type::Ref,
+                ));
+                e.enclosing_class = self.enclosing_class;
+            }
             // The tuple of a generic closure: the outer one joined with the
             // call's (the slot after the arguments).
             let mut passed = None;
@@ -642,7 +659,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 })
                 .unwrap_or_default();
             if !checks.is_empty() || joined.is_some() {
-                if with_this {
+                if with_this && e.this_param.is_none() {
                     e.this_param = Some(if direct {
                         env_e.clone()
                     } else {
