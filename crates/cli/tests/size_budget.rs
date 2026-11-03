@@ -16,8 +16,11 @@ use std::process::Command;
 /// and the runtime's zero tables left the data section; 0.72 MB later on
 /// 03/11/2026, with the RTI table of the live classes only (uncompressed,
 /// without the decompressor) and the runtime's compact map
-/// (`runtime/src/hash.rs`). The budget is that plus ~10%.
-const HELLO_WASM_BUDGET: u64 = 790_000;
+/// (`runtime/src/hash.rs`); 0.68 MB in the third round of 03/11/2026, with the
+/// SDK class names and subtype edges registered from link data for the live
+/// classes only, the runtime's own `double` digits (Ryū) and the heap never
+/// dropped on WebAssembly. The budget is that plus ~10%.
+const HELLO_WASM_BUDGET: u64 = 745_000;
 
 /// The budget of the hello world's executable: 3.49 MB on Windows on
 /// 02/11/2026, under the ~5.8 MB of `dart compile exe` on every host.
