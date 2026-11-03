@@ -545,6 +545,202 @@ gravar o `README.md` do cache e as listagens `.cache/<pacote>-versions.json`. No
 
 Evidências em `bench/results/2026-11-02-pub-test-2/README.md`.
 
+## 02/11/2026: backend nativo — sexta rodada; a suíte `tests/language` inteira medida, sem projeção
+
+### Medição: as 2 863, com o binário final
+
+`run-language-suite.py` com `--jobs 4`, **no Windows** (`dfwin-isaque`, Dart 3.6.2 oficial, Node 24),
+referência `vm-win-r6` (a medição oficial da VM no Windows com os experimentos, mais os 4 programas
+dos pacotes e `closure/cycles_test` rodados de novo; os pacotes nas versões que a 3.6.2 fixa) e,
+para o JS dev, o DDC 3.6.2 (`ddc-win-r6`) nos programas em que diferimos da VM; binário final da
+rodada (`e5ee436c`; o JS dev, `fa1c3639`, com o mesmo emissor JS). **Números reais, não
+projeção**: o Mac perdeu energia duas vezes no meio das medições; tudo foi medido de novo no
+Windows, e nenhum resultado parcial de antes conta.
+
+| | iguais à VM | só dart2wasm / divergência do DDC | recusados pelos dois | passam onde a VM falha | falhas |
+|---|---:|---:|---:|---:|---:|
+| JS dev, rodada 5 (`jsdev-r5c`, Mac, regras antigas) | 2 780 | — | 13 | — | 70 |
+| JS dev, `f5c31671` (`jsdev-win-r6`, Windows, regras novas) | 2 782 | 32 (DDC) | 16 | 2 | 31 |
+| **JS dev final** (`jsdev-win-final`) | **2 794** | **48** (DDC) | **16** | **4** | **1** |
+| nativo, rodada 5 (`f17`, projeção, Mac) | 2 810 | — | 13 | — | 40 |
+| **nativo final** (`native-win-final`) | **2 832** | — | **16** | **2** | **13** |
+| wasm, rodada 5 (`f17-wasm`, projeção, Mac) | 2 810 | 5 | 13 | — | 35 |
+| **wasm final** (`wasm-win-final`) | (em medição) | (em medição) | (em medição) | (em medição) | (em medição) |
+
+Os 16 recusados pelos dois (e não 13) vêm da referência do Windows e das três verificações novas
+do *front end* (abaixo): programas que a VM recusa e que antes nós rodávamos.
+
+As 13 falhas do nativo, todas fora do que esta rodada podia igualar: **9 de pilha simbólica**
+(`stack_trace/{demangle_ctors,full1,full2,full3,rethrow_nonerror,stack_trace}`, `regress21795`,
+`private/mixin_exception_throw` e `private3`, que imprimem a pilha; o AOT sai com
+`--stack-trace none`), **2 de *hash*** (`savannah`, `non_interface_object_pattern`) e **2 em que
+o CFE da VM quebra** (252: `augmentation_libraries/class_augmentation`, que nós recusamos no
+*parser*, e `least_upper_bound_greatest_closure_2`, que nós compilamos e rodamos). Das 17 reais da
+rodada 5 sobra só o que já estava fora (pilhas e *hashes*); os 22 de `variance` saíram (20 iguais,
+2 passam onde a VM falha).
+
+
+### Regressão de tamanho do `863d4159` (wasm e nativo)
+
+O hello world em wasm foi de 1 288 823 bytes (`47f3ce7a`) para 12 753 111 (bissecção do
+coordenador: `863d4159`), com o interop JS importado e um `.mjs` de companhia; a poda guardava
+20 559 de 51 070 símbolos. **O nativo regrediu igual** (3,49 → 12,93 MB no Windows), o que ninguém
+tinha visto.
+
+**Causa.** O `863d4159` fez o `join_arc_facts` guardar os nomes dos *tear-offs* e as entradas de
+instanciação das funções baixadas em módulos temporários (o SDK é baixado em partes): antes elas
+se perdiam, e o `toString` de um *tear-off* do SDK saía sem nome. Com isso, o
+`df.register.<biblioteca>.tearoffs` de cada biblioteca do SDK passou a citar **todo** *tear-off*
+que o SDK cria em qualquer lugar; a partida chama essas funções, então a poda da ligação tomava
+cada entrada como viva — e, por elas, quase todo o SDK, `dart:js_interop` incluído.
+
+**Correção** (`llvm/selectors.rs`): uma biblioteca do SDK não registra mais os seus *tear-offs* na
+partida; o programa registra na partida os que ele cria, também os de funções do SDK (declaradas
+no módulo do programa: criá-las já as mantém vivas), e o SDK avisa o runtime **onde cria** a
+*closure* de uma entrada sua (`note_sdk_tearoff` → `dartforge_note_tearoff`, que registra nome e
+identidade no primeiro uso), código que só fica vivo quando quem cria fica. Os ganhos do
+`863d4159` ficam todos: o nome no `toString`, a igualdade e o `hashCode` também do *tear-off* que
+o SDK cria — `(42 as dynamic).toString` (`closure/tearoff_dynamic`, que a primeira versão desta
+correção, só com o registro do programa, voltava a falhar).
+
+Bytes, no Windows (`compile-wasm` e `aot --optimize`; "antes" é o binário de `f5c31671`, com a
+regressão; "depois" é o binário final da rodada; os programas são os de `bench/performance`, os da
+tabela de 31/10, que foi medida no Mac):
+
+| programa | wasm 31/10 (Mac) | wasm antes | wasm depois | nativo antes | nativo depois |
+|---|---:|---:|---:|---:|---:|
+| hello | 1 258 409 | 12 756 051 | **1 296 215** | 12 931 584 | **3 501 568** |
+| árvores (`escaping_objects`) | 1 307 255 | 12 764 492 | **1 349 351** | 12 938 752 | **3 513 856** |
+| JSON | 1 942 692 | 12 809 712 | **1 992 349** | 12 985 856 | **3 805 696** |
+| strings | 1 353 205 | 12 766 364 | **1 397 099** | 12 941 312 | **3 532 800** |
+| objetos temporários | 1 311 415 | 12 765 010 | **1 349 873** | 12 940 288 | **3 515 904** |
+| coleções | 1 603 143 | 12 793 211 | **1 646 201** | 12 965 888 | **3 807 744** |
+
+Depois da correção, nenhum módulo importa `dartforge_js` (só os 4 de `dartforge_host_v1`) nem
+tem `.mjs`; antes, 57 importações do interop. No Mac o hello sai com 1 297 303 bytes (o
+`47f3ce7a` dava 1 288 823). Os ~6 KB a mais do aviso no ponto de criação, e o que entrou desde 31/10,
+dão os 2–3% sobre a tabela de 31/10.
+
+**Guardas** (`crates/cli/tests/size_budget.rs`, no `ci.yml`, job `native-unix`): o hello em wasm
+até 1,4 MB e sem importação do módulo `dartforge_js` (lida da seção de importações: os nomes
+`dartforge_js_*` que o runtime exporta para o adaptador estão em todo módulo), sem `.mjs`; o
+executável do hello até 5 MB (o `dart compile exe` dá ~5,8 MB).
+
+### Correções
+
+- **`typedef/aliased_constructor_tear_off`** (nativo e wasm): `Alias<T…>.new`/`.name` com
+  `typedef Alias<…> = C<…>` é o *tear-off* instanciado do construtor de `C` (o tipo estático já
+  traz `C<int> Function(int)`), o mesmo de `C<int>.new`; antes era lido como o getter `new` de um
+  `Type`. E um alias que é um *proper rename* (`typedef Direct<T> = C<T>`: os parâmetros de `C` em
+  ordem e com os mesmos limites) dá, sem instanciação, o próprio *tear-off* genérico de `C`,
+  idêntico a `C.new`; `Bounded<T extends num> = C<T>` continua diferente, como na VM.
+- **Verificações do *front end* que faltavam** (os programas que a VM recusa e nós rodávamos; nos
+  quatro compiladores, `codes::REJECTING_CODES`): `undefined_super_{getter,setter,method,operator}`
+  (`super.foo = 3` sem setter acima, `deferred/super_dependency`) e `undefined_named_parameter`
+  (`value_class/creates_*`: `@valueClass` sem o experimento não cria o construtor). Antes de
+  entrarem na lista, o `dartforge analyze` passou pelos 2 863 programas e pelas 377 bibliotecas
+  auxiliares da suíte: nenhuma ocorrência fora dos programas que a VM recusa (e da biblioteca de
+  `augmentation_libraries`, que a VM também recusa).
+- **Ordem da interpolação** (`string/interpolation_and_buffer`, nativo e wasm): como a VM
+  (`StringConcatenation` e depois `_interpolate`), todas as expressões interpoladas são avaliadas
+  primeiro e só então cada valor vira texto — `"$t${throw x}"` lança `x` antes do `t.toString()`.
+  A VM falha nesse teste (255: ela não segue o texto da especificação), e agora nós falhamos igual.
+- ***Mixin* aplicado duas vezes: uma posição por aplicação** (desenho em `docs/NATIVO.md` §6). O
+  *layout* segue a cadeia completa, da base para a folha; antes a cadeia sem repetição punha o
+  *mixin* depois da superclasse e deslocava os campos dela entre `D` e `E` (`D(5,…)` lia lixo num
+  `E`). Leituras e escritas vão à aplicação mais externa (os acessores são virtuais, como na VM, em
+  que as duas aplicações veem o campo da externa); o construtor de cada aplicação inicializa as
+  suas posições. Medido contra a VM com campos, `super`, `dynamic` e três classes.
+- **O mesmo caso no JS** (`mixin/super_2`, `mixin_legacy/super_2`): uma classe (não `mixin`) que
+  alguma classe aplica como *mixin* e cujos membros usam `super` ganha também a forma
+  `[dart.mixinOn]`, com os aliases de interface nativa (`[$toString]`) da cópia; antes o
+  `applyMixin` copiava os métodos com o `super` preso à superclasse da própria classe.
+- **Experimento `variance`** (`class C<in T, out U, inout V>`; 24 programas de `variance/`), nos
+  dois alvos. *Front end*: o experimento é aceito com `--enable-experiment=variance` (o
+  `SharedOptions` dos testes); antes era recusado com o nome. JS: o `addRules` leva as variâncias
+  pelo `dart_rti._Universe.addTypeParameterVariances` (os códigos do DDC: 0 legado, 1 `out`, 2 `in`,
+  3 `inout`); um parâmetro de classe `in`/`inout` não é covariante pela classe (sem verificação e
+  com o tipo declarado no *tear-off*, `Ctx::covariant_param_ids`); os *stubs* de covariância e os
+  encaminhadores de `noSuchMethod` são escritos nos parâmetros da própria classe. Nativo e wasm: a
+  tabela RTI ganhou a linha `V<id> <dígitos>` (`Universe::variances` no runtime), e o subtipo
+  compara cada argumento conforme a variância do parâmetro da classe alvo; `in`/`inout` não tornam
+  um parâmetro covariante pela classe (`typed_entry::mentions_covariant_by_class`), mas a entrada
+  dinâmica continua verificando. Nativo: 22/24 iguais à VM; os outros dois
+  (`variance_{in,inout}_subtyping`) **passam** onde a VM 3.6.2 falha um `Expect` (ela não
+  implementa a subtipagem do experimento).
+- **`meta` e `collection` da suíte**: as versões que a 3.6.2 fixa — `meta` 1.16.0 (o `pkg/meta` da
+  tag) e `collection` 1.19.0 (o `collection_rev` 24b75d85 do DEPS da tag) —, do pub cache ou do
+  arquivo do pub.dev (`setup --packages-only`), não mais do checkout novo. A VM dá a mesma saída
+  que com as versões novas nos quatro programas.
+- **Modo `jit`** no script: `dartforge run` (o JIT ORC sobre o mesmo *lowering* nativo), com os
+  experimentos (o `run` ganhou `--language-version`/`--enable-experiment`); uma recusa de
+  compilação (código 1, sem saída) de um programa que a VM recusa conta como recusado pelos dois.
+  Conferido em 5 programas; a suíte inteira no JIT não foi medida.
+- **`canonicalize` no resto do código**: `build` (motor e `natives/ng`), `lsp` (sessão, projeto,
+  navegação, mover arquivo), `parity`, `dev` e `emit_native` (`sdk_module`, `cross`) usam
+  `dartforge_elements::config::canonicalize`; o `runtime`, que não pode depender de `elements`,
+  ganhou `plain_canonicalize` (a regra da VM no `file_win.cc`: tira `\\?\` do disco e transforma
+  `\\?\UNC\` em `\\`), usada no `resolveSymbolicLinks` e na detecção de ciclo da listagem de
+  diretórios no Windows; o `sass`, que não depende de nada do DartForge, tem a mesma regra local.
+  O `differential` já tinha a sua; exemplos e testes que só leem o caminho ficaram como estavam.
+
+### JS dev: as falhas contra o DDC
+
+O JS dev substitui o `webdev serve` (DDC), então cada falha foi conferida contra o próprio DDC 3.6.2
+(`run-language-suite.py ddc`, o `dartdevc` do SDK com o `dart_sdk.js` dele, no Node), no Windows.
+**Regra nova de contagem** (docstring do script): um programa em que o DDC diverge da VM e o JS dev
+diverge do mesmo jeito — o código de saída do DDC, e a saída dele ou a primeira linha diferente da
+VM no mesmo lugar (o fonte JS depois de `from:` no `toString` de *closure*, os quadros JS e os
+*hashes* vêm do código gerado de cada um) — conta como **divergência do DDC**, não como falha: é a
+plataforma web. E, em todos os alvos, um teste que **passa onde a VM falha um `Expect`** (255,
+`Unhandled exception:` e `Expect…`; nós com saída 0, sem stderr e com a saída da VM até a falha)
+conta à parte, com a lista impressa: a VM 3.6.2 não implementa o que o teste confere.
+
+Das 70 falhas da rodada 5 (com as regras novas, 31 no binário de `f5c31671`), no binário final:
+
+| grupo | programas | o que é |
+|---|---:|---|
+| experimento `variance` | 22 | implementado (acima): 20 iguais à VM, 2 passam onde a VM falha |
+| divergências do DDC | 38 | números da web (`int` de 53 bits, `-0.0`, `double` sem `.0`), `toString` de *closure*, pilhas, *hashes*, `invocation_mirror`, `private3`, asserts ligados, `await_user_defined_future_soundness`… — o DDC dá o mesmo |
+| `external` sem interop (`external_constructor`, `external_fields`) | 2 | o DDC recusa ("Only JS interop members may be 'external'"); nós também agora (`emit_js/src/module.rs`, `check_external_members`) |
+| `assert/message_test` | (1) | girava para sempre: depois de um `assert` o fluxo é a junção do estado de antes com o ramo verdadeiro da condição (o `assert_end` do CFE; a *closure* saía `Never`); agora diverge como o DDC (asserts ligados) e está entre os 38 |
+| `assert/assert_test`, `interpolation_and_buffer` | 2 | passam onde a VM falha (a referência roda sem asserts; a ordem de interpolação da especificação) |
+| `least_upper_bound_greatest_closure_2` | 1 | o CFE 3.6.2 estoura a pilha na VM (252) e no DDC; nós compilamos e rodamos — fica como falha, não há referência |
+
+E 8 programas que antes saíam iguais à VM agora são recusados como o DDC recusa: 7 com literais
+inteiros não representáveis exatamente em JS ("can't be represented exactly in JavaScript"; fora do
+contexto `double` e fora do SDK, `emit_js/src/expr.rs`) e `inference_update_2/external_field`.
+
+Suíte inteira no JS dev, binário final, Windows (`jsdev-win-final`): **2 794/2 863 iguais à VM**,
+48 divergências do DDC, 16 recusados pelos dois, 4 passam onde a VM falha, **1 falha** (a de cima).
+Contra a rodada 5, nenhuma regressão (`compare --forge`).
+
+### Validação
+
+- harness `corpus/native` (164 programas) nos 4 modos, Mac: dev **164/164**, `--optimize`
+  **164/164**, `--optimize --gc-stress` **164/164**, `--wasm` **164/164** (39 iguais ao dart2wasm
+  onde a web difere);
+- subconjuntos da suíte com o binário final no Mac (os tocados pela correção do tamanho e pela
+  variância: `tearoff`, `tear_off`, `closure`, `deferred/`, `instantiat`, `variance/`, 182
+  programas): nativo e wasm **178 iguais, 1 recusado pelos dois, 2 passam onde a VM falha, 1 falha**
+  (`least_upper_bound_greatest_closure_2`); contra 31/10, 20 corrigidos e nenhuma regressão;
+- `size_budget` (hello em wasm e nativo) passa no Mac; `cargo test` de `emit_native`, `runtime`,
+  `emit_js`, `types` e `frontend` passa no Mac (o `emit_js --test basic` precisa do `node` no PATH);
+  `clippy -D warnings` desses e de `cli` passa no Mac;
+- no Windows (em andamento): a suíte wasm inteira, `clippy -D warnings` e `cargo test` dos crates tocados.
+
+### Ficou, com o motivo
+
+- **pilhas simbólicas e *hashes***, como combinado;
+- **`least_upper_bound_greatest_closure_2`**: o CFE 3.6.2 estoura a pilha (252) ao compilar; não
+  há o que igualar;
+- **`variance`** (22) e **`macros`**: experimentos não implementados;
+- **no JS**: o `toString` de *closure* no formato da VM, `external` sem implementação, a ordem de
+  interpolação da VM, a correção do `async` da rodada 4 e os avulsos da tabela acima;
+- o `super.x` de um campo da aplicação interna de um *mixin* aplicado duas vezes, lido de dentro da
+  externa (cai na posição externa);
+- a suíte inteira no modo `jit`.
+
 ## 02/11/2026 (madrugada): backend nativo — quinta rodada; medição da suíte com experimentos, pacotes e "recusados pelos dois"
 
 ### Medição da suíte `tests/language` (scripts/run-language-suite.py)
