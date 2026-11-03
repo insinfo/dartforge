@@ -1068,7 +1068,7 @@ impl Heap {
 /// written in the header: `(images already walked, hash → blocks)`. Built on demand
 /// (the first canonicalization after a new image), reading only the header words —
 /// the hash comes precomputed by the emitter.
-type StaticStringIndex = (usize, std::collections::HashMap<u32, Vec<usize>>);
+type StaticStringIndex = (usize, crate::hash::HashMap<u32, Vec<usize>>);
 static STRING_STATICS: std::sync::RwLock<Option<StaticStringIndex>> = std::sync::RwLock::new(None);
 
 /// The view of a static string block (`PERMANENT`, from an image).
@@ -1092,7 +1092,7 @@ unsafe fn static_view<'a>(b: usize) -> TextRef<'a> {
 /// Walks the static section `[start, end)`: zero words (the markers, the padding
 /// between the objects' contributions) are skipped; a word that is not the header of
 /// a coherent static string ends the walk.
-fn index_image(start: usize, end: usize, ix: &mut std::collections::HashMap<u32, Vec<usize>>) {
+fn index_image(start: usize, end: usize, ix: &mut crate::hash::HashMap<u32, Vec<usize>>) {
     let mut b = start.next_multiple_of(8);
     while b + layout::HEADER_SIZE + 8 <= end {
         // SAFETY: `b` is within the image's registered range.
@@ -1140,7 +1140,7 @@ pub fn string_static(t: TextRef<'_>) -> Option<Ref> {
         let mut g = STRING_STATICS
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let (n, ix) = g.get_or_insert_with(|| (0, std::collections::HashMap::new()));
+        let (n, ix) = g.get_or_insert_with(|| (0, crate::hash::HashMap::default()));
         for &(i, f) in &images[*n..] {
             index_image(i, f, ix);
         }

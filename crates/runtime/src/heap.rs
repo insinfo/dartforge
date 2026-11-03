@@ -2423,8 +2423,8 @@ impl Heap {
         // One lookup of the slot's entry (the path of every `static` write).
         let old = if managed {
             match self.globals.entry(id) {
-                std::collections::hash_map::Entry::Occupied(mut e) => e.insert(handle),
-                std::collections::hash_map::Entry::Vacant(e) => {
+                crate::hash::Entry::Occupied(mut e) => e.insert(handle),
+                crate::hash::Entry::Vacant(e) => {
                     e.insert(handle);
                     0
                 }
@@ -2946,14 +2946,14 @@ impl Heap {
             return;
         }
         match self.code_owners.entry(value) {
-            std::collections::hash_map::Entry::Occupied(mut e) => {
+            crate::hash::Entry::Occupied(mut e) => {
                 if *e.get() == 1 {
                     e.remove();
                 } else {
                     *e.get_mut() -= 1;
                 }
             }
-            std::collections::hash_map::Entry::Vacant(_) => {
+            crate::hash::Entry::Vacant(_) => {
                 panic!("ARC bug: a native scope released a token it does not hold")
             }
         }
@@ -2989,14 +2989,14 @@ impl Heap {
             return;
         }
         match self.code_owners.entry(value) {
-            std::collections::hash_map::Entry::Occupied(mut e) => {
+            crate::hash::Entry::Occupied(mut e) => {
                 if *e.get() == 1 {
                     e.remove();
                 } else {
                     *e.get_mut() -= 1;
                 }
             }
-            std::collections::hash_map::Entry::Vacant(_) => {
+            crate::hash::Entry::Vacant(_) => {
                 panic!("ARC release without a code token")
             }
         }

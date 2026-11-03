@@ -213,7 +213,7 @@ thread_local! {
     /// The codes of the instantiation closures (`f<int>` of a generic function
     /// value, `dartforge_register_instantiation`): their context is the
     /// instantiated closure and the type argument tuple.
-    pub(crate) static INSTANTIATIONS: RefCell<std::collections::HashSet<i64>> = RefCell::new(std::collections::HashSet::default());
+    pub(crate) static INSTANTIATIONS: RefCell<HashSet<i64>> = RefCell::new(HashSet::default());
     static SUBCLASSES: RefCell<HashMap<i64, Vec<i64>>> = RefCell::new(HashMap::default());
     /// The already computed answers of [`is_subclass`]: every type check goes
     /// through here (the covariance of each `Map.[]=`, for example), and the graph

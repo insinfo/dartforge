@@ -1659,7 +1659,7 @@ impl ArcHeapState {
                 trial.push((w & word::RC) as i64);
                 wr(p, (w & !word::RC) | IN_REGION | r.len() as u64);
             } else {
-                let std::collections::hash_map::Entry::Vacant(input) = in_r.entry(x) else {
+                let crate::hash::Entry::Vacant(input) = in_r.entry(x) else {
                     continue;
                 };
                 let Some(m) = self.meta(x) else {
