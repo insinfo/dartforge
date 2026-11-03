@@ -2449,7 +2449,14 @@ O DartForge ainda perde a edição de corpo. Por isso vale o passo 2.
   - *completion* top-5 a 100% e top-1 a 99%;
   - a mesma tabela da rodada 14.
 - **Igualdade do índice:** a tabela acima (2.119 alvos).
-- **Testes:** VALIDACAO_TESTES
+- **Testes em *release*** de `elements`, `types`, `analysis`, `world`, `emit_js`,
+  `emit_js_production`, `parity`, `lsp` e `dev`, com o `node` no `PATH`: 852 passaram e nenhum
+  falhou.
+  - Na primeira volta, 26 testes de `emit_js` e `dev` falharam porque o `runtime/ddc/dart_sdk.js`
+    (gerado, fora do controle de versão) não estava neste *worktree*.
+  - Com o arquivo copiado, os dois *crates* passaram (53 de 53).
+- **Clippy e formatação:** `cargo clippy --workspace --all-targets -- -D warnings` (com o LLVM
+  22.1.8) e `cargo fmt --all -- --check` limpos.
 - **`reference_index`:** o teste novo e o dos `references` passam.
 
 ##### O que não foi feito nesta rodada

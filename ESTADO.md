@@ -124,7 +124,12 @@ a curva de memória dos dois servidores.
     não ficou abaixo da do sistema nos dois pares (+2,2 contra +0,2);
   - **não foi adotado** (`21843d27` reverte `f9f28d17`);
   - a máquina ficou em 48–100% de CPU durante as sessões, sem `cargo`, `rustc` ou `link`.
-- **Validação:** VALIDACAO
+- **Validação:**
+  - **oráculo de paridade** duas vezes com o binário final: `references`, `implementation` e
+    `definition` a 100%; *completion* top-5 a 100% e top-1 a 99%;
+  - **testes em *release*** dos nove *crates* de sempre: 852 passaram, nenhum falhou. Os 26 de
+    `emit_js`/`dev` só passaram com o `runtime/ddc/dart_sdk.js` copiado para o *worktree*;
+  - **clippy** `--workspace --all-targets -D warnings` e **rustfmt** `--check` limpos.
 - **Ainda não feito:**
   - **o registro do documento depois de uma edição:** sai da sessão (~20–40 ms quando ela tem a
     biblioteca) ou de um filho (~1,3–1,6 s quando não tem). O residente já infere a biblioteca
