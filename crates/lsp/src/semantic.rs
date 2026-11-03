@@ -1166,7 +1166,14 @@ impl Analyzer for SemanticAnalyzer {
     fn disk_changed(&mut self, paths: &[std::path::PathBuf]) {
         if !paths.is_empty() {
             self.index_disk_dirty = true;
+            self.session.disk_changed();
+            self.wide_session.disk_changed();
         }
+    }
+
+    fn watched_files(&mut self, yes: bool) {
+        self.session.trust_watcher(yes);
+        self.wide_session.trust_watcher(yes);
     }
 
     fn project_configuration_changed(&mut self) {

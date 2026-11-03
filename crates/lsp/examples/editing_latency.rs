@@ -1352,7 +1352,9 @@ fn main() {
         json!({"processId": std::process::id(), "rootUri": root_uri,
                "workspaceFolders": [{"uri": root_uri, "name": "root"}],
                "capabilities": {"textDocument": {"hover": {"contentFormat": ["markdown"]},
-                                                 "rename": {"prepareSupport": true}}}}),
+                                                 "rename": {"prepareSupport": true}},
+                                // As VS Code: the client watches the files.
+                                "workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}}}}),
     );
     c.notify("initialized", json!({}));
     let mut main_doc = Document::open(&mut c, &o.file);

@@ -16,7 +16,12 @@
 //!   open document, and the date and size of each disk file that took part
 //!   in the load (except the SDK and the pub cache, which nothing edits in
 //!   place), plus the modification time of each folder of the project (a new
-//!   `.dart` file may satisfy an import);
+//!   `.dart` file may satisfy an import). When the client watches the files
+//!   for the server (`didChangeWatchedFiles`, [`Session::trust_watcher`]),
+//!   the disk is compared only after it reported a change, or when the last
+//!   comparison is older than [`DISK_TRUST`]: on `new_sali/frontend` the
+//!   comparison is ~2,000 `stat` calls, 85% of a `hover` (docs/LSP.md,
+//!   "Décima sexta rodada");
 //! * it only retains a program whose total source fits in the budget
 //!   (`DARTFORGE_LSP_SESSION_MIB`, in MiB of source; default
 //!   [`DEFAULT_BUDGET_MIB`]; `0` turns the session off). The measured live
@@ -83,11 +88,23 @@ pub struct SessionStats {
     pub body_swaps: u64,
 }
 
+/// How long a session that trusts the client's watcher goes without
+/// comparing the files of its entry with the disk (the resident's and the
+/// reference index's rule): a change no notification reported is still seen
+/// after this.
+pub(crate) const DISK_TRUST: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// The session: at most one retained program.
 pub(crate) struct Session {
     entry: Option<(Key, Project)>,
     budget: usize,
     pub(crate) stats: SessionStats,
+    /// The client reports the changes on disk (`didChangeWatchedFiles`).
+    trust_watcher: bool,
+    /// When the entry's files were last found as on disk, and whether the
+    /// watcher reported a change since.
+    disk_checked: Option<std::time::Instant>,
+    disk_dirty: bool,
 }
 
 impl Session {
@@ -117,7 +134,41 @@ impl Session {
             entry: None,
             budget: mib.saturating_mul(1024 * 1024),
             stats: SessionStats::default(),
+            trust_watcher: false,
+            disk_checked: None,
+            disk_dirty: false,
         }
+    }
+
+    /// The client watches the files and reports their changes
+    /// (`didChangeWatchedFiles`): the entry is compared with the disk only
+    /// after a report, or every [`DISK_TRUST`].
+    pub(crate) fn trust_watcher(&mut self, yes: bool) {
+        self.trust_watcher = yes;
+    }
+
+    /// The watcher reported a change on disk.
+    pub(crate) fn disk_changed(&mut self) {
+        self.disk_dirty = true;
+    }
+
+    /// The entry's files are as on disk (compared, unless the watcher is
+    /// trusted and reported nothing since a recent comparison).
+    fn disk_still_equal(&mut self, key: &Key) -> bool {
+        if self.trust_watcher
+            && !self.disk_dirty
+            && self
+                .disk_checked
+                .is_some_and(|t| t.elapsed() < DISK_TRUST)
+        {
+            return true;
+        }
+        let equal = disk_equal(key);
+        if equal {
+            self.disk_checked = Some(std::time::Instant::now());
+            self.disk_dirty = false;
+        }
+        equal
     }
 
     /// The budget, in bytes of source.
@@ -273,14 +324,23 @@ impl Session {
         load: impl FnOnce() -> Option<Project>,
     ) -> Option<Use<'_>> {
         let open = open(documents);
-        let serve = self.entry.as_ref().is_some_and(|(key, _)| {
+        let key = self.entry.take().map(|(key, project)| {
             let scope_serves = match (&key.scope, &scope) {
                 (a, b) if a == b => true,
                 (Scope::Project(root), Scope::Library(file)) => file.starts_with(root),
                 _ => false,
             };
-            scope_serves && key.open == open && disk_equal(key)
+            let serves = scope_serves && key.open == open;
+            (key, project, serves)
         });
+        let serve = match key {
+            Some((key, project, serves)) => {
+                let serve = serves && self.disk_still_equal(&key);
+                self.entry = Some((key, project));
+                serve
+            }
+            None => false,
+        };
         if serve {
             self.stats.reused += 1;
             return self.entry.as_mut().map(|(_, p)| Use::Retained(p));
@@ -303,6 +363,8 @@ impl Session {
             scope,
             open,
         };
+        self.disk_checked = Some(std::time::Instant::now());
+        self.disk_dirty = false;
         self.stats.retained_source = source;
         self.entry = Some((key, project));
         self.entry.as_mut().map(|(_, p)| Use::Retained(p))

@@ -610,6 +610,12 @@ pub trait Analyzer {
     /// (`workspace/didChangeWatchedFiles`).
     fn disk_changed(&mut self, _paths: &[std::path::PathBuf]) {}
 
+    /// The client watches the files for the server and reports their changes
+    /// (`workspace/didChangeWatchedFiles` registered dynamically): what the
+    /// analyzer keeps may trust those reports instead of comparing its files
+    /// with the disk at every query. The default ignores it.
+    fn watched_files(&mut self, _yes: bool) {}
+
     /// Runs the searches that load more than the retained programs (a
     /// reference search whose whole load does not fit in the wide session) in
     /// a child process: `exe` (the `dartforge-lsp` binary) started with

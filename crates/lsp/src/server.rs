@@ -1531,6 +1531,7 @@ impl<A: Analyzer> Server<A> {
                     )
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
+                self.analyzer.watched_files(self.observe_files);
                 self.dynamic_file_operations = message
                     .pointer("/params/capabilities/workspace/fileOperations/dynamicRegistration")
                     .and_then(Value::as_bool)
