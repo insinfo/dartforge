@@ -499,6 +499,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     fn lower_expr_internal(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
         let expr = ast.expr(expr_id);
+        // The mark of a dynamic invocation (`dynamic_invocation.rs`).
+        self.note_dynamic_expression(ast, expr_id);
         // Canonical `const` (P3).
         if let Some(op) = self.canonical_constant(ast, expr_id) {
             return op;

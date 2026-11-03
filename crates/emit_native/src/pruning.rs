@@ -1573,6 +1573,12 @@ impl Graph {
             }
         }
         for s in ROOT_SELECTORS {
+            // On WebAssembly only the helper of the dynamic invocations calls
+            // `noSuchMethod` for the runtime (`lower/dynamic_invocation.rs`), a
+            // selector call the fixpoint sees when the helper is live.
+            if *s == "c:noSuchMethod" && crate::target::is_wasm() {
+                continue;
+            }
             let hash = selector_hash(s);
             callees.insert(hash, None);
             unrestricted.insert(hash);
@@ -1704,6 +1710,14 @@ impl Graph {
     }
 }
 
+/// Some live node matches one of the `df.ref-when` patterns (separated by
+/// spaces).
+fn producer_live(reachability: &Reach, patterns: &str) -> bool {
+    reachability.names.iter().enumerate().any(|(i, n)| {
+        reachability.live(i as u32) && patterns.split_whitespace().any(|p| name_matches(p, n))
+    })
+}
+
 /// `pattern` (a [`Summary::guarded_refs`] pattern: `*` for any text at either
 /// end) matches the node name `name`.
 fn name_matches(pattern: &str, name: &str) -> bool {
@@ -1833,8 +1847,22 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
             .is_some_and(|&node| !reachability.live(node))
     };
     let mut skipping = false;
+    // A guarded helper registration (`; df.ref-when` before it) whose producers
+    // are all dead leaves the IR, and with it the only citation of the helper
+    // (`lower/dynamic_invocation.rs`).
+    let mut guard: Option<&str> = None;
     for l in ir.split_inclusive('\n') {
         let without_end = l.trim_end_matches(['\n', '\r']);
+        if let Some(patterns) = without_end.trim().strip_prefix("; df.ref-when ") {
+            guard = Some(patterns);
+        } else if let Some(patterns) = guard.take_if(|_| without_end.contains('@'))
+            && prune
+            && without_end.contains("@dartforge_register_helper(")
+            && !producer_live(&reachability, patterns)
+        {
+            st.pruned_bytes += l.len();
+            continue;
+        }
         if skipping {
             st.pruned_bytes += l.len();
             if without_end == "}" {
@@ -2353,7 +2381,19 @@ fn add_hir_entry(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>, r:
         ..Default::default()
     };
     entry.refs = roots.iter().map(|n| r.id(n)).collect();
+    let entry_name = entry.name;
     r.definitions.push(entry);
+    // The helpers the program registers only when a producer is live
+    // (`lower/dynamic_invocation.rs`): the guard the link will read in
+    // `df.register.program`, so that what they call stays in the HIR.
+    for (_, symbol, producers) in &m.guarded_helpers {
+        let target = r.id(symbol);
+        r.guarded_refs.push((
+            entry_name,
+            target,
+            producers.iter().map(|p| p.to_string()).collect(),
+        ));
+    }
 }
 
 /// The module borrow prevents body mutation while FFI reachability stabilizes.
@@ -2386,6 +2426,7 @@ impl<'a> HirSummarySnapshot<'a> {
         for name in self.summary.names.drain(self.body_names..) {
             self.summary.index.remove(&name);
         }
+        self.summary.guarded_refs.clear();
         add_hir_entry(self.module, live, &mut self.summary);
         &self.summary
     }
@@ -2648,6 +2689,31 @@ define i32 @main() {
         assert!(live(&ir("call void @df.box()"), true));
         assert!(name_matches("*mid*", "a.mid.b"));
         assert!(!name_matches("pre*", "a.pre"));
+    }
+
+    /// A guarded helper registration leaves the assembled IR when no producer
+    /// is live, and the helper with it; the registration with address 0 before
+    /// it stays. With a live producer, or without pruning, both stay.
+    #[test]
+    fn guarded_helper_registration_leaves_without_a_live_producer() {
+        let ir = |producer: &str| {
+            format!(
+                "define void @df.register.program() {{\n  call void @dartforge_register_helper(ptr @n, i64 1, ptr null)\n  ; df.ref-when dartforge_dynamic_invocation\n  call void @dartforge_register_helper(ptr @n, i64 1, ptr @helper)\n  ret void\n}}\n\
+                 define void @helper() {{\n  ret void\n}}\n\
+                 define i32 @dartforge_run() {{\n  call void @df.register.program()\n  {producer}\n  ret i32 0\n}}\n"
+            )
+        };
+        let real = "ptr @helper)";
+        let without = assemble(&ir(""), &[], true).unwrap().ir;
+        assert!(!without.contains(real), "{without}");
+        assert!(!without.contains("define void @helper()"), "{without}");
+        assert!(without.contains("ptr null)"));
+        let with = assemble(&ir("call void @dartforge_dynamic_invocation()"), &[], true)
+            .unwrap()
+            .ir;
+        assert!(with.contains(real) && with.contains("define void @helper()"));
+        let unpruned = assemble(&ir(""), &[], false).unwrap().ir;
+        assert!(unpruned.contains(real));
     }
 
     #[test]

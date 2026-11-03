@@ -15,6 +15,7 @@ pub mod constants;
 mod deferred;
 pub mod direct_functions;
 pub mod dispatch;
+mod dynamic_invocation;
 mod double_identity;
 pub mod enums;
 mod environment;
@@ -1291,6 +1292,9 @@ fn lower_globals_and_rest(ctx: &Context, mut module: Module) -> Module {
         let mut b =
             fn_builder::FnBuilder::new(ctx, u, symbol.clone(), "chamar".to_string(), Type::Ref);
         let clo = Operand::Val(b.add_param("closure".to_string(), Type::Ref));
+        // The runtime calls through it only the callbacks without parameters
+        // of the typed `dart:async` API (timers, microtasks).
+        b.checked_value_calls = true;
         let r = b.call_function_value(clo, &[]);
         b.terminate(Terminator::Return(Some(r)));
         b.finish(&mut module);

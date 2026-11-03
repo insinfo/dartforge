@@ -338,6 +338,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let ok = match op {
                     BinaryOp::Eq | BinaryOp::NotEq => self.operate(*op, val_ref, c, false, span),
                     _ => {
+                        // The operator of the matched value, which may be
+                        // `dynamic` (`dynamic_invocation.rs`).
+                        self.note_dynamic_invocation("relational pattern");
                         let v = self.coerce(val_ref, Type::Ref);
                         let c = self.coerce(c, Type::Ref);
                         self.operate_dynamic(*op, v, c, span)

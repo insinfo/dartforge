@@ -524,6 +524,27 @@ impl LlvmEmitter<'_> {
             )
             .unwrap();
         }
+        // The helpers the closed world may leave out (`lower/dynamic_invocation.rs`):
+        // first with address 0, which the runtime reports if reached, then with
+        // the code, a line the link drops when no producer is live.
+        for (k, (name, symbol, producers)) in module.guarded_helpers.iter().enumerate() {
+            writeln!(
+                self.out,
+                "@df.ajg.{k} = private unnamed_addr constant [{} x i8] c\"{}\"",
+                name.len(),
+                llvm_bytes(name)
+            )
+            .unwrap();
+            writeln!(
+                body,
+                "  call void @dartforge_register_helper(ptr @df.ajg.{k}, i64 {}, ptr null)\n  ; df.ref-when {}\n  call void @dartforge_register_helper(ptr @df.ajg.{k}, i64 {}, ptr @{symbol})",
+                name.len(),
+                producers.join(" "),
+                name.len()
+            )
+            .unwrap();
+            self.annotate_external(symbol, Type::Ref, &[]);
+        }
         for (k, name) in self.argument_names.iter().enumerate() {
             writeln!(
                 self.out,

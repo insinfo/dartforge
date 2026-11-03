@@ -130,6 +130,15 @@ pub struct FnBuilder<'a, 'c> {
     /// The static type of the function value that the current call will call
     /// (`lower_call`, read by `call_function_value`).
     pub callee_type: Option<dartforge_types::TypeId>,
+    /// The function values this builder calls fit their arguments by
+    /// construction (a synthesized trampoline the runtime calls with the
+    /// callback's own arity): no mark of a dynamic invocation
+    /// (`dynamic_invocation.rs`).
+    pub checked_value_calls: bool,
+    /// The current call's arguments fit the callee's parameters by its static
+    /// type before a cast to `Function` (`lower_call`, read by
+    /// `call_function_value`; `dynamic_invocation.rs`).
+    pub callee_shape_proved: bool,
     /// The expression of the current call (`lower_call`), from which
     /// `call_function_value` takes the type arguments it passes to a
     /// generic closure (written ones, or those inferred by the static type).
@@ -471,6 +480,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             labeled_continue_targets: LabelTargets::default(),
             pending_labels: Vec::new(),
             callee_type: None,
+            checked_value_calls: false,
+            callee_shape_proved: false,
             current_call: None,
             current_cascade_target: None,
             receiver_ready: None,

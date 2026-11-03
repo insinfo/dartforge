@@ -2990,6 +2990,20 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
     lower_sdk_patterns(ctx, module);
     for (fid, f) in ctx.program.functions.iter().enumerate() {
         let name_str = ctx.symbol_name(f.name);
+        if f.class.is_none() && RUNTIME_HELPERS.contains(&name_str) {
+            // A helper the closed world may leave out: the program registers it,
+            // under the guard of its producers (`dynamic_invocation.rs`).
+            if let Some(producers) = super::dynamic_invocation::guarded_helper(name_str) {
+                if !ctx.sdk_library && ctx.program.library(f.library).is_sdk {
+                    module.guarded_helpers.push((
+                        name_str.to_string(),
+                        super::symbol_of(ctx, fid),
+                        producers,
+                    ));
+                }
+                continue;
+            }
+        }
         if f.class.is_none()
             && RUNTIME_HELPERS.contains(&name_str)
             && ctx.library_in_module(f.library)

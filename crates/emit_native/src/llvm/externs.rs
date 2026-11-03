@@ -1232,6 +1232,16 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare void @dartforge_nsm_call()",
         effects: CONSERVATIVE,
     },
+    // The mark of a dynamic invocation (`lower/dynamic_invocation.rs`): an empty
+    // body that only keeps `noSuchMethod` alive through the link's pruning.
+    Extern {
+        decl: "declare void @dartforge_dynamic_invocation()",
+        effects: Effects {
+            allocates: false,
+            throws: false,
+            calls_dart: false,
+        },
+    },
     // --- P2 (α): operators over dynamic/num (stopgap until P5) ---
     Extern {
         decl: "declare i64 @dartforge_dyn_op(i64, i64, i64)",

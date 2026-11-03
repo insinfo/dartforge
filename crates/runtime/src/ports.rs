@@ -787,18 +787,25 @@ fn materialize(g: &Graph) -> i64 {
 /// compact_hash.dart`): -1 for an object that is not a `_Map`/`_Set` (the whole class
 /// is left out from then on). The nodes stay rooted in the
 /// frame of [`materialize`].
+///
+/// The helper is looked up only for a copied object: a module without ports
+/// leaves it out (`lower/dynamic_invocation.rs`).
 fn redo_copied_indices(g: &Graph, handles: &[i64]) {
-    let Some(f) = helper("_dartforgeRebuildCopiedIndex") else { return };
-    // SAFETY: registered by `dart:_compact_hash` with the signature
-    // `(Object) -> int`.
-    let redo = { let dart_target: usize = f; move |a0: i64| -> i64 { dart_r1(dart_target, a0) } };
     let mut others: crate::hash::HashSet<i32> = crate::hash::HashSet::default();
+    let mut redo: Option<usize> = None;
     for (i, (no, _)) in g.nodes.iter().enumerate() {
         let GNode::Instance { cid, .. } = no else { continue };
         if handles[i] == 0 || others.contains(cid) {
             continue;
         }
-        if redo(handles[i]) < 0 {
+        if redo.is_none() {
+            let Some(f) = helper("_dartforgeRebuildCopiedIndex") else { return };
+            redo = Some(f);
+        }
+        // SAFETY: registered by `dart:_compact_hash` with the signature
+        // `(Object) -> int`.
+        let dart_target = redo.unwrap_or_default();
+        if dart_r1(dart_target, handles[i]) < 0 {
             others.insert(*cid);
         }
         if dartforge_exception_pending() != 0 {

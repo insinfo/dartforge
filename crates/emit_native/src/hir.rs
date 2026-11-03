@@ -1369,6 +1369,10 @@ pub struct Module {
     /// Dart functions that the runtime calls by name (`_dartforge*` of the
     /// overlay): (name, symbol), registered by the registration of the module.
     pub helpers: Vec<(String, String)>,
+    /// SDK helpers the program registers only when the link's pruning finds a
+    /// producer live (`lower/dynamic_invocation.rs`): (name, symbol,
+    /// `df.ref-when` patterns).
+    pub guarded_helpers: Vec<(String, String, &'static [&'static str])>,
     // --- P6 (source libraries, `source.rs`) -------------------------------
     /// Diagnostics of the functions of SDK libraries compiled from source,
     /// by the symbol of the function that produced them: they only become `errors` if pruning

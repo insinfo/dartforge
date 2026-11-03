@@ -692,6 +692,15 @@ pub unsafe extern "C" fn dartforge_selector(cache: *mut i64, recv: i64, hash: i6
     }
 }
 
+/// Does nothing: WebAssembly code calls it next to each dynamic invocation (a
+/// member of a `dynamic` receiver, a call of a `Function` value…), the only
+/// code that can reach `noSuchMethod` (`lower/dynamic_invocation.rs`). The
+/// link's pruning registers `_dartforgeNoSuchMethod` and `_dartforgeCallError`
+/// only when some live function calls it; the module's LTO inlines the empty
+/// body away.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_dynamic_invocation() {}
+
 /// A member of the SDK from source that the backend rejected (P5c): the program
 /// reached it at run time. Never a wrong output: the message names the member and
 /// the reason, and the process exits with 254 (the harness's "compile error" code).

@@ -122,6 +122,7 @@ dartforge_collection_mark_unmodifiable	1	0	0
 dartforge_context	0	0	0
 dartforge_delay_us	0	0	0
 dartforge_dyn_op	1	1	1
+dartforge_dynamic_invocation	0	0	0
 dartforge_effects_after	0	0	0
 dartforge_effects_before	0	0	0
 dartforge_effects_level	0	0	0

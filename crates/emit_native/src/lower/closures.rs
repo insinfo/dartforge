@@ -1122,6 +1122,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // ABI, the call tries the typed body of the closure first.
         let typ = self.callee_type.take();
         let call = self.current_call.take();
+        let shape_proved = std::mem::take(&mut self.callee_shape_proved);
+        if !self.checked_value_calls && !shape_proved {
+            self.note_value_call(typ);
+        }
         let callee = self.coerce(callee, Type::Ref);
         if let Some((reprs, ret, abi)) = typ.and_then(|t| self.type_abi(t))
             && reprs.len() == evaluated.len()

@@ -668,6 +668,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
             evaluated.push((None, x));
         }
+        // The callback of a `NativeCallable`, whose type its signature fixes.
+        self.checked_value_calls = true;
         let r = self.call_function_value(clo, &evaluated);
         if self.is_terminated() {
             return;

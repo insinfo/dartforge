@@ -32,8 +32,23 @@ pub unsafe extern "C" fn dartforge_register_helper(name: *const u8, len: i64, f:
     HELPERS.with(|a| a.borrow_mut().insert(name, f));
 }
 
+/// The Dart function registered as `name`. A WebAssembly module registers a
+/// helper the closed world may leave out (`_dartforgeNoSuchMethod`…) first
+/// with address 0 and then, only when the program can reach it, with its code
+/// (`lower/dynamic_invocation.rs`): reaching one left out is a compiler bug,
+/// reported instead of answered with another error than the VM's.
 fn helper(name: &str) -> Option<usize> {
-    HELPERS.with(|a| a.borrow().get(name).copied())
+    let f = HELPERS.with(|a| a.borrow().get(name).copied());
+    if f == Some(0) {
+        use std::io::Write;
+        let _ = crate::console::stdout().flush();
+        let _ = writeln!(
+            crate::console::stderr(),
+            "internal error: the program reached `{name}`, which the compiler's closed world left out"
+        );
+        crate::console::exit(70);
+    }
+    f
 }
 
 /// `IndexError` of `ix` in `target` of size `size` (the VM's `RangeError
