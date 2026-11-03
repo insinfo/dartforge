@@ -65,6 +65,52 @@ a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
+**Andamento (02/11, 22h), itens 1 e 3 (décima quarta rodada: a etapa 2 e os custos fixos):**
+- **Erro do *driver*:** o cronômetro de cada edição (corpo e API) começava antes de amostrar a
+  CPU com `pgrep`, e isso somava 25–35 ms a cada edição medida. Pesava mais para o DartForge,
+  que tem três processos. Corrigido em `dacb7794`; os números de corpo e de API das rodadas 12
+  e 13 carregam esse erro.
+- **Etapa 2, recarga no lugar** (`28597b79`): o arquivo cuja API mudou e de que outras
+  bibliotecas dependem vai depois dos dependentes no *layout*. A próxima mudança dele recarrega
+  só ele.
+  - Os dependentes mantidos continuam valendo quando os elementos dele voltam aos mesmos ids
+    (declaração acrescentada ou removida no fim, assinatura mudada) e nenhuma assinatura de
+    dependente nomeia o que mudou.
+  - Os escopos de quem importa ou reexporta são refeitos. Senão, a carga cai no corte de antes.
+- **Custos fixos por carga, cortados:**
+  - a busca do pacote de cada diretiva (`4b38b89a`);
+  - a coleta da tabela de tipos a cada carga (`86434ae6`, `287066bb`);
+  - as cópias de *namespaces* nas fases 2 e 3 do *outline* (`ad5050aa`);
+  - as tabelas de corpo refeitas a cada passada (`d85fa3a8`);
+  - as constantes citadas de dependências inferidas a cada edição (`5877ffc4`);
+  - a comparação das chaves de sintaxe (`cea887c8`);
+  - a varredura do disco quando o *watcher* já disse o que mudou (`8e18855f`).
+- **150 rodadas no macOS, revezadas:**
+
+  | carga (mediana até assentar, CPU) | DartForge | Dart |
+  |---|---:|---:|
+  | onda de 40 `.g.dart` | **100–101 ms (69–75)** | 130–142 ms (294–338) |
+  | edição de corpo | **41–42 ms (32)** | 47–48 ms (39–40) |
+  | mudança de API | **64–65 ms (53–57)** | 148–161 ms (116–119) |
+
+  - Dois pares revezados, com a carga em 8–11: o `cargo test` da v21 estava preso a ~390% de CPU.
+  - Ganhamos nas três cargas. Na mudança de API, por 2,3–2,5× no relógio, com metade da CPU.
+- **Memória:** o dado vivo foi de 474,2 MiB (1 rodada) a 476,4 MiB no fim (+0,46%), o mesmo
+  em três sessões. Inclinação do *footprint*: +2,1 e −0,1 MiB por 100 cargas nos pares, e −0,6 e
+  0,0 em outras duas sessões. Os degraus das mudanças de API sumiram com as recargas grandes; os
+  que restam, de 2–6 MiB, não coincidem com elas e são do alocador. O Dart ficou em +34 a +36.
+- **Validação:**
+  - testes em *release* dos *crates* tocados e dependentes: 850, sem falhas;
+  - `typed_incremental` com as edições de API no lugar;
+  - oráculo de paridade igual ao da décima terceira rodada (`references`, `implementation` e
+    `definition` a 100%, *completion* top-5 a 100%);
+  - clippy `-D warnings`.
+- **Ainda não feito:**
+  - a recarga no lugar casando os elementos por nome: uma declaração inserida no meio do
+    arquivo, ou um arquivo com *parts*, ainda cai no corte de reserva;
+  - um par com a máquina calma de fato, ou muito carregada, com o cronômetro corrigido.
+- Detalhes em `docs/LSP.md`, "Décima quarta rodada".
+
 **Andamento (02/11, 15h), itens 1 e 3 (décima terceira rodada: ganhar na onda e na API):**
 - **Medida das trocas entre processos** (`2bb97f49`): as passagens servidor → trabalhador →
   residente somam ~8 ms por onda. O tempo era o da análise, então juntar processos não

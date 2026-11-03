@@ -1989,6 +1989,215 @@ revezadas:
 - **O Windows:** perdemos nas três cargas num i3. A lentidão depois da quarta onda tem uma
   parte no alocador; o resto não foi achado.
 
+#### Décima quarta rodada (2026-11-02): a etapa 2, recarga no lugar
+
+##### O que a medida mostrou primeiro
+
+**Um erro do *driver*, não do servidor.** A sessão longa marcava o início de uma edição (corpo
+ou API) antes de amostrar a CPU do servidor e dos descendentes.
+- A amostra roda um `pgrep` por nível de processo e custa 25–35 ms com a máquina calma, mais
+  com ela carregada.
+- Esse tempo entrava na latência de toda edição de corpo e de toda mudança de API.
+- Pesava mais para quem tem mais processos: os três do DartForge (servidor, trabalhador e
+  residente) contra um ou dois do Dart.
+
+O cronômetro agora começa depois da amostra (`dacb7794`). As ondas já eram medidas a partir da
+última notificação. Os números de corpo e de API das rodadas 12 e 13 carregam esse erro.
+
+**Custos fixos por carga.** A amostragem do residente numa sessão de 100 rodadas achou três:
+- **o pacote de cada arquivo** (`4b38b89a`): a busca do pacote de cada diretiva comparava o
+  arquivo com o diretório de cada um dos ~150 pacotes; era metade da fase de carga. Agora o
+  ancestral mais próximo que é diretório de pacote é procurado num índice;
+- **a coleta da tabela de tipos** (`86434ae6`, `287066bb`): rodava a cada carga e custava 14% do
+  tempo do residente. Agora roda quando a tabela cresce um oitavo (com mínimos de 4.096 tipos
+  ou 256 parâmetros) ou a cada 16 recargas. Cada parâmetro de tipo guarda a época em que foi
+  alocado; só morre o que foi alocado antes de uma recarga que substituiu o dono dele. A
+  coleta também passou a ser feita no lugar, sem um segundo `lookup` vivo junto com o
+  primeiro;
+- **as fases 2 e 3 do *outline*** (`ad5050aa`): copiavam o `exported` inteiro de cada import e
+  o do `dart:core` para cada biblioteca carregada. Agora leem no lugar e filtram pelos
+  combinadores.
+
+Depois da recarga no lugar, uma segunda amostragem achou mais dois custos fixos:
+- **as chaves das unidades com diagnósticos de sintaxe** (`cea887c8`): cada unidade mantida
+  (~3.000) era comparada com cada chave (~400). Agora a busca é por nome num conjunto, e a fase
+  de *outline* de uma onda ou de uma API no lugar caiu de 16–18 ms para 9–10 ms;
+- **a varredura do disco** (`8e18855f`): com arquivos mudados no disco, cada análise lia a data de
+  cada unidade lida (~3.600 `stat`). Agora o trabalhador do LSP passa ao residente os arquivos
+  que o *watcher* notificou (`Resident::disk_changed_only`). A varredura completa ainda roda
+  quando a última tem mais de 30 s. A fase de carga de uma onda caiu de 20–22 ms para
+  14–17 ms.
+
+##### A recarga no lugar (etapa 2)
+
+O projeto da décima terceira rodada previa *slots* estáveis casados por nome. A implementação
+(`28597b79`) seguiu um caminho mais estreito, que aproveita o corte posicional que já existe.
+
+1. **A biblioteca quente vai por último.** Um arquivo cuja API mudou e de que outras bibliotecas
+   dependem entra em `Program::layout_hot`; o residente guarda os quatro mais recentes.
+   - O `frozen::lay_out` o tira do grupo de bibliotecas que se importam e o põe depois de
+     tudo, inclusive dos dependentes.
+   - A ordem deixa de ser de dependência só nesse ponto.
+   - A próxima mudança desse arquivo corta nele sozinho.
+2. **O plano antes da carga** (`in_place::plan`). Quando uma biblioteca mantida aponta para
+   depois do corte, a recarga só a mantém se toda biblioteca recarregada para a qual uma
+   mantida aponta (uma biblioteca *estável*) tem uma unidade só e elementos contíguos.
+   - O plano guarda o que precisa conferir depois: onde os elementos de cada biblioteca
+     estável começavam, um descritor de cada elemento, o `exported` e a API do texto antigo.
+   - Guarda também o corte de reserva, antes de todo dependente.
+   - Os ponteiros das bibliotecas mantidas são soltos antes da carga, porque o `lay_out`
+     renumera o que vem depois do corte.
+   - A carga recebe os arquivos estáveis como entradas extras, porque as bibliotecas mantidas
+     não são percorridas de novo.
+3. **A conferência depois da carga** (`in_place::settle`). A recarga mantém os dependentes
+   quando:
+   - **as bibliotecas estáveis têm os mesmos ids:** cada uma recebeu os elementos de volta nos
+     mesmos ids, porque a lista do texto antigo é prefixo da do novo ou o contrário (uma
+     declaração acrescentada ou removida no fim, uma assinatura mudada);
+   - **nenhum dependente nomeia o que mudou:** nenhuma assinatura de dependente mantido usa um
+     nome mudado. Os nomes mudados vêm da comparação entre a `ApiDigest` antiga e a nova. Uma
+     classe que só mudou nos membros (com o mesmo cabeçalho) conta apenas nos cabeçalhos de
+     classe (`extends`, `implements`, `with`, `on`);
+   - **nada mudou que se use sem o nome** (um operador, `call`…), e as diretivas são as mesmas.
+
+   As palavras das assinaturas dos dependentes saem do texto sem os corpos, sem *lexing*
+   (`incremental::signature_words`), e ficam guardadas por unidade.
+4. **O reparo.** Os ponteiros voltam para os ids novos.
+   - Quando um nome ou o id de uma biblioteca estável mudou, o `exported` das bibliotecas que a
+     reexportam e os escopos das que importam qualquer uma delas são refeitos
+     (`outline::rebuild_scopes`).
+   - Se a conferência falha, a carga é refeita a partir do corte de reserva, o mesmo das rodadas
+     anteriores. `DARTFORGE_IN_PLACE=0` corta sempre assim.
+
+**O que continua correto.**
+- **O prefixo congelado e os elementos antes do corte** não se mexem: o corte continua
+  posicional.
+- **A tabela de tipos:** a coleta já mantinha os parâmetros de tipo que um tipo mantido ainda
+  usa, e a época de cada parâmetro distingue o dono antigo do novo com o mesmo id.
+
+**O que esta forma não cobre** (vai para o corte de reserva):
+- uma declaração inserida no meio de um arquivo, que muda os ids depois dela;
+- uma biblioteca com *parts*;
+- uma mudança que um dependente mantido nomeia na assinatura.
+
+**Os testes.**
+- **O teste do residente** (`resident_reloads_in_place_what_its_dependents_do_not_name`)
+  edita um arquivo que uma biblioteca importa e um *barrel* reexporta:
+  - uma declaração acrescentada, removida, e outra acrescentada são recarregadas no lugar;
+  - uma assinatura que um dependente nomeia e um membro que move os ids caem no corte de
+    reserva;
+  - cada análise publica o mesmo que uma do zero.
+- **O `typed_incremental`** acrescenta uma declaração no fim de um modelo, a remove e muda uma
+  assinatura que ninguém nomeia. Nesse teste os lotes trocam de imports e o corte cai no
+  prefixo, mas cada passo continua publicando o mesmo que uma análise do zero.
+
+##### Edição de corpo
+
+Com o cronômetro corrigido, a edição de corpo custa no residente ~20 ms:
+- a troca da unidade: 5 ms;
+- os corpos: 3 ms;
+- as constantes citadas: 7 ms;
+- os verificadores de tipo: 4 ms.
+
+As constantes citadas são as das bibliotecas cujas constantes o componente usa (do `ngdart` e
+de outras dependências): ficam no prefixo congelado e não mudam enquanto o mundo vive. As
+tabelas de corpo delas agora ficam guardadas até a próxima coleta da tabela de tipos
+(`5877ffc4`), e a etapa caiu para 1–2 ms. As publicações de uma sessão de 10 rodadas são as
+mesmas (492 arquivos, 9.763 diagnósticos).
+
+**As tabelas de corpo da onda.** O residente faz uma passada de inferência por biblioteca
+analisada, e cada passada dava uma tabela a cada unidade do programa: uma onda de 40 arquivos
+montava ~126 mil tabelas, e isso custava tanto quanto a inferência.
+- Agora uma passada pega as tabelas da anterior (`SharedInference::recycle`, `d85fa3a8`).
+- As tabelas escritas voltam a ficar novas (`UnitBodyTypes::is_fresh`); as outras são
+  reaproveitadas como estão.
+- Os corpos de uma onda caíram de 23–31 ms para 12 ms, e as publicações são as mesmas.
+
+Duas tentativas anteriores não deram ganho e saíram:
+- montar as tabelas por cópia de uma tabela vazia;
+- montá-las com um *hasher* compartilhado.
+
+O custo era escrever e liberar as tabelas, não pedir os *hashers*.
+
+##### Resultado
+
+**Sessão longa no macOS, 150 rodadas (510 cargas), dois pares revezados (Dart primeiro).**
+- A carga ficou em 8–11 durante os quatro pares, porque o `cargo test` da validação v21 estava
+  preso: ficou mais de 4 horas a ~390% de CPU, sem escrever no log. Esperei por ele até as 20h45
+  e medi assim, com a carga anotada.
+- As medianas são até assentar, em ms, com a CPU entre parênteses.
+
+| carga | DartForge (par a) | DartForge (par b) | Dart (par a) | Dart (par b) |
+|---|---:|---:|---:|---:|
+| onda de 40 `.g.dart` | **101 (75)** | **100 (69)** | 130 (294) | 142 (338) |
+| edição de corpo | **41 (32)** | **42 (32)** | 47 (39) | 48 (40) |
+| mudança de API | **64 (57)** | **65 (53)** | 148 (119) | 161 (116) |
+
+- **Mudança de API:** ganhamos por 2,3–2,5× no relógio e gastamos ~2× menos CPU.
+  - Na rodada 13, com a máquina calma, eram 101–105 ms contra 90–92 ms. Com ela carregada,
+    573 ms contra 250 ms, e esse número ainda carregava o erro do *driver*.
+  - Numa sessão com o tempo das fases (`memt`), 59 das 60 mudanças de API recarregaram uma
+    biblioteca só.
+  - O diagnóstico do próprio arquivo sai em 53–57 ms contra 44 ms. O Dart publica o arquivo
+    antes dos dependentes; nós publicamos tudo junto e assentamos antes.
+- **Edição de corpo:** ganhamos por 6–7 ms. O diagnóstico de sintaxe do arquivo sai em 1–2 ms
+  contra 38–39 ms.
+- **Onda:** ganhamos por 22–30%, com um quarto da CPU do Dart.
+
+Outros dados da sessão:
+- **Antes da correção do erro**, numa sessão do DartForge sozinho com a carga em 19–37: onda
+  86 ms, corpo 34 ms, API 56 ms.
+- **Publicações:** a última publicação dos 492 arquivos (9.763 diagnósticos) é a mesma nas
+  duas sessões do DartForge. Também é a mesma da comparação com o binário anterior, feita a cada
+  passo (`cmp_lsp14`).
+
+**Memória** (*footprint* de todos os processos, em MiB):
+
+| | DartForge | Dart |
+|---|---:|---:|
+| recém-aberto (só abrir), em repouso | 482,0 | 461,0 |
+| recém-aberto + 1 rodada, em repouso | 539,5 | 477,8 |
+| fim da sessão longa (1 min quieto), pares a e b | **569,8; 570,4** | 701,4; 707,4 |
+| pico, pares a e b | 569,8; 573,6 | 724,7; 715,4 |
+| inclinação por 100 cargas | +2,1; −0,1 | +34,2; +36,4 |
+| dado vivo do residente, 1 rodada → fim | 474,2 → 476,4 (**+0,46%**) | — |
+
+- **Os degraus nas mudanças de API sumiram com a causa.** Na rodada 13, eram os picos das
+  recargas de 409 bibliotecas a cada mudança de API. Agora essas mudanças recarregam uma
+  biblioteca.
+  - Na sessão `memt`, 59 das 60 mudanças de API e 145 das 150 ondas foram no lugar; as outras
+    ondas cortaram nos 41 gerados, sem dependente mantido apontando para depois do corte.
+  - O *footprint* ainda sobe em degraus de 2–6 MiB em cargas sem nada de especial e devolve
+    memória de vez em quando: −0,6 por 100 cargas nessa sessão, 0,0 em outra.
+  - O dado vivo é o mesmo nas três sessões (476,4 MiB): os degraus que restam são do alocador,
+    não retenção.
+- **Os +2,2 MiB de dado vivo** são as palavras das assinaturas dos dependentes e as tabelas de
+  corpo das constantes citadas, guardadas de propósito.
+- **As curvas** estão em `bench/results/lsp-long-session/*-r24-*.csv`.
+
+**Validação** (binário final):
+- **testes:** em *release* de `elements`, `types`, `analysis`, `world`, `emit_js`,
+  `emit_js_production`, `parity`, `lsp` e `dev`, com o `node` no `PATH`: 850 passaram e nenhum
+  falhou;
+- **`typed_incremental`:** cada passo publica o mesmo que uma análise do zero;
+- **teste do residente:** a recarga no lugar mantém os dependentes quando deve, cai no corte de
+  reserva quando deve, e publica o mesmo que uma análise do zero;
+- **oráculo de paridade:** a mesma tabela da rodada 13 nos quatro projetos (35 arquivos, 398
+  posições). `references`, `implementation` e `definition` ficam a 100%; *completion* top-5 a
+  100% e top-1 a 99%;
+- **clippy e formatação:** clippy `-D warnings` em `elements`, `types`, `analysis`, `parity` e
+  `lsp` (todos os alvos), e `rustfmt` nos arquivos tocados.
+
+**O que não foi feito nesta rodada:**
+- **A recarga no lugar casando por nome:** uma declaração inserida no meio de um arquivo, ou
+  um arquivo com *parts*, ainda cai no corte de reserva. Os *slots* casados por nome do projeto
+  da rodada 13 resolveriam isso.
+- **Um par com a máquina realmente calma ou muito carregada:** a carga ficou em 8–11 durante
+  as sessões finais. O par com a carga acima de 40 da rodada 13 não foi repetido com o
+  cronômetro corrigido.
+- **O Windows:** a máquina está reservada para o agente de corretude. A lentidão do i3 e a
+  questão do `mimalloc` ficaram anotadas para o proprietário.
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
