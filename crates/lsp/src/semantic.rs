@@ -1350,6 +1350,30 @@ impl Analyzer for SemanticAnalyzer {
         uri: &str,
         offset: usize,
     ) -> Result<Option<(Span, String)>, String> {
+        // Right after an edit the document's record is still being made, while
+        // the session already holds the library with the new text (the edit
+        // swapped its unit in place): it answers at once.
+        let current_record = |s: &Self| {
+            let (Some(index), Some(text), Some(path)) = (
+                s.reference_index.as_ref(),
+                documents.get(uri),
+                crate::project::uri_file(uri),
+            ) else {
+                return false;
+            };
+            index
+                .file(&dartforge_elements::generated::key(&path))
+                .is_some_and(|r| {
+                    r.length as usize == text.len()
+                        && r.stamp == crate::reference_index::text_stamp(text)
+                })
+        };
+        if !current_record(self)
+            && crate::project::uri_file(uri).is_some_and(|f| self.session.holds_library(&f))
+            && let Some(project) = self.library(documents, uri)
+        {
+            return crate::rename::prepare(&project, uri, offset);
+        }
         // The answer the document's record keeps, when it is of the text.
         if self.ready_index(documents, uri)
             && let Some(index) = &self.reference_index
