@@ -236,7 +236,9 @@ pub fn marks_intact(bytes: &[u8]) -> bool {
         [k, -k].iter().all(|&m| {
             let mut pattern = vec![0x41u8];
             pattern.extend(leb5(FRAME_COST_MARK.wrapping_mul(m)));
-            !bytes.windows(pattern.len()).any(|w| w == pattern.as_slice())
+            !bytes
+                .windows(pattern.len())
+                .any(|w| w == pattern.as_slice())
         })
     })
 }

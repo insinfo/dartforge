@@ -234,7 +234,10 @@ fn binaryen_version(wasm_opt: &Path) -> Option<u32> {
     let out = Command::new(wasm_opt).arg("--version").output().ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
     let rest = text.trim().strip_prefix("wasm-opt version ")?;
-    rest.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+    rest.split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse()
+        .ok()
 }
 
 /// `wasm-opt -Oz` over the linked module, in place: −19% of the bytes of a

@@ -116,7 +116,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if trace() {
                 let span = ast.expr(expr).span;
                 let text = self.source().get(span.start..span.end).unwrap_or("");
-                eprintln!("[dynamic]   `{}`", text.chars().take(80).collect::<String>());
+                eprintln!(
+                    "[dynamic]   `{}`",
+                    text.chars().take(80).collect::<String>()
+                );
             }
             self.note_dynamic_invocation(why);
         }
@@ -240,12 +243,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn dynamic_invocation(&self, ast: &ast::Ast, expr: ExprId) -> Option<&'static str> {
         let name = |n: &ast::Name| self.ctx.symbol_name(n.sym);
         match &ast.expr(expr).kind {
-            ExprKind::Property { target, name: n, .. } => (self.is_dynamic(ast, *target)
-                && !matches!(name(n), "hashCode" | "runtimeType"))
-            .then_some("member of a dynamic receiver"),
-            ExprKind::Index { target, .. } => {
-                self.is_dynamic(ast, *target).then_some("index of a dynamic receiver")
-            }
+            ExprKind::Property {
+                target, name: n, ..
+            } => (self.is_dynamic(ast, *target) && !matches!(name(n), "hashCode" | "runtimeType"))
+                .then_some("member of a dynamic receiver"),
+            ExprKind::Index { target, .. } => self
+                .is_dynamic(ast, *target)
+                .then_some("index of a dynamic receiver"),
             ExprKind::Call { target, arguments } => match &ast.expr(*target).kind {
                 ExprKind::Property {
                     target: receiver,
@@ -258,9 +262,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             ExprKind::Unary { op, operand } => match op {
                 UnaryOp::Not | UnaryOp::NullAssert => None,
-                UnaryOp::Neg | UnaryOp::BitNot => {
-                    self.is_dynamic(ast, *operand).then_some("operator of a dynamic operand")
-                }
+                UnaryOp::Neg | UnaryOp::BitNot => self
+                    .is_dynamic(ast, *operand)
+                    .then_some("operator of a dynamic operand"),
                 // The place is not typed as a value: the increment has the type
                 // of the value it reads.
                 UnaryOp::PrefixInc
@@ -280,9 +284,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 || (matches!(op, AssignOp::Compound(o) if *o != BinaryOp::IfNull)
                     && self.is_dynamic(ast, expr)))
             .then_some("assignment through a dynamic receiver"),
-            ExprKind::Cascade { target, .. } => {
-                self.is_dynamic(ast, *target).then_some("cascade on a dynamic receiver")
-            }
+            ExprKind::Cascade { target, .. } => self
+                .is_dynamic(ast, *target)
+                .then_some("cascade on a dynamic receiver"),
             _ => None,
         }
     }
