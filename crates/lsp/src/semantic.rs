@@ -2259,11 +2259,12 @@ impl SemanticAnalyzer {
             self.index_disk_dirty = false;
             self.index_disk_check = Some(std::time::Instant::now());
         }
-        let open_paths: std::collections::HashSet<std::path::PathBuf> = documents
+        let open_files: Vec<std::path::PathBuf> = documents
             .uris()
             .filter_map(crate::project::uri_file)
-            .map(|f| key(&f))
             .collect();
+        let open_paths: std::collections::HashSet<std::path::PathBuf> =
+            open_files.iter().map(|f| key(f)).collect();
         let mut current: std::collections::HashSet<std::path::PathBuf> = if whole {
             crate::project::project_files(&root)
                 .iter()
@@ -2272,18 +2273,25 @@ impl SemanticAnalyzer {
         } else {
             Default::default()
         };
-        for open in documents.uris() {
-            if let Some(f) = crate::project::uri_file(open)
-                && f.starts_with(&root)
-                && f.extension().is_some_and(|e| e == "dart")
-            {
-                current.insert(key(&f));
+        for f in &open_files {
+            if f.starts_with(&root) && f.extension().is_some_and(|e| e == "dart") {
+                current.insert(key(f));
             }
         }
         let mut stale: Vec<std::path::PathBuf> = Vec::new();
         let mut api_changed: Vec<std::path::PathBuf> = Vec::new();
         let mut removed: Vec<std::path::PathBuf> = Vec::new();
-        let recorded = index.project_paths();
+        // Without a comparison of the whole project, only the open documents'
+        // records are looked at.
+        let recorded: Vec<std::path::PathBuf> = if whole {
+            index.project_paths()
+        } else {
+            open_paths
+                .iter()
+                .filter(|p| index.file(p).is_some_and(|r| !r.frozen))
+                .cloned()
+                .collect()
+        };
         for path in &recorded {
             let Some(r) = index.file(path) else { continue };
             if !whole && !open_paths.contains(path) {
@@ -2308,9 +2316,8 @@ impl SemanticAnalyzer {
                 }
             }
         }
-        let recorded: std::collections::HashSet<&std::path::PathBuf> = recorded.iter().collect();
         for path in &current {
-            if recorded.contains(path) {
+            if index.file(path).is_some() {
                 continue;
             }
             let text = url::Url::from_file_path(path)
@@ -2324,8 +2331,14 @@ impl SemanticAnalyzer {
             stale.push(path.clone());
         }
         api_changed.extend(removed.iter().cloned());
+        api_changed.append(&mut self.index_api_changed);
         let mut again: Vec<std::path::PathBuf> = stale.clone();
-        for d in index.dependents(&api_changed) {
+        let dependents = if api_changed.is_empty() {
+            Vec::new()
+        } else {
+            index.dependents(&api_changed)
+        };
+        for d in dependents {
             if !again.contains(&d) && !removed.contains(&d) {
                 again.push(d);
             }
