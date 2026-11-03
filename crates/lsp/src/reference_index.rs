@@ -2019,10 +2019,9 @@ impl ReferenceIndex {
                         .raw_members
                         .iter()
                         .find(|(n, s, _, _)| *n == w && *s == is_static)
+                        && accepts(kind)
                     {
-                        if accepts(kind) {
-                            return Some(f);
-                        }
+                        return Some(f);
                     }
                 }
                 None

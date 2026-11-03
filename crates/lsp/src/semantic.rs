@@ -57,6 +57,9 @@ pub struct SemanticAnalyzer {
     /// them asks for it, a search only compares the open documents.
     index_disk_check: Option<std::time::Instant>,
     index_disk_dirty: bool,
+    /// The documents whose library's load did not fit in the session's budget:
+    /// their records are made again in a child.
+    over_budget: std::collections::HashSet<std::path::PathBuf>,
     /// The summaries of the known libraries (export namespace) of `ImportLibrary`.
     known: crate::known_libraries::LibraryIndex,
     /// The current `maxCompletionItems`.
@@ -91,6 +94,7 @@ impl SemanticAnalyzer {
             index_answers: (0, 0),
             index_disk_check: None,
             index_disk_dirty: true,
+            over_budget: Default::default(),
             known: Default::default(),
             completion_max: crate::completion::MAX_PATTERN,
             not_imported_in_completion: true,
@@ -2128,15 +2132,21 @@ impl SemanticAnalyzer {
             }
         }
         let started = std::time::Instant::now();
-        // The document's library, from the session when it holds it and it
-        // covers them all (a load here would leave its pages with this
-        // process's allocator: a child does it otherwise).
+        // The document's library, from the session when it covers them all: the
+        // session keeps it for the next edits. A library that does not fit in the
+        // session's budget is recorded in a child instead (a load here would leave
+        // its pages with this process's allocator).
         let mut done = false;
-        let held = crate::project::uri_file(uri).is_some_and(|f| self.session.holds_library(&f));
-        if held
+        let mut transient = false;
+        let file = crate::project::uri_file(uri);
+        let fits = file
+            .as_ref()
+            .is_some_and(|f| self.session.holds_library(f) || !self.over_budget.contains(f));
+        if fits
             && let Some(library) = self.library(documents, uri)
             && let Some(unit) = library.uri_unit(uri)
         {
+            transient = matches!(library, crate::session::Use::Own(_));
             let p = library.program();
             let lib = p.unit(unit).library;
             let paths: Vec<std::path::PathBuf> = p
@@ -2156,6 +2166,9 @@ impl SemanticAnalyzer {
                 index.put(records);
                 done = true;
             }
+        }
+        if transient && let Some(f) = file {
+            self.over_budget.insert(f);
         }
         if !done {
             let Some(sdk) = self.sdk.as_ref() else {
