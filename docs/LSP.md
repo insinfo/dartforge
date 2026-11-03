@@ -2479,6 +2479,271 @@ O DartForge ainda perde a edição de corpo. Por isso vale o passo 2.
 - **Windows:** a edição de corpo ainda perde (125–143 contra 75 ms) com os dois alocadores. A
   causa não foi achada.
 
+#### Décima sexta rodada (2026-11-03): o registro do documento no residente
+
+##### O que a medida mostrou primeiro
+
+Mesmas 8 posições do `processo_filtros_component.dart` da rodada 15. O *driver* agora declara,
+como o VS Code, que o cliente observa os arquivos (`workspace.didChangeWatchedFiles.
+dynamicRegistration`); o binário da rodada 15 (`base`) foi medido com o mesmo *driver*.
+
+- **`hover` sem edição (10 ms):** a amostragem do servidor (`sample`) deu 85% do tempo em
+  `session::disk_equal`: a cada consulta, a sessão comparava com o disco a data e o tamanho de
+  cada arquivo que a carga leu (~2.000 `stat`). A resposta em si leva ~0,2 ms.
+- **`prepareRename` sem edição (3 ms):** a atualização do índice antes de cada busca percorria o
+  caminho de todo registro do projeto e montava os importadores de toda biblioteca, mesmo sem
+  mudança de API.
+- **`references` e `implementation` depois de uma edição:** o registro do documento saía da
+  sessão (~25–45 ms) e, depois de qualquer registro novo, a busca seguinte refazia as tabelas
+  derivadas do índice inteiro (palavras, declarações, classes de ~4.000 arquivos, ~20 ms).
+
+##### O registro do documento no residente (item 1)
+
+- **O pedido.** Enquanto o servidor tem um índice (`ResidentRecords::want`), o trabalhador pede
+  ao residente os registros dos documentos abertos que mudaram (`Job::records`).
+- **O residente.** Com `Resident::keep_bodies`, a análise guarda as tabelas de corpo das
+  bibliotecas do lote até a próxima. Depois de escrever os diagnósticos, o residente empresta a
+  análise (`Resident::lend_analysis`: programa, *interner*, tabela de tipos, *outline* e corpos)
+  ao construtor do índice (`reference_index::records_of_analysis`) e manda os registros
+  codificados numa segunda linha (`Response::records`, em hexadecimal). Os diagnósticos não
+  esperam pelo registro.
+- **O servidor.** Antes de uma busca, `absorb_resident_records` junta os registros que chegaram;
+  se um registro do texto atual de um documento aberto ainda está sendo feito, espera por ele
+  (até 3 s). Um registro que muda a API do arquivo marca os dependentes para registro, como antes.
+- **O que fica entre empréstimos** (`ResidentCache`): os nomes referenciados das unidades que não
+  mudaram e os subtipos escritos (`Project::written_subtypes_after` recoloca só as classes das
+  unidades trocadas). Cada mundo carregado tem uma geração, e uma troca de corpos anota as
+  unidades trocadas. Sem esse *cache* o registro levava 0,5–1,3 s (os nomes referenciados de todo
+  o programa, para o `Object` implícito das famílias de membros); com ele, ~20 ms.
+- **O SDK do residente tem os *patches* do DDC** (o motor de `dartforge analyze`); o servidor vê
+  o SDK do analisador, sem eles. Por isso:
+  - um membro *patcheado* recebe a chave da declaração (`Project::patch_keys`: sem `!p`);
+  - um alvo declarado no SDK recebe as localizações do registro que o servidor já tinha do
+    arquivo (`ReferenceIndex::adopt_sdk_locations`); um alvo novo do SDK perde o fato, e a busca
+    o identifica como antes.
+- **Tabelas derivadas no lugar** (`Derived::replace`): um registro do mesmo arquivo com as mesmas
+  chaves e os mesmos fatos de classe (edição de corpo) atualiza as palavras e as faixas das
+  declarações; o resto ainda refaz as tabelas.
+- **`prepareRename` depois de uma edição:** enquanto o registro é feito, a sessão já tem a
+  biblioteca com o texto novo (a edição trocou a unidade no lugar) e responde na hora.
+
+##### Um defeito do residente achado no caminho
+
+A comparação do índice com registros do residente (`DARTFORGE_INDEX_CHECK_RESIDENT=1`, cada
+arquivo analisado duas vezes, com uma edição de corpo e com o texto) achou, no `args`,
+`Undefined class 'ArgParser'` publicado pelo residente.
+- **Causa** (`frozen::prefer_order`): duas bibliotecas "quentes" (API mudada recentemente) que se
+  importam viravam grupos separados que esperavam um pelo outro. Nenhum ficava pronto, e o
+  *layout* deixava as duas fora do programa (só um `debug_assert` notava). A análise seguinte
+  rodava sem o próprio arquivo e publicava classes indefinidas em quem o importa.
+- **Correção** (`45c5f371`): as bibliotecas quentes de um grupo ficam juntas num grupo só, e um
+  grupo cuja espera nunca termina ainda entra no fim. O teste
+  `resident_loads_every_import_of_the_next_batch` reproduz a sequência do `args`.
+
+##### `hover`, `prepareRename` e a observação do disco (item 2)
+
+- **A sessão confia no *watcher* do cliente** (`Session::trust_watcher`): com o cliente
+  observando os arquivos, a entrada só é comparada com o disco depois de um aviso
+  (`didChangeWatchedFiles`) ou a cada 30 s (a regra do residente e do índice). Sem essa
+  capacidade, compara a cada consulta, como antes.
+- **A atualização do índice** só olha os registros dos documentos abertos entre duas
+  comparações do projeto inteiro, e só procura dependentes quando uma API mudou.
+
+##### Os pedidos no `new_sali/frontend`
+
+Pares revezados (Dart, DartForge, `base`, DartForge, Dart), carga 24–33; mediana em ms, com o
+pior caso entre parênteses quando conta. O índice já está no *cache*.
+
+| pedido | `base` (rodada 15) | DartForge agora (2 sessões) | Dart (2 sessões) |
+|---|---:|---:|---:|
+| `references`, sem edição | 3,7 | **1,0; 0,8** | 26,5; 26,7 |
+| `references`, depois de edição | 207,8 | **26,9; 3,3** | 53,0; 20,9 |
+| `implementation`, sem edição | 3,2 | **0,3; 0,3** | 14,0; 12,5 |
+| `implementation`, depois de edição | 45,1 | **5,5; 2,5** | 11,7; 11,0 |
+| `prepareRename`, sem edição | 3,2 | **0,4; 0,4** | 0,8; 1,1 |
+| `prepareRename`, depois de edição | 26,1 | **1,5; 1,5** | 2,6; 4,0 |
+| `hover`, sem edição | 10,4 | **0,4; 0,4** | 1,4; 1,3 |
+| `hover`, depois de edição | 15,0 | **0,8; 0,8** | 2,2; 14,6 |
+| *footprint* em repouso, todos os processos (MiB) | 1.085 | 1.218; 1.227 | **858; 889** |
+
+- Ganhamos todos os pedidos, sem edição e depois de uma edição. Numa janela calma (carga 4–7,
+  binário intermediário, antes das tabelas derivadas no lugar): `hover` 0,2 contra 0,6–1,2 ms;
+  `references` depois de edição 19,8–43,1 contra 8,0–20,5 ms (então ainda perdia).
+- O registro do residente leva ~20 ms com a máquina calma; a espera da busca por ele ficou em
+  0–4 ms, porque ele sai junto com o fim da análise.
+- A primeira edição de uma sessão ainda sai pelo caminho antigo (o índice só é lido na primeira
+  busca, e só então o trabalhador passa a pedir os registros): 1,4–2 s, uma vez.
+
+**`workspace/symbol`** (item 6, o mesmo identificador de cada posição como consulta; carga 27–34):
+
+| | DartForge antes | DartForge agora | Dart |
+|---|---:|---:|---:|
+| sem edição | 215; 162 | **23; 22** | 39; 68 |
+| depois de edição | 219; 201 | **28; 23** | 1.764; 1.869 |
+| memória em repouso, todos os processos (MiB) | 620 | **636; 637** | 753; 744 |
+
+- **Paridade:** a consulta `responsavelSelect` dava 1 resultado contra 2 do Dart. O segundo é o
+  `_viewQuery_responsavelSelect_2_isDirty` do `.template.dart` gerado: o `PackageBuildWorkspace`
+  do analisador resolve os `package:` que só existem em `.dart_tool/build/generated` para os
+  gerados, e todo `FileState` criado é um arquivo conhecido do `FindDeclarations`. Agora os
+  gerados que as bibliotecas importam entram, por último, na ordem em que os imports os
+  alcançam.
+- **O custo** era refazer a lista de arquivos a cada consulta e passar cada nome por uma
+  `String` para minúsculas. A lista fica guardada enquanto o *watcher* não avisa (30 s no
+  máximo), e os nomes ASCII viram minúsculas letra a letra.
+- **O que ainda difere** (`symcmp.py`, comparação das listas): nas consultas sem limite os
+  conjuntos são iguais e a ordem difere; nas que chegam ao limite de 500 (`String`, `processo`),
+  os 500 escolhidos diferem. O Dart ordena os arquivos conhecidos pela ordem em que os cria
+  durante a análise (imports, depois `discoverAvailableFiles`); nós, os do SDK e depois os dos
+  pacotes. Não foi resolvido nesta rodada.
+
+##### Memória (item 3)
+
+**O que o servidor guarda** (heap vivo, `DARTFORGE_LSP_MEMORY=1`, sessão de pedidos):
+
+| parte | MiB |
+|---|---:|
+| a biblioteca do documento na sessão | 376 |
+| o índice de referências | 156 |
+| o resto | ~25 |
+| total vivo / *footprint* | 557 / 690 |
+
+- **O índice por parte** (capacidades, sem o alocador): chaves 37, fatos de identificador 30,
+  relações 21, classes 8,8, identificadores 7,7, linhas 7,1 MiB.
+- **A duplicata não saiu.** A sessão do servidor tem a biblioteca do documento na visão do SDK do
+  analisador; o residente, o pacote inteiro na visão do motor (com os *patches* do DDC). Uma
+  resposta de `hover` montada no residente mostraria a declaração do *patch* (sem a
+  documentação) nos membros *patcheados* do SDK. Servir as consultas do residente pede o mesmo
+  SDK nos dois, o que muda o motor de `dartforge analyze`; ficou para o proprietário decidir.
+- **Experimento descartado:** carregar sem corpos os outros arquivos do projeto na sessão leva
+  a sessão de 376 a 313 MiB, mas `colors` e as *assists* olham corpos de outros arquivos.
+- **Devolução de páginas no servidor:** 500 ms ocioso depois de trabalhar, o servidor pede a
+  devolução das páginas livres, como o residente. Com o alocador desta versão do macOS
+  (*xzone malloc*), `malloc_zone_pressure_relief` devolve 0 bytes nos dois processos: o efeito
+  medido na rodada 15 não se repete aqui.
+- **Resultado:** em repouso, 1.218–1.227 MiB contra 858–889 do Dart na sessão de pedidos.
+  **Perdemos.** Sem pedidos (sessão longa, `workspace/symbol`) ganhamos.
+
+##### A sessão longa (macOS)
+
+150 rodadas (510 cargas), três pares revezados (o Dart primeiro nos pares a e c); a carga é a
+média de 1 minuto no início e no fim de cada sessão, e a máquina nunca ficou calma (17–30). As
+medianas são até assentar, em ms, com a CPU entre parênteses.
+
+| carga | DartForge (a; b; c) | Dart (a; b; c) |
+|---|---:|---:|
+| onda de 40 `.g.dart` | **78 (57); 74 (51); 72 (51)** | 143 (233); 138 (240); 158 (228) |
+| edição de corpo | **32 (25); 31 (24); 32 (25)** | 47 (34); 41 (33); 44 (33) |
+| mudança de API | **51 (47); 45 (41); 50 (43)** | 141 (88); 121 (86); 140 (85) |
+| pico do *footprint* (MiB) | **576; 576; 574** | 757; 698; 719 |
+| em repouso após 60 s (MiB) | **527; 528; 574** | 756; 687; 686 |
+| inclinação por 100 cargas (MiB) | **+2,3; −13,2; +2,4** | +41,7; +30,7; +35,7 |
+
+- Ganhamos nas três cargas nos três pares, no relógio e na CPU. As publicações finais (492
+  arquivos, 9.763 diagnósticos) são as mesmas da rodada 15.
+- **A inclinação ≤ 0 não foi atingida em toda sessão** (uma em três). Numa sessão à parte com o
+  *footprint* de cada processo (`footprint(1)` a cada 5 s) e o heap vivo
+  (`DARTFORGE_LSP_MEMORY=1`):
+  - o servidor fica em 21–30 MiB de *footprint* com **10,0 MiB vivos do começo ao fim**;
+  - o residente fica em 554–559 MiB com **476,4 MiB vivos do começo ao fim**;
+  - os degraus de 2–6 MiB são páginas que o alocador guarda, não dados.
+- **Por que a devolução não ajuda aqui:** neste macOS (Darwin 27, *xzone malloc*),
+  `malloc_zone_pressure_relief` devolve 0 bytes, na zona nula, na padrão ou em cada zona. Um
+  programa em C que aloca 236 MiB em blocos pequenos e libera 7 de cada 8 continua com 236 MiB
+  depois da chamada. As páginas presas são de fragmentação: cada uma ainda tem um bloco vivo.
+- As curvas estão em `bench/results/lsp-long-session/*-r26-*.csv` (a de cada processo em
+  `dartforge-lsp-r26-processes.csv`).
+
+##### Windows: a edição de corpo (item 4)
+
+Na mesma máquina da rodada 15 (i3-1215U), em `E:\Work\df-lsp`. Antes de cada sessão o script
+espera não haver `cargo`, `rustc` ou `link`; o agente de corretude rodou testes na máquina de
+03h50 até a reinicialização das 06h38, e as sessões só começaram depois dela.
+
+**Primeiro, onde a edição de corpo perde.** Numa sessão só de edições de corpo, com só o
+`frontend` como pasta (12 edições, carga 17–85%), ganhamos: **43; 56 ms contra 78; 78 ms** do
+Dart. A perda da rodada 15 é da sessão longa (`new_sali` inteiro, com ondas e mudanças de API); no par
+a com o binário do começo desta rodada ela era de 120 contra 61 ms.
+
+**O tempo de cada fase** (sessão longa de 40 rodadas com `DARTFORGE_LSP_TRACE=1` e
+`DARTFORGE_ENGINE_TIMES=1`; mediana das edições de corpo):
+
+| fase | macOS | Windows antes | com a chave | com a chave e o contexto |
+|---|---:|---:|---:|---:|
+| troca no programa mantido | 9 | 42 | 25 | 13 |
+| *outline* | 1 | 11 | 3 | 3 |
+| corpos | 3 | 13 | 11 | 12 |
+| verificadores de tipo | 2 | 9 | 8 | 9 |
+| residente (início ao fim) | — | 88,5 | 62,0 | 52,0 |
+| edição de corpo até assentar | 33 | 124 | 92 | 77 |
+
+As causas achadas:
+- **A chave de cada caminho** (`71959cd4`): `generated::key_of` só devolvia o próprio caminho,
+  sem copiar, no Unix. No Windows, cada busca por chave reconstruía o caminho componente a
+  componente, e o residente busca por chave cada unidade do programa várias vezes por análise.
+  Agora um caminho de unidade (`C:\…`, só `\`, sem `.`, `..` ou partes vazias) é a própria
+  chave, como no Unix.
+- **A leitura do contexto** (`137ace98`): cada análise lia a data e o tamanho de cada arquivo do
+  contexto do pacote, para saber se é um *part* (~1.000 `stat`, ~30 ms no Windows). Com o disco
+  dado como inalterado (a regra dos 30 s da varredura), vale o que foi lido.
+
+O que sobra são as fases de CPU (corpos e verificadores) ~4× mais lentas que no macOS; no Dart a
+mesma edição é ~1,4× mais lenta que no macOS. Não foi achado nesta rodada por quê; o próximo passo
+é uma amostragem com `xperf` (o *Windows Performance Toolkit* está na máquina).
+
+**Sessão longa no Windows, 150 rodadas, dois pares revezados** (o binário final; carga 22–79%,
+sem `cargo`, `rustc` ou `link`; mediana até assentar):
+
+| carga | DartForge rodada 15 (a; b) | DartForge agora (a; b) | Dart (a; b) |
+|---|---:|---:|---:|
+| onda | 373; 358 | **246; 234** | 392; 433 |
+| edição de corpo | 143; 139 | 77; 77 | **61; 60** |
+| mudança de API | 270; 267 | **140; 140** | 267; 361 |
+| bytes privados durante a sessão (MiB) | — | **368–381** | 524–734 |
+| bytes privados no fim (MiB) | 370; 370 | **370; 374** | 709; 704 |
+
+- **Ganhamos a onda e a mudança de API**; a edição de corpo caiu de 139–143 para 77 ms, mas
+  ainda perde para os 60–61 ms do Dart.
+- **Memória:** os bytes privados da árvore do servidor oscilam entre 368 e 381 MiB do começo ao
+  fim, sem subir; os do Dart sobem de 524 para 734 MiB (~36 MiB por 100 cargas).
+- Na sessão só de edições de corpo com o binário final (12 edições, carga 1–8%): **29,5 contra
+  76,7 ms**.
+
+##### Validação
+
+- **Igualdade do índice** nos quatro projetos do oráculo (2.119 alvos): os registros do índice e
+  os do residente dão as mesmas respostas da busca sem o índice (`references`,
+  `implementation`, `prepareRename`).
+- **Oráculo de paridade** com o binário final: a mesma tabela da rodada 15 (`references`,
+  `implementation` e `definition` a 100%; *completion* top-5 a 100% e top-1 a 99%).
+- **Testes em *release*** de `elements`, `types`, `analysis`, `world`, `emit_js`,
+  `emit_js_production`, `parity`, `lsp` e `dev`, com o `node` no `PATH` e o
+  `runtime/ddc/dart_sdk.js` copiado para o *worktree*: **853 passaram, nenhum falhou** (66
+  ignorados). O teste novo `resident_loads_every_import_of_the_next_batch` está entre eles.
+- **No Windows**, os testes de `generated.rs` passam, com o novo
+  `windows_key_is_borrowed_when_already_normal`.
+- **Sessão longa:** as publicações finais (492 arquivos, 9.763 diagnósticos) são as da rodada 15.
+- **Clippy e formatação:** `cargo clippy --workspace --all-targets -- -D warnings` (com o LLVM
+  22.1.8) e `cargo fmt --all -- --check` limpos. Dois arquivos de `emit_js` e um de `frontend`
+  fora do formato vieram de `main` e foram formatados num *commit* à parte.
+
+##### O que não foi feito nesta rodada
+
+- **Memória em repouso abaixo do Dart com pedidos:** a sessão do servidor (376 MiB) e o índice
+  (156 MiB) ficam ao lado do residente (~540 MiB). Ver acima.
+- **A recarga no lugar casando os elementos por nome** (item 5): não começou. O caminho mais
+  curto é o carregador alocar os elementos da biblioteca estável na ordem antiga, casada por
+  nome, com as declarações novas no fim; a ordem dos diagnósticos que segue os ids precisa ser
+  conferida antes.
+- **`workspace/symbol`:** a ordem dos arquivos conhecidos (e, com isso, quais 500 resultados
+  saem numa consulta ampla).
+- **Windows:** a edição de corpo da sessão longa (77 contra 60–61 ms). As fases de CPU do
+  residente ficam ~4× mais lentas que no macOS; falta uma amostragem com `xperf`.
+- **A inclinação ≤ 0 em toda sessão longa no macOS:** o dado vivo é plano, e a fragmentação do
+  alocador não volta com `malloc_zone_pressure_relief` neste macOS.
+- **A primeira edição de uma sessão** antes da primeira busca ainda faz o registro pelo caminho
+  antigo (1,4–2 s, uma vez).
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,
