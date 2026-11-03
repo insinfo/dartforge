@@ -54,6 +54,19 @@ fn ty(c: u16) -> Type {
 /// `toLowerCase` in UTF-16, keeping the length (which index-based matching
 /// requires; a character whose lowercase changes the length stays as is).
 fn lowercase(s: &[u16]) -> Vec<u16> {
+    // ASCII (almost every Dart name): letter by letter, without a `String`.
+    if s.iter().all(|&c| c < 0x80) {
+        return s
+            .iter()
+            .map(|&c| {
+                if (b'A' as u16..=b'Z' as u16).contains(&c) {
+                    c + 32
+                } else {
+                    c
+                }
+            })
+            .collect();
+    }
     let text = String::from_utf16_lossy(s);
     let low: Vec<u16> = text.to_lowercase().encode_utf16().collect();
     if low.len() == s.len() {

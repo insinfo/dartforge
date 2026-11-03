@@ -339,6 +339,17 @@ pub(crate) struct Index {
     sdk: Option<(PathBuf, Vec<PathBuf>)>,
     /// The `.dart` files of each package's `lib/`, as last listed.
     listed: HashMap<PathBuf, Vec<PathBuf>>,
+    /// The last search's files, with what they were listed from.
+    #[allow(clippy::type_complexity)]
+    paths: Option<(
+        (
+            Vec<PathBuf>,
+            Option<PathBuf>,
+            Vec<PathBuf>,
+            Vec<(String, PathBuf, PathBuf)>,
+        ),
+        Vec<PathBuf>,
+    )>,
 }
 
 /// Reads a file (open or from disk) with its fingerprint.
@@ -1039,7 +1050,21 @@ impl Index {
             }
         };
         // The files in `OwnedFiles` order (added ones, then the known ones that
-        // were not added).
+        // were not added), kept while the disk is trusted and the inputs are the
+        // same.
+        let inputs = (
+            added.to_vec(),
+            sdk.map(Path::to_path_buf),
+            packages.to_vec(),
+            generated.to_vec(),
+        );
+        if trust_disk
+            && let Some((last, paths)) = &self.paths
+            && *last == inputs
+        {
+            let paths = paths.clone();
+            return self.find(query, &paths, read, open, &uri_of, kinds, trust_disk);
+        }
         let mut paths: Vec<PathBuf> = Vec::new();
         let mut seen: HashSet<PathBuf> = HashSet::new();
         let mut include = |p: PathBuf, paths: &mut Vec<PathBuf>| -> bool {
@@ -1089,9 +1114,25 @@ impl Index {
                 }
             }
         }
+        self.paths = Some((inputs, paths.clone()));
+        self.find(query, &paths, read, open, &uri_of, kinds, trust_disk)
+    }
+
+    /// The declarations of the libraries at `paths` that match `query`.
+    #[allow(clippy::too_many_arguments)]
+    fn find(
+        &mut self,
+        query: &str,
+        paths: &[PathBuf],
+        read: &Reader<'_>,
+        open: &HashMap<PathBuf, Fingerprint>,
+        uri_of: &dyn Fn(&Path) -> String,
+        kinds: Option<&[u64]>,
+        trust_disk: bool,
+    ) -> Vec<Value> {
         let libraries: Vec<Arc<Library>> = paths
             .iter()
-            .filter_map(|c| self.library(c, read, open, &uri_of, trust_disk))
+            .filter_map(|c| self.library(c, read, open, uri_of, trust_disk))
             .collect();
         // The `typedef`s of every library, to expand aliases from another library
         // (the first one of each name).
