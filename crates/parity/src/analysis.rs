@@ -1150,6 +1150,20 @@ impl Resident {
     /// read last when its date and size did not change since.
     fn context_is_part(&mut self, c: &Path) -> Option<bool> {
         use dartforge_elements::unit_cache::FileStamp;
+        // The caller said what changed on the disk since a recent scan
+        // ([`Resident::disk_unchanged`], [`Resident::disk_changed_only`]): a
+        // file it did not name is as it was read, without a `stat` (one per
+        // context file and analysis, ~30 ms on Windows for `new_sali`).
+        if self.skip_disk_scan
+            && self
+                .last_disk_scan
+                .get()
+                .is_some_and(|t| t.elapsed() < DISK_SCAN_EVERY)
+            && !self.disk_known.iter().any(|k| key_of(k) == key_of(c))
+            && let Some((_, part)) = self.context_parts.get(c)
+        {
+            return Some(*part);
+        }
         let stamp = FileStamp::read(c)?;
         if let Some((s, part)) = self.context_parts.get(c)
             && *s == stamp
