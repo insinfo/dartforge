@@ -157,9 +157,7 @@ impl Session {
     fn disk_still_equal(&mut self, key: &Key) -> bool {
         if self.trust_watcher
             && !self.disk_dirty
-            && self
-                .disk_checked
-                .is_some_and(|t| t.elapsed() < DISK_TRUST)
+            && self.disk_checked.is_some_and(|t| t.elapsed() < DISK_TRUST)
         {
             return true;
         }

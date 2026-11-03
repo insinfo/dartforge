@@ -969,15 +969,16 @@ impl Index {
     ) -> Option<Arc<Library>> {
         // With the disk trusted (the watcher reported nothing since a recent
         // comparison), a file that is not open is as it was indexed.
-        let current = |p: &Path, i: &Fingerprint| {
-            match open.get(&dartforge_elements::generated::key(p)) {
+        let current =
+            |p: &Path, i: &Fingerprint| match open.get(&dartforge_elements::generated::key(p)) {
                 Some(o) => Some(o.clone()),
                 None if trust_disk && matches!(i, Fingerprint::Disk(..)) => Some(i.clone()),
                 None => disk_fingerprint(p),
-            }
-        };
+            };
         if let Some(e) = self.entries.get(path)
-            && e.files.iter().all(|(p, i)| current(p, i).as_ref() == Some(i))
+            && e.files
+                .iter()
+                .all(|(p, i)| current(p, i).as_ref() == Some(i))
         {
             return e.library.clone();
         }
@@ -1440,7 +1441,9 @@ fn generated_target(
             .any(|(_, _, out)| target.starts_with(out))
             .then_some(target);
     }
-    let (_, lib, out) = generated.iter().find(|(_, lib, _)| folder.starts_with(lib))?;
+    let (_, lib, out) = generated
+        .iter()
+        .find(|(_, lib, _)| folder.starts_with(lib))?;
     let g = out.join(target.strip_prefix(lib).ok()?);
     g.is_file().then_some(g)
 }

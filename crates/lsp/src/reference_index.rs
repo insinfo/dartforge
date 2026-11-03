@@ -1416,7 +1416,10 @@ impl Derived {
             v
         };
         let classes = |r: &FileRecord| -> Vec<(u32, Vec<u32>)> {
-            r.classes.iter().map(|c| (c.key, c.written.clone())).collect()
+            r.classes
+                .iter()
+                .map(|c| (c.key, c.written.clone()))
+                .collect()
         };
         let pairs = |r: &FileRecord| -> (Vec<(u32, u32)>, Vec<(u32, u32, u32)>) {
             (r.function_variables.clone(), r.accessors.clone())
@@ -1574,7 +1577,10 @@ impl ReferenceIndex {
         };
         for r in self.records() {
             add("records", size_of::<FileRecord>());
-            add("relations", v(r.relations.capacity(), size_of::<Relation>()));
+            add(
+                "relations",
+                v(r.relations.capacity(), size_of::<Relation>()),
+            );
             add("lines", v(r.lines.capacity(), 4) + v(r.wide.capacity(), 8));
             add("referenced", v(r.referenced.capacity(), 4));
             add("declarations", v(r.declarations.capacity(), 12));
@@ -1588,11 +1594,15 @@ impl ReferenceIndex {
                             + 4 * (c.supers.capacity() + c.written.capacity() + c.mixins.capacity())
                             + 12 * (c.members.capacity() + c.fields.capacity())
                             + 16 * c.raw_members.capacity()
-                            + size_of::<ConstructorParameter>() * c.constructor_parameters.capacity()
+                            + size_of::<ConstructorParameter>()
+                                * c.constructor_parameters.capacity()
                     })
                     .sum(),
             );
-            add("idents", v(r.idents.capacity(), 8) + v(r.prepares.capacity(), 8));
+            add(
+                "idents",
+                v(r.idents.capacity(), 8) + v(r.prepares.capacity(), 8),
+            );
             add(
                 "facts",
                 r.facts.capacity() * size_of::<IdentFact>()
@@ -1605,7 +1615,11 @@ impl ReferenceIndex {
                     + r.imports.iter().map(|i| i.capacity() + 24).sum::<usize>(),
             );
         }
-        for (name, t) in [("keys", &self.keys), ("words", &self.words), ("paths", &self.paths)] {
+        for (name, t) in [
+            ("keys", &self.keys),
+            ("words", &self.words),
+            ("paths", &self.paths),
+        ] {
             add(
                 name,
                 t.text.capacity() + t.ends.capacity() * 4 + t.ids.capacity() * 16,
@@ -3530,10 +3544,9 @@ impl ReferenceIndex {
                     o.facts
                         .iter()
                         .filter_map(|f| match f {
-                            IdentFact::Target(t) => Some((
-                                target_signature(t, &self.keys, &self.words),
-                                t,
-                            )),
+                            IdentFact::Target(t) => {
+                                Some((target_signature(t, &self.keys, &self.words), t))
+                            }
                             IdentFact::Local { .. } => None,
                         })
                         .collect()
@@ -3584,7 +3597,15 @@ impl ReferenceIndex {
         let mut v: std::collections::BTreeSet<String> = r
             .relations
             .iter()
-            .map(|x| format!("{}@{}-{} {:?}", self.keys.text(x.key), x.start, x.end, x.tag))
+            .map(|x| {
+                format!(
+                    "{}@{}-{} {:?}",
+                    self.keys.text(x.key),
+                    x.start,
+                    x.end,
+                    x.tag
+                )
+            })
             .collect();
         v.extend(
             r.declarations
@@ -3785,10 +3806,7 @@ pub(crate) fn records_of_analysis(
         index.put(records.into_iter().filter(|r| !r.frozen).collect());
     }
     let encoded = (!of_files.is_empty()).then(|| index.encode());
-    cache.referenced = project
-        .referenced_names
-        .into_inner()
-        .unwrap_or_default();
+    cache.referenced = project.referenced_names.into_inner().unwrap_or_default();
     cache.subtypes = project.written_subtypes.into_inner().ok().flatten();
     let crate::query::Query {
         program,

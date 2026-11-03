@@ -4735,7 +4735,10 @@ mod tests {
                  class ArgParser {\n  ArgParser();\n  factory ArgParser.any() = AllowAnythingParser;\n  \
                  ArgResults parse() => Parser(this).parse();\n}\n",
             ),
-            ("lib/src/arg_parser_exception.dart", "class ArgParserException {}\n"),
+            (
+                "lib/src/arg_parser_exception.dart",
+                "class ArgParserException {}\n",
+            ),
             (
                 "lib/src/arg_results.dart",
                 "import 'arg_parser.dart';\nclass ArgResults {\n  final ArgParser parser;\n  \

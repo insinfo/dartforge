@@ -2251,16 +2251,21 @@ impl SemanticAnalyzer {
                     );
                 }
                 for r in part.records() {
-                    if index.file(&r.path).is_none_or(|old| old.api != r.api || r.api.is_none()) {
+                    if index
+                        .file(&r.path)
+                        .is_none_or(|old| old.api != r.api || r.api.is_none())
+                    {
                         self.index_api_changed.push(r.path.clone());
                     }
                 }
                 index.merge(part);
             }
             let waiting = state.pending.iter().any(|(path, (stamp, _))| {
-                let current = url::Url::from_file_path(path)
-                    .ok()
-                    .and_then(|u| documents.get(u.as_str()).map(crate::reference_index::text_stamp));
+                let current = url::Url::from_file_path(path).ok().and_then(|u| {
+                    documents
+                        .get(u.as_str())
+                        .map(crate::reference_index::text_stamp)
+                });
                 current == Some(*stamp) && index.file(path).is_none_or(|r| r.stamp != *stamp)
             });
             let left = deadline.saturating_duration_since(std::time::Instant::now());
