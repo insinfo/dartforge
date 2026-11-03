@@ -1367,6 +1367,98 @@ struct Derived {
     ambiguous: HashSet<u32>,
 }
 
+impl Derived {
+    /// Adds what record `r`, in slot `i`, contributes (the full build, file
+    /// by file in slot order).
+    fn add(&mut self, i: usize, r: &FileRecord) {
+        for w in &r.referenced {
+            self.by_word.entry(*w).or_default().push(i);
+        }
+        self.by_library.entry(r.library).or_default().push(i);
+        for &(k, s, e) in &r.declarations {
+            self.declarations.entry(k).or_insert((i, s, e));
+        }
+        for &k in &r.patch_declarations {
+            self.patch_declarations.entry(k).or_insert(r.library);
+        }
+        for (j, c) in r.classes.iter().enumerate() {
+            self.classes.entry(c.key).or_insert((i, j));
+            for &s in &c.written {
+                let v = self.subtypes.entry(s).or_default();
+                if !v.contains(&c.key) {
+                    v.push(c.key);
+                }
+            }
+        }
+        for &(f, v) in &r.function_variables {
+            self.function_variables.insert(f, v);
+        }
+        for &(v, g, s) in &r.accessors {
+            self.accessors.insert(v, (g, s));
+        }
+        self.ambiguous.extend(r.ambiguous.iter().copied());
+    }
+
+    /// Replaces in place what `old`, in slot `i`, contributed with what `new`
+    /// contributes, giving what a full build over the new records gives;
+    /// `false` when that is not certain without one (the caller then builds
+    /// again): `new` declares other keys than `old` with other facts, which
+    /// another file may also declare.
+    fn replace(&mut self, i: usize, old: &FileRecord, new: &FileRecord) -> bool {
+        let keys = |r: &FileRecord| -> Vec<u32> {
+            let mut v: Vec<u32> = r.declarations.iter().map(|d| d.0).collect();
+            v.sort_unstable();
+            v
+        };
+        let classes = |r: &FileRecord| -> Vec<(u32, Vec<u32>)> {
+            r.classes.iter().map(|c| (c.key, c.written.clone())).collect()
+        };
+        let pairs = |r: &FileRecord| -> (Vec<(u32, u32)>, Vec<(u32, u32, u32)>) {
+            (r.function_variables.clone(), r.accessors.clone())
+        };
+        if old.library != new.library
+            || keys(old) != keys(new)
+            || classes(old) != classes(new)
+            || pairs(old) != pairs(new)
+            || old.ambiguous != new.ambiguous
+            || old.patch_declarations != new.patch_declarations
+        {
+            return false;
+        }
+        // The words: each list keeps the slots in order.
+        let place = |v: &mut Vec<usize>| {
+            if let Err(at) = v.binary_search(&i) {
+                v.insert(at, i);
+            }
+        };
+        let old_words: HashSet<u32> = old.referenced.iter().copied().collect();
+        let new_words: HashSet<u32> = new.referenced.iter().copied().collect();
+        for w in old_words.difference(&new_words) {
+            if let Some(v) = self.by_word.get_mut(w) {
+                v.retain(|&x| x != i);
+                if v.is_empty() {
+                    self.by_word.remove(w);
+                }
+            }
+        }
+        for w in new_words.difference(&old_words) {
+            place(self.by_word.entry(*w).or_default());
+        }
+        // The same keys: only the spans of the declarations this slot holds
+        // move.
+        let mut first: HashSet<u32> = HashSet::new();
+        for &(k, s, e) in &new.declarations {
+            if first.insert(k)
+                && let Some(d) = self.declarations.get_mut(&k)
+                && d.0 == i
+            {
+                *d = (i, s, e);
+            }
+        }
+        true
+    }
+}
+
 /// The member family over the records ([`Project::family`]).
 #[derive(Debug, Default)]
 struct KeyFamily {
@@ -1420,14 +1512,29 @@ impl ReferenceIndex {
         for r in records {
             self.absent.remove(&r.path);
             match self.by_path.get(&r.path) {
-                Some(&i) => self.files[i] = Some(r),
+                Some(&i) => {
+                    // A record of the same file with the same keys (a body edit)
+                    // updates what is derived in place; anything else builds it
+                    // again at the next search.
+                    let kept = match (&mut self.derived, &self.files[i]) {
+                        (Some(d), Some(old)) => d.replace(i, old, &r),
+                        _ => false,
+                    };
+                    if !kept {
+                        self.derived = None;
+                    }
+                    self.files[i] = Some(r);
+                }
                 None => {
-                    self.by_path.insert(r.path.clone(), self.files.len());
+                    let i = self.files.len();
+                    if let Some(d) = &mut self.derived {
+                        d.add(i, &r);
+                    }
+                    self.by_path.insert(r.path.clone(), i);
                     self.files.push(Some(r));
                 }
             }
         }
-        self.derived = None;
     }
 
     /// Drops the record of `path` (a file that no longer exists).
@@ -1461,32 +1568,7 @@ impl ReferenceIndex {
             let mut d = Derived::default();
             for (i, r) in self.files.iter().enumerate() {
                 let Some(r) = r else { continue };
-                for w in &r.referenced {
-                    d.by_word.entry(*w).or_default().push(i);
-                }
-                d.by_library.entry(r.library).or_default().push(i);
-                for &(k, s, e) in &r.declarations {
-                    d.declarations.entry(k).or_insert((i, s, e));
-                }
-                for &k in &r.patch_declarations {
-                    d.patch_declarations.entry(k).or_insert(r.library);
-                }
-                for (j, c) in r.classes.iter().enumerate() {
-                    d.classes.entry(c.key).or_insert((i, j));
-                    for &s in &c.written {
-                        let v = d.subtypes.entry(s).or_default();
-                        if !v.contains(&c.key) {
-                            v.push(c.key);
-                        }
-                    }
-                }
-                for &(f, v) in &r.function_variables {
-                    d.function_variables.insert(f, v);
-                }
-                for &(v, g, s) in &r.accessors {
-                    d.accessors.insert(v, (g, s));
-                }
-                d.ambiguous.extend(r.ambiguous.iter().copied());
+                d.add(i, r);
             }
             self.derived = Some(d);
         }
