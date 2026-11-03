@@ -10,10 +10,11 @@ use std::process::Command;
 
 /// The budget of the hello world's module, as LLVM leaves it (without
 /// Binaryen's `wasm-opt`, which the test turns off so that the number does not
-/// depend on the machine): 1.30 MB on 02/11/2026, 0.91 MB on 03/11/2026 once
+/// depend on the machine): 1.30 MB on 02/11/2026, 0.78 MB on 03/11/2026 once
 /// `noSuchMethod` stays only for programs that invoke dynamically
-/// (`lower/dynamic_invocation.rs`).
-const HELLO_WASM_BUDGET: u64 = 1_000_000;
+/// (`lower/dynamic_invocation.rs`), only the loaded SDK libraries are linked
+/// and the runtime's zero tables left the data section.
+const HELLO_WASM_BUDGET: u64 = 860_000;
 
 /// The budget of the hello world's executable: 3.49 MB on Windows on
 /// 02/11/2026, under the ~5.8 MB of `dart compile exe` on every host.
