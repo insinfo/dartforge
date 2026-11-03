@@ -243,9 +243,11 @@ fn prefer_order(program: &Program, order: &[usize], starts: &[usize]) -> (Vec<us
                     .is_some_and(|p| hot_files.contains(crate::generated::key(p).as_path()))
             })
     };
-    // A hot library leaves its group (libraries that import each other) and
-    // becomes a group of its own, after the rest of it: the rest does not
-    // wait for it either.
+    // The hot libraries leave their group (libraries that import each other)
+    // and become a group of their own, after the rest of it: the rest does
+    // not wait for them either. The hot ones of one group stay together: they
+    // may import each other, and two hot groups that each wait for the other
+    // would never be ready.
     let (order, starts): (Vec<usize>, Vec<usize>) = if hot_files.is_empty() {
         (order.to_vec(), starts.to_vec())
     } else {
@@ -265,8 +267,9 @@ fn prefer_order(program: &Program, order: &[usize], starts: &[usize]) -> (Vec<us
                 o.push(l);
                 s.push(start);
             }
+            let hot_start = o.len();
             for &l in group.iter().filter(|&&l| is_hot(l)) {
-                s.push(o.len());
+                s.push(hot_start);
                 o.push(l);
             }
             i = j;
@@ -363,7 +366,9 @@ fn prefer_order(program: &Program, order: &[usize], starts: &[usize]) -> (Vec<us
         .map(|g| Reverse(key(g)))
         .collect();
     let (mut new_order, mut new_starts) = (Vec::with_capacity(order.len()), Vec::new());
+    let mut placed = vec![false; n];
     while let Some(Reverse((_, _, _, _, g))) = ready.pop() {
+        placed[g] = true;
         let start = new_order.len();
         for &l in &order[groups[g].clone()] {
             new_order.push(l);
@@ -379,7 +384,15 @@ fn prefer_order(program: &Program, order: &[usize], starts: &[usize]) -> (Vec<us
             }
         }
     }
-    debug_assert_eq!(new_order.len(), order.len());
+    // Never a library left out: a group whose waits never end (which the hot
+    // groups kept together above prevent) comes last, in its old place's order.
+    for g in (0..n).filter(|&g| !placed[g]) {
+        let start = new_order.len();
+        for &l in &order[groups[g].clone()] {
+            new_order.push(l);
+            new_starts.push(start);
+        }
+    }
     (new_order, new_starts)
 }
 

@@ -4522,6 +4522,120 @@ mod tests {
         std::fs::remove_dir_all(&base).unwrap();
     }
 
+    /// Batches of one file each, analyzed in turn as the LSP's resident does
+    /// (each one twice: a body edit, then its text): each load over the kept
+    /// program's prefix sees every library the batch imports, and each
+    /// analysis publishes what a fresh one does. The files import each other
+    /// as `package:args`'s do.
+    #[test]
+    fn resident_loads_every_import_of_the_next_batch() {
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-agent/engine-batches-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(base.join("pkg/lib/src")).unwrap();
+        std::fs::create_dir_all(base.join("pkg/.dart_tool")).unwrap();
+        let base = std::fs::canonicalize(&base).unwrap();
+        std::fs::write(
+            base.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            base.join("sdk/lib/core/core.dart"),
+            "class Object {} class bool {} class num {} class int extends num {} \
+             class String {} class Null {}",
+        )
+        .unwrap();
+        let root = base.join("pkg");
+        std::fs::write(
+            root.join(".dart_tool/package_config.json"),
+            r#"{"configVersion":2,"packages":[{"name":"args","rootUri":"../","packageUri":"lib/","languageVersion":"3.0"}]}"#,
+        )
+        .unwrap();
+        let files = [
+            (
+                "lib/args.dart",
+                "export 'src/arg_parser.dart';\nexport 'src/arg_results.dart';\n",
+            ),
+            (
+                "lib/command_runner.dart",
+                "import 'args.dart';\nclass Runner { ArgParser p = ArgParser(); }\n",
+            ),
+            (
+                "lib/src/allow_anything_parser.dart",
+                "import 'arg_parser.dart';\nimport 'arg_results.dart';\nimport 'parser.dart';\n\
+                 class AllowAnythingParser implements ArgParser {\n  \
+                 ArgResults parse() => Parser(this).parse();\n}\n",
+            ),
+            (
+                "lib/src/arg_parser.dart",
+                "import 'allow_anything_parser.dart';\nimport 'arg_results.dart';\nimport 'parser.dart';\n\
+                 class ArgParser {\n  ArgParser();\n  factory ArgParser.any() = AllowAnythingParser;\n  \
+                 ArgResults parse() => Parser(this).parse();\n}\n",
+            ),
+            ("lib/src/arg_parser_exception.dart", "class ArgParserException {}\n"),
+            (
+                "lib/src/arg_results.dart",
+                "import 'arg_parser.dart';\nclass ArgResults {\n  final ArgParser parser;\n  \
+                 ArgResults(this.parser);\n}\n",
+            ),
+            (
+                "lib/src/parser.dart",
+                "import 'arg_parser.dart';\nimport 'arg_results.dart';\nclass Parser {\n  \
+                 final ArgParser p;\n  Parser(this.p);\n  ArgResults parse() => ArgResults(p);\n}\n",
+            ),
+        ];
+        for (rel, text) in files {
+            std::fs::write(root.join(rel), text).unwrap();
+        }
+        let engine = Engine::new(&base.join("sdk/lib")).unwrap();
+        let packages = root.join(".dart_tool/package_config.json");
+        let shown = |r: &AnalysisResult, f: &Path| {
+            let mut v: Vec<(usize, usize, String)> = r.files[&key(f)]
+                .diags
+                .iter()
+                .map(|d| (d.span.start, d.span.end, d.message.clone()))
+                .collect();
+            v.sort();
+            v
+        };
+        let mut resident = Resident::new();
+        let mut texts: HashMap<PathBuf, String> = files
+            .iter()
+            .map(|(rel, text)| (key(&root.join(rel)), text.to_string()))
+            .collect();
+        for (rel, text) in files {
+            let file = root.join(rel);
+            for version in [format!("{text}\n"), text.to_string()] {
+                texts.insert(key(&file), version);
+                let kept = engine
+                    .analyze_resident(
+                        &mut resident,
+                        &root,
+                        std::slice::from_ref(&file),
+                        Some(&packages),
+                        &texts,
+                        &|| false,
+                    )
+                    .unwrap();
+                let fresh = engine
+                    .analyze_with(
+                        &root,
+                        std::slice::from_ref(&file),
+                        Some(&packages),
+                        &texts,
+                        &|| false,
+                    )
+                    .unwrap();
+                assert_eq!(shown(&kept, &file), shown(&fresh, &file), "{rel}");
+            }
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     /// After an API change, the reload lays out what changed, and what
     /// depends on it, last (`Program::layout_last`): the next change of the
     /// same file keeps the package's libraries that do not depend on it, even
