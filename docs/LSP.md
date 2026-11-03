@@ -2744,6 +2744,217 @@ sem `cargo`, `rustc` ou `link`; mediana até assentar):
 - **A primeira edição de uma sessão** antes da primeira busca ainda faz o registro pelo caminho
   antigo (1,4–2 s, uma vez).
 
+#### Décima sétima rodada (2026-11-03): as consultas servidas pelo residente
+
+##### As consultas no residente (item 1, decisão do integrador)
+
+O servidor carregava a biblioteca do documento na sua própria sessão semântica (~376 MiB no
+`new_sali/frontend`) para `hover`, `definition`, `prepareRename` e as outras consultas de
+biblioteca, ao lado do programa do residente, que tem as mesmas bibliotecas. Agora
+(`crates/lsp/src/remote.rs`):
+
+- **O pedido.** O servidor manda a consulta (`remote::Call`) ao residente, com os documentos
+  abertos (URI, versão, texto), pelo mesmo *pipe* das análises; a resposta (`remote::Answer`)
+  volta numa linha própria, que o leitor do processo entrega a quem espera
+  (`ResidentRecords::query`). Vão ao residente: `hover`, `definition`, `typeDefinition`,
+  `signatureHelp`, `documentHighlight`, `prepareRename`, `closingLabels`, `inlayHint`,
+  `semanticTokens`, `prepareCallHierarchy`, `prepareTypeHierarchy`, a navegação para o membro
+  sobrescrito, `documentColor`/`colorPresentation`, `codeAction` e `completion`; e os registros
+  do índice que o servidor precisaria refazer (`Call::Records`).
+- **O residente.** Empresta a última análise (`Resident::lend_world`: programa, *interner*,
+  tabela de tipos, *outline* e as tabelas de corpo) a um `SemanticAnalyzer` só dele, cuja sessão
+  serve esse programa (`Session::lend`; nenhum outro escopo carrega nada), e roda o mesmo método
+  que o servidor rodaria. O que a consulta calcula das unidades que não mudaram (comentários,
+  ocorrências, nomes referenciados, o índice caminho → unidade) fica no `ResidentCache` entre
+  empréstimos.
+- **Quando o programa não é dos textos.** Cada documento aberto que o programa tem precisa ter o
+  mesmo texto; senão a consulta espera a próxima análise (até 20 s no residente; o servidor espera
+  até 15 s, `DARTFORGE_LSP_QUERY_WAIT_MS`) e, sem resposta, responde como antes, na própria
+  sessão. Uma análise cancelada deixa o residente "não pronto" até a seguinte.
+- **As consultas antes dos registros.** Depois de mandar os diagnósticos, o residente atende as
+  consultas que chegaram antes de fazer os registros do índice (~20 ms): o `hover` logo depois de
+  uma edição não espera por eles.
+- **Os corpos.** Com as consultas ligadas, o residente guarda as tabelas de corpo das bibliotecas
+  dos documentos abertos (`Resident::retain_bodies` solta as do resto de um lote grande) e infere
+  na hora as de uma biblioteca que não as tenha.
+- **O residente desde o começo.** A primeira análise de um pacote roda num processo à parte; logo
+  depois o trabalhador carrega no residente os documentos abertos (sem publicar nada), para que a
+  primeira consulta já o encontre. Uma consulta que não acha residente pede essa carga.
+  `DARTFORGE_LSP_RESIDENT_QUERIES=0` volta ao caminho antigo.
+
+**O SDK com os *patches* do DDC.** O residente usa o SDK do motor (`dartforge analyze`, com os
+*patches* do DDC); o servidor, o do analisador. Um membro que um *patch* substitui tem, no
+modelo, a declaração original em `public_declaration`. `Project::public_view` troca a função do
+*patch* pela declaração original na definição e no `hover`; o mesmo vale para o item da hierarquia
+de chamadas, os parâmetros da `signatureHelp` e a documentação de `completionItem/resolve`
+(`Query::function_start`). Assim local, assinatura e documentação ficam iguais às do analisador.
+O oráculo achou os dois casos que faltavam na primeira versão:
+- `prepareCallHierarchy`, 100% → 98%: `toString`, `==` e `List.unmodifiable` apontavam para
+  `core_patch.dart`;
+- `signatureHelp`, 100% → 99%: `write(Object? obj)` no lugar de `write(Object? object)`.
+
+Os dois foram corrigidos.
+
+**O primeiro registro de uma sessão (item 5).** Os registros desatualizados do índice que não
+vêm prontos do residente são pedidos a ele (`Call::Records`, sobre o programa emprestado) antes de
+qualquer carga no servidor; sem resposta, vão a um processo filho, nunca à sessão do servidor.
+Por isso a primeira edição antes da primeira busca não carrega mais a biblioteca no servidor
+(1,4–2 s e ~376 MiB).
+
+**O índice no servidor.** O *cache* do índice (~70 MB) era lido inteiro para o *heap*, e as
+tabelas de cadeias cresciam dobrando: o *footprint* do servidor ficava ~150 MiB acima dos
+158 MiB vivos. Agora o arquivo é mapeado (`memory::file_bytes`, Unix) e as tabelas nascem do
+tamanho certo. O *footprint* em repouso do servidor caiu de 310 para 257 MiB.
+
+**Os pedidos no `new_sali/frontend`** (mesmo *driver* e posições da rodada 16; Dart, agora,
+rodada 16, agora, Dart; carga 11–38; mediana em ms):
+
+| pedido | rodada 16 | agora (2 sessões) | Dart (2 sessões) |
+|---|---:|---:|---:|
+| `references`, sem edição | 0,4 | **0,8; 0,4** | 30,5; 27,3 |
+| `references`, depois de edição | 95,0 | 36,7; 58,6 | **25,4; 19,2** |
+| `implementation`, sem edição | 0,3 | **0,3; 0,3** | 12,3; 13,4 |
+| `implementation`, depois de edição | 2,5 | **2,4; 2,3** | 32,0; 10,8 |
+| `prepareRename`, sem edição | 0,4 | **0,4; 0,4** | 1,1; 1,1 |
+| `prepareRename`, depois de edição | 1,5 | **1,9; 1,7** | 11,5; 2,1 |
+| `hover`, sem edição | 0,4 | **0,5; 0,6** | 1,2; 1,3 |
+| `hover`, depois de edição | 0,9 | **1,2; 1,2** | 24,2; 3,6 |
+| *footprint* em repouso, todos os processos (MiB) | 1.220,5 | **793,7; 791,4** | 944,0; 814,0 |
+| *footprint* do servidor sozinho (MiB) | 689,3 | 257,0; 259,2 | — |
+
+- **Memória: agora ganhamos** (791–794 contra 814–944 MiB do Dart; eram 1.218–1.227). O
+  servidor guarda só o índice (158 MiB vivos); o residente fica em ~545 MiB.
+- **`hover` depois de edição** sobe de ~0,9 para ~1,2 ms (a ida e volta ao residente), ainda
+  abaixo do Dart. Antes do índice de caminhos (`Project::unit_paths`) levava 4,4 ms: cada consulta
+  procurava a unidade do documento comparando o caminho de ~3.600 unidades.
+- **`references` depois de edição** (3 amostras) variou muito com a carga: 6,5 e 20,8 ms numa
+  rodada anterior com o binário intermediário (Dart 18,4–20,2), 36,7 e 58,6 nesta (Dart
+  19,2–25,4; a rodada 16, no mesmo momento, 95,0). **Não dá para dizer que ganhamos** essa
+  mediana. O que pesa é a primeira busca larga depois do registro novo (o pior caso, `String`, fica
+  em ~320 ms contra 5,4–7,1 s do Dart).
+
+##### A sessão longa (macOS)
+
+150 rodadas (510 cargas), dois pares com a rodada 16 entre eles (Dart, agora, rodada 16, agora,
+Dart, rodada 16). Carga de 11 a 30. Mediana até assentar, em ms.
+
+| carga | agora (a; b) | rodada 16 (a; b) | Dart (a; b) |
+|---|---:|---:|---:|
+| onda de 40 `.g.dart` | **71; 78** | 77; 63 | 109; 114 |
+| edição de corpo | **30; 31** | 30; 23 | 34; 39 |
+| mudança de API | **46; 49** | 45; 33 | 100; 112 |
+| pico do *footprint* (MiB) | **579; 579** | 574; 574 | 717; 726 |
+| em repouso após 60 s (MiB) | **579; 579** | 536; 574 | 714; 703 |
+| inclinação por 100 cargas (MiB) | **+2,6; +1,1** | −1,0; +1,0 | +35,3; +36,9 |
+
+- Ganhamos as três cargas e a memória nos dois pares.
+- A rodada 16 no par b rodou com a máquina mais calma (carga 11) e fez a edição de corpo em 23 ms:
+  as sessões não são comparáveis entre si com essa variação de carga. Nas publicações não há
+  diferença de comportamento entre as duas versões nessa sessão, que não tem consultas.
+- O residente agora guarda as tabelas de corpo dos documentos abertos entre as análises (para as
+  consultas): o pico sobe ~5 MiB.
+- As curvas estão em `bench/results/lsp-long-session/*-r27-long-*.csv`.
+
+##### A inclinação ≤ 0 (item 2)
+
+**Não foi atingida** (+2,6 e +1,1 MiB por 100 cargas). Não houve tempo para outra estratégia de
+alocação nesta rodada. O que foi visto:
+- o dado vivo segue plano (rodada 16: residente em 476,4 MiB do começo ao fim);
+- `malloc_zone_pressure_relief` continua devolvendo 0 bytes neste macOS.
+
+Fica para a próxima rodada: uma arena para as tabelas de corpo de cada análise, que hoje são
+alocadas e soltas a cada carga.
+
+##### Windows: onde vai a CPU da edição de corpo (item 3)
+
+Antes de cada sessão o script esperou não haver `cargo`, `rustc` ou `link`.
+
+**Amostragem com `xperf`** (`PROFILE`, 1 ms, com pilhas, no binário da rodada 16; 30 rodadas;
+símbolos do PDB do *release*). O residente teve 11,8 s de amostras:
+
+| onde | parte |
+|---|---:|
+| código do DartForge | 58% |
+| `ntdll` (o *heap* do Windows: `RtlAllocateHeap`/`RtlFreeHeap`, `finish_grow` dos `Vec`) | 16% |
+| núcleo (`ntoskrnl`, `Ntfs`, `FltMgr`) | 19% |
+| `std::fs::metadata` (`stat`) | 10% |
+| caminhos (`key_of`, `Components::next`, `without_verbatim`, `compare_components`) | ~10% |
+
+- **Os `stat` do carregador.** Cada `import` relativo e cada `package:` resolvido perguntava ao
+  disco se o arquivo existe, além da configuração de pacotes e dos arquivos de opções.
+  `dartforge_elements::fs_cache` guarda essas respostas entre as cargas do residente enquanto o
+  disco não mudou (o residente liga o *cache*; uma mudança avisada pelo *watcher*, ou a varredura
+  a cada 30 s, o esvazia; `DARTFORGE_LSP_FS_CACHE=0` desliga).
+  - Medido no macOS, uma edição de corpo pede ~40 dessas respostas, e uma onda ~375.
+  - O ganho fica nas ondas e nas mudanças de API. **A edição de corpo não mudou: 77 ms.** Seus
+    `stat` eram poucos.
+- **O *segment heap* do Windows** (`FrontEndHeapDebugOptions=8` no IFEO do binário): 77 ms, sem
+  mudança. A chave foi removida.
+- **A linha do tempo de uma edição de corpo** (`DARTFORGE_LSP_TRACE=1`, 42 edições, mediana em
+  ms desde a edição):
+
+  | etapa | macOS | Windows |
+  |---|---:|---:|
+  | o trabalhador manda o lote ao residente | 3,3 | 8,3 |
+  | o residente termina | 22,8 | 59,4 |
+  | o servidor recebe os resultados | 24,4 | 60,2 |
+  | o *driver* vê o fim (com a espera de 5 ms dele) | 31,7 | 76,9 |
+
+  O residente leva ~50 ms no Windows contra ~19 no macOS. Entre os resultados e o fim visto
+  pelo *driver*, o Windows gasta ~17 ms contra ~7: a espera de 5 ms do *driver* usa
+  `recv_timeout`, que no Windows tem a resolução do relógio do sistema (~15,6 ms). Essa espera
+  pesa igual para o Dart.
+
+**Sessão longa no Windows, 150 rodadas, dois pares** (binário `c0c09e64`, o primeiro desta rodada,
+com o *cache* de `stat`; carga 0–99%):
+
+| carga | DartForge (a; b) | Dart (a; b) |
+|---|---:|---:|
+| onda | **223; 221** | 443; 400 |
+| edição de corpo | 76; 76 | **60; 60** |
+| mudança de API | **125; 124** | 426; 265 |
+| bytes privados no fim (MiB) | **373; 370** | 710; 705 |
+
+A edição de corpo **ainda perde**. A causa está nas fases de CPU do residente: o *heap* do Windows
+e as operações de caminho. O `mimalloc` (rodada 15) dava ~12% e mais memória.
+
+Os binários finais (`completion` no residente, índice mapeado) não foram medidos no Windows: o
+coordenador reservou a máquina para a validação da versão.
+
+##### Validação
+
+- **Oráculo de paridade** nos quatro projetos (35 arquivos, 398 posições) com o binário final:
+  **a mesma tabela das rodadas 15 e 16**. Ficam a 100% `references`, `implementation`,
+  `definition`, `prepareRename`, `rename`, `documentHighlight`, `prepareCallHierarchy` e
+  `signatureHelp`; *completion* top-5 a 100% e top-1 a 99%. Também foi rodado a cada passo:
+  só as consultas de biblioteca, depois `codeAction`, depois `completion`.
+- **Igualdade do índice** nos quatro projetos (2.119 alvos): o índice e os registros do residente
+  dão as mesmas respostas da busca sem o índice (`references`, `implementation`,
+  `prepareRename`).
+- **Clippy** `--workspace --all-targets -- -D warnings` (com o LLVM 22.1.8) e **rustfmt**
+  `--check` limpos.
+- **Testes em *release*** de `elements`, `types`, `analysis`, `world`, `emit_js`,
+  `emit_js_production`, `parity`, `lsp` e `dev`, com o `node` no `PATH` e o
+  `runtime/ddc/dart_sdk.js` copiado: **não terminaram antes do fechamento desta seção**: com a máquina em carga 50–96, a compilação passou do limite de 90 min do script. Uma segunda volta, que reaproveita o que foi compilado, estava rodando no fechamento.
+
+##### O que não foi feito nesta rodada
+
+- **A inclinação ≤ 0 em toda sessão longa** (item 2): +2,6 e +1,1 MiB por 100 cargas; o dado vivo
+  é plano.
+- **A edição de corpo no Windows** (item 3): 76 contra 60 ms. Agora há uma amostragem que mostra
+  onde vai o tempo; o próximo passo são as alocações e as chaves de caminho das fases do
+  residente.
+- **A recarga no lugar casando os elementos por nome** (item 4): não começou.
+- **`workspace/symbol`** (item 6): a ordem dos arquivos conhecidos do Dart não foi reproduzida.
+- **O que ainda carrega no servidor:**
+  - as consultas de projeto: `rename`, `references` sem índice, `implementation` sem índice e as
+    hierarquias completas;
+  - o `implementation` de um identificador sem fato no índice;
+  - a sessão larga.
+
+  Numa sessão de editor comum elas são raras, mas cada uma ainda deixa o servidor no pico.
+- **`references` depois de edição** não ganha do Dart de forma estável (ver a tabela).
+
 Latência medida (2026-09-27, Linux, release, SDK 3.6.2, cache do SDK
 quente; `cargo run --release -p dartforge-lsp --example
 latencia_diagnosticos -- <arquivos>`: pelo protocolo, abre o arquivo,

@@ -4,11 +4,11 @@
 
 **Meta (decisão do proprietário, 01/11/2026):** o `dartforge-lsp` precisa ser melhor que
 o `dart language-server` em todos os pedidos: mais rápido, com menos CPU e menos memória,
-com a mesma resposta. Depois da décima sexta rodada, ganha no `new_sali/frontend` em todos os
-pedidos medidos (`references`, `implementation`, `prepareRename`, `hover`, `workspace/symbol`,
-sem edição e depois de uma) e nas três cargas da sessão longa no macOS. Perde na memória em
-repouso de uma sessão com pedidos (a sessão e o índice do servidor ao lado do residente) e na
-edição de corpo da sessão longa no Windows.
+com a mesma resposta. Depois da décima sétima rodada, ganha no `new_sali/frontend` a memória em
+repouso de uma sessão com pedidos (as consultas de biblioteca saem do residente), os pedidos sem
+edição e quase todos depois de uma, e as três cargas da sessão longa no macOS. Perde a edição de
+corpo da sessão longa no Windows (76 × 60 ms), e `references` logo depois de uma edição não ganha
+de forma estável.
 
 1. **Reanalisar só as bibliotecas afetadas por uma mudança de API.** No `new_sali/frontend`,
    o diagnóstico do arquivo editado depois de uma mudança de API leva **1,3–1,4 s contra
@@ -71,6 +71,48 @@ Nenhum projeto pode piorar. O item 3 se mede no `new_sali` inteiro, na sessão l
 a curva de memória dos dois servidores.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
+
+**Andamento (03/11, 11h), décima sétima rodada: as consultas servidas pelo residente:**
+- **As consultas de biblioteca saem do residente** (`hover`, `definition`, `signatureHelp`,
+  `documentHighlight`, `prepareRename`, `codeAction`, `completion`, *tokens*, *inlay hints*,
+  hierarquias, cores): ele empresta a última análise a um analisador só dele. O servidor não
+  carrega mais a biblioteca do documento.
+- **O SDK com *patches*:** um membro que um *patch* do DDC substitui responde com a declaração
+  original (local, assinatura, documentação), como no analisador.
+- **Os registros do índice** que faltam também saem do residente: a primeira edição de uma
+  sessão não carrega mais a biblioteca no servidor.
+- **O *cache* do índice é mapeado**, e não lido para o *heap* (−53 MiB no servidor).
+- **Medida no `new_sali/frontend`** (carga 11–38; mediana em ms):
+
+  | pedido | rodada 16 | agora | Dart |
+  |---|---:|---:|---:|
+  | `references`, sem / depois de edição | 0,4 / 95,0 | **0,4–0,8** / 36,7–58,6 | 27,3–30,5 / **19,2–25,4** |
+  | `implementation`, sem / depois | 0,3 / 2,5 | **0,3 / 2,3–2,4** | 12,3–13,4 / 10,8–32,0 |
+  | `prepareRename`, sem / depois | 0,4 / 1,5 | **0,4 / 1,7–1,9** | 1,1 / 2,1–11,5 |
+  | `hover`, sem / depois | 0,4 / 0,9 | **0,5–0,6 / 1,2** | 1,2–1,3 / 3,6–24,2 |
+  | memória em repouso, sessão de pedidos (MiB) | 1.220 | **791–794** | 814–944 |
+
+- **Sessão longa no macOS** (150 rodadas, 2 pares, carga 11–30): onda **71; 78 × 109; 114 ms**,
+  edição de corpo **30; 31 × 34; 39 ms**, API **46; 49 × 100; 112 ms**, pico **579 × 717–726 MiB**,
+  inclinação **+2,6; +1,1 × +35,3; +36,9 MiB por 100 cargas**.
+- **Windows:** uma amostragem com `xperf` mostrou 10% do residente em `stat` (agora guardados
+  entre as cargas, `dartforge_elements::fs_cache`), 16% no *heap* do Windows e ~10% em operações
+  de caminho. A sessão longa (2 pares) fica em onda **221–223 × 400–443 ms**, API **124–125 ×
+  265–426 ms** e bytes privados **370–373 × 705–710 MiB**. A edição de corpo **ainda perde**:
+  76 × 60 ms.
+- **Validação:**
+  - **oráculo de paridade** com o binário final: a mesma tabela das rodadas 15 e 16;
+  - **igualdade do índice** (2.119 alvos, com os registros do índice e com os do residente);
+  - **clippy** `-D warnings` e **rustfmt** limpos;
+  - **testes em *release*** dos nove *crates*: não terminaram no fechamento (carga 50–96; a compilação passou de 90 min).
+- **Ainda não feito:**
+  - a inclinação ≤ 0 em toda sessão longa;
+  - a edição de corpo no Windows;
+  - a recarga no lugar casando os elementos por nome;
+  - a ordem do `workspace/symbol`;
+  - as consultas de projeto (`rename`, hierarquias completas, buscas sem índice), que ainda
+    carregam no servidor.
+- Detalhes em `docs/LSP.md`, "Décima sétima rodada".
 
 **Andamento (03/11, 08h), itens 1 a 4 e 6 (décima sexta rodada: o registro do documento no residente):**
 - **O registro do documento editado sai do residente**, que já infere a biblioteca: depois dos
@@ -477,7 +519,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 |---|---|---|---|
 | **JS dev** × DDC/webdev | compilar 1 arquivo: **7,6× mais rápido** (19 × 150 ms). Início do zero, sem `build_runner`: **29,6 × 212,5 s** (`limitless_ui`) e **56,1 × 383,3 s** (`new_sali`). Edição até a página, `limitless_ui`: template **3,3 × 7,6 s**, corpo **2,4 × 8,1 s**, API **8,8 × 51,8 s** (máquina carregada: valem as razões). Código gerado ≈ igual ao DDC (`closures` 1,65×, 13/10) | memória **0,5 × 4,9 GB**; JS em gzip **4,4 × 5,4 MB** (bruto 56 × 49 MB) | 31/10 noite |
 | **JS produção** × `dart2js -O4` | ganha em `collections/set_str` (0,54×), `map` (0,79×), `list_sort` (0,85×) e `map_str_int` (13,4 × 15,6 ms); empata em `async_await` (464 × 466 ms), `collatz` (150 × 150), `Set<int>` (16 × 15), `list_methods` (37 × 36), `map_iterate` e `closures`; **perde** em `jsonEncode` 1,0–1,2×. Compila **2–2,8× mais rápido** (-O2) | projetos grandes **0,90–0,94×** bruto, **0,96×** gzip; 16 programas pequenos **0,915×** bruto e **0,963× gzip** (o `json` de `bench/performance` sozinho, 1,034× gzip) | 01/11 |
-| **LSP** × servidor de análise | `new_sali/frontend`, revezado, com CPU (décima sexta rodada, carga 17–34). **Pedidos** (mediana, sem edição / depois de edição): `references` **0,8–1,0 / 3,3–26,9 × 26,5 / 20,9–53,0 ms**, `implementation` **0,3 / 2,5–5,5 × 12,5–14,0 / 11,0–11,7 ms**, `prepareRename` **0,4 / 1,5 × 0,8–1,1 / 2,6–4,0 ms**, `hover` **0,4 / 0,8 × 1,3–1,4 / 2,2–14,6 ms**, `workspace/symbol` **22–23 / 23–28 × 39–68 / 1.764–1.869 ms** (ganha todos). **Sessão longa** (`new_sali` inteiro, 150 rodadas, 3 pares): onda **72–78 × 138–158 ms**, edição de corpo **31–32 × 41–47 ms**, mudança de API **45–51 × 121–141 ms** (ganha as três, com menos CPU). **Windows** (i3, 2 pares de 150 rodadas): onda **234–246 × 392–433 ms**, API **140 × 267–361 ms**; a edição de corpo ainda perde (**77 × 60–61 ms**; era 139–143) | sessão longa: pico/repouso **574–576/527–574 × 698–757/686–756 MiB** (ganha), inclinação **+2,3; −13,2; +2,4 × +30,7 a +41,7 MiB por 100 cargas**; sessão de pedidos: repouso **1.218–1.227 × 858–889 MiB (perde)**. Oráculo de paridade igual ao da rodada 15 (references, implementation, definition 100%; completion top-5 100%, top-1 99%) | 03/11 |
+| **LSP** × servidor de análise | `new_sali/frontend`, revezado, com CPU (décima sétima rodada, carga 11–38). **Pedidos** (mediana, sem edição / depois de edição): `references` **0,4–0,8** / 36,7–58,6 × 27,3–30,5 / **19,2–25,4 ms** (depois de edição não ganha de forma estável), `implementation` **0,3 / 2,3–2,4 × 12,3–13,4 / 10,8–32,0 ms**, `prepareRename` **0,4 / 1,7–1,9 × 1,1 / 2,1–11,5 ms**, `hover` **0,5–0,6 / 1,2 × 1,2–1,3 / 3,6–24,2 ms**; as consultas de biblioteca saem do residente. **Sessão longa** (`new_sali` inteiro, 150 rodadas, 2 pares): onda **71–78 × 109–114 ms**, edição de corpo **30–31 × 34–39 ms**, mudança de API **46–49 × 100–112 ms**. **Windows** (i3, 2 pares de 150 rodadas): onda **221–223 × 400–443 ms**, API **124–125 × 265–426 ms**; a edição de corpo ainda perde (**76 × 60 ms**) | sessão de pedidos: repouso **791–794 × 814–944 MiB (ganha; era 1.218–1.227)**; sessão longa: pico/repouso **579/579 × 717–726/703–714 MiB**, inclinação **+2,6; +1,1 × +35,3; +36,9 MiB por 100 cargas**; Windows: bytes privados no fim **370–373 × 705–710 MiB**. Oráculo de paridade igual ao das rodadas 15 e 16 | 03/11 |
 | **`analyze`** × `dart analyze` | `new_sali/backend`: ~5 s × 21,7 s frio (2,6 s com cache); `format`: **0,42 × 1,55 s** | — | 13–14/10 |
 | **`test`** / **`pub`** × `dart test` / `dart pub` | **não medido** | — | — |
 | **Wasm** × `dart2wasm` (Node 24) | **perde** 1,2–3× em alocação/árvores, JSON, strings e crivo (ganho de só 10–20% em 31/10 noite; o coletor pesa ~25% no JSON); **ganha** 2–8× em `list.add`, `list[i]` e `sort` | módulo **0,72–1,76 MB** sem Binaryen e **0,60–1,46 MB** com o `wasm-opt -Oz` opcional do `--optimize` × 47–114 KB do dart2wasm (hello **599 KB × 47 KB, 12,7×**; era 1,30 MB e 28× em 02/11, 659 KB e 14× na primeira rodada de 03/11); gzip do hello 219 × 15 KB; memória **2,3–3,4× menor**. Exceções nativas do Wasm (`exnref`) são o padrão | tamanho: 03/11 (seções de 03/11: segunda rodada — tabela RTI só com as classes vivas, mapa compacto do runtime, guarda do `noSuchMethod` corrigida em 3 caminhos; primeira rodada — `noSuchMethod` só com invocação dinâmica, só as bibliotecas carregadas, dados zerados fora do módulo, Binaryen; velocidade igual dentro do ruído nas duas); velocidade: 31/10 noite; contra outras linguagens: seções de 02/11 e 03/11 |
@@ -511,7 +553,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | Régua da suíte `tests/language`: Dart oficial medido em 01/11 no notebook Windows (i3-1215U, SDK 3.6.2, `upstream_suite.py` em `/Volumes/ssd_dock/tmp/language-suite`, resultados `vm-win*.json` e `aot-win-flags.json`). **JIT sem opções**: igual ao `vm.json` do Mac em 2857/2863 (os 6 diferem só em caminhos de pilha e *hashes*). **JIT com os `--enable-experiment` de cada teste**: **2821/2863 (98,5%)** saem com 0; 40 recusados viram aprovados; sobram 42 (8 `macros`, 5 `test_runner` feitos para falhar, avulsos). **AOT** (`dart compile exe`, mesmas opções): **2822/2863 (98,6%)**; difere do JIT oficial em 32, dos quais 22 são recusados pelos dois, 6 só caminho/*hash*/tempo e **4 diferenças reais** (2 de pilha em `stack_trace/`, 2 de `static_weak_reference`, que só o AOT implementa). Achado: o `package_config` da suíte não tem `meta` nem `collection`, e 4 programas são recusados por isso em todas as ferramentas. Falta: o modo `dartaot` dentro do `scripts/run-language-suite.py`, um modo para o nosso JIT e comparar nosso AOT/JIT com o oficial com as mesmas opções (depende da leitura de `SharedOptions` em andamento no agente do backend nativo) | medição do oficial feita em 01/11; modo `dartaot` e leitura de `SharedOptions` integrados ao script em 02/11 (quinta rodada do agente backend nativo); falta o modo do nosso JIT |
 | AOT nativo: tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`) e tamanho (1,37×); próximo: mapa de campo, `$c`/`$g`/`$tc`, `$async` | em rodízio: agentes de desempenho um por vez desde 01/11 (ordem LSP → ARC → AOT); seção de 31/10 abaixo |
 | ARC real: 2,5× os ciclos do tracing no HTTP `dart:io` e 1,7× no cru (eram 3× e 2,2×); próximos passos na seção de 01/11 | em rodízio: agentes de desempenho um por vez (fila: LSP prioridade → AOT → ARC) |
-| LSP: memória de uma sessão com pedidos (a sessão e o índice do servidor ao lado do residente: servir as consultas do residente pede o mesmo SDK nos dois processos), edição de corpo no Windows, recarga no lugar casando os elementos por nome, ordem dos arquivos conhecidos do `workspace/symbol` | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
+| LSP: edição de corpo no Windows (fases de CPU do residente: *heap* e caminhos), inclinação ≤ 0 da sessão longa, recarga no lugar casando os elementos por nome, ordem dos arquivos conhecidos do `workspace/symbol`, consultas de projeto ainda no servidor | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
 | CI (`CI` e `Heavy`) vermelho desde 31/10 | 03/11: testes do CI corrigidos (`2cabc620`); no `Heavy` faltam o nativo do `corpus/js` (253 e 273) e o `corpus/modern` (340 e 341). Seção "fechamento do dia" abaixo |
 
 ## 03/11/2026: fechamento do dia — o que foi feito e o que falta
