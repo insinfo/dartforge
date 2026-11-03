@@ -317,6 +317,20 @@ pub struct Server<A = SyntacticAnalyzer> {
     workspace_symbol_kinds: Option<Vec<u64>>,
     /// The syntactic index of the libraries for `workspace/symbol`.
     symbol_index: crate::workspace_symbols::Index,
+    /// What `workspace/symbol` listed (the roots, when, the added files, the
+    /// packages' `lib/`s, their generated `lib/`s and the SDK), reused while the
+    /// client's watcher reports no change ([`Server::workspace_symbols`]).
+    #[allow(clippy::type_complexity)]
+    symbol_listing: Option<(
+        Vec<std::path::PathBuf>,
+        std::time::Instant,
+        Vec<std::path::PathBuf>,
+        Vec<std::path::PathBuf>,
+        Vec<(String, std::path::PathBuf, std::path::PathBuf)>,
+        Option<std::path::PathBuf>,
+    )>,
+    /// The watcher reported a change since the listing.
+    symbol_disk_dirty: bool,
     /// The client accepts `labelDetails` on completion items: the label is only
     /// the name, and the short signature and the library to import go in the
     /// details (as the Dart server does with such a client).
@@ -478,6 +492,8 @@ impl<A: Analyzer> Server<A> {
             symbol_kinds: None,
             workspace_symbol_kinds: None,
             symbol_index: Default::default(),
+            symbol_listing: None,
+            symbol_disk_dirty: false,
             requestable_configuration: false,
             dynamic: Vec::new(),
             dynamic_configuration: false,
@@ -1359,6 +1375,9 @@ impl<A: Analyzer> Server<A> {
                     }
                 }
                 self.analyzer.disk_changed(&paths);
+                if !paths.is_empty() {
+                    self.symbol_disk_dirty = true;
+                }
                 // Dart reports the analysis its watcher starts the same way as
                 // an edit's.
                 if analysis {
@@ -4309,28 +4328,68 @@ impl<A: Analyzer> Server<A> {
         }
         // `addedFiles`: the files of the analyzed roots; the known ones: the SDK
         // and the `lib/` of the packages of each root.
-        let mut added: Vec<std::path::PathBuf> = roots
-            .iter()
-            .flat_map(|r| crate::project::project_files(r))
-            .collect();
+        // A client that watches the files reports their changes: the listing
+        // and the files' dates are read again only after a report, or every
+        // 30 s (the session's rule).
+        let trust_disk = self.observe_files
+            && !self.symbol_disk_dirty
+            && self
+                .symbol_listing
+                .as_ref()
+                .is_some_and(|l| l.0 == roots && l.1.elapsed() < crate::session::DISK_TRUST);
+        if !trust_disk {
+            let added: Vec<std::path::PathBuf> = roots
+                .iter()
+                .flat_map(|r| crate::project::project_files(r))
+                .collect();
+            let packages: Vec<std::path::PathBuf> = roots
+                .iter()
+                .flat_map(|r| crate::workspace_symbols::package_folders(r))
+                .collect();
+            // The packages' generated `lib/`s (`build_runner` outputs).
+            let generated: Vec<(String, std::path::PathBuf, std::path::PathBuf)> = roots
+                .iter()
+                .flat_map(|r| {
+                    let out = r.join(".dart_tool").join("build").join("generated");
+                    crate::project::packages_with_name(r)
+                        .into_iter()
+                        .map(move |(name, lib)| {
+                            let g = out.join(&name).join("lib");
+                            (name, dartforge_elements::generated::key(&lib), g)
+                        })
+                })
+                .filter(|(_, _, g)| g.is_dir())
+                .collect();
+            let sdk = dartforge_elements::sdk::SdkLayout::discover();
+            self.symbol_listing = Some((
+                roots.clone(),
+                std::time::Instant::now(),
+                added,
+                packages,
+                generated,
+                sdk,
+            ));
+            self.symbol_disk_dirty = false;
+        }
+        let Some((_, _, added, packages, generated, sdk)) = &self.symbol_listing else {
+            return Vec::new();
+        };
+        let mut added = added.clone();
         // An open document outside the roots is also analyzed (the server creates a
         // context for it).
         loose.retain(|c| !roots.iter().any(|r| c.starts_with(r)));
         loose.sort();
         added.extend(loose);
-        let packages: Vec<std::path::PathBuf> = roots
-            .iter()
-            .flat_map(|r| crate::workspace_symbols::package_folders(r))
-            .collect();
-        let sdk = dartforge_elements::sdk::SdkLayout::discover();
         let kinds = self.workspace_symbol_kinds.clone();
         self.symbol_index.search(
             query,
             &added,
             sdk.as_deref(),
-            &packages,
+            packages,
+            generated,
             &open_texts,
             kinds.as_deref(),
+            trust_disk,
         )
     }
 

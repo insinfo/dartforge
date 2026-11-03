@@ -20,6 +20,13 @@
 //! The index is only syntactic (the parser, without resolution) and is
 //! cached per file; a library's index is rebuilt when it or one of its
 //! parts changes.
+//!
+//! The known files also have the `build_runner` outputs that the libraries
+//! import (`package:x/a.template.dart`, which only exists under
+//! `.dart_tool/build/generated`): the analyzer's `PackageBuildWorkspace`
+//! resolves those URIs to the generated files, and each `FileState` it
+//! creates is a known file. They come last, in the order the imports reach
+//! them from the added files.
 
 use crate::fuzzy_matcher::{Matcher, Style};
 use dartforge_frontend::ast::{
@@ -305,6 +312,8 @@ struct Library {
     union: NameUnion,
     units: Vec<Unit>,
     types: LocalTypes,
+    /// The URIs its units import and export, with the unit's file.
+    imports: Vec<(PathBuf, String)>,
 }
 
 /// The fingerprint of a read file: its size and date on disk, or the open
@@ -328,6 +337,8 @@ pub(crate) struct Index {
     entries: HashMap<PathBuf, Entry>,
     /// The SDK libraries in `libraries.dart` order, by `lib/`.
     sdk: Option<(PathBuf, Vec<PathBuf>)>,
+    /// The `.dart` files of each package's `lib/`, as last listed.
+    listed: HashMap<PathBuf, Vec<PathBuf>>,
 }
 
 /// Reads a file (open or from disk) with its fingerprint.
@@ -874,6 +885,7 @@ fn index(
     let mut union = NameUnion::empty();
     let mut types = LocalTypes::new();
     let mut units = Vec::new();
+    let mut imports = Vec::new();
     // The units in pre-order: the defining one, each part and its parts.
     let mut pending = vec![path.to_path_buf()];
     let mut seen: HashSet<PathBuf> = HashSet::new();
@@ -912,6 +924,13 @@ fn index(
         let declarations = collector.output;
         let uri = uri_of(&file);
         units.push(Unit { uri, declarations });
+        for d in &analyzed.unit.directives {
+            if let DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } = &d.kind
+                && let Some(u) = dartforge_elements::load::string_lit_value(uri)
+            {
+                imports.push((file.clone(), u.to_string()));
+            }
+        }
         for p in parts(&analyzed.unit, &file).into_iter().rev() {
             pending.push(p);
         }
@@ -922,6 +941,7 @@ fn index(
             union,
             units,
             types,
+            imports,
         }),
     )
 }
@@ -934,14 +954,19 @@ impl Index {
         read: &Reader<'_>,
         open: &HashMap<PathBuf, Fingerprint>,
         uri_of: &dyn Fn(&Path) -> String,
+        trust_disk: bool,
     ) -> Option<Arc<Library>> {
-        let current = |p: &Path| {
-            open.get(&dartforge_elements::generated::key(p))
-                .cloned()
-                .or_else(|| disk_fingerprint(p))
+        // With the disk trusted (the watcher reported nothing since a recent
+        // comparison), a file that is not open is as it was indexed.
+        let current = |p: &Path, i: &Fingerprint| {
+            match open.get(&dartforge_elements::generated::key(p)) {
+                Some(o) => Some(o.clone()),
+                None if trust_disk && matches!(i, Fingerprint::Disk(..)) => Some(i.clone()),
+                None => disk_fingerprint(p),
+            }
         };
         if let Some(e) = self.entries.get(path)
-            && e.files.iter().all(|(p, i)| current(p).as_ref() == Some(i))
+            && e.files.iter().all(|(p, i)| current(p, i).as_ref() == Some(i))
         {
             return e.library.clone();
         }
@@ -976,14 +1001,17 @@ impl Index {
     /// `package_config.json` order); `open_texts`, the URI and text of the open
     /// documents by normalized path (`gerado::key`); `kinds`, the
     /// `SymbolKind`s the client accepts.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn search(
         &mut self,
         query: &str,
         added: &[PathBuf],
         sdk: Option<&Path>,
         packages: &[PathBuf],
+        generated: &[(String, PathBuf, PathBuf)],
         open_texts: &HashMap<PathBuf, (String, String)>,
         kinds: Option<&[u64]>,
+        trust_disk: bool,
     ) -> Vec<Value> {
         // Open documents count through the editor's text (the overlay), with the
         // client's URI.
@@ -1014,10 +1042,12 @@ impl Index {
         // were not added).
         let mut paths: Vec<PathBuf> = Vec::new();
         let mut seen: HashSet<PathBuf> = HashSet::new();
-        let mut include = |p: PathBuf, paths: &mut Vec<PathBuf>| {
-            if seen.insert(dartforge_elements::generated::key(&p)) {
+        let mut include = |p: PathBuf, paths: &mut Vec<PathBuf>| -> bool {
+            let new = seen.insert(dartforge_elements::generated::key(&p));
+            if new {
                 paths.push(p);
             }
+            new
         };
         for p in added {
             include(p.clone(), &mut paths);
@@ -1028,15 +1058,40 @@ impl Index {
             }
         }
         for folder in packages {
-            let mut files = Vec::new();
-            discover(folder, &mut files);
+            let files = match self.listed.get(folder) {
+                Some(files) if trust_disk => files.clone(),
+                _ => {
+                    let mut files = Vec::new();
+                    discover(folder, &mut files);
+                    self.listed.insert(folder.clone(), files.clone());
+                    files
+                }
+            };
             for p in files {
                 include(p, &mut paths);
             }
         }
+        // The generated files the added libraries import, transitively, after
+        // the rest: the analyzer reaches them through imports while it analyzes,
+        // and a query that stops at the limit sees the SDK and the packages first.
+        if !generated.is_empty() {
+            let mut queue: std::collections::VecDeque<PathBuf> = added.iter().cloned().collect();
+            while let Some(p) = queue.pop_front() {
+                let Some(library) = self.library(&p, read, open, &uri_of, trust_disk) else {
+                    continue;
+                };
+                for (unit, uri) in &library.imports {
+                    if let Some(g) = generated_target(unit, uri, generated)
+                        && include(g.clone(), &mut paths)
+                    {
+                        queue.push_back(g);
+                    }
+                }
+            }
+        }
         let libraries: Vec<Arc<Library>> = paths
             .iter()
-            .filter_map(|c| self.library(c, read, open, &uri_of))
+            .filter_map(|c| self.library(c, read, open, &uri_of, trust_disk))
             .collect();
         // The `typedef`s of every library, to expand aliases from another library
         // (the first one of each name).
@@ -1310,4 +1365,41 @@ mod tests {
             10
         );
     }
+}
+
+/// The generated file `uri` (imported or exported by `unit`) points to, when
+/// it is a `build_runner` output: a `package:` URI of a package in
+/// `generated` (name, `lib/` folder, generated `lib/` folder) whose file is
+/// not in the package's `lib/` but is under the generated one, or a relative
+/// URI from a generated file to another one.
+fn generated_target(
+    unit: &Path,
+    uri: &str,
+    generated: &[(String, PathBuf, PathBuf)],
+) -> Option<PathBuf> {
+    if let Some(rest) = uri.strip_prefix("package:") {
+        let (name, path) = rest.split_once('/')?;
+        let (_, lib, out) = generated.iter().find(|(n, ..)| n == name)?;
+        if lib.join(path).is_file() {
+            return None;
+        }
+        let g = out.join(path);
+        return g.is_file().then_some(g);
+    }
+    if uri.contains(':') {
+        return None;
+    }
+    // A relative URI: from a generated file, or from a package file to an
+    // output next to it.
+    let folder = unit.parent()?;
+    let target = dartforge_elements::generated::key(&folder.join(uri));
+    if target.is_file() {
+        return generated
+            .iter()
+            .any(|(_, _, out)| target.starts_with(out))
+            .then_some(target);
+    }
+    let (_, lib, out) = generated.iter().find(|(_, lib, _)| folder.starts_with(lib))?;
+    let g = out.join(target.strip_prefix(lib).ok()?);
+    g.is_file().then_some(g)
 }
