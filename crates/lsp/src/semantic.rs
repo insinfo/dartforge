@@ -49,6 +49,9 @@ pub struct SemanticAnalyzer {
     /// The roots whose index could not be built (not tried again until the
     /// configuration changes).
     index_failed: std::collections::HashSet<std::path::PathBuf>,
+    /// The index's answers from a record's identifier facts and from an
+    /// identification in the document's library (the comparison's counts).
+    index_answers: (usize, usize),
     /// The summaries of the known libraries (export namespace) of `ImportLibrary`.
     known: crate::known_libraries::LibraryIndex,
     /// The current `maxCompletionItems`.
@@ -80,6 +83,7 @@ impl SemanticAnalyzer {
             reference_index: None,
             index_build: None,
             index_failed: Default::default(),
+            index_answers: (0, 0),
             known: Default::default(),
             completion_max: crate::completion::MAX_PATTERN,
             not_imported_in_completion: true,
@@ -357,6 +361,21 @@ impl SemanticAnalyzer {
         uri: &str,
         offset: usize,
     ) -> Option<References> {
+        // The index first: it needs no load of the document's library when the
+        // document's record knows what is at the word.
+        if let Ok(found) = self.indexed_references(documents, uri, offset) {
+            return found;
+        }
+        self.unindexed_references(documents, uri, offset)
+    }
+
+    /// The search without the index (and the comparison's reference).
+    fn unindexed_references(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<References> {
         // Non-local search: the wide load, with the SDK and the packages that cite
         // the name (docs/LSP-ESPECIFICACAO.md §11.9 B); a local one stays in the
         // file's library. What is at the cursor resolves the same in the
@@ -378,9 +397,6 @@ impl SemanticAnalyzer {
         if name.starts_with('_') {
             let library = self.library(documents, uri)?;
             return references_in(&library, uri, offset);
-        }
-        if let Ok(found) = self.indexed_references(documents, uri, offset) {
-            return found;
         }
         if let Some(found) = self.search_in_child(documents, uri, offset, &name) {
             return found;
@@ -413,15 +429,44 @@ impl SemanticAnalyzer {
             .take()
             .ok_or(Miss::Unsupported("no index"))?;
         let answer = (|| {
-            let library = self
-                .library(documents, uri)
-                .ok_or(Miss::Unsupported("no library"))?;
-            let unit = library.uri_unit(uri).ok_or(Miss::Unsupported("no unit"))?;
-            let Ok(Some(d)) = library.identify(unit, offset) else {
+            // What the record of the document says is at the word, or, without a
+            // fact, what the document's library says.
+            let text = documents.get(uri).ok_or(Miss::Unsupported("no document"))?;
+            let Some(word) = crate::project::word(text, offset) else {
                 return Ok(None);
             };
-            // `ready_index` recorded the stale files again.
-            let (declaration, uses) = index.references(&library, &d, &|_| true)?;
+            let path = crate::project::uri_file(uri)
+                .map(|f| dartforge_elements::generated::key(&f))
+                .ok_or(Miss::Unsupported("no file"))?;
+            let fact = index.fact_at(&path, word.start).cloned();
+            if fact.is_some() {
+                self.index_answers.0 += 1;
+            }
+            let found = match fact {
+                Some(crate::reference_index::IdentFact::Target(t)) => index.references(&t)?,
+                Some(crate::reference_index::IdentFact::Local { declaration, uses }) => index
+                    .local_answer(&path, declaration, &uses)
+                    .ok_or(Miss::Unsupported("no record"))?,
+                None => {
+                    self.index_answers.1 += 1;
+                    let library = self
+                        .library(documents, uri)
+                        .ok_or(Miss::Unsupported("no library"))?;
+                    let unit = library.uri_unit(uri).ok_or(Miss::Unsupported("no unit"))?;
+                    let Ok(Some(d)) = library.identify(unit, offset) else {
+                        return Ok(None);
+                    };
+                    let mut tables = crate::reference_index::Tables {
+                        keys: &mut index.keys,
+                        words: &mut index.words,
+                        paths: &mut index.paths,
+                    };
+                    let t = crate::reference_index::target_of(&library, unit, &mut tables, &d)
+                        .ok_or(Miss::Unsupported("a local search"))?;
+                    index.references(&t)?
+                }
+            };
+            let (declaration, uses) = found;
             let declaration_range = declaration.as_ref().and_then(|d| d.2);
             let use_ranges: Vec<(u32, u32, u32, u32)> = uses.iter().filter_map(|u| u.2).collect();
             Ok(Some(References {
@@ -437,6 +482,46 @@ impl SemanticAnalyzer {
         {
             eprintln!("[dartforge-lsp] the reference index does not answer: {miss:?}");
         }
+        answer
+    }
+
+    /// The implementations from the index: the pivot of the document's record
+    /// (or of the document's library), its subtypes over the class facts.
+    fn indexed_implementations(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<Vec<(String, Span)>> {
+        if !self.ready_index(documents, uri) {
+            return None;
+        }
+        let mut index = self.reference_index.take()?;
+        let answer = (|| {
+            let text = documents.get(uri)?;
+            let word = crate::project::word(text, offset)?;
+            let path = dartforge_elements::generated::key(&crate::project::uri_file(uri)?);
+            let target = match index.fact_at(&path, word.start).cloned() {
+                Some(crate::reference_index::IdentFact::Target(t)) => t,
+                Some(crate::reference_index::IdentFact::Local { .. }) => return Some(Vec::new()),
+                None => {
+                    let library = self.library(documents, uri)?;
+                    let unit = library.uri_unit(uri)?;
+                    let d = library.identify(unit, offset).ok()??;
+                    let mut tables = crate::reference_index::Tables {
+                        keys: &mut index.keys,
+                        words: &mut index.words,
+                        paths: &mut index.paths,
+                    };
+                    crate::reference_index::target_of(&library, unit, &mut tables, &d)?
+                }
+            };
+            if target.pivot.is_none() {
+                return Some(Vec::new());
+            }
+            index.implementations(&target)
+        })();
+        self.reference_index = Some(index);
         answer
     }
 
@@ -480,6 +565,8 @@ impl SemanticAnalyzer {
         let mut report = String::new();
         let mut compared = 0usize;
         let mut equal = 0usize;
+        // Equal, not answered by the index, different.
+        let mut implementations = (0usize, 0usize, 0usize);
         let mut misses: std::collections::BTreeMap<String, usize> = Default::default();
         let mut differences = Vec::new();
         let (mut old_time, mut new_time) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
@@ -507,31 +594,13 @@ impl SemanticAnalyzer {
                     let Ok(Some(d)) = library.identify(unit, offset) else {
                         continue;
                     };
-                    if library.search_name(&d.target).is_none() {
-                        continue;
-                    }
                     format!("{:?}", d.target)
                 };
                 if !seen.insert(target.clone()) {
                     continue;
                 }
                 let t = std::time::Instant::now();
-                let private = {
-                    let library = self.library(documents, uri);
-                    library.is_some_and(|l| {
-                        l.uri_unit(uri)
-                            .and_then(|u| l.identify(u, offset).ok().flatten())
-                            .and_then(|d| l.search_name(&d.target))
-                            .is_some_and(|n| n.starts_with('_'))
-                    })
-                };
-                let new = if private {
-                    // The private shortcut of `semantic_references`.
-                    let library = self.library(documents, uri);
-                    Ok(library.and_then(|l| references_in(&l, uri, offset)))
-                } else {
-                    self.indexed_references(documents, uri, offset)
-                };
+                let new = self.indexed_references(documents, uri, offset);
                 new_time += t.elapsed();
                 let new = match new {
                     Ok(n) => n,
@@ -539,7 +608,6 @@ impl SemanticAnalyzer {
                         let reason = match miss {
                             crate::reference_index::Miss::Unsupported(r) => r.to_string(),
                             crate::reference_index::Miss::Key(k) => format!("a key: {k}"),
-                            crate::reference_index::Miss::Stale(_) => "stale".to_string(),
                         };
                         *misses.entry(reason).or_default() += 1;
                         continue;
@@ -555,6 +623,36 @@ impl SemanticAnalyzer {
                 let strip =
                     |r: Option<References>| -> Answer { r.map(|r| (r.declaration, r.uses)) };
                 let (new, old) = (strip(new), strip(old));
+                let sorted = |mut v: Vec<(String, Span)>| {
+                    v.sort_by(|a, b| {
+                        (a.0.as_str(), a.1.start, a.1.end).cmp(&(b.0.as_str(), b.1.start, b.1.end))
+                    });
+                    v
+                };
+                let t = std::time::Instant::now();
+                let new_impl = self
+                    .indexed_implementations(documents, uri, offset)
+                    .map(sorted);
+                new_time += t.elapsed();
+                let index = self.reference_index.take();
+                let t = std::time::Instant::now();
+                let old_impl = sorted(self.unindexed_implementations(documents, uri, offset));
+                old_time += t.elapsed();
+                self.reference_index = index;
+                match new_impl {
+                    None => implementations.1 += 1,
+                    Some(n) if n == old_impl => implementations.0 += 1,
+                    Some(n) => {
+                        implementations.2 += 1;
+                        if differences.len() < 30 {
+                            differences.push(format!(
+                                "{uri}:{offset} {target}: implementations, index {} search {}",
+                                n.len(),
+                                old_impl.len()
+                            ));
+                        }
+                    }
+                }
                 if new == old {
                     equal += 1;
                 } else if differences.len() < 30 {
@@ -595,6 +693,16 @@ impl SemanticAnalyzer {
             new_time.as_millis(),
             old_time.as_millis()
         );
+        let _ = writeln!(
+            report,
+            "index answers from the identifier facts {}, from the library {}",
+            self.index_answers.0, self.index_answers.1
+        );
+        let _ = writeln!(
+            report,
+            "implementations: equal {}, not answered {}, different {}",
+            implementations.0, implementations.1, implementations.2
+        );
         for (reason, n) in misses {
             let _ = writeln!(report, "not answered ({reason}): {n}");
         }
@@ -602,30 +710,6 @@ impl SemanticAnalyzer {
             let _ = writeln!(report, "{d}");
         }
         report
-    }
-
-    /// The non-local search without the index nor the private shortcut (the
-    /// reference of [`SemanticAnalyzer::check_reference_index`]).
-    fn unindexed_references(
-        &mut self,
-        documents: &DocumentStore,
-        uri: &str,
-        offset: usize,
-    ) -> Option<References> {
-        let name = {
-            let project = self.library(documents, uri)?;
-            let unit = project.uri_unit(uri)?;
-            let d = project.identify(unit, offset).ok()??;
-            project.search_name(&d.target)?
-        };
-        if let Some(found) = self.search_in_child(documents, uri, offset, &name) {
-            return found;
-        }
-        if let Some(wide) = self.wide(documents, uri, &name, true) {
-            return references_in(&wide, uri, offset);
-        }
-        let project = self.project(documents, uri)?;
-        references_in(&project, uri, offset)
     }
 }
 
@@ -728,7 +812,7 @@ fn load_sdk(lib: &std::path::Path) -> Result<SdkLayout, String> {
 }
 
 /// The references of what is at `offset` of `uri`, in the given project.
-fn references_in(
+pub(crate) fn references_in(
     project: &crate::project::Project,
     uri: &str,
     offset: usize,
@@ -1328,35 +1412,10 @@ impl Analyzer for SemanticAnalyzer {
         uri: &str,
         offset: usize,
     ) -> Vec<(String, Span)> {
-        // `searchAllSubtypes` searches every known file, including the whole SDK
-        // (`JSString` from `dart:_interceptors` implements `String`): the wide
-        // load, like the references'. The library's load names the search.
-        let name = self.library(documents, uri).and_then(|project| {
-            let unit = project.uri_unit(uri)?;
-            let d = project.identify(unit, offset).ok()??;
-            project.search_name(&d.target)
-        });
-        if let Some(name) = name
-            && let Some(wide) = self.wide(documents, uri, &name, false)
-            && let Some(unit) = wide.uri_unit(uri)
-        {
-            return wide
-                .implementations(unit, offset)
-                .into_iter()
-                .filter_map(|(u, s)| Some((wide.unit_uri(u)?, s)))
-                .collect();
+        if let Some(found) = self.indexed_implementations(documents, uri, offset) {
+            return found;
         }
-        let Some(project) = self.project(documents, uri) else {
-            return Vec::new();
-        };
-        let Some(unit) = project.uri_unit(uri) else {
-            return Vec::new();
-        };
-        project
-            .implementations(unit, offset)
-            .into_iter()
-            .filter_map(|(u, s)| Some((project.unit_uri(u)?, s)))
-            .collect()
+        self.unindexed_implementations(documents, uri, offset)
     }
 
     fn colors(&mut self, documents: &DocumentStore, uri: &str) -> Vec<(Span, [u8; 4])> {
@@ -1959,13 +2018,13 @@ impl SemanticAnalyzer {
                 .filter_map(|u| p.unit(*u).path.as_deref().map(key))
                 .collect();
             if again.iter().all(|a| paths.contains(a)) {
-                let records = crate::reference_index::Builder.library(
-                    &library,
-                    lib,
-                    &root,
-                    &mut index.keys,
-                    &mut index.words,
-                );
+                let mut tables = crate::reference_index::Tables {
+                    keys: &mut index.keys,
+                    words: &mut index.words,
+                    paths: &mut index.paths,
+                };
+                let records =
+                    crate::reference_index::Builder.library(&library, lib, &root, &mut tables);
                 index.put(records);
                 done = true;
             }
@@ -2012,5 +2071,45 @@ impl SemanticAnalyzer {
         }
         self.reference_index = Some(index);
         true
+    }
+}
+
+impl SemanticAnalyzer {
+    /// The implementations without the index (and the comparison's reference).
+    fn unindexed_implementations(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Vec<(String, Span)> {
+        // `searchAllSubtypes` searches every known file, including the whole SDK
+        // (`JSString` from `dart:_interceptors` implements `String`): the wide
+        // load, like the references'. The library's load names the search.
+        let name = self.library(documents, uri).and_then(|project| {
+            let unit = project.uri_unit(uri)?;
+            let d = project.identify(unit, offset).ok()??;
+            project.search_name(&d.target)
+        });
+        if let Some(name) = name
+            && let Some(wide) = self.wide(documents, uri, &name, false)
+            && let Some(unit) = wide.uri_unit(uri)
+        {
+            return wide
+                .implementations(unit, offset)
+                .into_iter()
+                .filter_map(|(u, s)| Some((wide.unit_uri(u)?, s)))
+                .collect();
+        }
+        let Some(project) = self.project(documents, uri) else {
+            return Vec::new();
+        };
+        let Some(unit) = project.uri_unit(uri) else {
+            return Vec::new();
+        };
+        project
+            .implementations(unit, offset)
+            .into_iter()
+            .filter_map(|(u, s)| Some((project.unit_uri(u)?, s)))
+            .collect()
     }
 }

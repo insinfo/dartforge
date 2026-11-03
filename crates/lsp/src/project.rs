@@ -102,6 +102,10 @@ pub(crate) struct UnitOccurrences {
     pub(crate) variables: std::collections::HashMap<VariableId, Vec<Span>>,
     /// The names of type annotations and metadata, by top-level element.
     pub(crate) type_names: std::collections::HashMap<Element, Vec<Span>>,
+    /// The first expression (in arena order) whose name has each range: an
+    /// identifier, an access's name or an instance creation's constructor
+    /// name ([`Project::identify`]).
+    pub(crate) expression_names: std::collections::HashMap<(usize, usize), ast::ExprId>,
 }
 
 /// What a unit cites of constructor parameters ([`Project::unit_parameter_uses`]).
@@ -841,9 +845,14 @@ impl Project {
                 concrete,
             }))
         };
-        // References in expressions.
-        for (i, e) in ast.exprs.iter().enumerate() {
-            let id = ast::ExprId(i as u32);
+        // References in expressions: the first one whose name is the word.
+        let first = self
+            .unit_occurrences(unit)
+            .expression_names
+            .get(&(name_.start, name_.end))
+            .copied();
+        if let Some(id) = first {
+            let e = ast.expr(id);
             let referred = match &e.kind {
                 ExprKind::Identifier(n) => *n,
                 ExprKind::Property { name, .. } => *name,
@@ -851,11 +860,9 @@ impl Project {
                     constructor: Some(n),
                     ..
                 } => *n,
-                _ => continue,
+                // Only these kinds have a name in the map.
+                _ => return Ok(None),
             };
-            if referred.span != name_ {
-                continue;
-            }
             // A prefix that collides with a top-level declaration is a compile error
             // (`prefix_collides_with_top_level_member`): what `p` or `p.x` denotes is
             // not asserted.
@@ -2756,6 +2763,21 @@ impl Project {
         }
         let bodies = &self.query.bodies.units[u.0 as usize];
         let mut index = UnitOccurrences::default();
+        for (i, e) in unit.ast.exprs.iter().enumerate() {
+            let s = match &e.kind {
+                ExprKind::Identifier(n) => n.span,
+                ExprKind::Property { name, .. } => name.span,
+                ExprKind::InstanceCreation {
+                    constructor: Some(n),
+                    ..
+                } => n.span,
+                _ => continue,
+            };
+            index
+                .expression_names
+                .entry((s.start, s.end))
+                .or_insert(ast::ExprId(i as u32));
+        }
         let mut calls: Option<std::collections::HashMap<ast::ExprId, &ast::Arguments>> = None;
         for (i, e) in unit.ast.exprs.iter().enumerate() {
             let s = match &e.kind {

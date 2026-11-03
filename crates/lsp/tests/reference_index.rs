@@ -125,7 +125,18 @@ fn assert_same(report: &str, at_least: usize) {
         "the index differs from the search:\n{report}"
     );
     assert!(
-        !report.contains("not answered"),
+        report.lines().any(
+            |l| l.starts_with("implementations:") && l.ends_with("not answered 0, different 0")
+        ),
+        "the index's implementations differ:\n{report}"
+    );
+    // Only a named parameter's search (which reaches the labels of other
+    // files) is left to the search without the index.
+    assert!(
+        report
+            .lines()
+            .filter(|l| l.starts_with("not answered"))
+            .all(|l| l.starts_with("not answered (a local search)")),
         "targets left to the search:\n{report}"
     );
     assert!(compared >= at_least, "only {compared} targets:\n{report}");

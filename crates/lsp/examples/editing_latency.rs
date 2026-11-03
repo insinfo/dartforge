@@ -29,7 +29,8 @@
 //!    file a barrel exports): the time until the publication of that file
 //!    carries a diagnostic on the new line, and the time until settled;
 //! 5. queries at `--positions` identifiers of `--file` (hover, completion,
-//!    definition, references, prepareRename, codeAction): each once right after
+//!    definition, references, prepareRename, codeAction, implementation and
+//!    `workspace/symbol` of the identifier): each once right after
 //!    a settled body edit (`after edit`) and at every position with no edit in
 //!    between (`warm`); `--methods references,hover` keeps only those
 //!    requests (by the name after `textDocument/`);
@@ -1501,6 +1502,15 @@ fn main() {
                 json!({"textDocument": {"uri": uri}, "range": {"start": at, "end": at},
                        "context": {"diagnostics": []}})
             }
+            // The identifier at the position, as the query.
+            "workspace/symbol" => {
+                let b = text.as_bytes();
+                let mut end = offset;
+                while end < b.len() && (b[end].is_ascii_alphanumeric() || b[end] == b'_') {
+                    end += 1;
+                }
+                json!({"query": &text[offset..end]})
+            }
             _ => json!({"textDocument": {"uri": uri}, "position": at}),
         };
         // Sampled before the timer starts: the sample walks the process tree.
@@ -1510,9 +1520,13 @@ fn main() {
         if let Some(e) = r.get("error") {
             println!("{method} at {line}:{character}: error {e}");
         }
-        if method == "textDocument/references" {
+        if matches!(
+            method,
+            "textDocument/references" | "textDocument/implementation" | "workspace/symbol"
+        ) {
             let n = r["result"].as_array().map_or(0, Vec::len);
-            println!("references at {line}:{character}: {n} locations");
+            let name = method.rsplit('/').next().unwrap_or(method);
+            println!("{name} at {line}:{character}: {n} locations");
         }
         (d, cpu)
     };
@@ -1523,11 +1537,15 @@ fn main() {
         "textDocument/references",
         "textDocument/prepareRename",
         "textDocument/codeAction",
+        "textDocument/implementation",
+        "workspace/symbol",
     ];
     if !positions.is_empty() {
         let edit = "    0;\n";
         for method in methods {
-            let name = method.trim_start_matches("textDocument/");
+            let name = method
+                .trim_start_matches("textDocument/")
+                .trim_start_matches("workspace/");
             if !o.methods.is_empty() && !o.methods.iter().any(|m| m == name) {
                 continue;
             }

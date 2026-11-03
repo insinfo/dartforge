@@ -46,33 +46,67 @@ use std::path::{Path, PathBuf};
 /// Interned strings: the keys and the words (names) of the index.
 #[derive(Debug, Default)]
 pub(crate) struct Strings {
-    ids: HashMap<Box<str>, u32>,
-    texts: Vec<Box<str>>,
+    /// The id of each text, by the text's hash; a text whose hash another one
+    /// already has goes to `collisions`.
+    ids: HashMap<u64, u32>,
+    collisions: HashMap<Box<str>, u32>,
+    /// All the texts, one after the other, and where each one ends.
+    text: String,
+    ends: Vec<u32>,
+}
+
+fn string_hash(s: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut h);
+    h.finish()
 }
 
 impl Strings {
     /// The id of `s`, interning it.
     pub(crate) fn id(&mut self, s: &str) -> u32 {
-        if let Some(&i) = self.ids.get(s) {
+        if let Some(i) = self.get(s) {
             return i;
         }
-        let i = self.texts.len() as u32;
-        self.texts.push(s.into());
-        self.ids.insert(s.into(), i);
+        let i = self.ends.len() as u32;
+        self.text.push_str(s);
+        self.ends.push(self.text.len() as u32);
+        match self.ids.entry(string_hash(s)) {
+            std::collections::hash_map::Entry::Vacant(v) => {
+                v.insert(i);
+            }
+            std::collections::hash_map::Entry::Occupied(_) => {
+                self.collisions.insert(s.into(), i);
+            }
+        }
         i
     }
 
     /// The id of `s` when it is interned.
     pub(crate) fn get(&self, s: &str) -> Option<u32> {
-        self.ids.get(s).copied()
+        match self.ids.get(&string_hash(s)) {
+            Some(&i) if self.text(i) == s => Some(i),
+            Some(_) => self.collisions.get(s).copied(),
+            None => None,
+        }
     }
 
     fn text(&self, i: u32) -> &str {
-        &self.texts[i as usize]
+        let end = self.ends[i as usize] as usize;
+        let start = if i == 0 {
+            0
+        } else {
+            self.ends[i as usize - 1] as usize
+        };
+        &self.text[start..end]
     }
 
     fn len(&self) -> usize {
-        self.texts.len()
+        self.ends.len()
+    }
+
+    fn texts(&self) -> impl Iterator<Item = &str> {
+        (0..self.ends.len() as u32).map(|i| self.text(i))
     }
 }
 
@@ -136,7 +170,7 @@ pub(crate) enum DocTarget {
 }
 
 /// The concrete element of a resolution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ConcreteKey {
     Function(u32),
     Variable(u32),
@@ -176,6 +210,13 @@ pub(crate) struct ClassFact {
     pub fields: Vec<(u32, bool, u32)>,
     /// The `this.x` parameters of its constructors.
     pub constructor_parameters: Vec<ConstructorParameter>,
+    /// An extension type (its members redeclare, they do not override).
+    pub extension_type: bool,
+    /// Its mixins, in order.
+    pub mixins: Vec<u32>,
+    /// Its members by their name in the class's maps (`x`, `x_=`, `+`): name,
+    /// static, function key and kind ([`Keys::function`]'s letter).
+    pub raw_members: Vec<(u32, bool, u32, u8)>,
 }
 
 /// A `this.x` parameter of a constructor.
@@ -238,6 +279,10 @@ pub(crate) struct FileRecord {
     /// On a library's defining unit: the paths of the libraries it imports or
     /// exports (the dependents of an API change).
     pub imports: Vec<PathBuf>,
+    /// A project file's identifiers: the start of each one's word and the
+    /// [`IdentFact`] of what it denotes (an index of `facts`), sorted.
+    pub idents: Vec<(u32, u32)>,
+    pub facts: Vec<IdentFact>,
 }
 
 const NONE: u32 = u32::MAX;
@@ -413,21 +458,8 @@ impl<'a> Keys<'a> {
     fn function(&mut self, f: FunctionElementId) -> String {
         let p = self.project.program();
         let fe = p.function(f);
-        let kind = match fe.kind {
-            FunctionKind::Function => 'f',
-            FunctionKind::Getter => 'g',
-            FunctionKind::Setter => 's',
-            FunctionKind::Operator => 'o',
-            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => 'k',
-            // The implicit setter has the getter's name.
-            FunctionKind::ImplicitAccessor => {
-                if fe.variable.is_some_and(|v| p.variable(v).setter == Some(f)) {
-                    'j'
-                } else {
-                    'i'
-                }
-            }
-        };
+        // The implicit setter has the getter's name: `j`, the getter `i`.
+        let kind = function_kind_letter(fe.kind, p, f) as char;
         let unit = match fe.node {
             FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => {
                 Some(unit)
@@ -456,6 +488,29 @@ impl<'a> Keys<'a> {
             Element::Variable(v) => self.variable(v),
             Element::Prefix(..) => return None,
         })
+    }
+}
+
+/// The letter of a function's kind in its key.
+fn function_kind_letter(
+    kind: FunctionKind,
+    p: &dartforge_elements::model::Program,
+    f: FunctionElementId,
+) -> u8 {
+    match kind {
+        FunctionKind::Function => b'f',
+        FunctionKind::Getter => b'g',
+        FunctionKind::Setter => b's',
+        FunctionKind::Operator => b'o',
+        FunctionKind::Constructor | FunctionKind::SyntheticConstructor => b'k',
+        FunctionKind::ImplicitAccessor => {
+            let fe = p.function(f);
+            if fe.variable.is_some_and(|v| p.variable(v).setter == Some(f)) {
+                b'j'
+            } else {
+                b'i'
+            }
+        }
     }
 }
 
@@ -562,15 +617,27 @@ impl Builder {
         project: &Project,
         lib: LibraryId,
         root: &Path,
-        keys: &mut Strings,
-        words: &mut Strings,
+        tables: &mut Tables<'_>,
     ) -> Vec<FileRecord> {
         let mut emit = Emit {
             project,
             keys: Keys::new(project),
         };
         let by_unit = declared_by_unit(project, lib);
-        emit.library(&by_unit, lib, root, keys, words)
+        let mut records = emit.library(&by_unit, lib, root, tables.keys, tables.words);
+        for r in records.iter_mut().filter(|r| !r.frozen) {
+            if let Some(&u) = project.program().library(lib).units.iter().find(|u| {
+                project
+                    .program()
+                    .unit(**u)
+                    .path
+                    .as_deref()
+                    .is_some_and(|c| dartforge_elements::generated::key_of(c).as_ref() == r.path)
+            }) {
+                identifier_facts(project, u, r, tables);
+            }
+        }
+        records
     }
 }
 
@@ -1049,6 +1116,21 @@ impl Emit<'_> {
                 }
             }
         }
+        let mut raw_members = Vec::new();
+        for (map, is_static) in [(&cl.instance_members, false), (&cl.static_members, true)] {
+            let mut list: Vec<(&dartforge_intern::SymbolId, &FunctionElementId)> =
+                map.iter().collect();
+            list.sort_by_key(|(_, f)| **f);
+            for (sym, f) in list {
+                let key = self.keys.function(*f);
+                raw_members.push((
+                    words.id(project.name(*sym)),
+                    is_static,
+                    keys.id(&key),
+                    function_kind_letter(p.function(*f).kind, p, *f),
+                ));
+            }
+        }
         ClassFact {
             key: keys.id(&self.keys.class(c)),
             library: keys.id(&p.library(cl.library).uri),
@@ -1058,6 +1140,18 @@ impl Emit<'_> {
             members,
             fields,
             constructor_parameters,
+            extension_type: cl.decl.is_some_and(|dr| {
+                matches!(
+                    p.unit(dr.unit).ast.decl(dr.decl).kind,
+                    ast::DeclKind::ExtensionType(_)
+                )
+            }),
+            mixins: cl
+                .mixin_classes
+                .iter()
+                .map(|m| keys.id(&self.keys.class(*m)))
+                .collect(),
+            raw_members,
         }
     }
 
@@ -1101,6 +1195,83 @@ impl Emit<'_> {
     }
 }
 
+/// The identifier facts of project unit `u` (its record `r`): what
+/// [`Project::identify`] says each identifier denotes, as an [`IndexTarget`];
+/// for a target only the file has, the whole answer of the search (when it
+/// stays in the file). A named parameter's search reaches other files' labels,
+/// and an identifier without a fact is identified at the query.
+fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &mut Tables<'_>) {
+    let unit = project.program().unit(u);
+    let source = &unit.source;
+    let b = source.as_bytes();
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+    let mut facts: HashMap<IdentFact, u32> = HashMap::new();
+    let mut locals: HashMap<String, Option<u32>> = HashMap::new();
+    let mut idents = Vec::new();
+    for o in 0..b.len() {
+        if !ident(b[o]) || b[o].is_ascii_digit() || (o > 0 && ident(b[o - 1])) {
+            continue;
+        }
+        let Ok(Some(d)) = project.identify(u, o) else {
+            continue;
+        };
+        let fact = match target_of(project, u, tables, &d) {
+            Some(t) => Some(IdentFact::Target(t)),
+            None => {
+                if let Target::Local { declaration, .. } = d.target
+                    && crate::project::parameter_in(&unit.ast, declaration)
+                        .is_some_and(|(q, _)| q.kind == ast::ParameterKind::Named)
+                {
+                    continue;
+                }
+                // The prefix's answer depends on where its use is (§11.5).
+                let shared = !matches!(d.target, Target::Prefix { .. });
+                let label = format!("{:?}", d.target);
+                if shared && let Some(known) = locals.get(&label) {
+                    if let Some(i) = known {
+                        idents.push((o as u32, *i));
+                    }
+                    continue;
+                }
+                let answer = crate::semantic::references_in(project, &r.uri, o).and_then(|a| {
+                    let here = |x: &(String, Span)| x.0 == r.uri;
+                    (a.declaration.as_ref().is_none_or(here) && a.uses.iter().all(here)).then(
+                        || IdentFact::Local {
+                            declaration: a.declaration.map(|(_, s)| (s.start as u32, s.end as u32)),
+                            uses: a
+                                .uses
+                                .iter()
+                                .map(|(_, s)| (s.start as u32, s.end as u32))
+                                .collect(),
+                        },
+                    )
+                });
+                if shared {
+                    let i = answer.clone().map(|f| {
+                        let n = facts.len() as u32;
+                        *facts.entry(f).or_insert(n)
+                    });
+                    locals.insert(label, i);
+                    if let Some(i) = i {
+                        idents.push((o as u32, i));
+                    }
+                    continue;
+                }
+                answer
+            }
+        };
+        if let Some(f) = fact {
+            let n = facts.len() as u32;
+            let i = *facts.entry(f).or_insert(n);
+            idents.push((o as u32, i));
+        }
+    }
+    let mut ordered: Vec<(u32, IdentFact)> = facts.into_iter().map(|(f, i)| (i, f)).collect();
+    ordered.sort_by_key(|x| x.0);
+    r.facts = ordered.into_iter().map(|(_, f)| f).collect();
+    r.idents = idents;
+}
+
 /// What a search over the records derives from all of them, rebuilt after the
 /// records change.
 #[derive(Debug, Default)]
@@ -1142,6 +1313,8 @@ pub(crate) struct ReferenceIndex {
     pub(crate) root: PathBuf,
     pub(crate) keys: Strings,
     pub(crate) words: Strings,
+    /// The files the identifier facts name (canonical paths).
+    pub(crate) paths: Strings,
     files: Vec<Option<FileRecord>>,
     by_path: HashMap<PathBuf, usize>,
     derived: Option<Derived>,
@@ -1157,8 +1330,6 @@ pub(crate) enum Miss {
     Unsupported(&'static str),
     /// A key the search needs is unknown or ambiguous.
     Key(String),
-    /// These files' records are not of their current text.
-    Stale(Vec<PathBuf>),
 }
 
 impl ReferenceIndex {
@@ -1423,36 +1594,48 @@ impl ReferenceIndex {
         output
     }
 
-    /// The references of what `denoted` is in `session` (the document's
-    /// library, with its bodies inferred), as `semantic::references_in`
-    /// gives them over the wide load. `Err` when the index does not answer.
-    ///
-    /// `fresh(record)` says whether a project file's record is of its
-    /// current text.
+    /// The references of `target` over the records, as
+    /// `semantic::references_in` gives them over the wide load: the
+    /// declaration and the uses, each with its URI, byte span and LSP range.
+    /// `Err` when the index does not answer. The project's records must be of
+    /// the current texts ([`crate::semantic`] refreshes them first).
     pub(crate) fn references(
         &mut self,
-        session: &Project,
-        denoted: &Denoted,
-        fresh: &dyn Fn(&FileRecord) -> bool,
+        target: &IndexTarget,
     ) -> Result<(Option<Located>, Vec<Located>), Miss> {
         self.ensure_derived();
         let this: &Self = self;
-        this.search(session, denoted, fresh)
+        this.search(target)
     }
 
-    fn search(
-        &self,
-        session: &Project,
-        denoted: &Denoted,
-        fresh: &dyn Fn(&FileRecord) -> bool,
-    ) -> Result<(Option<Located>, Vec<Located>), Miss> {
+    /// The record of the file at `path` (a [`Strings`] id of [`Self::paths`]).
+    fn file_index(&self, path: u32) -> Option<usize> {
+        if path == NONE {
+            return None;
+        }
+        self.by_path.get(Path::new(self.paths.text(path))).copied()
+    }
+
+    /// `path`'s URI, span and, when the file has a record, LSP range.
+    fn locate(&self, path: u32, start: u32, end: u32) -> Option<Located> {
+        let span = Span {
+            start: start as usize,
+            end: end as usize,
+        };
+        if let Some(r) = self.file_index(path).and_then(|f| self.files[f].as_ref()) {
+            let (l0, c0) = r.position(start);
+            let (l1, c1) = r.position(end);
+            return Some((r.uri.clone(), span, Some((l0, c0, l1, c1))));
+        }
+        let uri = url::Url::from_file_path(self.paths.text(path))
+            .ok()?
+            .to_string();
+        Some((uri, span, None))
+    }
+
+    fn search(&self, target: &IndexTarget) -> Result<(Option<Located>, Vec<Located>), Miss> {
         let d = self.derived.as_ref().expect("ensured by the caller");
-        let target = &denoted.target;
-        let name = session
-            .search_name(target)
-            .ok_or(Miss::Unsupported("a local search"))?;
-        let word = session.target_word(target);
-        let mut keys = Keys::new(session);
+        let name = self.words.text(target.name).to_string();
         // What the target covers, by key.
         enum Covers {
             Top(HashSet<u32>),
@@ -1465,45 +1648,30 @@ impl ReferenceIndex {
             },
             Constructor(u32),
         }
-        let key_of = |index: &Self, k: String| -> Result<u32, Miss> {
-            index.keys.get(&k).ok_or(Miss::Key(k))
-        };
-        let covers = match target {
-            Target::Top(el) => {
-                let mut set = HashSet::new();
-                for e in session.top_elements(*el) {
-                    let k = keys.element(e).ok_or(Miss::Unsupported("a prefix"))?;
-                    set.insert(key_of(self, k)?);
-                }
-                Covers::Top(set)
-            }
-            Target::Member {
+        let covers = match &target.kind {
+            TargetKey::Top(_) => Covers::Top(target.group.iter().copied().collect()),
+            TargetKey::Member {
                 owner,
                 name: member,
                 is_static,
             } => {
-                let owner = match owner {
-                    Owner::Class(c) => keys.class(*c),
-                    Owner::Extension(x) => keys.extension(*x),
-                };
-                let owner = key_of(self, owner)?;
+                let member = self.words.text(*member);
                 let family = self
-                    .family(d, owner, member, *is_static)
+                    .family(d, *owner, member, *is_static)
                     .ok_or(Miss::Unsupported("a class without facts"))?;
                 let parameters = if *is_static {
                     Vec::new()
                 } else {
-                    self.field_parameter_relations(d, &family, owner, member)
+                    self.field_parameter_relations(d, &family, *owner, member)
                 };
                 Covers::Member {
                     family,
-                    owner,
+                    owner: *owner,
                     is_static: *is_static,
                     parameters,
                 }
             }
-            Target::Constructor(f) => Covers::Constructor(key_of(self, keys.function(*f))?),
-            _ => return Err(Miss::Unsupported("a local search")),
+            TargetKey::Constructor(k) => Covers::Constructor(*k),
         };
         // Ambiguous keys.
         let involved: Vec<u32> = match &covers {
@@ -1521,52 +1689,19 @@ impl ReferenceIndex {
         if let Some(k) = involved.iter().find(|k| d.ambiguous.contains(k)) {
             return Err(Miss::Key(self.keys.text(*k).to_string()));
         }
-        // The declarations, which are not uses.
+        // The declarations, which are not uses, and the declaring files and
+        // libraries (`None`: an SDK patch, which has no uses).
         let mut declarations: HashSet<(usize, u32, u32)> = HashSet::new();
-        let located = |index: &Self, f: usize, s: u32, e: u32| -> Option<Located> {
-            let r = index.files[f].as_ref()?;
-            let (l0, c0) = r.position(s);
-            let (l1, c1) = r.position(e);
-            Some((
-                r.uri.clone(),
-                Span {
-                    start: s as usize,
-                    end: e as usize,
-                },
-                Some((l0, c0, l1, c1)),
-            ))
-        };
-        // The record of a unit of the session, by its path as loaded.
-        let file_of = |index: &Self, u: UnitId| -> Option<usize> {
-            let path = session.program().unit(u).path.as_deref()?;
-            index
-                .by_path
-                .get(dartforge_elements::generated::key_of(path).as_ref())
-                .copied()
-        };
-        // The declaring units, by file (`None`: an SDK patch, which has no
-        // uses) and library.
         let mut declaration_files: Vec<(Option<usize>, u32)> = Vec::new();
-        let declared_in = |u: UnitId| -> Result<(Option<usize>, u32), Miss> {
-            let p = session.program();
-            let uri = &p.library(p.unit(u).library).uri;
-            let library = self
-                .keys
-                .get(uri)
-                .ok_or_else(|| Miss::Key(format!("{uri}: a library outside the index")))?;
-            if p.unit(u).role == UnitRole::Patch {
-                return Ok((None, library));
-            }
-            let f = file_of(self, u)
-                .ok_or_else(|| Miss::Key(format!("{uri}: a file outside the index")))?;
-            Ok((Some(f), library))
-        };
         match &covers {
             Covers::Top(_) | Covers::Constructor(_) => {
-                for (u, s, e) in session.declarations(target) {
-                    let (f, library) = declared_in(u)?;
+                for &(path, s, e, library) in &target.declarations {
+                    let f = self.file_index(path);
+                    if path != NONE && f.is_none() {
+                        return Err(Miss::Key("a declaration outside the index".to_string()));
+                    }
                     if let Some(f) = f {
-                        declarations.insert((f, s as u32, e as u32));
+                        declarations.insert((f, s, e));
                     }
                     declaration_files.push((f, library));
                 }
@@ -1584,12 +1719,16 @@ impl ReferenceIndex {
                 }
             }
         }
-        if let Some((u, _)) = session.declaration(denoted) {
-            declaration_files.push(declared_in(u)?);
+        if let Some((path, library)) = target.declaration {
+            let f = self.file_index(path);
+            if path != NONE && f.is_none() {
+                return Err(Miss::Key("a declaration outside the index".to_string()));
+            }
+            declaration_files.push((f, library));
         }
         // The candidate files of `_addResults`.
         let private = name.starts_with('_');
-        let name_word = self.words.get(&name);
+        let name_word = Some(target.name);
         let cites = |f: usize| {
             name_word.is_some_and(|w| {
                 self.files[f]
@@ -1608,19 +1747,9 @@ impl ReferenceIndex {
         if !private && let Some(w) = name_word {
             candidates.extend(d.by_word.get(&w).into_iter().flatten().copied());
         }
-        // Every candidate of the project must be of its current text.
-        let stale: Vec<PathBuf> = candidates
-            .iter()
-            .filter_map(|&f| self.files[f].as_ref())
-            .filter(|r| !r.frozen && !fresh(r))
-            .map(|r| r.path.clone())
-            .collect();
-        if !stale.is_empty() {
-            return Err(Miss::Stale(stale));
-        }
-        let word_id = word.as_deref().map(|w| self.words.get(w));
-        let target_key = match target {
-            Target::Top(el) => keys.element(*el).and_then(|k| self.keys.get(&k)),
+        let word_id = target.word;
+        let target_key = match &target.kind {
+            TargetKey::Top(k) => Some(*k),
             _ => None,
         };
         // A documentation member target matches the searched member
@@ -1685,8 +1814,8 @@ impl ReferenceIndex {
             }
             for doc in &r.docs {
                 // Only the prefixes whose last part writes the target's name.
-                if let Some(w) = &word_id
-                    && *w != Some(doc.word)
+                if let Some(w) = word_id
+                    && w != doc.word
                 {
                     continue;
                 }
@@ -1740,14 +1869,12 @@ impl ReferenceIndex {
                     continue;
                 }
                 if let Some(class) = doc.field_parameter {
-                    let own = match (&covers, target) {
-                        (
-                            Covers::Member { owner, .. },
-                            Target::Member {
-                                owner: Owner::Class(_),
-                                ..
-                            },
-                        ) => class == Some(*owner),
+                    // Only a member of the field's own class cites it.
+                    let own = match &covers {
+                        Covers::Member { owner, .. } => {
+                            self.class_fact(d, *owner).is_some_and(|c| !c.extension)
+                                && class == Some(*owner)
+                        }
                         _ => false,
                     };
                     if !own {
@@ -1767,20 +1894,346 @@ impl ReferenceIndex {
         uses.retain(|u| !declarations.contains(u));
         let mut located_uses: Vec<Located> = uses
             .into_iter()
-            .filter_map(|(f, s, e)| located(self, f, s, e))
+            .filter_map(|(f, s, e)| {
+                let r = self.files[f].as_ref()?;
+                let (l0, c0) = r.position(s);
+                let (l1, c1) = r.position(e);
+                Some((
+                    r.uri.clone(),
+                    Span {
+                        start: s as usize,
+                        end: e as usize,
+                    },
+                    Some((l0, c0, l1, c1)),
+                ))
+            })
             .collect();
         located_uses.sort_by(|a, b| (a.0.as_str(), a.1.start).cmp(&(b.0.as_str(), b.1.start)));
-        let declaration = session
-            .declaration_to_references(denoted)
-            .and_then(|(u, span)| {
-                let uri = session.unit_uri(u)?;
-                match file_of(self, u) {
-                    Some(f) => located(self, f, span.start as u32, span.end as u32),
-                    None => Some((uri, span, None)),
-                }
-            });
+        let declaration = target
+            .answer
+            .and_then(|(path, s, e)| self.locate(path, s, e));
         Ok((declaration, located_uses))
     }
+
+    /// The implementations of `target` ([`Project::implementations`]): its
+    /// class's subtypes, or the member each of them declares, over the class
+    /// facts. `None` when the index cannot tell (a class without facts, a
+    /// declaration in an SDK patch).
+    pub(crate) fn implementations(&mut self, target: &IndexTarget) -> Option<Vec<(String, Span)>> {
+        self.ensure_derived();
+        let this: &Self = self;
+        this.walk_implementations(target.pivot.as_ref()?)
+    }
+
+    fn walk_implementations(&self, pv: &KeyPivot) -> Option<Vec<(String, Span)>> {
+        use crate::hierarchy::PivotKind;
+        let d = self.derived.as_ref().expect("ensured by the caller");
+        let fact = |c: u32| self.class_fact(d, c);
+        // `index_all_subtypes`: the transitive written subtypes.
+        let mut seen: HashSet<u32> = HashSet::new();
+        let mut order = Vec::new();
+        let mut stack = vec![pv.class];
+        while let Some(x) = stack.pop() {
+            for &s in d.subtypes.get(&x).map(|v| &v[..]).unwrap_or(&[]) {
+                if s != pv.class && seen.insert(s) {
+                    order.push(s);
+                    stack.push(s);
+                }
+            }
+        }
+        let declared = |k: u32| -> Option<(usize, u32, u32)> { d.declarations.get(&k).copied() };
+        let name = pv.member.map(|(n, _)| self.words.text(n).to_string());
+        let private = name.as_deref().is_some_and(|n| n.starts_with('_'));
+        let setter_name = name.as_deref().map(|n| format!("{n}_="));
+        // `implementation_member`'s `find`: the member of the pivot's kind.
+        let find = |c: &ClassFact| -> Option<u32> {
+            let lookup = |key: &str, accepts: &dyn Fn(u8) -> bool| -> Option<u32> {
+                let w = self.words.get(key)?;
+                for is_static in [false, true] {
+                    if let Some(&(_, _, f, kind)) = c
+                        .raw_members
+                        .iter()
+                        .find(|(n, s, _, _)| *n == w && *s == is_static)
+                    {
+                        if accepts(kind) {
+                            return Some(f);
+                        }
+                    }
+                }
+                None
+            };
+            let name = name.as_deref()?;
+            let method = || lookup(name, &|k| k == b'f' || k == b'o');
+            let getter = || lookup(name, &|k| k == b'g' || k == b'i');
+            let setter = || {
+                lookup(setter_name.as_deref()?, &|k| {
+                    k == b's' || k == b'i' || k == b'j'
+                })
+            };
+            match pv.kind {
+                PivotKind::Method => method(),
+                PivotKind::Getter => getter(),
+                PivotKind::Setter => setter(),
+                PivotKind::Field { final_ } => {
+                    getter().or_else(|| if final_ { None } else { setter() })
+                }
+            }
+        };
+        let accessible = |c: &ClassFact| !private || c.library == pv.library;
+        let mut output = Vec::new();
+        let mut places: HashSet<(usize, u32)> = HashSet::new();
+        for x in order {
+            let fx = fact(x)?;
+            let local = match pv.member {
+                Some(_)
+                    if pv.needs_member && (fact(pv.class)?.extension_type || fx.extension_type) =>
+                {
+                    None
+                }
+                Some(_) if pv.needs_member => {
+                    let mut found = None;
+                    if let Some(f) = find(fx).filter(|_| accessible(fx)) {
+                        found = Some(Some(f));
+                    } else {
+                        for &m in fx.mixins.iter().rev() {
+                            let fm = fact(m)?;
+                            if let Some(f) = find(fm).filter(|_| accessible(fm)) {
+                                found = Some((f != pv.pivot).then_some(f));
+                                break;
+                            }
+                        }
+                    }
+                    match found {
+                        Some(Some(f)) => Some(declared(f)?),
+                        _ => None,
+                    }
+                }
+                _ => Some(declared(x)?),
+            };
+            if let Some((f, s, e)) = local
+                && places.insert((f, s))
+            {
+                let r = self.files[f].as_ref()?;
+                output.push((
+                    r.uri.clone(),
+                    Span {
+                        start: s as usize,
+                        end: e as usize,
+                    },
+                ));
+            }
+        }
+        Some(output)
+    }
+
+    /// What the record of the open document `path` says the identifier at
+    /// `start` (the start of its word) denotes; `None` when the index has no
+    /// answer for it (the caller identifies it in the document's library).
+    pub(crate) fn fact_at(&self, path: &Path, start: usize) -> Option<&IdentFact> {
+        let r = self.file(path)?;
+        let i = r
+            .idents
+            .binary_search_by_key(&(start as u32), |x| x.0)
+            .ok()?;
+        r.facts.get(r.idents[i].1 as usize)
+    }
+
+    /// [`ReferenceIndex::references`] of the answer a record keeps for a
+    /// local target of the file at `path`.
+    pub(crate) fn local_answer(
+        &self,
+        path: &Path,
+        declaration: Option<(u32, u32)>,
+        uses: &[(u32, u32)],
+    ) -> Option<(Option<Located>, Vec<Located>)> {
+        let r = self.file(path)?;
+        let at = |(s, e): (u32, u32)| -> Located {
+            let (l0, c0) = r.position(s);
+            let (l1, c1) = r.position(e);
+            (
+                r.uri.clone(),
+                Span {
+                    start: s as usize,
+                    end: e as usize,
+                },
+                Some((l0, c0, l1, c1)),
+            )
+        };
+        Some((declaration.map(at), uses.iter().copied().map(at).collect()))
+    }
+}
+
+/// What a search looks for, in the index's terms: the target, its concrete
+/// element, and what the search takes from the document's program
+/// ([`target_of`]): the names, the declarations and the declaring library.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct IndexTarget {
+    pub kind: TargetKey,
+    pub concrete: Option<ConcreteKey>,
+    /// [`Project::search_name`] (a word).
+    pub name: u32,
+    /// [`Project::target_word`] (a word).
+    pub word: Option<u32>,
+    /// A top-level target's [`Project::top_elements`].
+    pub group: Vec<u32>,
+    /// A top-level or constructor target's [`Project::declarations`]: the
+    /// file ([`ReferenceIndex::paths`], [`NONE`] for an SDK patch), the span
+    /// and the library.
+    pub declarations: Vec<(u32, u32, u32, u32)>,
+    /// [`Project::declaration`]: its file ([`NONE`] for a patch) and library.
+    pub declaration: Option<(u32, u32)>,
+    /// [`Project::declaration_to_references`]: file, start and end.
+    pub answer: Option<(u32, u32, u32)>,
+    /// [`Project::implementation_pivot`], by key.
+    pub pivot: Option<KeyPivot>,
+}
+
+/// [`crate::hierarchy::ImplementationPivot`] by key.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct KeyPivot {
+    pub class: u32,
+    /// The member's base name (a word) and staticness.
+    pub member: Option<(u32, bool)>,
+    pub kind: crate::hierarchy::PivotKind,
+    /// The pivot function's key ([`NONE`]: none).
+    pub pivot: u32,
+    /// The pivot's library (its URI, a key string).
+    pub library: u32,
+    pub needs_member: bool,
+}
+
+/// The target of a search, by key.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum TargetKey {
+    Top(u32),
+    Member {
+        owner: u32,
+        name: u32,
+        is_static: bool,
+    },
+    Constructor(u32),
+}
+
+/// What a record says an identifier of its file denotes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum IdentFact {
+    /// A target the index searches.
+    Target(IndexTarget),
+    /// A target only this file has (a local, a type parameter, a prefix): the
+    /// whole answer, declaration and uses.
+    Local {
+        declaration: Option<(u32, u32)>,
+        uses: Vec<(u32, u32)>,
+    },
+}
+
+/// The strings an [`IndexTarget`] is made of.
+pub(crate) struct Tables<'a> {
+    pub keys: &'a mut Strings,
+    pub words: &'a mut Strings,
+    pub paths: &'a mut Strings,
+}
+
+/// The [`IndexTarget`] of `d` in `project`'s program: `None` for a target the
+/// index does not search (a local, a type parameter, a prefix).
+pub(crate) fn target_of(
+    project: &Project,
+    unit: UnitId,
+    t: &mut Tables<'_>,
+    d: &Denoted,
+) -> Option<IndexTarget> {
+    let mut keys = Keys::new(project);
+    let p = project.program();
+    let kind = match &d.target {
+        Target::Top(el) => TargetKey::Top(t.keys.id(&keys.element(*el)?)),
+        Target::Member {
+            owner,
+            name,
+            is_static,
+        } => {
+            let owner = match owner {
+                Owner::Class(c) => keys.class(*c),
+                Owner::Extension(x) => keys.extension(*x),
+            };
+            TargetKey::Member {
+                owner: t.keys.id(&owner),
+                name: t.words.id(name),
+                is_static: *is_static,
+            }
+        }
+        Target::Constructor(f) => TargetKey::Constructor(t.keys.id(&keys.function(*f))),
+        _ => return None,
+    };
+    let name = t.words.id(&project.search_name(&d.target)?);
+    let word = project.target_word(&d.target).map(|w| t.words.id(&w));
+    let group = match &d.target {
+        Target::Top(el) => project
+            .top_elements(*el)
+            .into_iter()
+            .filter_map(|e| keys.element(e))
+            .map(|k| t.keys.id(&k))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let path_of = |u: UnitId, paths: &mut Strings| -> u32 {
+        let unit = p.unit(u);
+        match unit.path.as_deref() {
+            Some(path) if unit.role != UnitRole::Patch => {
+                paths.id(&dartforge_elements::generated::key_of(path).to_string_lossy())
+            }
+            _ => NONE,
+        }
+    };
+    let library_of = |u: UnitId, keys: &mut Strings| keys.id(&p.library(p.unit(u).library).uri);
+    let declarations = match &d.target {
+        Target::Top(_) | Target::Constructor(_) => project
+            .declarations(&d.target)
+            .into_iter()
+            .map(|(u, s, e)| {
+                (
+                    path_of(u, t.paths),
+                    s as u32,
+                    e as u32,
+                    library_of(u, t.keys),
+                )
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    let declaration = project
+        .declaration(d)
+        .map(|(u, _)| (path_of(u, t.paths), library_of(u, t.keys)));
+    let answer = project.declaration_to_references(d).and_then(|(u, s)| {
+        let path = p.unit(u).path.as_deref()?;
+        let path = t
+            .paths
+            .id(&dartforge_elements::generated::key_of(path).to_string_lossy());
+        Some((path, s.start as u32, s.end as u32))
+    });
+    let concrete = match d.concrete {
+        Some(Concrete::Function(f)) => Some(ConcreteKey::Function(t.keys.id(&keys.function(f)))),
+        Some(Concrete::Variable(v)) => Some(ConcreteKey::Variable(t.keys.id(&keys.variable(v)))),
+        None => None,
+    };
+    let pivot = project.implementation_pivot(unit, d).map(|v| KeyPivot {
+        class: t.keys.id(&keys.class(v.class)),
+        member: v.member.as_ref().map(|(n, s)| (t.words.id(n), *s)),
+        kind: v.kind,
+        pivot: v.pivot.map_or(NONE, |f| t.keys.id(&keys.function(f))),
+        library: t.keys.id(&p.library(v.library).uri),
+        needs_member: v.needs_member,
+    });
+    Some(IndexTarget {
+        kind,
+        concrete,
+        name,
+        word,
+        group,
+        declarations,
+        declaration,
+        answer,
+        pivot,
+    })
 }
 
 /// Builds the index of the project of `uri`: the wide load of the non-local
@@ -1817,7 +2270,12 @@ pub(crate) fn build(
             continue;
         }
         project.query.infer_libraries(&[lib]);
-        let records = builder.library(&project, lib, &root, &mut index.keys, &mut index.words);
+        let mut tables = Tables {
+            keys: &mut index.keys,
+            words: &mut index.words,
+            paths: &mut index.paths,
+        };
+        let records = builder.library(&project, lib, &root, &mut tables);
         for u in units {
             project.query.bodies.units[u.0 as usize] = Default::default();
             project.forget_unit(u);
@@ -1838,7 +2296,7 @@ pub(crate) fn build(
 }
 
 /// The version of [`ReferenceIndex::encode`]'s format (in the header).
-const FORMAT: u32 = 1;
+const FORMAT: u32 = 3;
 
 /// A little-endian LEB128 writer.
 #[derive(Default)]
@@ -2090,6 +2548,18 @@ fn write_record(w: &mut Writer, r: &FileRecord) {
             w.u(u64::from(q.named) | u64::from(q.public_name) << 1 | u64::from(q.optional) << 2);
             w.u(u64::from(q.position));
         }
+        w.u(u64::from(c.extension_type));
+        w.n(c.mixins.len());
+        for &m in &c.mixins {
+            w.u(u64::from(m));
+        }
+        w.n(c.raw_members.len());
+        for &(n, s, f, k) in &c.raw_members {
+            w.u(u64::from(n));
+            w.u(u64::from(s));
+            w.u(u64::from(f));
+            w.u(u64::from(k));
+        }
     }
     w.n(r.function_variables.len());
     for &(f, v) in &r.function_variables {
@@ -2110,6 +2580,228 @@ fn write_record(w: &mut Writer, r: &FileRecord) {
     for i in &r.imports {
         w.path(i);
     }
+    let mut last = 0;
+    w.n(r.idents.len());
+    for &(o, f) in &r.idents {
+        w.u(u64::from(o - last));
+        last = o;
+        w.u(u64::from(f));
+    }
+    w.n(r.facts.len());
+    for f in &r.facts {
+        write_fact(w, f);
+    }
+}
+
+fn write_fact(w: &mut Writer, f: &IdentFact) {
+    match f {
+        IdentFact::Local { declaration, uses } => {
+            w.u(1);
+            match declaration {
+                None => w.u(0),
+                Some((s, e)) => {
+                    w.u(1);
+                    w.u(u64::from(*s));
+                    w.u(u64::from(e - s));
+                }
+            }
+            w.n(uses.len());
+            for &(s, e) in uses {
+                w.u(u64::from(s));
+                w.u(u64::from(e - s));
+            }
+        }
+        IdentFact::Target(t) => {
+            w.u(0);
+            match &t.kind {
+                TargetKey::Top(k) => {
+                    w.u(0);
+                    w.u(u64::from(*k));
+                }
+                TargetKey::Member {
+                    owner,
+                    name,
+                    is_static,
+                } => {
+                    w.u(1);
+                    w.u(u64::from(*owner));
+                    w.u(u64::from(*name));
+                    w.u(u64::from(*is_static));
+                }
+                TargetKey::Constructor(k) => {
+                    w.u(2);
+                    w.u(u64::from(*k));
+                }
+            }
+            match t.concrete {
+                None => w.u(0),
+                Some(ConcreteKey::Function(k)) => {
+                    w.u(1);
+                    w.u(u64::from(k));
+                }
+                Some(ConcreteKey::Variable(k)) => {
+                    w.u(2);
+                    w.u(u64::from(k));
+                }
+            }
+            w.u(u64::from(t.name));
+            w.u(t.word.map_or(0, |x| u64::from(x) + 1));
+            w.n(t.group.len());
+            for &g in &t.group {
+                w.u(u64::from(g));
+            }
+            w.n(t.declarations.len());
+            for &(path, s, e, library) in &t.declarations {
+                w.u(opt(path));
+                w.u(u64::from(s));
+                w.u(u64::from(e - s));
+                w.u(u64::from(library));
+            }
+            match t.declaration {
+                None => w.u(0),
+                Some((path, library)) => {
+                    w.u(1);
+                    w.u(opt(path));
+                    w.u(u64::from(library));
+                }
+            }
+            match t.answer {
+                None => w.u(0),
+                Some((path, s, e)) => {
+                    w.u(1);
+                    w.u(u64::from(path));
+                    w.u(u64::from(s));
+                    w.u(u64::from(e - s));
+                }
+            }
+            match &t.pivot {
+                None => w.u(0),
+                Some(v) => {
+                    use crate::hierarchy::PivotKind;
+                    w.u(1);
+                    w.u(u64::from(v.class));
+                    match v.member {
+                        None => w.u(0),
+                        Some((n, s)) => {
+                            w.u(1);
+                            w.u(u64::from(n));
+                            w.u(u64::from(s));
+                        }
+                    }
+                    w.u(match v.kind {
+                        PivotKind::Method => 0,
+                        PivotKind::Getter => 1,
+                        PivotKind::Setter => 2,
+                        PivotKind::Field { final_: false } => 3,
+                        PivotKind::Field { final_: true } => 4,
+                    });
+                    w.u(opt(v.pivot));
+                    w.u(u64::from(v.library));
+                    w.u(u64::from(v.needs_member));
+                }
+            }
+        }
+    }
+}
+
+fn read_fact(r: &mut Reader<'_>) -> Option<IdentFact> {
+    Some(match r.u()? {
+        1 => {
+            let declaration = match r.u()? {
+                0 => None,
+                _ => {
+                    let s = r.w()?;
+                    Some((s, s.checked_add(r.w()?)?))
+                }
+            };
+            let uses = r.list(|r| {
+                let s = r.w()?;
+                Some((s, s.checked_add(r.w()?)?))
+            })?;
+            IdentFact::Local { declaration, uses }
+        }
+        0 => {
+            let kind = match r.u()? {
+                0 => TargetKey::Top(r.w()?),
+                1 => TargetKey::Member {
+                    owner: r.w()?,
+                    name: r.w()?,
+                    is_static: r.u()? != 0,
+                },
+                2 => TargetKey::Constructor(r.w()?),
+                _ => return None,
+            };
+            let concrete = match r.u()? {
+                0 => None,
+                1 => Some(ConcreteKey::Function(r.w()?)),
+                2 => Some(ConcreteKey::Variable(r.w()?)),
+                _ => return None,
+            };
+            let name = r.w()?;
+            let word = match r.u()? {
+                0 => None,
+                x => Some(u32::try_from(x - 1).ok()?),
+            };
+            let group = r.list(|r| r.w())?;
+            let declarations = r.list(|r| {
+                let path = unopt(r.u()?)?;
+                let s = r.w()?;
+                let e = s.checked_add(r.w()?)?;
+                Some((path, s, e, r.w()?))
+            })?;
+            let declaration = match r.u()? {
+                0 => None,
+                _ => Some((unopt(r.u()?)?, r.w()?)),
+            };
+            let answer = match r.u()? {
+                0 => None,
+                _ => {
+                    let path = r.w()?;
+                    let s = r.w()?;
+                    Some((path, s, s.checked_add(r.w()?)?))
+                }
+            };
+            let pivot = match r.u()? {
+                0 => None,
+                _ => {
+                    use crate::hierarchy::PivotKind;
+                    let class = r.w()?;
+                    let member = match r.u()? {
+                        0 => None,
+                        _ => Some((r.w()?, r.u()? != 0)),
+                    };
+                    let kind = match r.u()? {
+                        0 => PivotKind::Method,
+                        1 => PivotKind::Getter,
+                        2 => PivotKind::Setter,
+                        3 => PivotKind::Field { final_: false },
+                        4 => PivotKind::Field { final_: true },
+                        _ => return None,
+                    };
+                    Some(KeyPivot {
+                        class,
+                        member,
+                        kind,
+                        pivot: unopt(r.u()?)?,
+                        library: r.w()?,
+                        needs_member: r.u()? != 0,
+                    })
+                }
+            };
+            IdentFact::Target(IndexTarget {
+                kind,
+                concrete,
+                name,
+                word,
+                group,
+                declarations,
+                declaration,
+                answer,
+                pivot,
+            })
+        }
+        _ => return None,
+    })
 }
 
 fn read_record(r: &mut Reader<'_>) -> Option<FileRecord> {
@@ -2211,6 +2903,10 @@ fn read_record(r: &mut Reader<'_>) -> Option<FileRecord> {
                 position: r.w()?,
             })
         })?;
+        let extension_type = r.u()? != 0;
+        let mixins = r.list(|r| r.w())?;
+        let raw_members =
+            r.list(|r| Some((r.w()?, r.u()? != 0, r.w()?, u8::try_from(r.u()?).ok()?)))?;
         Some(ClassFact {
             key,
             library,
@@ -2220,12 +2916,21 @@ fn read_record(r: &mut Reader<'_>) -> Option<FileRecord> {
             members,
             fields,
             constructor_parameters,
+            extension_type,
+            mixins,
+            raw_members,
         })
     })?;
     let function_variables = r.list(|r| Some((r.w()?, r.w()?)))?;
     let accessors = r.list(|r| Some((r.w()?, unopt(r.u()?)?, unopt(r.u()?)?)))?;
     let ambiguous = r.list(|r| r.w())?;
     let imports = r.list(|r| r.path())?;
+    let mut last = 0u32;
+    let idents = r.list(|r| {
+        last = last.checked_add(r.w()?)?;
+        Some((last, r.w()?))
+    })?;
+    let facts = r.list(read_fact)?;
     Some(FileRecord {
         path,
         uri,
@@ -2248,6 +2953,8 @@ fn read_record(r: &mut Reader<'_>) -> Option<FileRecord> {
         accessors,
         ambiguous,
         imports,
+        idents,
+        facts,
     })
 }
 
@@ -2259,9 +2966,9 @@ impl ReferenceIndex {
         w.0.extend_from_slice(b"DFRI");
         w.u(u64::from(FORMAT));
         w.path(&self.root);
-        for strings in [&self.keys, &self.words] {
-            w.n(strings.texts.len());
-            for t in &strings.texts {
+        for strings in [&self.keys, &self.words, &self.paths] {
+            w.n(strings.len());
+            for t in strings.texts() {
                 w.s(t);
             }
         }
@@ -2290,12 +2997,12 @@ impl ReferenceIndex {
         }
         let root = r.path()?;
         let mut index = ReferenceIndex::new(root);
-        for i in 0..2 {
+        for i in 0..3 {
             let n = r.n()?;
-            let strings = if i == 0 {
-                &mut index.keys
-            } else {
-                &mut index.words
+            let strings = match i {
+                0 => &mut index.keys,
+                1 => &mut index.words,
+                _ => &mut index.paths,
             };
             for _ in 0..n {
                 let t = r.s()?;
@@ -2317,8 +3024,14 @@ impl ReferenceIndex {
     /// Puts the records of `other` (another process's index, with its own
     /// strings) into this one, translating their keys and words.
     pub(crate) fn merge(&mut self, other: ReferenceIndex) {
-        let keys: Vec<u32> = other.keys.texts.iter().map(|t| self.keys.id(t)).collect();
-        let words: Vec<u32> = other.words.texts.iter().map(|t| self.words.id(t)).collect();
+        let keys: Vec<u32> = other.keys.texts().map(|t| self.keys.id(t)).collect();
+        let words: Vec<u32> = other.words.texts().map(|t| self.words.id(t)).collect();
+        let paths: Vec<u32> = other.paths.texts().map(|t| self.paths.id(t)).collect();
+        let pa = |v: &mut u32| {
+            if *v != NONE {
+                *v = paths[*v as usize];
+            }
+        };
         let k = |v: &mut u32| {
             if *v != NONE {
                 *v = keys[*v as usize];
@@ -2373,6 +3086,11 @@ impl ReferenceIndex {
                     k(&mut q.constructor);
                     w(&mut q.name);
                 }
+                c.mixins.iter_mut().for_each(k);
+                for m in &mut c.raw_members {
+                    w(&mut m.0);
+                    k(&mut m.2);
+                }
             }
             for x in &mut r.function_variables {
                 k(&mut x.0);
@@ -2384,6 +3102,44 @@ impl ReferenceIndex {
                 k(&mut x.2);
             }
             r.ambiguous.iter_mut().for_each(k);
+            for f in &mut r.facts {
+                let IdentFact::Target(t) = f else { continue };
+                match &mut t.kind {
+                    TargetKey::Top(x) | TargetKey::Constructor(x) => k(x),
+                    TargetKey::Member { owner, name, .. } => {
+                        k(owner);
+                        w(name);
+                    }
+                }
+                match &mut t.concrete {
+                    Some(ConcreteKey::Function(x) | ConcreteKey::Variable(x)) => k(x),
+                    None => {}
+                }
+                w(&mut t.name);
+                if let Some(x) = &mut t.word {
+                    w(x);
+                }
+                t.group.iter_mut().for_each(k);
+                for x in &mut t.declarations {
+                    pa(&mut x.0);
+                    k(&mut x.3);
+                }
+                if let Some(x) = &mut t.declaration {
+                    pa(&mut x.0);
+                    k(&mut x.1);
+                }
+                if let Some(x) = &mut t.answer {
+                    pa(&mut x.0);
+                }
+                if let Some(v) = &mut t.pivot {
+                    k(&mut v.class);
+                    if let Some((n, _)) = &mut v.member {
+                        w(n);
+                    }
+                    k(&mut v.pivot);
+                    k(&mut v.library);
+                }
+            }
             records.push(r);
         }
         self.put(records);
@@ -2473,7 +3229,12 @@ pub(crate) fn build_files(
             continue;
         }
         project.query.infer_libraries(&[lib]);
-        let records = Builder.library(&project, lib, &root, &mut index.keys, &mut index.words);
+        let mut tables = Tables {
+            keys: &mut index.keys,
+            words: &mut index.words,
+            paths: &mut index.paths,
+        };
+        let records = Builder.library(&project, lib, &root, &mut tables);
         for u in units {
             project.query.bodies.units[u.0 as usize] = Default::default();
             project.forget_unit(u);

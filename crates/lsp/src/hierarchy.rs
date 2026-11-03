@@ -388,13 +388,60 @@ impl Project {
         let Ok(Some(d)) = self.identify(unit, offset) else {
             return Vec::new();
         };
+        let Some(pivot) = self.implementation_pivot(unit, &d) else {
+            return Vec::new();
+        };
+        let p = self.program();
+        let is_extension_type = |c: ClassId| {
+            p.class(c).decl.is_some_and(|dr| {
+                matches!(
+                    p.unit(dr.unit).ast.decl(dr.decl).kind,
+                    dartforge_frontend::ast::DeclKind::ExtensionType(_)
+                )
+            })
+        };
+        let ImplementationPivot {
+            class,
+            member,
+            kind,
+            pivot,
+            library: pivot_library,
+            needs_member,
+        } = pivot;
+        let mut seen = BTreeSet::new();
+        let mut output = Vec::new();
+        for x in self.index_all_subtypes(class) {
+            let local = match &member {
+                Some(_) if needs_member && (is_extension_type(class) || is_extension_type(x)) => {
+                    None
+                }
+                Some((name, _)) if needs_member => {
+                    self.implementation_member(x, name, kind, pivot_library, pivot)
+                }
+                _ => self.top_element_name(Element::Class(x)),
+            };
+            if let Some((u, s)) = local
+                && seen.insert((u, s.start))
+            {
+                output.push((u, s));
+            }
+        }
+        output
+    }
+
+    /// What the implementations search of `d` (at `unit`) starts from: the
+    /// class, the member and its kind, the pivot function and its library, and
+    /// whether the member must be in each subtype; `None` when `d` has no
+    /// implementations (not a class, constructor or class member).
+    pub(crate) fn implementation_pivot(
+        &self,
+        unit: UnitId,
+        d: &crate::project::Denoted,
+    ) -> Option<ImplementationPivot> {
         let p = self.program();
         let (class, member) = match (&d.target, d.concrete) {
             (Target::Top(Element::Class(c)), _) => (*c, None),
-            (Target::Constructor(f), _) => match p.function(*f).class {
-                Some(c) => (c, None),
-                None => return Vec::new(),
-            },
+            (Target::Constructor(f), _) => (p.function(*f).class?, None),
             (
                 Target::Member {
                     owner: Owner::Class(c),
@@ -415,16 +462,7 @@ impl Project {
                     (*c, Some((name.clone(), *is_static)))
                 }
             }
-            _ => return Vec::new(),
-        };
-        // Extension type members do not override: they only redeclare.
-        let is_extension_type = |c: ClassId| {
-            p.class(c).decl.is_some_and(|dr| {
-                matches!(
-                    p.unit(dr.unit).ast.decl(dr.decl).kind,
-                    dartforge_frontend::ast::DeclKind::ExtensionType(_)
-                )
-            })
+            _ => return None,
         };
         // `TypeHierarchyComputerHelper`: the pivot's kind (the node's element: the
         // getter of a read, the setter of a write, the field at the declaration)
@@ -473,25 +511,14 @@ impl Project {
             }
             None => false,
         };
-        let mut seen = BTreeSet::new();
-        let mut output = Vec::new();
-        for x in self.index_all_subtypes(class) {
-            let local = match &member {
-                Some(_) if needs_member && (is_extension_type(class) || is_extension_type(x)) => {
-                    None
-                }
-                Some((name, _)) if needs_member => {
-                    self.implementation_member(x, name, kind, pivot_library, pivot)
-                }
-                _ => self.top_element_name(Element::Class(x)),
-            };
-            if let Some((u, s)) = local
-                && seen.insert((u, s.start))
-            {
-                output.push((u, s));
-            }
-        }
-        output
+        Some(ImplementationPivot {
+            class,
+            member,
+            kind,
+            pivot,
+            library: pivot_library,
+            needs_member,
+        })
     }
 
     /// `SearchEngineImpl.appendAllSubtypes`: the transitive subtypes of `c`
@@ -1350,9 +1377,22 @@ fn decode_reference(text: &str) -> Vec<String> {
     components
 }
 
+/// What the implementations search starts from ([`Project::implementation_pivot`]).
+pub(crate) struct ImplementationPivot {
+    pub class: ClassId,
+    /// The member's base name and staticness; `None` for the class's subtypes.
+    pub member: Option<(String, bool)>,
+    pub kind: PivotKind,
+    pub pivot: Option<dartforge_elements::model::FunctionElementId>,
+    /// The pivot's library (a private member is only accessible there).
+    pub library: LibraryId,
+    /// The member is in the pivot's class (`needsMember`).
+    pub needs_member: bool,
+}
+
 /// The kind of the pivot element of the implementations search (`pivotKind`).
-#[derive(Clone, Copy)]
-enum PivotKind {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum PivotKind {
     Method,
     Getter,
     Setter,
