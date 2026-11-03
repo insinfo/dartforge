@@ -629,7 +629,7 @@ nome com `dynamic`, `such_method`, `nsm`, `apply`, `invocation`, `relational` ou
 de `wildcard_variables` iguais à referência com experimentos (`vm-r6.json`), e as 4 de sempre (pilhas
 simbólicas e o *hash* de `savannah`), iguais às de `wasm-final`; nenhuma regressão. Testes:
 `cargo test --release` de `dartforge-runtime` (460 testes) e `dartforge-emit-native` (1 200, entre eles os novos de `pruning` e `wasm_frames`) passam, e o `size_budget.rs` (`--features native --include-ignored`) também. `clippy -D warnings` de `emit_native`, `runtime` e `cli` (com `native`) limpo; rustfmt
-limpo nos arquivos tocados. O `size_budget.rs` segura o hello em 1 MB sem Binaryen (o teste desliga o
+limpo nos arquivos tocados. O `size_budget.rs` segura o hello em 860 KB sem Binaryen (`30a6ae04`) (o teste desliga o
 passo para o número não depender da máquina).
 
 ## 02/11/2026: tamanho do wasm contra outras linguagens; regressão de 10× achada (`863d4159`)
