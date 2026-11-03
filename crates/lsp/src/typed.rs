@@ -2042,6 +2042,13 @@ impl ResidentLoop {
             eprintln!("[dartforge-lsp] resident census: {}", census.join(", "));
         }
         crate::memory::trace("resident end");
+        if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
+            let s = dartforge_elements::fs_cache::stats();
+            eprintln!(
+                "[dartforge-lsp] resident file system cache: {} hits, {} misses, {} clears",
+                s.hits, s.misses, s.clears
+            );
+        }
         let completed = results.is_some();
         self.ready = completed && self.kept.world_root().is_some();
         let written = self.write(&Response {

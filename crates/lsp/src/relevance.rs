@@ -23,7 +23,7 @@
 //! value (900; 950 if required), as in Dart.
 
 /// Element kind of the Dart tables (`computeElementKind`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum Kind {
     Class,
     Constructor,
@@ -44,12 +44,14 @@ pub(crate) enum Kind {
     NoTable,
 }
 
-/// What is known about an item in order to score it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// What is known about an item in order to score it (across a process, only
+/// what describes the item: the type and the keyword only score it).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Rel {
     /// Kind, when the item is an element.
     pub kind: Option<Kind>,
     /// The item's type (variable, return, getter), for the context type.
+    #[serde(skip)]
     pub ty: Option<dartforge_types::TypeId>,
     /// Distance (`d`, which becomes `0.9^d`): a local by proximity, a member by
     /// inheritance.
@@ -58,6 +60,7 @@ pub(crate) struct Rel {
     pub local: bool,
     pub not_imported: bool,
     /// Keyword (the text).
+    #[serde(skip)]
     pub word: Option<&'static str>,
     /// Fixed relevance (named arguments).
     pub fixed: Option<i32>,

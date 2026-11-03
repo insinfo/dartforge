@@ -380,6 +380,9 @@ impl Query {
     /// Unit and start (with metadata) of a function, method or constructor.
     pub fn function_start(&self, f: FunctionElementId) -> Option<(UnitId, usize)> {
         let p = &self.program;
+        // A function an SDK patch stands in for (the resident's program) is
+        // documented at the declaration it stands in for, as in the analyzer.
+        let f = p.function(f).public_declaration.unwrap_or(f);
         match p.function(f).node {
             FunctionRef::Function { unit, function } => {
                 let ast = &p.unit(unit).ast;

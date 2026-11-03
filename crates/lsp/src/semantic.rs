@@ -2092,9 +2092,21 @@ impl Analyzer for SemanticAnalyzer {
         uri: &str,
         offset: usize,
     ) -> Option<crate::Completion> {
+        documents.get(uri)?;
+        self.sdk.as_ref()?;
+        if let Some(crate::remote::Answer::Completion(c)) = self.remote(
+            documents,
+            uri,
+            crate::remote::Call::Completion {
+                offset,
+                max: self.completion_max,
+                not_imported: self.not_imported_in_completion,
+            },
+        ) {
+            return c;
+        }
         let text = documents.get(uri)?;
         let features = self.syntactic.features(uri, text);
-        self.sdk.as_ref()?;
         let self_max = self.completion_max;
         let not_imported = self.not_imported_in_completion;
         let SemanticAnalyzer {

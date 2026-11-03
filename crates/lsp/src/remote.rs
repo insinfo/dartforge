@@ -66,6 +66,13 @@ pub(crate) enum Call {
     ColorPresentation {
         offset: usize,
     },
+    /// Completion at `offset`, with the server's `maxCompletionItems` and
+    /// whether names not imported are offered.
+    Completion {
+        offset: usize,
+        max: usize,
+        not_imported: bool,
+    },
     /// `codeAction` over `start..end` with the typed diagnostics published
     /// for the document.
     Actions {
@@ -110,6 +117,7 @@ pub(crate) enum Answer {
     Colors(Vec<(Span, [u8; 4])>),
     Flag(Option<bool>),
     Actions(Vec<crate::CodeAction>),
+    Completion(Option<crate::Completion>),
     /// Hexadecimal encoded index (empty: none could be made).
     Records(String),
 }
@@ -161,6 +169,16 @@ pub(crate) fn run(
     {
         return Answer::Actions(analyzer.actions(documents, uri, *start, *end, published));
     }
+    if let Call::Completion {
+        offset,
+        max,
+        not_imported,
+    } = *call
+    {
+        analyzer.set_completion_max(max);
+        analyzer.set_not_imported_in_completion(not_imported);
+        return Answer::Completion(analyzer.completion(documents, uri, offset));
+    }
     match *call {
         Call::Hover { offset } => {
             Answer::Hover(analyzer.hover_in_workspace(uri, &text, offset, documents))
@@ -197,7 +215,9 @@ pub(crate) fn run(
             Answer::Flag(analyzer.color_presentation(documents, uri, offset))
         }
         // Answered over the lent project directly ([`serve`]), or above.
-        Call::Records { .. } | Call::Actions { .. } => Answer::Unavailable,
+        Call::Records { .. } | Call::Actions { .. } | Call::Completion { .. } => {
+            Answer::Unavailable
+        }
     }
 }
 
@@ -236,6 +256,8 @@ pub(crate) fn serve(
         .get_or_insert_with(|| crate::reference_index::analyzer_view_has_patches(&request.sdk_lib));
     let (_, analyzer) = served.analyzer.as_mut()?;
     let documents = documents_of(request);
+    // What a query that panicked left lent (its program is gone with the loan).
+    drop(analyzer.session.take_lent());
     let answer = kept
         .lend_world(|lent| {
             let (project, loan) =
@@ -299,16 +321,14 @@ fn answer_over(
         return (project, Some(Answer::Colors(colors)));
     }
     analyzer.session.lend(project);
-    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        run(analyzer, documents, &request.uri, &request.call)
-    }));
-    // The program goes back even when the query panicked (the session never
-    // drops a lent program).
+    // A panic goes up to the loan, which drops the resident's program: a query
+    // that swaps a unit (completion) may have left it half swapped.
+    let answer = run(analyzer, documents, &request.uri, &request.call);
     let project = analyzer
         .session
         .take_lent()
         .expect("the session gives the lent program back");
-    (project, answer.ok())
+    (project, Some(answer))
 }
 
 /// The encoded records of the libraries of `files` in `project`, inferring

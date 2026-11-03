@@ -33,6 +33,23 @@ struct State {
     trusted: bool,
     entries: HashMap<PathBuf, Entry>,
     canonical: HashMap<PathBuf, Option<PathBuf>>,
+    stats: Stats,
+}
+
+/// What the cache did so far (measurement).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Stats {
+    /// Answers from the cache.
+    pub hits: u64,
+    /// Answers from the disk while trusted.
+    pub misses: u64,
+    /// Times it was emptied.
+    pub clears: u64,
+}
+
+/// [`Stats`] so far.
+pub fn stats() -> Stats {
+    state().stats
 }
 
 fn state() -> std::sync::MutexGuard<'static, State> {
@@ -62,6 +79,7 @@ pub fn trust(on: bool) {
 /// whole disk again.
 pub fn clear() {
     let mut s = state();
+    s.stats.clears += 1;
     s.entries.clear();
     s.canonical.clear();
 }
@@ -86,18 +104,20 @@ fn entry(path: &Path) -> Entry {
         Ok(_) => Entry::Other,
     };
     {
-        let s = state();
+        let mut s = state();
         if !s.trusted {
             drop(s);
             return read();
         }
-        if let Some(e) = s.entries.get(path) {
-            return *e;
+        if let Some(e) = s.entries.get(path).copied() {
+            s.stats.hits += 1;
+            return e;
         }
     }
     let e = read();
     let mut s = state();
     if s.trusted {
+        s.stats.misses += 1;
         s.entries.insert(path.to_path_buf(), e);
     }
     e

@@ -77,7 +77,7 @@ pub(crate) mod kind {
 }
 
 /// How to complete a call, when the client accepts snippets.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Call {
     /// The required parameters, in order (`x`, and `name: ` for named ones):
     /// they become the snippet's `${1:x}` placeholders.
@@ -88,7 +88,7 @@ pub enum Call {
 }
 
 /// An `import` to add together with the item (auto-import).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AutoImport {
     /// The imported URI (`dart:math`, `util.dart`).
     pub uri: String,
@@ -97,8 +97,10 @@ pub struct AutoImport {
     pub text: String,
 }
 
-/// An item offered to the editor.
-#[derive(Debug, Clone, PartialEq)]
+/// An item offered to the editor. What only ranks it (the group, the
+/// quality, the class, the computed relevance) does not cross a process
+/// (the resident answers completion, `crate::remote`): the list arrives ranked.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CompletionItem {
     /// What the list shows (`met(…)`, `name: `).
     pub label: String,
@@ -116,14 +118,18 @@ pub struct CompletionItem {
     /// The directive the item adds (a name not imported yet).
     pub import: Option<AutoImport>,
     /// Sorting group (smaller comes first).
+    #[serde(skip)]
     group: u8,
     /// Quality of the match with the typed text (0: prefix; 1: fuzzy).
+    #[serde(skip)]
     quality: u8,
     /// What goes into the relevance computation (`crate::relevance`).
     rel: crate::relevance::Rel,
     /// Class of the item (top-level element), for the context type.
+    #[serde(skip)]
     class: Option<ClassId>,
     /// The computed relevance (`0..1000`).
+    #[serde(skip)]
     relevance: i32,
     /// `sortText` = `9999 − relevance` (`MAP:59`, `:735-736`).
     pub sort_text: String,
@@ -157,7 +163,7 @@ impl CompletionItem {
 }
 
 /// Completion result: the prefix range (bytes) and the items in order.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Completion {
     /// The `replacementOffset` (bytes).
     pub start: usize,

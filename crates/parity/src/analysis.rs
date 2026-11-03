@@ -3898,12 +3898,12 @@ impl Engine {
                     .libraries
                     .get(lib)
                     .and_then(|l| l.path.parent())
-                    .is_some_and(|d| d.join(rest).is_file()),
+                    .is_some_and(|d| dartforge_elements::fs_cache::is_file(&d.join(rest))),
                 None => self.sdk_libraries.contains(name),
             }
         } else if uri.starts_with("package:") {
             match config.map(|c| c.resolve_package_uri(uri)) {
-                Some(Ok(p)) => p.is_file(),
+                Some(Ok(p)) => dartforge_elements::fs_cache::is_file(&p),
                 _ => false,
             }
         } else if uri.contains(':') {
@@ -3912,7 +3912,8 @@ impl Engine {
         } else {
             let target =
                 key(&resolve_directive_uri(uri, base, config).unwrap_or_else(|| base.join(uri)));
-            target.is_file() || config.is_some_and(|c| generated_by_build(c, &target))
+            dartforge_elements::fs_cache::is_file(&target)
+                || config.is_some_and(|c| generated_by_build(c, &target))
         };
         if exists {
             return None;
