@@ -239,7 +239,7 @@ pub extern "C" fn dartforge_native_Double_getIsNegative(this: f64) -> u8 {
 /// `runtime/vm/double_conversion.cc`): double-conversion's `ToShortest` with
 /// `decimal_in_shortest_low = -6`, `high = 21`, `EMIT_POSITIVE_EXPONENT_SIGN`,
 /// `EMIT_TRAILING_DECIMAL_POINT` and `EMIT_TRAILING_ZERO_AFTER_POINT`. The shortest
-/// digits that round-trip to the same `double` come from Rust's `{:e}` formatting
+/// digits that round-trip to the same `double` come from [`shortest_digits`]
 /// (the same criterion as `ToShortest`).
 pub fn vm_double_string(d: f64) -> String {
     let mut buf = [0u8; VM_DOUBLE_SIZE];
@@ -251,24 +251,6 @@ pub fn vm_double_string(d: f64) -> String {
 /// The longest text of [`vm_double_string`]: `-` + 17 digits + `.` + `e-308` (or
 /// `0.000000` + 17 digits) fits with room to spare.
 const VM_DOUBLE_SIZE: usize = 48;
-
-/// Stack buffer for `{:e}` (without the `String` of `format!`).
-struct StackBuffer<'a> {
-    buf: &'a mut [u8],
-    n: usize,
-}
-
-impl std::fmt::Write for StackBuffer<'_> {
-    fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        let end = self.n + s.len();
-        if end > self.buf.len() {
-            return Err(std::fmt::Error);
-        }
-        self.buf[self.n..end].copy_from_slice(s.as_bytes());
-        self.n = end;
-        Ok(())
-    }
-}
 
 /// [`vm_double_string`] written into `out` (ASCII), without allocating: the
 /// `Double_toString` of `jsonEncode` on a list of `double`s allocated four
@@ -291,23 +273,9 @@ fn write_vm_double(d: f64, out: &mut [u8; VM_DOUBLE_SIZE]) -> usize {
         by(if d.is_sign_negative() { b"-0.0" } else { b"0.0" }, &mut n);
         return n;
     }
-    // The shortest digits: `{:e}` of the absolute value, `d[.ddd]e<exp>`.
-    let mut e = [0u8; 40];
-    let mut w = StackBuffer { buf: &mut e, n: 0 };
-    std::fmt::Write::write_fmt(&mut w, format_args!("{:e}", d.abs())).expect("formato {:e}");
-    let used = w.n;
-    let e = &e[..used];
-    let pos_exp = e.iter().position(|&c| c == b'e').expect("formato {:e}");
-    let (mantissa, exp_txt) = (&e[..pos_exp], &e[pos_exp + 1..]);
-    let exponent: i32 = std::str::from_utf8(exp_txt).ok().and_then(|t| t.parse().ok()).expect("expoente");
-    let mut digits = [0u8; 24];
-    let mut nd = 0usize;
-    for &c in mantissa {
-        if c != b'.' {
-            digits[nd] = c;
-            nd += 1;
-        }
-    }
+    // The shortest digits that round-trip (`double_shortest.rs`).
+    let mut digits = [0u8; 17];
+    let (nd, exponent) = shortest_digits(d.abs(), &mut digits);
     let digits = &digits[..nd];
     let nd = nd as i32;
     let point = exponent + 1; // position of the decimal point among the digits
@@ -642,6 +610,29 @@ mod tests_native_numbers {
     //! The expected values are those of the VM 3.6.2 (`print`, measured).
     use super::*;
 
+    /// [`vm_double_string`] against the old form (Rust's `{:e}` digits). They
+    /// differ only on a tie, an exact value halfway between two shortest
+    /// candidates: the VM rounds it to the even digit, Rust up.
+    fn assert_same_as_old(d: f64) {
+        let new = vm_double_string(d);
+        let old = vm_double_string_old(d);
+        if new == old {
+            return;
+        }
+        let (exact, _) = exact_decimal(d);
+        // The digit values of the new text, without the leading zeros.
+        let digits: Vec<u8> =
+            new.bytes().take_while(|&c| c != b'e').filter(u8::is_ascii_digit).map(|c| c - b'0').collect();
+        let digits = &digits[digits.iter().position(|&c| c != 0).unwrap_or(0)..];
+        let n = digits.len();
+        let tie = exact.len() > n
+            && exact[..n] == *digits
+            && exact[n] == 5
+            && exact[n + 1..].iter().all(|&c| c == 0)
+            && digits[n - 1] % 2 == 0;
+        assert!(tie, "{:#x}: {new} against {old}", d.to_bits());
+    }
+
     /// The allocation-free writing gives the same text as the old form, on values
     /// from every exponent range (the bits from a generator).
     #[test]
@@ -651,16 +642,25 @@ mod tests_native_numbers {
             x ^= x << 13;
             x ^= x >> 7;
             x ^= x << 17;
-            let d = f64::from_bits(x);
-            assert_eq!(vm_double_string(d), vm_double_string_old(d), "{x:#x}");
-            let short = (x % 2_000_000) as f64 / 1000.0 - 1000.0;
-            assert_eq!(vm_double_string(short), vm_double_string_old(short));
+            assert_same_as_old(f64::from_bits(x));
+            assert_same_as_old((x % 2_000_000) as f64 / 1000.0 - 1000.0);
+            assert_same_as_old((x >> 11) as f64 / 4.0);
+        }
+        // Every binary exponent (every multiplier of the tables), with the
+        // mantissas at the ends of the range and a power of two (whose lower
+        // neighbour is closer).
+        for e in 0..2047u64 {
+            for m in [0, 1, 2, 3, 1 << 51, (1 << 52) - 2, (1 << 52) - 1] {
+                let d = f64::from_bits((e << 52) | m);
+                assert_same_as_old(d);
+                assert_same_as_old(-d);
+            }
         }
     }
 
     #[test]
     fn double_to_string_is_the_vms() {
-        let cases: [(f64, &str); 27] = [
+        let cases: [(f64, &str); 32] = [
             (0.0, "0.0"),
             (-0.0, "-0.0"),
             (1.0, "1.0"),
@@ -688,6 +688,13 @@ mod tests_native_numbers {
             (12345.6789, "12345.6789"),
             (-0.000001, "-0.000001"),
             (f64::NAN, "NaN"),
+            // Ties: the exact value is halfway between two shortest
+            // candidates, and the VM takes the even one.
+            (1658206780088562.25, "1658206780088562.2"),
+            (f64::from_bits(0x430deb9ee957fc2a), "1052730259603333.2"),
+            (f64::from_bits(0x4302d77f67030d4a), "662936471232937.2"),
+            (f64::from_bits(0x42ea8090bb0f6d84), "233115890514796.12"),
+            (f64::from_bits(0x42b866caca40ad50), "26829767983277.312"),
         ];
         for (d, expected) in cases {
             assert_eq!(vm_double_string(d), expected, "{d:e}");

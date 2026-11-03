@@ -54,6 +54,8 @@ const FRAGMENTS: &[&str] = &[
     "closures",
     // δ (P5b): the natives of the SDK from source (crates/emit_native/src/nativos.rs).
     "natives_numbers",
+    // The shortest digits of a `double` (Ryū), for `double.toString`.
+    "double_shortest",
     "natives_strings",
     // The fast path of the default `_Map`/`_Set` for `int` and `String` keys.
     "natives_hash",

@@ -167,13 +167,8 @@ fn describe_value(heap: &Heap, value: crate::heap::Value, depth: usize, output: 
     match value {
         Value::Bool(b) => output.push_str(if b { "true" } else { "false" }),
         Value::Int(i) => output.push_str(&i.to_string()),
-        Value::Double(d) => {
-            if d.fract() == 0.0 && !d.is_infinite() && !d.is_nan() {
-                output.push_str(&format!("{d:.1}"));
-            } else {
-                output.push_str(&d.to_string());
-            }
-        }
+        // The VM's text (`1e+21`, `1e-7`, `Infinity`), not Rust's.
+        Value::Double(d) => output.push_str(&format_double(d)),
         Value::Ref(r) => describe_ref(heap, r, depth, output),
     }
 }
