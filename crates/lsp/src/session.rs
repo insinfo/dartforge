@@ -29,10 +29,12 @@ use std::time::SystemTime;
 
 /// Default budget, in MiB of loaded source (SDK included). A library's load
 /// reads the libraries outside the project without their bodies
-/// (`semantic::load`), so the program of a file of a large Angular package
-/// (`new_sali/frontend`: 2,835 libraries, 23 MiB of source) fits, and its
-/// queries stop reloading it (~1 s each).
-pub(crate) const DEFAULT_BUDGET_MIB: usize = 32;
+/// (`semantic::load`). The program of a component of a large Angular package
+/// (`new_sali/frontend`, 2,835 libraries) has grown past 32 MiB: every hover
+/// reloaded it (~950 ms), and the transient loads left the server at 830 MiB
+/// with the allocator's pages, against 408 MiB with the program kept
+/// (docs/LSP.md, "Décima quinta rodada").
+pub(crate) const DEFAULT_BUDGET_MIB: usize = 48;
 
 /// Default budget of the wide load of non-local searches, in MiB of source
 /// (the analyzer's SDK has ~8 MiB; the project's packages add the rest).
