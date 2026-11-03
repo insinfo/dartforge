@@ -103,6 +103,44 @@ pub struct Resident {
     /// The files whose API changed in the last loads over a cut and that
     /// other libraries depend on, oldest first (`Program::layout_hot`).
     hot: Vec<PathBuf>,
+    /// The next analyses keep their batch's body tables until the one after
+    /// ([`Resident::keep_bodies`]), for [`Resident::lend_analysis`].
+    keep_bodies: bool,
+}
+
+/// The body tables of the last analysis's batch, kept while
+/// [`Resident::keep_bodies`] asks for them.
+struct LastBodies {
+    bodies: dartforge_types::BodyTypes,
+    libraries: Vec<LibraryId>,
+}
+
+/// What the last analysis of a [`Resident`] built, lent out by
+/// [`Resident::lend_analysis`]: the program, the interner, the type table,
+/// the outline and the body tables of the batch's libraries (inferred with
+/// the local declarations registered).
+pub struct LentAnalysis {
+    pub program: Program,
+    pub interner: dartforge_intern::Interner,
+    pub table: dartforge_types::TypeTable,
+    pub core: dartforge_types::CoreTypes,
+    pub outline: dartforge_types::OutlineTypes,
+    pub bodies: dartforge_types::BodyTypes,
+    /// The batch's libraries: those whose bodies `bodies` holds.
+    pub libraries: Vec<LibraryId>,
+    /// Distinct for every program a load built: two loans with the same
+    /// generation see the same units and elements under the same ids, with only
+    /// the units of `touched` swapped in between.
+    pub generation: u64,
+    /// The units whose text changed since the program was loaded, in order
+    /// (a swap of their bodies keeps every id).
+    pub touched: Vec<UnitId>,
+}
+
+/// A generation no world had ([`LentAnalysis::generation`]).
+fn next_generation() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// How many recently changed files the layout keeps last ([`Resident::hot`]).
@@ -271,6 +309,13 @@ struct World {
     onto_loads: usize,
     /// The signature words of the kept units, for the reload in place.
     words: crate::in_place::Words,
+    /// The batch's body tables of the analysis that built this world, when
+    /// the resident keeps them ([`Resident::keep_bodies`]).
+    last: Option<LastBodies>,
+    /// Distinct for every world a load built ([`LentAnalysis::generation`]).
+    generation: u64,
+    /// The units whose text a reuse swapped since the load, in order.
+    touched: Vec<UnitId>,
     /// The body tables of the frozen prefix's libraries whose constants an
     /// analysis cited, kept while the type table is not collected: those
     /// libraries never change while the world lives, and an edit of a
@@ -434,6 +479,7 @@ impl Resident {
         let Some(mut world) = self.world.take() else {
             return Taken::Nothing;
         };
+        world.last = None;
         // A refused swap may leave the syntax diagnostics taken.
         let load_diags = world.load_diags.clone();
         if self.reuse(&mut world, root, packages, imports, files, texts) {
@@ -746,6 +792,7 @@ impl Resident {
         }
         // The swaps, all or none.
         let mut done: Vec<dartforge_elements::incremental::Previous> = Vec::new();
+        w.touched.extend(changes.iter().map(|(u, _)| *u));
         for (u, text) in &changes {
             let ok = match dartforge_elements::incremental::swap_unit(
                 &mut w.program,
@@ -809,9 +856,108 @@ impl Resident {
     pub fn clear(&mut self) {
         let context = std::mem::take(&mut self.context);
         let program_bytes = std::mem::take(&mut self.program_bytes);
+        let keep_bodies = self.keep_bodies;
         *self = Resident::default();
         self.context = context;
         self.program_bytes = program_bytes;
+        self.keep_bodies = keep_bodies;
+    }
+
+    /// Whether the next analyses keep their batch's body tables until the
+    /// analysis after them, for [`Resident::lend_analysis`] (the LSP records
+    /// the edited library in its reference index from them). Off by default:
+    /// the tables of a large batch are not small.
+    pub fn keep_bodies(&mut self, keep: bool) {
+        self.keep_bodies = keep;
+    }
+
+    /// Lends what the last analysis built ([`LentAnalysis`]) to `f`, which
+    /// gives it back with its answer; `None` when the last analysis kept no
+    /// body tables ([`Resident::keep_bodies`]) or `f` panicked (the resident is
+    /// then [cleared](Resident::clear)). The body tables are dropped after the
+    /// loan.
+    ///
+    /// `f` may intern types and infer on demand, as a query over the program
+    /// does; it must give back the same program and interner it was lent.
+    pub fn lend_analysis<R>(
+        &mut self,
+        f: impl FnOnce(LentAnalysis) -> (LentAnalysis, R),
+    ) -> Option<R> {
+        let mut world = self.world.take()?;
+        let Some(last) = world.last.take() else {
+            self.world = Some(world);
+            return None;
+        };
+        let World {
+            program,
+            table,
+            core,
+            outline,
+            outline_diags,
+            outline_units,
+            simple_bounds,
+            load_diags,
+            init,
+            root,
+            packages,
+            imports,
+            syntax_known,
+            onto_loads,
+            words,
+            cited,
+            last: _,
+            generation,
+            touched,
+        } = world;
+        let lent = LentAnalysis {
+            program,
+            interner: std::mem::take(&mut self.interner),
+            table,
+            core,
+            outline,
+            bodies: last.bodies,
+            libraries: last.libraries,
+            generation,
+            touched,
+        };
+        let Ok((lent, answer)) =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || f(lent)))
+        else {
+            self.clear();
+            return None;
+        };
+        let LentAnalysis {
+            program,
+            interner,
+            table,
+            core,
+            outline,
+            touched,
+            ..
+        } = lent;
+        self.interner = interner;
+        self.world = Some(World {
+            program,
+            table,
+            core,
+            outline,
+            outline_diags,
+            outline_units,
+            simple_bounds,
+            load_diags,
+            init,
+            root,
+            packages,
+            imports,
+            syntax_known,
+            onto_loads,
+            words,
+            cited,
+            last: None,
+            generation,
+            touched,
+        });
+        Some(answer)
     }
 
     /// The live bytes of each structure the resident keeps, measured by
@@ -1712,6 +1858,7 @@ impl Engine {
         mut resident: Option<&mut Resident>,
     ) -> Option<AnalysisResult> {
         let mut analysis = AnalysisResult::default();
+        let keep_bodies = resident.as_ref().is_some_and(|r| r.keep_bodies);
         let mut times = PhaseTimes::from_env();
         let mut lint_rules = LintRules::new(root, self.lints_from_options);
         let mut own: BTreeMap<PathBuf, String> = BTreeMap::new();
@@ -2134,6 +2281,9 @@ impl Engine {
                     onto_loads,
                     words,
                     cited,
+                    last: None,
+                    generation: next_generation(),
+                    touched: Vec::new(),
                 }
             }
         };
@@ -3566,6 +3716,15 @@ impl Engine {
                     a.lint_reports = None;
                 }
             }
+        }
+        if keep_bodies
+            && let Some(bodies) = bodies.take()
+            && let Some(world) = kept.world.as_mut()
+        {
+            world.last = Some(LastBodies {
+                bodies,
+                libraries: own_libs,
+            });
         }
         Some(analysis)
     }
