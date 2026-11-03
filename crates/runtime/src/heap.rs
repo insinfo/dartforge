@@ -8253,6 +8253,7 @@ impl Heap {
     }
 
     /// Binds `pair` to `object`: when it dies, `finalizer(pair)` (`finalizable`).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))] // `dart:io` only (`io_files.rs`)
     pub(crate) fn attach_finalizable(&mut self, object: Ref, finalizer: fn(usize), pair: usize) {
         self.finalizable.insert(object, (finalizer, pair));
         self.arc_observe(object, arc_word::FINALIZER);
