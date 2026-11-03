@@ -352,7 +352,9 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 
 | Frente | Agente |
 |---|---|
-| Wasm: tamanho (ainda 17–27×) e velocidade (coletor, `List<bool>.filled` não desvirtualizado) | rodada de 31/10 concluída; a próxima fica para quando a máquina estiver mais livre (a suíte wasm completa também precisa rodar) |
+| Wasm: tamanho (ainda 17–27×) e velocidade (coletor, `List<bool>.filled` não desvirtualizado) | rodada de tamanho em andamento desde 02/11 (agente de tamanho do wasm; estudo do AssemblyScript na seção de 02/11) |
+| Wasm: perfil de compatibilidade (sem `exnref`, sem *tail calls*, sem `extended-const`), com flag própria | **anotado em 03/11, a fazer** (seção de 03/11) |
+| Wasm: isolates em threads com memória compartilhada (atomics), flag experimental | **anotado em 03/11, a fazer** (seção de 03/11) |
 | `analyze`: falsos positivos do verificador de tipos (107 → 20) | concluído em 31/10; os 12 do *parser* (`augment`) ficam para o *parser* |
 | JS dev: subir de um checkout limpo sem `build_runner`; edição de template | concluído em 31/10 (29,6 × 212,5 s; template 3,3 × 7,6 s) |
 | JS produção: `jsonEncode` no máximo igual ao `dart2js -O4` (`async_await` e o gzip dos programas pequenos resolvidos em 01/11) | pausado em 01/11: perfil do `jsonEncode` sem ponto concentrado (1,0–1,2×); falta provar no mundo fechado que `withIndent` não é alcançado |
@@ -363,6 +365,89 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | AOT nativo: tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`) e tamanho (1,37×); próximo: mapa de campo, `$c`/`$g`/`$tc`, `$async` | em rodízio: agentes de desempenho um por vez desde 01/11 (ordem LSP → ARC → AOT); seção de 31/10 abaixo |
 | ARC real: 2,5× os ciclos do tracing no HTTP `dart:io` e 1,7× no cru (eram 3× e 2,2×); próximos passos na seção de 01/11 | em rodízio: agentes de desempenho um por vez (fila: LSP prioridade → AOT → ARC) |
 | LSP: *outline* incremental (passos 1–3 feitos em 01/11: prefixo congelado; falta o passo 4, as bibliotecas do pacote que não dependem da editada), corpos dos dependentes, índice de referências resolvidas (passo 5), memória do residente e da busca | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
+
+## 03/11/2026: wasm — anotado para depois: perfil de compatibilidade e isolates em threads
+
+Dois itens pedidos pelo proprietário em 03/11. Nenhum dos dois foi começado.
+
+### Recursos do wasm: o que o LLVM gera e o que o DartForge usa
+
+O LLVM 22.1.8 gera os seguintes recursos do wasm: MVP, mutable-globals, sign-ext,
+nontrapping-fptoint, multivalue, bulk-memory, reference-types, simd128, relaxed-simd, tail-call,
+extended-const, exceptions (`exnref` e o formato antigo), atomics, multimemory, memory64 (alvo
+`wasm64`), fp16 e wide-arithmetic. Do WasmGC ele só gera o básico de referências; structs e arrays
+não.
+
+O perfil `wasm32-linear` do DartForge:
+- usa `-mcpu=generic` com `-msimd128 -mtail-call -mextended-const` e exceções `exnref`
+  (`crates/emit_native/src/target.rs`, `crates/emit_native/src/linker_wasm.rs`);
+- é conferido por `crates/wasm_gate/src/lib.rs`: `WASM2 | TAIL_CALL | EXTENDED_CONST | EXCEPTIONS`.
+
+**Achado.** Com o padrão atual, o módulo exige um motor tão novo quanto o que o dart2wasm exige, ou
+mais novo:
+- tail-call chegou ao Safari na mesma versão do WasmGC (18.2);
+- `exnref` chegou aos navegadores depois do WasmGC.
+
+Assim, "roda onde o WasmGC não existe" **não vale hoje**. As versões exatas de cada navegador
+precisam ser conferidas antes de irem para a documentação.
+
+### 1. Perfil de compatibilidade (flag própria)
+
+- **Flag:** um perfil novo no `compile-wasm` (nome a decidir, por exemplo
+  `--wasm-profile compat`), ao lado do `wasm32-linear`, que continua sendo o padrão.
+- **O que o perfil tira:**
+  - `exnref`: usa `--exceptions check`, que já existe e funciona (`hello` 1 335 709 bytes, +3%);
+  - tail-call: as chamadas de cauda que o emissor e o runtime exigem viram chamada comum ou
+    trampolim, sem estourar a pilha em recursão profunda nem em `async`;
+  - extended-const;
+  - SIMD, se a meta for o Safari de 2021: o simd128 só chegou ao Safari 16.4.
+- **O que fica:** MVP, mutable-globals, sign-ext, nontrapping-fptoint, multivalue e bulk-memory.
+- **Verificação:** um perfil próprio no `wasm_gate` que recuse o resto, e o
+  `dartforge-wasm-run` aceitando os dois perfis.
+- **Aceitação:**
+  - harness wasm 164/164 nesse perfil;
+  - rodar em motores sem esses recursos: um Node antigo, wasmtime e wasm3;
+  - custo de tamanho e velocidade medido contra o perfil padrão.
+
+### 2. Isolates em threads com memória compartilhada (flag experimental)
+
+**Referência: a VM do Dart.**
+- Cada isolate tem o próprio *heap* e roda na própria thread.
+- Os isolates trocam mensagens por `SendPort`, com cópia, ou por `TransferableTypedData`, sem
+  cópia.
+- Memória nativa pode ser compartilhada entre isolates por ponteiro (`dart:ffi`: `malloc` num
+  isolate, o endereço passado para outro).
+
+**Proposta para o wasm:**
+- **Flag experimental:** nome a decidir, por exemplo `--enable-experiment=wasm-threads`. O padrão
+  continua de uma thread só.
+- **Compilação:** `-matomics -mbulk-memory`, memória `shared` no `wasm-ld` (`--shared-memory`,
+  `--import-memory`) e um perfil do `wasm_gate` com `THREADS`.
+- **Um isolate por thread:**
+  - Web Worker no navegador;
+  - no `dartforge-wasm-run`, uma thread do host (ou `wasi-threads`);
+  - todos instanciam o mesmo módulo sobre a mesma memória.
+- **Heap por isolate:**
+  - uma região própria da memória linear compartilhada;
+  - coletor por isolate, sem parar os outros, como na VM;
+  - pilha-sombra e TLS por thread (`__tls_base`, `__stack_pointer`).
+- **Runtime Rust:** alocador seguro entre threads e estado global por isolate, não por módulo.
+- **`Isolate.spawn`/`run`, `SendPort`/`ReceivePort` e `TransferableTypedData`:**
+  - mesma semântica da VM;
+  - a mensagem é copiada para o *heap* do isolate destino;
+  - a espera usa `memory.atomic.wait32`/`notify`, e o laço de eventos de cada isolate acorda por
+    ela.
+- **Memória nativa compartilhada:**
+  - o equivalente ao `dart:ffi` da VM, isto é, `Pointer` e `malloc` sobre a região não coletada da
+    memória compartilhada;
+  - um ponteiro passado a outro isolate enxerga os mesmos bytes;
+  - operações atômicas expostas como na VM.
+- **Requisito do navegador:** `SharedArrayBuffer` só existe com `crossOriginIsolated`, isto é, com
+  os cabeçalhos COOP/COEP. O `dartforge serve` precisa enviá-los quando a flag estiver ligada.
+- **Aceitação:**
+  - os testes de isolate da suíte `tests/language` e os do harness, iguais à VM, com a flag;
+  - um programa que compartilha memória nativa entre isolates dando o mesmo resultado que na VM;
+  - nenhum efeito no módulo sem a flag (tamanho e velocidade iguais).
 
 ## 02/11/2026: tamanho do wasm contra outras linguagens; regressão de 10× achada (`863d4159`)
 
@@ -426,7 +511,8 @@ baixado é:
 **Leitura**
 - **Quem não tem coletor fica em bytes ou poucos KB:** C, Zig e Rust.
 - **Quem usa o WasmGC do motor (dart2wasm, Kotlin) fica em dezenas de KB.** O DartForge não usa
-  WasmGC, por decisão do projeto: um módulo que roda em qualquer motor, com o coletor dentro.
+  WasmGC, por decisão do projeto: um módulo com o coletor dentro, para rodar em qualquer motor (isso
+  só vale depois do perfil de compatibilidade; ver a seção de 03/11).
   Por isso a régua justa é o grupo que leva o próprio runtime em memória linear:
   - **AssemblyScript 11,6 KB no `colecoes`, com coletor** (ver o estudo abaixo);
   - TinyGo 158 KB;
