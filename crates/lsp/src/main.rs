@@ -23,14 +23,6 @@ use serde_json::Value;
 use std::io::{self, BufReader};
 use std::sync::{Arc, Mutex, mpsc};
 
-/// On Windows the server and its children allocate through mimalloc: with the
-/// system heap the analysis of a long session slowed down ~3x from the fourth
-/// wave on (docs/LSP.md, "Décima quinta rodada"). Elsewhere the system
-/// allocator stays.
-#[cfg(windows)]
-#[global_allocator]
-static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 /// Message from the reader thread to the dispatcher: a frame or end of stream.
 enum Entry {
     /// Decoded JSON frame.
