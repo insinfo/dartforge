@@ -3287,9 +3287,21 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // A plain class extending `Object` can be mixed in by a library before
     // 3.0; its field initializers then run through the application too. With
     // the whole program known (production), only the classes actually mixed in.
+    // A class that declares a constructor (a primary one included) cannot be
+    // mixed in, and its field initializers may read the primary constructor's
+    // parameters, which only its constructor has in scope.
+    let declares_constructor = class
+        .constructors
+        .values()
+        .any(|f| !matches!(ctx.program.function(*f).node, FunctionRef::None))
+        || class.decl.is_some_and(|d| {
+            matches!(&ctx.program.unit(d.unit).ast.decl(d.decl).kind,
+                DeclKind::Class(k) if k.primary_constructor.is_some())
+        });
     let legacy_mixin = class.kind == ClassKind::Class
         && class.supertype_class == ctx.object
         && class.mixin_classes.is_empty()
+        && !declares_constructor
         && !fields.is_empty()
         && (!ctx.production() || ctx.is_mixed_in(c));
     if is_mixin || class.modifiers.mixin || legacy_mixin {
