@@ -80,6 +80,11 @@ pub(crate) struct Project {
     /// [`Project::written_subtypes`], computed once and forgotten whenever a
     /// unit's text changes ([`Project::forget_unit`]).
     pub(crate) written_subtypes: std::sync::Mutex<Option<std::sync::Arc<WrittenSubtypes>>>,
+    /// The reference index keys of what an SDK patch declares are marked as
+    /// such (`!p`): false for a program whose SDK has patches the server's
+    /// view has not (the resident's, `crate::reference_index::records_of_analysis`),
+    /// so that a patched member keys as the declaration the server sees.
+    pub(crate) patch_keys: bool,
 }
 
 /// The direct subtypes of each class through the index relations.
@@ -673,6 +678,7 @@ fn load_project_with(
         comments: Default::default(),
         occurrences_by_unit: Default::default(),
         written_subtypes: Default::default(),
+        patch_keys: true,
     })
 }
 
@@ -697,6 +703,7 @@ pub(crate) fn load_library(
         comments: Default::default(),
         occurrences_by_unit: Default::default(),
         written_subtypes: Default::default(),
+        patch_keys: true,
     })
 }
 
@@ -4285,6 +4292,47 @@ impl Project {
             *c = Some(m.clone());
         }
         m
+    }
+
+    /// `old`, the [`Project::written_subtypes`] of this program before the
+    /// bodies of `units` were swapped, made current: a swap keeps every
+    /// declaration and clause, so only the classes of those units (whose
+    /// implicit `Object` supertype reads the unit's referenced names) are
+    /// placed again. The lists stay in class order, as computed.
+    pub(crate) fn written_subtypes_after(
+        &self,
+        mut old: WrittenSubtypes,
+        units: &HashSet<UnitId>,
+    ) -> WrittenSubtypes {
+        let p = self.program();
+        let moved: Vec<ClassId> = (0..p.classes.len())
+            .map(|i| ClassId(i as u32))
+            .filter(|c| p.class(*c).decl.is_some_and(|d| units.contains(&d.unit)))
+            .collect();
+        if moved.is_empty() {
+            return old;
+        }
+        let set: HashSet<ClassId> = moved.iter().copied().collect();
+        for v in old.values_mut() {
+            v.retain(|c| !set.contains(c));
+        }
+        let mut touched: HashSet<ClassId> = HashSet::new();
+        for sub in moved {
+            for s in self.written_supertypes(sub) {
+                let v = old.entry(s).or_default();
+                if !v.contains(&sub) {
+                    v.push(sub);
+                    touched.insert(s);
+                }
+            }
+        }
+        for s in touched {
+            if let Some(v) = old.get_mut(&s) {
+                v.sort_unstable();
+            }
+        }
+        old.retain(|_, v| !v.is_empty());
+        old
     }
 
     fn compute_written_subtypes(&self) -> WrittenSubtypes {

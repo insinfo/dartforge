@@ -60,6 +60,12 @@ pub struct SemanticAnalyzer {
     /// The documents whose library's load did not fit in the session's budget:
     /// their records are made again in a child.
     over_budget: std::collections::HashSet<std::path::PathBuf>,
+    /// Where the resident's records of the edited files arrive
+    /// ([`crate::typed::ResidentRecords`]).
+    resident_records: Option<std::sync::Arc<crate::typed::ResidentRecords>>,
+    /// The project files whose resident record came with another API than the
+    /// index's record had: their dependents are recorded again.
+    index_api_changed: Vec<std::path::PathBuf>,
     /// The summaries of the known libraries (export namespace) of `ImportLibrary`.
     known: crate::known_libraries::LibraryIndex,
     /// The current `maxCompletionItems`.
@@ -95,6 +101,8 @@ impl SemanticAnalyzer {
             index_disk_check: None,
             index_disk_dirty: true,
             over_budget: Default::default(),
+            resident_records: None,
+            index_api_changed: Vec::new(),
             known: Default::default(),
             completion_max: crate::completion::MAX_PATTERN,
             not_imported_in_completion: true,
@@ -577,8 +585,107 @@ impl SemanticAnalyzer {
         if !self.build_reference_index_here(documents, first) {
             return "the index could not be built".to_string();
         }
-        let built = format!("index built in {} ms\n", started.elapsed().as_millis());
+        let mut built = format!("index built in {} ms\n", started.elapsed().as_millis());
+        // `DARTFORGE_INDEX_CHECK_RESIDENT=1`: the records of the files come from
+        // the resident's analyses instead (docs/LSP.md, "Décima sexta rodada").
+        if std::env::var_os("DARTFORGE_INDEX_CHECK_RESIDENT").is_some_and(|v| v == "1") {
+            built.push_str(&self.record_from_resident(documents, uris));
+        }
         built + &self.compare_with_current_index(documents, uris)
+    }
+
+    /// Records each of `uris` again from an analysis of a resident in this
+    /// process (as the typed worker's resident process does after an edit),
+    /// and puts the records in the index. Each file is analyzed twice: with a
+    /// body edit, then with its text, so that the second record reuses what
+    /// the first loan computed of the units that did not change.
+    fn record_from_resident(&mut self, documents: &DocumentStore, uris: &[String]) -> String {
+        use dartforge_elements::generated::key;
+        let (Some(sdk), Some(index)) = (self.sdk.as_ref(), self.reference_index.as_mut()) else {
+            return "no index to record from the resident\n".to_string();
+        };
+        let Ok(engine) = crate::typed::lsp_engine(&sdk.root) else {
+            return "the engine could not start\n".to_string();
+        };
+        let mut resident = dartforge_parity::analysis::Resident::new();
+        resident.keep_bodies(true);
+        let mut cache = crate::reference_index::ResidentCache::default();
+        let patch_keys = crate::reference_index::analyzer_view_has_patches(&sdk.root);
+        let sdk_key = key(&sdk.root);
+        let mut texts: std::collections::HashMap<std::path::PathBuf, String> = documents
+            .uris()
+            .filter_map(|u| {
+                Some((
+                    key(&crate::project::uri_file(u)?),
+                    documents.get(u)?.to_string(),
+                ))
+            })
+            .collect();
+        let (mut recorded, mut failed) = (0usize, 0usize);
+        for uri in uris {
+            let Some(file) = crate::project::uri_file(uri) else {
+                continue;
+            };
+            let k = key(&file);
+            let Some(text) = texts.get(&k).cloned() else {
+                continue;
+            };
+            let root = crate::project::project_root(&file);
+            let packages = root.join(".dart_tool").join("package_config.json");
+            let packages = packages.is_file().then_some(packages);
+            let mut made = None;
+            let passes = if std::env::var_os("DARTFORGE_INDEX_CHECK_ONE_PASS").is_some() {
+                vec![text.clone()]
+            } else {
+                vec![format!("{text}\n"), text.clone()]
+            };
+            for edited in passes {
+                texts.insert(k.clone(), edited);
+                let analysis = engine.analyze_resident(
+                    &mut resident,
+                    &root,
+                    std::slice::from_ref(&file),
+                    packages.as_deref(),
+                    &texts,
+                    &|| false,
+                );
+                made = analysis.and_then(|_| {
+                    resident
+                        .lend_analysis(|lent| {
+                            crate::reference_index::records_of_analysis(
+                                lent,
+                                std::slice::from_ref(&k),
+                                &mut cache,
+                                patch_keys,
+                            )
+                        })
+                        .flatten()
+                });
+            }
+            match made.and_then(|b| crate::reference_index::ReferenceIndex::decode(&b)) {
+                Some(mut part) if part.file(&k).is_some() => {
+                    index.adopt_sdk_locations(&mut part, &sdk_key);
+                    if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
+                        let (old, new) = (index.describe(&k), part.describe(&k));
+                        let only_old: Vec<&String> = old.difference(&new).take(12).collect();
+                        let only_new: Vec<&String> = new.difference(&old).take(12).collect();
+                        if !only_old.is_empty() || !only_new.is_empty() {
+                            eprintln!(
+                                "[dartforge-lsp] record of {}: only the index's {only_old:?}; only the resident's {only_new:?}",
+                                k.display()
+                            );
+                        }
+                    }
+                    index.merge(part);
+                    recorded += 1;
+                }
+                _ => failed += 1,
+            }
+        }
+        format!(
+            "recorded from the resident: {recorded} files ({failed} without a record), {} loans reused the cache\n",
+            cache.reused
+        )
     }
 
     /// [`SemanticAnalyzer::check_reference_index`] with the index this
@@ -1163,6 +1270,10 @@ impl Analyzer for SemanticAnalyzer {
         self.search_exe = Some(exe);
     }
 
+    fn resident_records(&mut self, records: std::sync::Arc<crate::typed::ResidentRecords>) {
+        self.resident_records = Some(records);
+    }
+
     fn disk_changed(&mut self, paths: &[std::path::PathBuf]) {
         if !paths.is_empty() {
             self.index_disk_dirty = true;
@@ -1178,6 +1289,9 @@ impl Analyzer for SemanticAnalyzer {
 
     fn project_configuration_changed(&mut self) {
         self.reference_index = None;
+        if let Some(r) = &self.resident_records {
+            r.want(None);
+        }
         self.index_build = None;
         self.index_failed.clear();
         self.syntactic.project_configuration_changed();
@@ -1584,6 +1698,7 @@ impl Analyzer for SemanticAnalyzer {
             comments,
             occurrences_by_unit,
             written_subtypes,
+            patch_keys,
         } = project;
         let mut list: Vec<dartforge_elements::model::LibraryId> = libraries
             .iter()
@@ -1602,6 +1717,7 @@ impl Analyzer for SemanticAnalyzer {
             comments,
             occurrences_by_unit,
             written_subtypes,
+            patch_keys,
         };
         let Some(unit) = project.uri_unit(uri) else {
             return Vec::new();
@@ -1953,6 +2069,10 @@ fn load_cached_index(
     unchanged.then_some(index)
 }
 
+/// How long a search waits for the resident's record of an edited document
+/// being made, before recording it here.
+const RECORD_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// The text of a record's file now, when it is not the record's: the open
 /// document's, or the disk's. `Some(None)`: the file is gone.
 fn changed_text(
@@ -2055,7 +2175,66 @@ impl SemanticAnalyzer {
                 return false;
             }
         }
+        if let Some(r) = &self.resident_records {
+            r.want(Some(root));
+        }
         self.refresh_index(documents, uri)
+    }
+
+    /// Puts the resident's records of the edited files into `index`, waiting
+    /// (up to [`RECORD_WAIT`]) for one being made of an open document's
+    /// current text whose record in `index` is not of that text.
+    fn absorb_resident_records(
+        &mut self,
+        documents: &DocumentStore,
+        index: &mut crate::reference_index::ReferenceIndex,
+    ) {
+        let Some(records) = self.resident_records.clone() else {
+            return;
+        };
+        let started = std::time::Instant::now();
+        let deadline = started + RECORD_WAIT;
+        let mut state = records.lock();
+        loop {
+            for bytes in std::mem::take(&mut state.ready) {
+                if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
+                    eprintln!(
+                        "[dartforge-lsp] reference index: resident records ({} bytes) after {} us",
+                        bytes.len(),
+                        started.elapsed().as_micros()
+                    );
+                }
+                let Some(mut part) = crate::reference_index::ReferenceIndex::decode(&bytes) else {
+                    continue;
+                };
+                if part.root != index.root {
+                    continue;
+                }
+                if let Some(sdk) = &self.sdk {
+                    index.adopt_sdk_locations(
+                        &mut part,
+                        &dartforge_elements::generated::key(&sdk.root),
+                    );
+                }
+                for r in part.records() {
+                    if index.file(&r.path).is_none_or(|old| old.api != r.api || r.api.is_none()) {
+                        self.index_api_changed.push(r.path.clone());
+                    }
+                }
+                index.merge(part);
+            }
+            let waiting = state.pending.iter().any(|(path, (stamp, _))| {
+                let current = url::Url::from_file_path(path)
+                    .ok()
+                    .and_then(|u| documents.get(u.as_str()).map(crate::reference_index::text_stamp));
+                current == Some(*stamp) && index.file(path).is_none_or(|r| r.stamp != *stamp)
+            });
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if !waiting || left.is_zero() {
+                return;
+            }
+            state = records.wait(state, left);
+        }
     }
 
     /// Records again the project files whose record is not of their current
@@ -2067,6 +2246,7 @@ impl SemanticAnalyzer {
         let Some(mut index) = self.reference_index.take() else {
             return false;
         };
+        self.absorb_resident_records(documents, &mut index);
         let root = index.root.clone();
         // The whole project is compared with the disk after the watcher reported
         // a change, or when the last comparison is more than 30 s old (the

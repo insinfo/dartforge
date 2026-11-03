@@ -410,7 +410,12 @@ impl<'a> Keys<'a> {
 
     fn patch(&self, unit: Option<UnitId>) -> &'static str {
         match unit {
-            Some(u) if self.project.program().unit(u).role == UnitRole::Patch => "!p",
+            Some(u)
+                if self.project.patch_keys
+                    && self.project.program().unit(u).role == UnitRole::Patch =>
+            {
+                "!p"
+            }
             _ => "",
         }
     }
@@ -3449,6 +3454,99 @@ impl ReferenceIndex {
     }
 
     /// The paths of the records outside the SDK and the packages.
+    /// Gives the targets of `part`'s records (made over the resident's
+    /// program, whose SDK has the DDC patches) the SDK locations this index
+    /// knows: a target declared in the SDK takes the declaration spans of the
+    /// same target in this index's record of the file (the server's view of
+    /// the SDK, without patches); one this index's record does not have loses
+    /// its fact, and the search identifies it as before. `sdk` is the SDK's
+    /// `lib/` (canonical key).
+    pub(crate) fn adopt_sdk_locations(&self, part: &mut ReferenceIndex, sdk: &Path) {
+        let sdk = sdk.to_string_lossy().into_owned();
+        let in_sdk = |paths: &Strings, p: u32| p == NONE || paths.text(p).starts_with(&sdk);
+        let ReferenceIndex {
+            keys,
+            words,
+            paths,
+            files,
+            ..
+        } = part;
+        for r in files.iter_mut().flatten() {
+            let old: HashMap<String, &IndexTarget> = self
+                .file(&r.path)
+                .map(|o| {
+                    o.facts
+                        .iter()
+                        .filter_map(|f| match f {
+                            IdentFact::Target(t) => Some((
+                                target_signature(t, &self.keys, &self.words),
+                                t,
+                            )),
+                            IdentFact::Local { .. } => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut lost: HashSet<u32> = HashSet::new();
+            for (i, f) in r.facts.iter_mut().enumerate() {
+                let IdentFact::Target(t) = f else { continue };
+                let sdk_located = t.answer.is_some_and(|(p, _, _)| in_sdk(paths, p))
+                    || t.declarations.iter().any(|(p, ..)| in_sdk(paths, *p))
+                    || t.declaration.is_some_and(|(p, _)| in_sdk(paths, p));
+                if !sdk_located {
+                    continue;
+                }
+                let Some(o) = old.get(&target_signature(t, keys, words)) else {
+                    lost.insert(i as u32);
+                    continue;
+                };
+                let path = |p: u32, paths: &mut Strings| {
+                    if p == NONE {
+                        NONE
+                    } else {
+                        paths.id(self.paths.text(p))
+                    }
+                };
+                t.answer = o.answer.map(|(p, s, e)| (path(p, paths), s, e));
+                t.declarations = o
+                    .declarations
+                    .iter()
+                    .map(|&(p, s, e, l)| (path(p, paths), s, e, keys.id(self.keys.text(l))))
+                    .collect();
+                t.declaration = o
+                    .declaration
+                    .map(|(p, l)| (path(p, paths), keys.id(self.keys.text(l))));
+            }
+            if !lost.is_empty() {
+                r.idents.retain(|(_, f)| !lost.contains(f));
+            }
+        }
+    }
+
+    /// The relations and declarations of `path`'s record as text (the
+    /// comparison of two records' differences).
+    pub(crate) fn describe(&self, path: &Path) -> std::collections::BTreeSet<String> {
+        let Some(r) = self.file(path) else {
+            return Default::default();
+        };
+        let mut v: std::collections::BTreeSet<String> = r
+            .relations
+            .iter()
+            .map(|x| format!("{}@{}-{} {:?}", self.keys.text(x.key), x.start, x.end, x.tag))
+            .collect();
+        v.extend(
+            r.declarations
+                .iter()
+                .map(|(k, s, e)| format!("decl {}@{s}-{e}", self.keys.text(*k))),
+        );
+        v.extend(
+            r.referenced
+                .iter()
+                .map(|w| format!("ref {}", self.words.text(*w))),
+        );
+        v
+    }
+
     pub(crate) fn project_paths(&self) -> Vec<PathBuf> {
         self.records()
             .filter(|r| !r.frozen)
@@ -3535,4 +3633,178 @@ pub(crate) fn build_files(
     }
     index.note_absent(files.iter().cloned());
     Some(index)
+}
+
+/// The encoded index ([`ReferenceIndex::encode`]) of the records of the
+/// libraries of `files` (project files, canonical keys) made over the
+/// resident's last analysis (`lent`), whose bodies it inferred: the edited
+/// document's record without inferring its library again (docs/LSP.md,
+/// "Décima sexta rodada"). Gives `lent` back; `None` when no library of the
+/// analysis has one of `files`. `patch_keys`: the server's SDK view has the
+/// patches the analysis's has ([`analyzer_view_has_patches`]); otherwise a
+/// patched member keys as its declaration.
+pub(crate) fn records_of_analysis(
+    lent: dartforge_parity::analysis::LentAnalysis,
+    files: &[PathBuf],
+    cache: &mut ResidentCache,
+    patch_keys: bool,
+) -> (dartforge_parity::analysis::LentAnalysis, Option<Vec<u8>>) {
+    let dartforge_parity::analysis::LentAnalysis {
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        bodies,
+        libraries,
+        generation,
+        touched,
+    } = lent;
+    // What the earlier loans computed of the units that did not change since.
+    let mut changed: HashSet<UnitId> = HashSet::new();
+    if cache.generation == generation && cache.seen <= touched.len() {
+        cache.reused += 1;
+        changed.extend(touched[cache.seen..].iter().copied());
+        for l in &libraries {
+            changed.extend(program.library(*l).units.iter().copied());
+        }
+        for u in &changed {
+            cache.referenced.remove(u);
+        }
+    } else {
+        cache.referenced.clear();
+        cache.subtypes = None;
+    }
+    cache.generation = generation;
+    cache.seen = touched.len();
+    let wanted: HashSet<&Path> = files.iter().map(PathBuf::as_path).collect();
+    let of_files: Vec<LibraryId> = libraries
+        .iter()
+        .copied()
+        .filter(|l| {
+            let lib = program.library(*l);
+            !lib.is_sdk
+                && lib.units.iter().any(|u| {
+                    program.unit(*u).path.as_deref().is_some_and(|c| {
+                        wanted.contains(dartforge_elements::generated::key_of(c).as_ref())
+                    })
+                })
+        })
+        .collect();
+    let root = files
+        .first()
+        .map(|f| crate::project::project_root(f))
+        .unwrap_or_default();
+    let project = Project {
+        query: crate::query::Query {
+            program,
+            names: interner,
+            table,
+            core,
+            outline,
+            bodies,
+            scope: None,
+            refused: None,
+        },
+        root: root.clone(),
+        libraries: of_files.iter().copied().collect(),
+        referenced_names: std::sync::Mutex::new(std::mem::take(&mut cache.referenced)),
+        reverse_index: Default::default(),
+        comments: Default::default(),
+        occurrences_by_unit: Default::default(),
+        written_subtypes: Default::default(),
+        patch_keys,
+    };
+    if let Some(old) = cache.subtypes.take() {
+        let old = std::sync::Arc::try_unwrap(old).unwrap_or_else(|a| (*a).clone());
+        let now = project.written_subtypes_after(old, &changed);
+        if let Ok(mut m) = project.written_subtypes.lock() {
+            *m = Some(std::sync::Arc::new(now));
+        }
+    }
+    let mut index = ReferenceIndex::new(root.clone());
+    for &lib in &of_files {
+        let mut tables = Tables {
+            keys: &mut index.keys,
+            words: &mut index.words,
+            paths: &mut index.paths,
+        };
+        let records = Builder.library(&project, lib, &root, &mut tables);
+        index.put(records.into_iter().filter(|r| !r.frozen).collect());
+    }
+    let encoded = (!of_files.is_empty()).then(|| index.encode());
+    cache.referenced = project
+        .referenced_names
+        .into_inner()
+        .unwrap_or_default();
+    cache.subtypes = project.written_subtypes.into_inner().ok().flatten();
+    let crate::query::Query {
+        program,
+        names,
+        table,
+        core,
+        outline,
+        ..
+    } = project.query;
+    let lent = dartforge_parity::analysis::LentAnalysis {
+        program,
+        interner: names,
+        table,
+        core,
+        outline,
+        bodies: Default::default(),
+        libraries,
+        generation,
+        touched,
+    };
+    (lent, encoded)
+}
+
+/// What [`records_of_analysis`] keeps between loans of the resident's
+/// analysis: the referenced names of the units that did not change (the
+/// implicit `Object` supertypes of the member families read them from every
+/// unit that cites `Object`, and computing them again took most of a record).
+#[derive(Default)]
+pub(crate) struct ResidentCache {
+    generation: u64,
+    seen: usize,
+    referenced: HashMap<UnitId, std::sync::Arc<HashSet<String>>>,
+    /// [`Project::written_subtypes`] of the last loan.
+    subtypes: Option<std::sync::Arc<crate::project::WrittenSubtypes>>,
+    /// Loans that reused what an earlier one computed (tests and measurement).
+    pub(crate) reused: usize,
+}
+
+/// Whether the SDK the server sees (`SdkLayout::load_as_analyzer`) applies
+/// patches: the analyzer's view has none, unless the SDK lacks the analyzer's
+/// library list and the DDC profile stands in for it.
+pub(crate) fn analyzer_view_has_patches(sdk_lib: &Path) -> bool {
+    dartforge_elements::sdk::SdkLayout::load_as_analyzer(sdk_lib)
+        .is_ok_and(|s| s.libraries.values().any(|l| !l.patches.is_empty()))
+}
+
+/// The text of what an [`IndexTarget`] searches (everything but its
+/// locations), to find the same target in another index's record.
+fn target_signature(t: &IndexTarget, keys: &Strings, words: &Strings) -> String {
+    let k = |v: u32| if v == NONE { "" } else { keys.text(v) };
+    let kind = match &t.kind {
+        TargetKey::Top(x) => format!("T{}", k(*x)),
+        TargetKey::Member {
+            owner,
+            name,
+            is_static,
+        } => format!("M{} {} {is_static}", k(*owner), words.text(*name)),
+        TargetKey::Constructor(x) => format!("K{}", k(*x)),
+    };
+    let concrete = match t.concrete {
+        Some(ConcreteKey::Function(x)) => format!("f{}", k(x)),
+        Some(ConcreteKey::Variable(x)) => format!("v{}", k(x)),
+        None => String::new(),
+    };
+    let group: Vec<&str> = t.group.iter().map(|g| k(*g)).collect();
+    format!(
+        "{kind}|{concrete}|{}|{:?}|{group:?}",
+        words.text(t.name),
+        t.word.map(|w| words.text(w))
+    )
 }

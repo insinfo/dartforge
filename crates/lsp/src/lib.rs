@@ -624,6 +624,12 @@ pub trait Analyzer {
     /// nothing.
     fn search_in_child_processes(&mut self, _exe: std::path::PathBuf) {}
 
+    /// Where the typed worker's resident process sends the reference index
+    /// records of the edited files (docs/LSP.md, "Décima sexta rodada"). The
+    /// default ignores them.
+    #[doc(hidden)]
+    fn resident_records(&mut self, _records: std::sync::Arc<crate::typed::ResidentRecords>) {}
+
     /// Switches to the SDK whose `lib/` is `lib` (the client's
     /// `initializationOptions.sdkPath`), before any document is analyzed.
     ///

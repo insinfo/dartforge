@@ -831,6 +831,9 @@ impl<A: Analyzer> Server<A> {
         if let Some(sdk) = crate::typed::analyzer_sdk(&self.analyzer) {
             self.typed =
                 crate::typed::Typed::start(sdk, self.wake.clone(), self.typed_process.clone());
+            if let Some(t) = &self.typed {
+                self.analyzer.resident_records(t.records());
+            }
         }
         // The current analysis configuration (the TODOs, the excluded folders).
         let excluded = self.excluded_folders();

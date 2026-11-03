@@ -209,10 +209,158 @@ impl std::fmt::Debug for Wake {
     }
 }
 
+/// The reference index records the resident process makes of the edited
+/// files after an analysis (docs/LSP.md, "Décima sexta rodada"): the worker
+/// asks for them while the server has an index, and the semantic analyzer
+/// takes them (waiting for one of the current text) before a search, instead
+/// of inferring the edited library again in the server.
+#[doc(hidden)]
+#[derive(Default)]
+pub struct ResidentRecords {
+    state: Mutex<RecordState>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+pub(crate) struct RecordState {
+    /// The project root of the server's reference index; `None`: no records
+    /// are wanted.
+    pub(crate) wanted: Option<PathBuf>,
+    /// The files ([`key`]s) whose records are being made, with the stamp
+    /// ([`crate::reference_index::text_stamp`]) of the text they come from
+    /// and the id of the resident's analysis that makes them.
+    pub(crate) pending: HashMap<PathBuf, (u64, u64)>,
+    /// The encoded indexes made and not taken yet.
+    pub(crate) ready: Vec<Vec<u8>>,
+}
+
+impl ResidentRecords {
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, RecordState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Waits until the records change or `limit` passes.
+    pub(crate) fn wait<'a>(
+        &self,
+        state: std::sync::MutexGuard<'a, RecordState>,
+        limit: Duration,
+    ) -> std::sync::MutexGuard<'a, RecordState> {
+        self.changed
+            .wait_timeout(state, limit)
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .0
+    }
+
+    /// The server's index covers the project at `root` (`None`: it has none).
+    pub(crate) fn want(&self, root: Option<PathBuf>) {
+        let mut state = self.lock();
+        if state.wanted != root {
+            state.wanted = root;
+        }
+    }
+
+    /// The edited documents of an analysis of the package at `root` whose
+    /// records are wanted: those open, changed since the last analysis and
+    /// inside the index's project.
+    fn wanted_for(
+        &self,
+        root: &Path,
+        open: &[(String, i32, PathBuf, Arc<str>)],
+        changed: &BTreeSet<PathBuf>,
+    ) -> Vec<PathBuf> {
+        let state = self.lock();
+        let Some(project) = &state.wanted else {
+            return Vec::new();
+        };
+        if !(root.starts_with(project) || project.starts_with(root)) {
+            return Vec::new();
+        }
+        open.iter()
+            .map(|o| key(&o.2))
+            .filter(|k| changed.contains(k) && k.starts_with(project))
+            .collect()
+    }
+
+    /// The resident's analysis `id` makes the records of `job`.
+    fn started(&self, job: &Job, id: u64) {
+        if job.records.is_empty() {
+            return;
+        }
+        let mut state = self.lock();
+        for (_, _, path, text) in &job.open {
+            let k = key(path);
+            if job.records.contains(&k) {
+                state
+                    .pending
+                    .insert(k, (crate::reference_index::text_stamp(text), id));
+            }
+        }
+    }
+
+    /// The records of the resident's analysis `id` will not come.
+    fn abandoned(&self, id: u64) {
+        let mut state = self.lock();
+        state.pending.retain(|_, (_, i)| *i != id);
+        self.changed.notify_all();
+    }
+
+    /// The resident sent the records of its analysis `id` (hexadecimal, empty
+    /// when none were made).
+    fn arrived(&self, id: u64, hex: &str) {
+        let mut state = self.lock();
+        state.pending.retain(|_, (_, i)| *i != id);
+        if let Some(bytes) = from_hex(hex)
+            && !bytes.is_empty()
+        {
+            state.ready.push(bytes);
+        }
+        self.changed.notify_all();
+    }
+
+    /// The resident process is gone: nothing it was making will come.
+    fn gone(&self) {
+        let mut state = self.lock();
+        state.pending.clear();
+        self.changed.notify_all();
+    }
+}
+
+/// Bytes as lowercase hexadecimal (the records go on the resident's JSON lines).
+fn to_hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push(DIGITS[usize::from(b >> 4)] as char);
+        s.push(DIGITS[usize::from(b & 15)] as char);
+    }
+    s
+}
+
+/// The bytes of [`to_hex`]'s text; `None` when it is not hexadecimal.
+fn from_hex(text: &str) -> Option<Vec<u8>> {
+    let digit = |c: u8| -> Option<u8> {
+        match c {
+            b'0'..=b'9' => Some(c - b'0'),
+            b'a'..=b'f' => Some(c - b'a' + 10),
+            _ => None,
+        }
+    };
+    let b = text.as_bytes();
+    if b.len() % 2 != 0 {
+        return None;
+    }
+    b.chunks(2)
+        .map(|p| Some((digit(p[0])? << 4) | digit(p[1])?))
+        .collect()
+}
+
 /// The server side: requests come in here, results go out through `receive`.
 pub(crate) struct Typed {
     shared: Shared,
     results: mpsc::Receiver<Result>,
+    records: Arc<ResidentRecords>,
 }
 
 impl std::fmt::Debug for Typed {
@@ -261,16 +409,24 @@ impl Typed {
         ));
         let (tx, rx) = mpsc::channel();
         let p = Arc::clone(&shared);
+        let records = Arc::new(ResidentRecords::default());
+        let r = Arc::clone(&records);
         // Deep bodies recurse deeply: a dedicated stack, as in `analyze`.
         std::thread::Builder::new()
             .name("dartforge-lsp-typed".into())
             .stack_size(1 << 30)
-            .spawn(move || work(&p, &sdk_lib, &tx, wake))
+            .spawn(move || work(&p, &sdk_lib, &tx, wake, &r))
             .ok()?;
         Some(Self {
             shared,
             results: rx,
+            records,
         })
+    }
+
+    /// Where the resident's index records of the edited files arrive.
+    pub(crate) fn records(&self) -> Arc<ResidentRecords> {
+        Arc::clone(&self.records)
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
@@ -487,7 +643,13 @@ impl Drop for Typed {
 }
 
 /// Worker loop: one package at a time, the oldest marked first.
-fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake>) {
+fn work(
+    p: &Shared,
+    sdk_lib: &Path,
+    tx: &mpsc::Sender<Result>,
+    wake: Option<Wake>,
+    records: &Arc<ResidentRecords>,
+) {
     let (lock, sinal) = &**p;
     let block = || {
         lock.lock()
@@ -658,6 +820,13 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             &of_package,
             &changed,
         );
+        // The first analysis of a package runs in a process of its own: no
+        // records come from it.
+        let wanted = if all {
+            Vec::new()
+        } else {
+            records.wanted_for(&root, &plan.open, &changed)
+        };
         let job = Arc::new(Job {
             sdk_lib: sdk_lib.to_path_buf(),
             root: root.clone(),
@@ -667,6 +836,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
             config,
             in_workspace,
             all,
+            records: wanted,
             changed,
             context: plan.package,
         });
@@ -677,7 +847,7 @@ fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake
                 // stay with the resident process.
                 let small = !job.all && job.open.len() + job.others.len() <= batch_limit;
                 if budget > 0 && small {
-                    run_in_resident(&mut resident, exe, job, &cancelled)
+                    run_in_resident(&mut resident, exe, job, &cancelled, records)
                 } else {
                     None
                 }
@@ -825,6 +995,11 @@ struct Job {
     /// (`Resident::set_context`).
     #[serde(default)]
     context: Vec<PathBuf>,
+    /// The edited files ([`key`]s) whose reference index records the resident
+    /// process makes after answering ([`ResidentRecords`]); empty when the
+    /// server has no index.
+    #[serde(default)]
+    records: Vec<PathBuf>,
 }
 
 /// The hidden argument that makes the `dartforge-lsp` binary a child analysis
@@ -1052,6 +1227,12 @@ struct Response {
     results: Option<Vec<Result>>,
     #[serde(default)]
     memory: Option<ResidentMemory>,
+    /// After the answer to an analysis whose job asked for records: the
+    /// encoded index of the records made, in hexadecimal (empty when none
+    /// could be made). It goes to the [`ResidentRecords`], not to the waiting
+    /// analysis.
+    #[serde(default)]
+    records: Option<String>,
 }
 
 /// What the resident process keeps
@@ -1105,7 +1286,7 @@ struct ResidentChild {
 }
 
 impl ResidentChild {
-    fn start(exe: &Path) -> Option<Self> {
+    fn start(exe: &Path, records: &Arc<ResidentRecords>) -> Option<Self> {
         use std::process::{Command, Stdio};
         let mut child = Command::new(exe)
             .arg(CHILD_ARGUMENT)
@@ -1118,6 +1299,7 @@ impl ResidentChild {
         let input = std::io::BufWriter::new(child.stdin.take()?);
         let stdout = child.stdout.take()?;
         let (sent, output) = mpsc::channel();
+        let records = Arc::clone(records);
         std::thread::spawn(move || {
             use std::io::BufRead;
             for line in std::io::BufReader::new(stdout).lines() {
@@ -1125,10 +1307,15 @@ impl ResidentChild {
                 let Ok(response) = serde_json::from_str::<Response>(&line) else {
                     break;
                 };
+                if let Some(hex) = &response.records {
+                    records.arrived(response.id, hex);
+                    continue;
+                }
                 if sent.send(response).is_err() {
                     break;
                 }
             }
+            records.gone();
         });
         Some(Self {
             child,
@@ -1149,16 +1336,29 @@ impl ResidentChild {
     /// Runs `job`. `None` when the process is no longer usable (it died, or did
     /// not stop a cancelled analysis in time and was ended): the caller drops
     /// it. Otherwise the results, empty when cancelled.
-    fn run(&mut self, job: &Job, cancelled: &dyn Fn() -> bool) -> Option<Vec<Result>> {
+    fn run(
+        &mut self,
+        job: &Job,
+        cancelled: &dyn Fn() -> bool,
+        records: &ResidentRecords,
+    ) -> Option<Vec<Result>> {
         self.next += 1;
         let id = self.next;
+        records.started(job, id);
         if !self.send(&Sent::Analyze { id, job }) {
+            records.abandoned(id);
             return None;
         }
         let mut cancel_sent: Option<Instant> = None;
         let answer = loop {
             match self.output.recv_timeout(Duration::from_millis(10)) {
-                Ok(r) if r.id == id => break Some(r.results.unwrap_or_default()),
+                Ok(r) if r.id == id => {
+                    if r.results.is_none() {
+                        // Cancelled: the resident makes no records.
+                        records.abandoned(id);
+                    }
+                    break Some(r.results.unwrap_or_default());
+                }
                 Ok(_) => {}
                 Err(mpsc::RecvTimeoutError::Timeout) => match cancel_sent {
                     None if cancelled() => {
@@ -1175,6 +1375,9 @@ impl ResidentChild {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break None,
             }
         };
+        if answer.is_none() {
+            records.abandoned(id);
+        }
         self.used = Instant::now();
         answer
     }
@@ -1213,6 +1416,7 @@ fn run_in_resident(
     exe: &Path,
     job: &Arc<Job>,
     cancelled: &dyn Fn() -> bool,
+    records: &Arc<ResidentRecords>,
 ) -> Option<Vec<Result>> {
     // A path that is not UTF-8 does not go into JSON.
     if job.root.to_str().is_none()
@@ -1226,10 +1430,10 @@ fn run_in_resident(
         return None;
     }
     if resident.is_none() {
-        *resident = ResidentChild::start(exe);
+        *resident = ResidentChild::start(exe, records);
     }
     let child = resident.as_mut()?;
-    match child.run(job, cancelled) {
+    match child.run(job, cancelled, records) {
         Some(results) => Some(results),
         None => {
             // Dead or ended: the next analysis starts another process.
@@ -1282,6 +1486,8 @@ fn resident_child() -> i32 {
         .spawn(move || {
             let mut engine: Option<(PathBuf, Engine)> = None;
             let mut kept = Resident::new();
+            let mut index_cache = crate::reference_index::ResidentCache::default();
+            let mut patch_keys: Option<bool> = None;
             let mut out = std::io::BufWriter::new(std::io::stdout());
             while let Ok((id, job)) = queue.recv() {
                 crate::memory::trace("resident start");
@@ -1298,6 +1504,7 @@ fn resident_child() -> i32 {
                         id,
                         results: None,
                         memory: Some(memory),
+                        records: None,
                     };
                     if serde_json::to_writer(&mut out, &response).is_err()
                         || out.write_all(b"\n").is_err()
@@ -1322,6 +1529,7 @@ fn resident_child() -> i32 {
                     kept.clear();
                 }
                 let (_, engine_ref) = engine.as_ref().expect("engine ready");
+                kept.keep_bodies(!job.records.is_empty());
                 let stop = || cancelled.load(Ordering::SeqCst) == id;
                 let results = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     analyze_package(engine_ref, &job, &stop, Some(&mut kept))
@@ -1357,16 +1565,58 @@ fn resident_child() -> i32 {
                     eprintln!("[dartforge-lsp] resident census: {}", census.join(", "));
                 }
                 crate::memory::trace("resident end");
+                let completed = results.is_some();
                 let response = Response {
                     id,
                     results,
                     memory: None,
+                    records: None,
                 };
                 if serde_json::to_writer(&mut out, &response).is_err()
                     || out.write_all(b"\n").is_err()
                     || out.flush().is_err()
                 {
                     return 1;
+                }
+                // The edited files' index records, after the diagnostics are out:
+                // the bodies the analysis inferred, recorded where they are.
+                if !job.records.is_empty() {
+                    let started = Instant::now();
+                    let made = if completed {
+                        kept.lend_analysis(|lent| {
+                            crate::reference_index::records_of_analysis(
+                                lent,
+                                &job.records,
+                                &mut index_cache,
+                                *patch_keys.get_or_insert_with(|| {
+                                    crate::reference_index::analyzer_view_has_patches(&job.sdk_lib)
+                                }),
+                            )
+                        })
+                        .flatten()
+                    } else {
+                        None
+                    };
+                    if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
+                        eprintln!(
+                            "[dartforge-lsp] resident: records of {} files in {} us ({} bytes)",
+                            job.records.len(),
+                            started.elapsed().as_micros(),
+                            made.as_ref().map_or(0, Vec::len)
+                        );
+                    }
+                    let response = Response {
+                        id,
+                        results: None,
+                        memory: None,
+                        records: Some(made.map(|b| to_hex(&b)).unwrap_or_default()),
+                    };
+                    if serde_json::to_writer(&mut out, &response).is_err()
+                        || out.write_all(b"\n").is_err()
+                        || out.flush().is_err()
+                    {
+                        return 1;
+                    }
                 }
                 // After the answer is out: the free pages the analysis left go
                 // back to the system.
@@ -1920,8 +2170,15 @@ fn split(job: &Job, priority: &BTreeSet<PathBuf>) -> Option<(Job, Job)> {
         all: false,
         changed: job.changed.clone(),
         context: job.context.clone(),
+        records: Vec::new(),
     };
-    Some((half(open_first, others_first), half(open_rest, others_rest)))
+    let (mut first, mut rest) = (half(open_first, others_first), half(open_rest, others_rest));
+    let in_first = |r: &PathBuf| first.open.iter().any(|o| key(&o.2) == *r);
+    let (to_first, to_rest): (Vec<PathBuf>, Vec<PathBuf>) =
+        job.records.iter().cloned().partition(in_first);
+    first.records = to_first;
+    rest.records = to_rest;
+    Some((first, rest))
 }
 
 /// The results to publish after an analysis: those of `fresh`, which also
@@ -2012,7 +2269,7 @@ fn merge(
 
 /// The engine of the typed analysis: it runs only the tree lint rules that
 /// the files' `analysis_options.yaml` enables, the only ones published.
-fn lsp_engine(sdk_lib: &Path) -> std::result::Result<Engine, String> {
+pub(crate) fn lsp_engine(sdk_lib: &Path) -> std::result::Result<Engine, String> {
     let mut engine = Engine::new(sdk_lib)?;
     engine.lint_rules_from_options(true);
     Ok(engine)
