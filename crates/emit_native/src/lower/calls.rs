@@ -696,6 +696,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
 
+            // A positional field of function type of a receiver statically
+            // a record: `r.$1(args)` reads the field (a `_Record` has no
+            // shape) and calls its value, as the getter followed by the call.
+            let positional = m_name
+                .strip_prefix('$')
+                .and_then(|d| d.parse::<i64>().ok())
+                .is_some_and(|k| k >= 1);
+            let record_receiver = self
+                .ctx
+                .get_type_raw(self.unit_id, *inner_target)
+                .is_some_and(|t| {
+                    matches!(
+                        self.ctx.table.get(t),
+                        dartforge_types::table::Type::Record { .. }
+                    )
+                });
+            if positional && record_receiver {
+                let name = m_name.to_string();
+                let r2 = recv_op.clone();
+                let target_expr = *inner_target;
+                let mut rest = |s: &mut Self| {
+                    s.property_without_member(r2.clone(), target_expr, &name, expr_id, expr.span)
+                };
+                if let Some(v) = self.read_record_field(recv_op.clone(), m_name, &mut rest) {
+                    let evaluated = self.evaluate_args(ast, &arguments.args);
+                    return self.call_function_value(v, &evaluated);
+                }
+            }
             // A record field (with a shape) of function type: `r.f(args)`.
             if !self.shapes_with_field(m_name).is_empty() {
                 let name = m_name.to_string();
