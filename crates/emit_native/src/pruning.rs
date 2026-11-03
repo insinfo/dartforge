@@ -1792,7 +1792,9 @@ pub struct Assembly {
 /// `dartforge_object_new_t` is then never the first one, and the inline
 /// allocation of production has no registration test. Every assembled table is
 /// registered, live or not (a dead one is empty), so `DARTFORGE_NO_TABLE_PRUNING`
-/// registers everything the SDK has.
+/// registers everything the SDK has; a WebAssembly module registers only the
+/// live ones and those of the fixed cids. With pruning, the RTI table is
+/// written again with only the live classes ([`rti_table`]).
 ///
 /// # Errors
 /// A table line of the program that cannot be read (format outside that of
@@ -1970,6 +1972,21 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     let mut declare: Vec<String> = Vec::new();
     // (cid, table function) of every assembled table, for the startup registration.
     let mut registrations: Vec<(i64, String)> = Vec::new();
+    // A WebAssembly module registers only the live tables and those of the
+    // fixed cids: an object only exists through code that cites its class's
+    // table (an allocation, a constant's getter), or, with a fixed cid, made
+    // by the runtime. The dead tables (empty, ~600 of a hello world's 700)
+    // then leave the module with their getters.
+    let fixed_cids: HashSet<i64> = dartforge_runtime::layout::cid::SDK_CLASSES
+        .iter()
+        .map(|(cid, _, _)| i64::from(*cid))
+        .collect();
+    let registered = |cid: i64, node: Option<u32>| {
+        !prune
+            || !crate::target::is_wasm()
+            || fixed_cids.contains(&cid)
+            || node.is_some_and(|n| reachability.live(n))
+    };
     for r in summaries {
         let table_of: HashMap<u32, &SummarizedTable> =
             r.tables.iter().map(|t| (t.node, t)).collect();
@@ -2010,7 +2027,9 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
                 llvm_name(function)
             )
             .unwrap();
-            registrations.push((t.cid, llvm_name(function)));
+            if registered(t.cid, index.get(node.as_str()).copied()) {
+                registrations.push((t.cid, llvm_name(function)));
+            }
         }
     }
     for d in declare {
