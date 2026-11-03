@@ -71,6 +71,7 @@ mod refactorings_exec;
 mod refactorings_inline;
 mod refactorings_method;
 mod refactorings_move;
+mod reference_index;
 mod referenced_names;
 mod registration;
 mod relevance;
@@ -168,6 +169,12 @@ pub struct References {
     pub declaration: Option<(String, dartforge_diagnostics::Span)>,
     /// Uses, in (URI, offset) order.
     pub uses: Vec<(String, dartforge_diagnostics::Span)>,
+    /// The LSP range (start line and column, end line and column) of the
+    /// declaration, when the answer already has it (the reference index keeps
+    /// each file's line table); otherwise the server converts the span.
+    pub declaration_range: Option<(u32, u32, u32, u32)>,
+    /// The LSP ranges of `uses`, one each, or empty when the answer has none.
+    pub use_ranges: Vec<(u32, u32, u32, u32)>,
 }
 
 impl References {
@@ -179,6 +186,7 @@ impl References {
         Self {
             declaration,
             uses: spans.collect(),
+            ..Default::default()
         }
     }
 }
@@ -1121,6 +1129,8 @@ impl Analyzer for SyntacticAnalyzer {
         let mut found = navigation::references_in(documents, uri, offset, self)?.into_iter();
         let declaration = found.next();
         Some(References {
+            declaration_range: None,
+            use_ranges: Vec::new(),
             declaration,
             uses: found.collect(),
         })

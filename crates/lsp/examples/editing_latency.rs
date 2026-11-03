@@ -31,15 +31,16 @@
 //! 5. queries at `--positions` identifiers of `--file` (hover, completion,
 //!    definition, references, prepareRename, codeAction): each once right after
 //!    a settled body edit (`after edit`) and at every position with no edit in
-//!    between (`warm`);
+//!    between (`warm`); `--methods references,hover` keeps only those
+//!    requests (by the name after `textDocument/`);
 //! 6. every edit undone, settled, and the last publication of every file kept
 //!    (`diagnostics` in the JSON, to compare the two servers), then `shutdown`
 //!    and `exit`.
 //!
 //! CPU time (`proc_pid_rusage`): for each edit, from the change to settled,
 //! that of the server, of its ended children and of its live descendants; for
-//! each request, that of the server process and of the children it waited for
-//! (where both servers answer them, or a DartForge reference search child).
+//! each request, that of the server process, of its ended children and of its
+//! live descendants (an index or a search kept in a child process counts).
 //! On a loaded machine it is the steadier measure: the wall time also counts
 //! the waits for a core.
 //!
@@ -93,6 +94,9 @@ struct Options {
     /// waits MS more and reports the CPU the servers spend in that wait (work
     /// left after settled, such as files analyzed in the background).
     tail: Option<Duration>,
+    /// `--methods`: the requests of step 5 (names after `textDocument/`);
+    /// all of them when empty.
+    methods: Vec<String>,
 }
 
 fn options() -> Options {
@@ -113,6 +117,7 @@ fn options() -> Options {
     let mut generated = 40;
     let mut csv = None;
     let mut tail = None;
+    let mut methods = Vec::new();
     while let Some(a) = args.next() {
         let mut value = || args.next().expect("option value");
         match a.as_str() {
@@ -143,6 +148,7 @@ fn options() -> Options {
             "--long" => long = Some(value().parse().expect("--long")),
             "--generated" => generated = value().parse().expect("--generated"),
             "--csv" => csv = Some(PathBuf::from(value())),
+            "--methods" => methods = value().split(',').map(|m| m.trim().to_string()).collect(),
             "--tail" => tail = Some(Duration::from_millis(value().parse().expect("--tail MS"))),
             other => panic!("unknown option {other}"),
         }
@@ -170,6 +176,7 @@ fn options() -> Options {
         generated,
         csv,
         tail,
+        methods,
         json,
     }
 }
@@ -291,13 +298,6 @@ fn cpu_of_all(pid: u32) -> u64 {
         .filter_map(footprint::of)
         .map(|s| s.cpu)
         .sum::<u64>()
-}
-
-/// The CPU time (ns) of the server process and of its children that ended
-/// (the queries run there, or in a child of their own that the server waits
-/// for: DartForge's reference searches that do not fit).
-fn cpu_of(pid: u32) -> u64 {
-    footprint::of(pid).map_or(0, |s| s.cpu + s.children_cpu)
 }
 
 #[derive(Default)]
@@ -1503,9 +1503,10 @@ fn main() {
             }
             _ => json!({"textDocument": {"uri": uri}, "position": at}),
         };
-        let before = cpu_of(c.pid);
+        // Sampled before the timer starts: the sample walks the process tree.
+        let before = cpu_of_all(c.pid);
         let (r, d) = c.request(method, params);
-        let cpu = Duration::from_nanos(cpu_of(c.pid).saturating_sub(before));
+        let cpu = Duration::from_nanos(cpu_of_all(c.pid).saturating_sub(before));
         if let Some(e) = r.get("error") {
             println!("{method} at {line}:{character}: error {e}");
         }
@@ -1527,6 +1528,9 @@ fn main() {
         let edit = "    0;\n";
         for method in methods {
             let name = method.trim_start_matches("textDocument/");
+            if !o.methods.is_empty() && !o.methods.iter().any(|m| m == name) {
+                continue;
+            }
             let mut after = Vec::new();
             let mut after_cpu = Vec::new();
             for r in 0..o.reps {

@@ -37,6 +37,9 @@ pub struct SemanticAnalyzer {
     /// The binary that runs the reference searches that do not fit
     /// ([`Analyzer::search_in_child_processes`]); `None`: in this process.
     search_exe: Option<std::path::PathBuf>,
+    /// The resolved-reference index of the project, once built
+    /// ([`crate::reference_index`]).
+    reference_index: Option<crate::reference_index::ReferenceIndex>,
     /// The summaries of the known libraries (export namespace) of `ImportLibrary`.
     known: crate::known_libraries::LibraryIndex,
     /// The current `maxCompletionItems`.
@@ -65,6 +68,7 @@ impl SemanticAnalyzer {
             wide_session: crate::session::Session::wide(),
             wide_fits: Default::default(),
             search_exe: None,
+            reference_index: None,
             known: Default::default(),
             completion_max: crate::completion::MAX_PATTERN,
             not_imported_in_completion: true,
@@ -231,6 +235,7 @@ impl SemanticAnalyzer {
             r.map(|f| References {
                 declaration: f.declaration,
                 uses: f.uses,
+                ..Default::default()
             })
         })
     }
@@ -357,6 +362,15 @@ impl SemanticAnalyzer {
             let library = self.library(documents, uri)?;
             return references_in(&library, uri, offset);
         };
+        // A private name is only visible in its library, whose files are the
+        // only candidates (`_addResults`): the library's load has them all.
+        if name.starts_with('_') {
+            let library = self.library(documents, uri)?;
+            return references_in(&library, uri, offset);
+        }
+        if let Ok(found) = self.indexed_references(documents, uri, offset) {
+            return found;
+        }
         if let Some(found) = self.search_in_child(documents, uri, offset, &name) {
             return found;
         }
@@ -366,6 +380,253 @@ impl SemanticAnalyzer {
         let project = self.project(documents, uri)?;
         references_in(&project, uri, offset)
     }
+}
+
+impl SemanticAnalyzer {
+    /// The references from the index ([`crate::reference_index`]): what is at
+    /// `offset` is identified in the document's library and the index answers.
+    /// `Err` when there is no index or it does not answer (the caller searches
+    /// as before).
+    fn indexed_references(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Result<Option<References>, crate::reference_index::Miss> {
+        use crate::reference_index::Miss;
+        let mut index = self
+            .reference_index
+            .take()
+            .ok_or(Miss::Unsupported("no index"))?;
+        let answer = (|| {
+            let library = self
+                .library(documents, uri)
+                .ok_or(Miss::Unsupported("no library"))?;
+            let unit = library.uri_unit(uri).ok_or(Miss::Unsupported("no unit"))?;
+            let Ok(Some(d)) = library.identify(unit, offset) else {
+                return Ok(None);
+            };
+            let fresh = |r: &crate::reference_index::FileRecord| record_is_current(r, documents);
+            let (declaration, uses) = index.references(&library, &d, &fresh)?;
+            let declaration_range = declaration.as_ref().and_then(|d| d.2);
+            let use_ranges: Vec<(u32, u32, u32, u32)> = uses.iter().filter_map(|u| u.2).collect();
+            Ok(Some(References {
+                declaration: declaration.map(|(u, s, _)| (u, s)),
+                uses: uses.into_iter().map(|(u, s, _)| (u, s)).collect(),
+                declaration_range,
+                use_ranges,
+            }))
+        })();
+        self.reference_index = Some(index);
+        if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some()
+            && let Err(miss) = &answer
+        {
+            eprintln!("[dartforge-lsp] the reference index does not answer: {miss:?}");
+        }
+        answer
+    }
+
+    /// Builds the reference index of the project of `uri` in this process
+    /// (the comparison of [`SemanticAnalyzer::check_reference_index`]).
+    fn build_reference_index_here(&mut self, documents: &DocumentStore, uri: &str) -> bool {
+        let Some(sdk) = self.sdk.as_ref() else {
+            return false;
+        };
+        self.reference_index = crate::reference_index::build(sdk, documents, uri);
+        self.reference_index.is_some()
+    }
+
+    /// Compares, at every identifier of the open documents `uris`, the
+    /// references the index gives with those of the search without it (one
+    /// position per target and file). The report has the counts and the first
+    /// differences.
+    #[doc(hidden)]
+    pub fn check_reference_index(&mut self, documents: &DocumentStore, uris: &[String]) -> String {
+        use std::fmt::Write as _;
+        type Answer = Option<(Option<(String, Span)>, Vec<(String, Span)>)>;
+        let mut report = String::new();
+        let Some(first) = uris.first() else {
+            return report;
+        };
+        let started = std::time::Instant::now();
+        if !self.build_reference_index_here(documents, first) {
+            return "the index could not be built".to_string();
+        }
+        let _ = writeln!(
+            report,
+            "index built in {} ms",
+            started.elapsed().as_millis()
+        );
+        let mut compared = 0usize;
+        let mut equal = 0usize;
+        let mut misses: std::collections::BTreeMap<String, usize> = Default::default();
+        let mut differences = Vec::new();
+        let (mut old_time, mut new_time) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+        let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+        for uri in uris {
+            let Some(text) = documents.get(uri).map(str::to_string) else {
+                continue;
+            };
+            let mut seen: std::collections::HashSet<String> = Default::default();
+            let b = text.as_bytes();
+            for offset in 0..b.len() {
+                if !ident(b[offset])
+                    || b[offset].is_ascii_digit()
+                    || (offset > 0 && ident(b[offset - 1]))
+                {
+                    continue;
+                }
+                let target = {
+                    let Some(library) = self.library(documents, uri) else {
+                        continue;
+                    };
+                    let Some(unit) = library.uri_unit(uri) else {
+                        continue;
+                    };
+                    let Ok(Some(d)) = library.identify(unit, offset) else {
+                        continue;
+                    };
+                    if library.search_name(&d.target).is_none() {
+                        continue;
+                    }
+                    format!("{:?}", d.target)
+                };
+                if !seen.insert(target.clone()) {
+                    continue;
+                }
+                let t = std::time::Instant::now();
+                let private = {
+                    let library = self.library(documents, uri);
+                    library.is_some_and(|l| {
+                        l.uri_unit(uri)
+                            .and_then(|u| l.identify(u, offset).ok().flatten())
+                            .and_then(|d| l.search_name(&d.target))
+                            .is_some_and(|n| n.starts_with('_'))
+                    })
+                };
+                let new = if private {
+                    // The private shortcut of `semantic_references`.
+                    let library = self.library(documents, uri);
+                    Ok(library.and_then(|l| references_in(&l, uri, offset)))
+                } else {
+                    self.indexed_references(documents, uri, offset)
+                };
+                new_time += t.elapsed();
+                let new = match new {
+                    Ok(n) => n,
+                    Err(miss) => {
+                        let reason = match miss {
+                            crate::reference_index::Miss::Unsupported(r) => r.to_string(),
+                            crate::reference_index::Miss::Key(k) => {
+                                format!(
+                                    "a key: {}",
+                                    k.split(['#', '.']).take(3).collect::<Vec<_>>().join("|")
+                                )
+                            }
+                            crate::reference_index::Miss::Stale(_) => "stale".to_string(),
+                        };
+                        *misses.entry(reason).or_default() += 1;
+                        continue;
+                    }
+                };
+                // The search without the index nor the private shortcut.
+                let index = self.reference_index.take();
+                let t = std::time::Instant::now();
+                let old = self.unindexed_references(documents, uri, offset);
+                old_time += t.elapsed();
+                self.reference_index = index;
+                compared += 1;
+                let strip =
+                    |r: Option<References>| -> Answer { r.map(|r| (r.declaration, r.uses)) };
+                let (new, old) = (strip(new), strip(old));
+                if new == old {
+                    equal += 1;
+                } else if differences.len() < 30 {
+                    let (line, column) = documents
+                        .lines(uri)
+                        .map(|l| l.offset_position(&text, offset))
+                        .unwrap_or_default();
+                    let count = |r: &Answer| r.as_ref().map_or(0, |r| r.1.len());
+                    let only = |a: &Answer, b: &Answer| {
+                        let empty = Vec::new();
+                        let bu = b.as_ref().map_or(&empty, |r| &r.1);
+                        a.as_ref()
+                            .map_or(&empty, |r| &r.1)
+                            .iter()
+                            .filter(|x| !bu.contains(x))
+                            .take(3)
+                            .map(|(u, s)| {
+                                format!("{}@{}", u.rsplit('/').next().unwrap_or(u), s.start)
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    differences.push(format!(
+                        "{uri}:{line}:{column} {target}: index {} uses, search {}; only index {:?}; only search {:?}; declarations {:?} / {:?}",
+                        count(&new),
+                        count(&old),
+                        only(&new, &old),
+                        only(&old, &new),
+                        new.as_ref().and_then(|r| r.0.as_ref().map(|d| d.1.start)),
+                        old.as_ref().and_then(|r| r.0.as_ref().map(|d| d.1.start)),
+                    ));
+                }
+            }
+        }
+        let _ = writeln!(
+            report,
+            "compared {compared}, equal {equal}, different {}; index {} ms, search {} ms",
+            compared - equal,
+            new_time.as_millis(),
+            old_time.as_millis()
+        );
+        for (reason, n) in misses {
+            let _ = writeln!(report, "not answered ({reason}): {n}");
+        }
+        for d in differences {
+            let _ = writeln!(report, "{d}");
+        }
+        report
+    }
+
+    /// The non-local search without the index nor the private shortcut (the
+    /// reference of [`SemanticAnalyzer::check_reference_index`]).
+    fn unindexed_references(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<References> {
+        let name = {
+            let project = self.library(documents, uri)?;
+            let unit = project.uri_unit(uri)?;
+            let d = project.identify(unit, offset).ok()??;
+            project.search_name(&d.target)?
+        };
+        if let Some(found) = self.search_in_child(documents, uri, offset, &name) {
+            return found;
+        }
+        if let Some(wide) = self.wide(documents, uri, &name, true) {
+            return references_in(&wide, uri, offset);
+        }
+        let project = self.project(documents, uri)?;
+        references_in(&project, uri, offset)
+    }
+}
+
+/// The record of a file is of the text the server sees: the open document's,
+/// or the disk's for a closed file.
+fn record_is_current(r: &crate::reference_index::FileRecord, documents: &DocumentStore) -> bool {
+    let open = url::Url::from_file_path(&r.path)
+        .ok()
+        .and_then(|u| documents.get(u.as_str()).map(str::to_string));
+    let text = match open {
+        Some(t) => t,
+        None => match std::fs::read_to_string(&r.path) {
+            Ok(t) => t,
+            Err(_) => return false,
+        },
+    };
+    text.len() as u32 == r.length && crate::reference_index::text_stamp(&text) == r.stamp
 }
 
 /// The hidden argument that makes the `dartforge-lsp` binary a reference
@@ -483,7 +744,11 @@ fn references_in(
                 .collect();
             uses.sort_by(|a, b| (a.0.as_str(), a.1.start).cmp(&(b.0.as_str(), b.1.start)));
             let declaration = declaration.and_then(|(u, s)| Some((project.unit_uri(u)?, s)));
-            return Some(References { declaration, uses });
+            return Some(References {
+                declaration,
+                uses,
+                ..Default::default()
+            });
         }
         let declaration = project.declaration_to_references(&d);
         let declarations = project.declarations(&d.target);
@@ -520,7 +785,11 @@ fn references_in(
         }
         uses.sort_by(|a, b| (a.0.as_str(), a.1.start).cmp(&(b.0.as_str(), b.1.start)));
         let declaration = declaration.and_then(|(u, s)| Some((project.unit_uri(u)?, s)));
-        Some(References { declaration, uses })
+        Some(References {
+            declaration,
+            uses,
+            ..Default::default()
+        })
     }
 }
 

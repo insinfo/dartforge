@@ -1822,32 +1822,47 @@ impl<A: Analyzer> Server<A> {
                     // position. The declaration goes at the end (`_getDeclarations`, §11.5).
                     let crate::References {
                         declaration,
-                        mut uses,
+                        uses,
+                        declaration_range,
+                        use_ranges,
                     } = found;
+                    // The ranges the answer already has (the reference index), or
+                    // those converted here.
+                    let mut uses: Vec<((String, dartforge_diagnostics::Span), Option<Positions>)> =
+                        if use_ranges.len() == uses.len() {
+                            uses.into_iter()
+                                .zip(use_ranges.into_iter().map(Some))
+                                .collect()
+                        } else {
+                            uses.into_iter().map(|u| (u, None)).collect()
+                        };
                     let owner = declaration.as_ref().map(|(target, _)| target.clone());
-                    uses.sort_by(|(a, sa), (b, sb)| {
+                    uses.sort_by(|((a, sa), _), ((b, sb), _)| {
                         (Some(a) == owner.as_ref(), a, sa.start).cmp(&(
                             Some(b) == owner.as_ref(),
                             b,
                             sb.start,
                         ))
                     });
-                    let declaration = declaration.filter(|_| include_declaration);
-                    let locations = uses.iter().chain(declaration.iter());
-                    let count = uses.len() + usize::from(declaration.is_some());
-                    if count >= RAW_LOCATIONS {
+                    let declaration = declaration
+                        .filter(|_| include_declaration)
+                        .map(|d| (d, declaration_range));
+                    let mut located: Vec<(&str, Positions)> = Vec::with_capacity(uses.len() + 1);
+                    for ((target, s), range) in uses.iter().chain(declaration.iter()) {
+                        if let Some(p) = range.or_else(|| self.positions(target, *s)) {
+                            located.push((target.as_str(), p));
+                        }
+                    }
+                    if located.len() >= RAW_LOCATIONS {
                         // Written as JSON text: a tree of values takes ~2.7 KB per
                         // location (~145 MiB for the 53,624 references of `String`
                         // in `new_sali/frontend`), the text ~130 bytes.
-                        let text = locations_json(locations.filter_map(|(target, s)| {
-                            Some((target.as_str(), self.positions(target, *s)?))
-                        }));
+                        let text = locations_json(located.into_iter());
                         return Some(crate::transport::raw_result(text));
                     }
-                    let locals: Vec<Value> = locations
-                        .filter_map(|(target, s)| {
-                            Some(location_value(target, self.positions(target, *s)?))
-                        })
+                    let locals: Vec<Value> = located
+                        .into_iter()
+                        .map(|(target, positions)| location_value(target, positions))
                         .collect();
                     Some(json!(locals))
                 });

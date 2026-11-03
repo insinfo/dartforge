@@ -258,13 +258,13 @@ pub(crate) fn load_project(
     documents: &DocumentStore,
     uri: &str,
 ) -> Option<Project> {
-    load_project_with(sdk, documents, uri, None, None)
+    load_project_with(sdk, documents, uri, None, None, true)
 }
 
 /// The synthetic file of the wide load: imports every SDK library and every
 /// `lib/` file of the packages, so that they enter the program (the
 /// analyzer's `knownFiles` after the first non-local search, §11.2).
-const KNOWN: &str = ".dartforge_known.dart";
+pub(crate) const KNOWN: &str = ".dartforge_known.dart";
 
 /// `(name, lib/ folder)` of the packages in `root`'s `package_config.json`.
 pub(crate) fn packages_with_name(root: &Path) -> Vec<(String, PathBuf)> {
@@ -329,6 +329,18 @@ pub(crate) fn load_wide_project(
     uri: &str,
     citing: Option<&str>,
 ) -> Option<Project> {
+    load_wide_project_with(sdk, documents, uri, citing, true)
+}
+
+/// [`load_wide_project`]; with `infer_project` false, no body is inferred
+/// (the reference index infers them one library at a time).
+pub(crate) fn load_wide_project_with(
+    sdk: &SdkLayout,
+    documents: &DocumentStore,
+    uri: &str,
+    citing: Option<&str>,
+    infer_project: bool,
+) -> Option<Project> {
     let file = uri_file(uri)?;
     let root = project_root(&file);
     let mut text = String::new();
@@ -392,7 +404,14 @@ pub(crate) fn load_wide_project(
             ));
         }
     }
-    load_project_with(sdk, documents, uri, Some((root.join(KNOWN), text)), citing)
+    load_project_with(
+        sdk,
+        documents,
+        uri,
+        Some((root.join(KNOWN), text)),
+        citing,
+        infer_project,
+    )
 }
 
 /// The source the whole wide load of `root` reads, estimated without reading
@@ -501,6 +520,7 @@ fn load_project_with(
     uri: &str,
     synthetic: Option<(PathBuf, String)>,
     citing: Option<&str>,
+    infer_project: bool,
 ) -> Option<Project> {
     let file = uri_file(uri)?;
     let root = project_root(&file);
@@ -609,6 +629,9 @@ fn load_project_with(
         .collect();
     let mut list: Vec<LibraryId> = libraries.iter().copied().collect();
     list.sort();
+    if !infer_project {
+        list.clear();
+    }
     let query = Query::infer(program, names, &list, true, None);
     Some(Project {
         query,
@@ -2626,15 +2649,33 @@ impl Project {
         target: &Target,
         concrete: Option<Concrete>,
     ) -> bool {
-        let Some(Concrete::Variable(v)) = concrete else {
+        let Some(class) = self.documented_field_parameter(unit, comment, name, concrete) else {
             return false;
+        };
+        !matches!(target, Target::Member { owner: Owner::Class(c), .. } if class == Some(*c))
+    }
+
+    /// When the single-name reference `name` of `comment` is a `this.x`
+    /// parameter of the documented constructor and resolves to a field
+    /// (`concrete`): the field's class. The index records such a reference on
+    /// the parameter, so it only cites the field for a search of a member of
+    /// that class ([`Project::cites_foreign_field_parameter`]).
+    pub(crate) fn documented_field_parameter(
+        &self,
+        unit: UnitId,
+        comment: Span,
+        name: &str,
+        concrete: Option<Concrete>,
+    ) -> Option<Option<ClassId>> {
+        let Some(Concrete::Variable(v)) = concrete else {
+            return None;
         };
         let ast = &self.program().unit(unit).ast;
         let Some(Documented::Member(m)) = self.documented(unit, comment) else {
-            return false;
+            return None;
         };
         let MemberKind::Constructor(k) = &ast.member(m).kind else {
-            return false;
+            return None;
         };
         let source = &self.program().unit(unit).source;
         let is_field_parameter = k.parameters.iter().any(|p| {
@@ -2642,16 +2683,13 @@ impl Project {
                 && p.name
                     .is_some_and(|n| &source[n.span.start..n.span.end] == name)
         });
-        if !is_field_parameter {
-            return false;
-        }
-        !matches!(target, Target::Member { owner: Owner::Class(c), .. } if self.program().variable(v).class == Some(*c))
+        is_field_parameter.then(|| self.program().variable(v).class)
     }
 
     /// The name every occurrence of `target` writes (the identifier's text);
     /// `None` for the constructor, which `[A]`, `super(…)` and the implicit call
     /// cite without its name.
-    fn target_word(&self, target: &Target) -> Option<String> {
+    pub(crate) fn target_word(&self, target: &Target) -> Option<String> {
         let w = match target {
             Target::Local { unit, declaration } | Target::TypeParameter { unit, declaration } => {
                 let source = &self.program().unit(*unit).source;
@@ -3902,68 +3940,77 @@ impl Project {
     }
 
     fn compute_written_subtypes(&self) -> WrittenSubtypes {
-        let p = self.program();
         let mut m: std::collections::HashMap<ClassId, Vec<ClassId>> =
             std::collections::HashMap::new();
-        // The index's `visitClassDeclaration`: a class without `extends` has the
-        // implicit `IS_EXTENDED_BY` from `Object`, which the subtype search
-        // (`Search._addResults`) finds in the files that cite the name `Object`
-        // and in those of its library.
-        let object = self.query.core.object_class;
-        let mut eligible: std::collections::HashMap<UnitId, bool> =
-            std::collections::HashMap::new();
-        for (i, c) in p.classes.iter().enumerate() {
-            let Some(d) = c.decl else { continue };
-            let unit = p.unit(d.unit);
-            let ast = &unit.ast;
-            if let (Some(o), DeclKind::Class(x)) = (object, &ast.decl(d.decl).kind)
-                && x.extends.is_none()
-                && !x.mixin_application
-                && ClassId(i as u32) != o
-                && *eligible.entry(d.unit).or_insert_with(|| {
-                    unit.library == p.class(o).library
-                        || (unit.role != dartforge_elements::model::UnitRole::Patch
-                            && unit.source.contains("Object")
-                            && self.unit_referenced_names(d.unit).contains("Object"))
-                })
-            {
-                let v = m.entry(o).or_default();
-                if !v.contains(&ClassId(i as u32)) {
-                    v.push(ClassId(i as u32));
-                }
-            }
-            let types: Vec<ast::TypeId> = match &ast.decl(d.decl).kind {
-                DeclKind::Class(x) => x
-                    .extends
-                    .iter()
-                    .chain(x.with.iter())
-                    .chain(x.implements.iter())
-                    .copied()
-                    .collect(),
-                DeclKind::Mixin(x) => x.on.iter().chain(x.implements.iter()).copied().collect(),
-                DeclKind::Enum(x) => x.with.iter().chain(x.implements.iter()).copied().collect(),
-                DeclKind::ExtensionType(x) => x.implements.to_vec(),
-                _ => Vec::new(),
-            };
-            for t in types {
-                let ast::TypeKind::Named { name, .. } = &ast.ty(t).kind else {
-                    continue;
-                };
-                let binding = match &name[..] {
-                    [n] => p.lookup_in_unit(d.unit, n.sym),
-                    [pf, n] => p.lookup_prefixed_in_unit(d.unit, pf.sym, n.sym),
-                    _ => None,
-                };
-                if let Some(Element::Class(s)) = binding.and_then(|b| b.getter) {
-                    let v = m.entry(s).or_default();
-                    let sub = ClassId(i as u32);
-                    if !v.contains(&sub) {
-                        v.push(sub);
-                    }
+        for i in 0..self.program().classes.len() {
+            let sub = ClassId(i as u32);
+            for s in self.written_supertypes(sub) {
+                let v = m.entry(s).or_default();
+                if !v.contains(&sub) {
+                    v.push(sub);
                 }
             }
         }
         m
+    }
+
+    /// The classes of which `c` is a direct subtype in the index
+    /// ([`Project::written_subtypes`]): its written `extends`/`with`/
+    /// `implements`/`on` resolved in its unit, and `Object` when a class
+    /// declaration without `extends` gets the implicit `IS_EXTENDED_BY` that
+    /// the subtype search finds (in the files that cite `Object` and in those
+    /// of its library). Empty for a class without a declaration.
+    pub(crate) fn written_supertypes(&self, c: ClassId) -> Vec<ClassId> {
+        let p = self.program();
+        let mut output = Vec::new();
+        let Some(d) = p.class(c).decl else {
+            return output;
+        };
+        let unit = p.unit(d.unit);
+        let ast = &unit.ast;
+        // The index's `visitClassDeclaration`: a class without `extends` has the
+        // implicit `IS_EXTENDED_BY` from `Object`.
+        if let (Some(o), DeclKind::Class(x)) =
+            (self.query.core.object_class, &ast.decl(d.decl).kind)
+            && x.extends.is_none()
+            && !x.mixin_application
+            && c != o
+            && (unit.library == p.class(o).library
+                || (unit.role != dartforge_elements::model::UnitRole::Patch
+                    && unit.source.contains("Object")
+                    && self.unit_referenced_names(d.unit).contains("Object")))
+        {
+            output.push(o);
+        }
+        let types: Vec<ast::TypeId> = match &ast.decl(d.decl).kind {
+            DeclKind::Class(x) => x
+                .extends
+                .iter()
+                .chain(x.with.iter())
+                .chain(x.implements.iter())
+                .copied()
+                .collect(),
+            DeclKind::Mixin(x) => x.on.iter().chain(x.implements.iter()).copied().collect(),
+            DeclKind::Enum(x) => x.with.iter().chain(x.implements.iter()).copied().collect(),
+            DeclKind::ExtensionType(x) => x.implements.to_vec(),
+            _ => Vec::new(),
+        };
+        for t in types {
+            let ast::TypeKind::Named { name, .. } = &ast.ty(t).kind else {
+                continue;
+            };
+            let binding = match &name[..] {
+                [n] => p.lookup_in_unit(d.unit, n.sym),
+                [pf, n] => p.lookup_prefixed_in_unit(d.unit, pf.sym, n.sym),
+                _ => None,
+            };
+            if let Some(Element::Class(s)) = binding.and_then(|b| b.getter)
+                && !output.contains(&s)
+            {
+                output.push(s);
+            }
+        }
+        output
     }
 
     /// Members of `c` with base name `name` (instance or static).
