@@ -18,5 +18,9 @@ dartforge-types = { path = "../types" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 url = "2"
+# Windows only: the system heap made the i3's analysis ~3x slower from the
+# fourth wave on (docs/LSP.md, rounds 13 and 15).
+[target.'cfg(windows)'.dependencies]
+mimalloc = { version = "0.1", default-features = false }
 [dev-dependencies]
 dartforge-instrument = { path = "../instrument" }
