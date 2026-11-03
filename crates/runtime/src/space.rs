@@ -798,7 +798,7 @@ mod system {
         // of a page of the space.
         let p = virtual_alloc(std::ptr::null_mut(), bytes, MEM_RESERVE | MEM_COMMIT);
         assert!(
-            p as usize % PAGE == 0,
+            (p as usize).is_multiple_of(PAGE),
             "VirtualAlloc without the 64 KiB alignment"
         );
         p
@@ -818,7 +818,7 @@ mod system {
     pub fn reserve_chunk(bytes: usize) -> *mut u8 {
         let p = virtual_alloc(std::ptr::null_mut(), bytes, MEM_RESERVE);
         assert!(
-            p as usize % PAGE == 0,
+            (p as usize).is_multiple_of(PAGE),
             "VirtualAlloc without the 64 KiB alignment"
         );
         p
