@@ -84,6 +84,11 @@ pub const EXTERNS: &[Extern] = &[
         effects: CONSERVATIVE,
     },
     Extern {
+        // The SDK classes of a WebAssembly module (`pruning/class_registry.rs`).
+        decl: "declare void @dartforge_register_classes(ptr, i64)",
+        effects: CONSERVATIVE,
+    },
+    Extern {
         decl: "declare i64 @dartforge_canonical_tearoff(i64)",
         effects: Effects {
             allocates: false,

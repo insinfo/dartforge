@@ -181,6 +181,8 @@ pub struct Rewritten {
     pub entry: &'static str,
     pub len: usize,
     pub global: String,
+    /// The [`kept`] classes.
+    pub kept: HashSet<i64>,
 }
 
 impl Rewritten {
@@ -190,7 +192,12 @@ impl Rewritten {
     ///
     /// ```
     /// use dartforge_emit_native::pruning::rti_table::Rewritten;
-    /// let r = Rewritten { entry: "dartforge_rti_init_table", len: 9, global: String::new() };
+    /// let r = Rewritten {
+    ///     entry: "dartforge_rti_init_table",
+    ///     len: 9,
+    ///     global: String::new(),
+    ///     kept: Default::default(),
+    /// };
     /// assert_eq!(
     ///     r.call("  call void @dartforge_rti_init_table_compressed(ptr @df.arr.3, i64 400) #2\n"),
     ///     "  call void @dartforge_rti_init_table(ptr @df.rti.table, i64 9) #2\n"
@@ -242,6 +249,7 @@ pub fn rewrite(ir: &str, summaries: &[&Summary], reach: &Reach) -> Option<Rewrit
         entry,
         len: bytes.len(),
         global,
+        kept: keep,
     })
 }
 

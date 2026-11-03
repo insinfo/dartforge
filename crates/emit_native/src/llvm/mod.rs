@@ -5268,6 +5268,15 @@ impl<'a> LlvmEmitter<'a> {
                 self.externals
                     .insert(r.clone(), format!("declare void @{r}()"));
             }
+            // The names and subtype edges of the SDK classes a WebAssembly
+            // module can meet, which the link writes
+            // (`pruning::class_registry`).
+            if crate::target::is_wasm() && !self.module.sdk_records.is_empty() {
+                let r = crate::pruning::class_registry::REGISTRATION;
+                writeln!(self.out, "  call void @{r}()").unwrap();
+                self.externals
+                    .insert(r.to_string(), format!("declare void @{r}()"));
+            }
             // The tear-offs of each SDK library, after all the records.
             for r in &self.module.sdk_records {
                 let t = crate::sdk_module::tearoff_registration_symbol(r);

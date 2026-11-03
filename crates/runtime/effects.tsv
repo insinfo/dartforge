@@ -817,6 +817,7 @@ dartforge_record_new	1	0	0
 dartforge_register_argument_name	1	1	0
 dartforge_register_cids	1	1	0
 dartforge_register_class_name	1	1	0
+dartforge_register_classes	1	1	0
 dartforge_register_helper	1	1	0
 dartforge_register_image	0	0	0
 dartforge_register_instantiation	0	0	0

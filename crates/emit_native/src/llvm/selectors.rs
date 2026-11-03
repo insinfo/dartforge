@@ -345,7 +345,16 @@ impl LlvmEmitter<'_> {
                 || module.table_functions.contains_key(&cid)
                 || module.method_tables.iter().any(|(c, _, _)| *c == cid)
         };
+        // A WebAssembly SDK library hands its names and subtype edges to the
+        // link as comments (`pruning::class_registry`), which registers only
+        // those of the classes the live code can meet; the edges are the
+        // `; df.cone-parent` lines of the header.
+        let by_link = module.sdk_library && crate::target::is_wasm();
         for class in module.classes.iter().filter(|c| instantiable(c.id)) {
+            if by_link && crate::pruning::class_registry::writable_name(&class.name) {
+                writeln!(self.out, "; df.class-name {} {}", class.id, class.name).unwrap();
+                continue;
+            }
             let idx = self.string_const_index(class.name.as_bytes()).unwrap_or(0);
             writeln!(
                 body,
@@ -427,7 +436,7 @@ impl LlvmEmitter<'_> {
         } else {
             body.push_str(&tearoffs);
         }
-        for (sub, sup) in &module.subtyping_edges {
+        for (sub, sup) in module.subtyping_edges.iter().filter(|_| !by_link) {
             writeln!(
                 body,
                 "  call void @dartforge_register_subclass(i64 {sub}, i64 {sup})"

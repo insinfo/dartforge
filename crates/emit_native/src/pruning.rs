@@ -22,12 +22,13 @@ pub(crate) mod allocation_inventory;
 pub(crate) mod arc_ports;
 pub(crate) mod assembled_registration;
 mod class_reachability;
+pub mod class_registry;
 pub(crate) mod receiver_provenance;
 pub mod rti_table;
 pub(crate) mod universal_parent;
 
 /// First line of a summary; the number changes with the format.
-const HEADER: &str = "dartforge-poda\t10";
+const HEADER: &str = "dartforge-poda\t11";
 
 /// Selectors that live in every live class, without a call in the IR (§3.6):
 /// `c:call` the runtime looks up by text (`dartforge_closure_entry`, the
@@ -444,6 +445,9 @@ pub struct Summary {
     pub ambiguous_classes: Vec<i64>,
     /// Runtime subtype edges, including interfaces and mixins.
     pub parent_edges: Vec<(i64, i64)>,
+    /// The class names a WebAssembly SDK library leaves to the link
+    /// (`; df.class-name`, [`class_registry`]).
+    pub class_names: Vec<(i64, String)>,
     pub(crate) arc_ports: Vec<arc_ports::Inventory>,
     /// Citations that only count once one of their producers is live
     /// (`; df.ref-when <pattern>…` on the line before, in the program's
@@ -593,6 +597,9 @@ impl Summary {
         }
         for (child, parent) in &self.parent_edges {
             writeln!(s, "P\t{child}\t{parent}").unwrap();
+        }
+        for (cid, name) in &self.class_names {
+            writeln!(s, "W\t{cid}\t{name}").unwrap();
         }
         for inventory in &self.arc_ports {
             writeln!(s, "V\t{}", inventory.registration).unwrap();
@@ -835,6 +842,17 @@ impl Summary {
                         .ok_or_else(|| bad(l))?;
                     r.parent_edges.push((child, parent));
                 }
+                Some("W") => {
+                    let cid = c
+                        .next()
+                        .and_then(|x| x.parse::<u32>().ok())
+                        .ok_or_else(|| bad(l))?;
+                    let name = c.next().ok_or_else(|| bad(l))?;
+                    if c.next().is_some() || !class_registry::writable_name(name) {
+                        return Err(bad(l));
+                    }
+                    r.class_names.push((i64::from(cid), name.to_string()));
+                }
                 Some("V") => {
                     let registration = c
                         .next()
@@ -987,7 +1005,11 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
     let mut nominal_classes = Vec::new();
     let mut ambiguous_classes = Vec::new();
     let mut parent_edges = Vec::new();
+    let mut class_names = Vec::new();
     for l in ir.lines() {
+        if let Some(name) = class_registry::read_comment(l) {
+            class_names.push(name);
+        }
         if let Some(cid) = l
             .strip_prefix("; df.cone-class ")
             .and_then(|v| v.parse::<u32>().ok())
@@ -1052,6 +1074,9 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
     ambiguous_classes.dedup();
     r.ambiguous_classes = ambiguous_classes;
     r.parent_edges = parent_edges;
+    class_names.sort_unstable();
+    class_names.dedup();
+    r.class_names = class_names;
     let key = |n: &str| {
         if locals.contains(n) {
             format!("{module}#{n}")
@@ -1806,6 +1831,7 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     const PROGRAM: &str = "programa";
     const REGISTRATION: &str = "df.register.sdk_tables";
     let mut registration_declared = false;
+    let mut classes_declared = false;
     let program = summarize(ir, PROGRAM, &[]);
     let mut all: Vec<&Summary> = summaries.to_vec();
     all.push(&program);
@@ -1923,6 +1949,10 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
                     registration_declared = true;
                     continue;
                 }
+                if n == class_registry::REGISTRATION {
+                    classes_declared = true;
+                    continue;
+                }
                 declared_set.insert(n.to_string());
             }
         } else if let Some((n, local)) = define_name(without_end) {
@@ -2033,6 +2063,14 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
         );
     }
     arc_ports::assemble(&mut exit, &all, &reachability, prune, &mut declared_set)?;
+    if classes_declared {
+        class_registry::emit(
+            &mut exit,
+            summaries,
+            rti.as_ref().map(|r| &r.kept),
+            &mut declared_set,
+        );
+    }
     if let Some(r) = rti {
         exit.push_str(&r.global);
         if declared_set.insert(r.entry.to_string()) {
@@ -3587,7 +3625,7 @@ mod declared_field_summary_tests {
     fn persistent_field_facts_refuse_corruption_and_old_schema() {
         let summary = hir_summary(&module()).to_text();
         assert!(
-            Summary::from_string(&summary.replace("dartforge-poda\t10", "dartforge-poda\t9"))
+            Summary::from_string(&summary.replace("dartforge-poda\t11", "dartforge-poda\t10"))
                 .is_err()
         );
         assert!(

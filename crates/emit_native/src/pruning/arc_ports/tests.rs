@@ -278,9 +278,9 @@ fn malformed_serialized_inventory_records_and_stale_headers_are_rejected() {
         );
     }
     assert!(
-        Summary::from_string(&text.replace("dartforge-poda\t10", "dartforge-poda\t9")).is_err()
+        Summary::from_string(&text.replace("dartforge-poda\t11", "dartforge-poda\t10")).is_err()
     );
-    assert!(Summary::from_string("dartforge-poda\t10\tsdk\nN\tdf.arc.ports.sdk\nN\ttarget\nB\t0\t1\tword:0:declare i64 @target()\n").is_err());
+    assert!(Summary::from_string("dartforge-poda\t11\tsdk\nN\tdf.arc.ports.sdk\nN\ttarget\nB\t0\t1\tword:0:declare i64 @target()\n").is_err());
 }
 
 #[test]

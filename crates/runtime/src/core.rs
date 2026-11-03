@@ -546,6 +546,49 @@ pub extern "C" fn dartforge_register_subclass(sub_id: i64, super_id: i64) {
     });
 }
 
+/// Registers class names and subtype edges from the data a WebAssembly link
+/// writes for the SDK classes the live code can meet
+/// (`emit_native/src/pruning/class_registry.rs`): unsigned LEB128 numbers, the
+/// count of names, each name as its class id, its length and its UTF-8 bytes,
+/// then each edge as the subclass and superclass ids, to the end. The same
+/// registrations as [`dartforge_register_class_name`] and
+/// [`dartforge_register_subclass`] one by one.
+///
+/// # Safety
+/// `data` points to `len` readable bytes in that format.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_register_classes(data: *const u8, len: i64) {
+    let bytes = if len <= 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(data, len as usize) } };
+    fn next(bytes: &[u8], at: &mut usize) -> i64 {
+        let mut v = 0i64;
+        let mut shift = 0;
+        loop {
+            let b = bytes[*at];
+            *at += 1;
+            v |= i64::from(b & 0x7f) << shift;
+            if b < 0x80 {
+                return v;
+            }
+            shift += 7;
+        }
+    }
+    let mut at = 0usize;
+    let names = next(bytes, &mut at);
+    for _ in 0..names {
+        let cid = next(bytes, &mut at);
+        let n = next(bytes, &mut at) as usize;
+        let name = &bytes[at..at + n];
+        at += n;
+        // SAFETY: the name's bytes are a live slice.
+        unsafe { dartforge_register_class_name(cid, name.as_ptr(), n as i64) };
+    }
+    while at < bytes.len() {
+        let sub = next(bytes, &mut at);
+        let sup = next(bytes, &mut at);
+        dartforge_register_subclass(sub, sup);
+    }
+}
+
 /// Queries nominal subtype membership at run time.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_is_subclass(class_id: i64, target_class: i64) -> u8 {
