@@ -195,7 +195,7 @@ fn value_key(h: i64) -> Option<i64> {
 }
 
 thread_local! {
-    static RTI: RefCell<Universe> = RefCell::new(Universe::new());
+    static RTI: IsolateCell<Universe> = isolate_cell(Universe::new());
 }
 
 /// Type ids belong to the PROCESS, not to the isolate (docs/NATIVO-PROJETOS-REAIS.md,

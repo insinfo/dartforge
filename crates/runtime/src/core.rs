@@ -194,11 +194,28 @@ use crate::heap::{CONTEXT, Heap, Text, StringMut};
 use std::cell::RefCell;
 use crate::hash::{HashMap, HashSet};
 
+/// The cell of an isolate's thread-local state (the heap, the RTI universe).
+/// A WebAssembly module has one thread, whose locals are never destroyed: the
+/// value is never dropped, and without the drop glue the lazy
+/// initialization of the heap no longer carries the drop of every structure
+/// it owns (~15 KB). A native isolate thread frees its state when it ends.
+#[cfg(target_arch = "wasm32")]
+type IsolateCell<T> = std::mem::ManuallyDrop<RefCell<T>>;
+#[cfg(not(target_arch = "wasm32"))]
+type IsolateCell<T> = RefCell<T>;
+
+fn isolate_cell<T>(value: T) -> IsolateCell<T> {
+    #[cfg(target_arch = "wasm32")]
+    return std::mem::ManuallyDrop::new(RefCell::new(value));
+    #[cfg(not(target_arch = "wasm32"))]
+    RefCell::new(value)
+}
+
 thread_local! {
     /// SDK from source: the Dart `toString()` of a value (the program's
     /// `dartforge_dispatch_toString`), for the uncaught exception.
     static TO_STRING: std::cell::Cell<Option<extern "C" fn(i64) -> i64>> = const { std::cell::Cell::new(None) };
-    static HEAP: RefCell<Heap> = RefCell::new(Heap::for_isolate(crate::console::env_var_os("DARTFORGE_GC_STRESS").is_some()));
+    static HEAP: IsolateCell<Heap> = isolate_cell(Heap::for_isolate(crate::console::env_var_os("DARTFORGE_GC_STRESS").is_some()));
     static CLASS_NAMES: RefCell<HashMap<i64, String>> = RefCell::new(HashMap::default());
     /// The function of each tear-off entry, by code (`dartforge_register_tearoff`):
     /// its Dart name and whether it is static.
