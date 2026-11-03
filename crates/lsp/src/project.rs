@@ -104,6 +104,23 @@ pub(crate) struct UnitOccurrences {
     pub(crate) type_names: std::collections::HashMap<Element, Vec<Span>>,
 }
 
+/// What a unit cites of constructor parameters ([`Project::unit_parameter_uses`]).
+#[derive(Debug, Default)]
+pub(crate) struct UnitParameterUses {
+    /// The named arguments of the calls to a constructor whose named `this.x`
+    /// (without another public name) has that label: the constructor, the
+    /// label and its span.
+    pub(crate) labels: Vec<(FunctionElementId, SymbolId, Span)>,
+    /// The start (an empty range) of positional argument `i` of the calls to a
+    /// function whose `i`-th positional parameter is an optional `this.x`,
+    /// when it goes through the index's `visitExpression`.
+    pub(crate) positional: Vec<(FunctionElementId, usize, Span)>,
+    /// The `super.x` parameters: the super constructor, the position among
+    /// the positional super parameters (`None` for a named one), the name and
+    /// its span.
+    pub(crate) supers: Vec<(FunctionElementId, Option<usize>, SymbolId, Span)>,
+}
+
 /// What a position denotes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Target {
@@ -259,6 +276,16 @@ pub(crate) fn load_project(
     uri: &str,
 ) -> Option<Project> {
     load_project_with(sdk, documents, uri, None, None, true)
+}
+
+/// The project of `uri` (every library under the root) without inferring any
+/// body: the reference index infers them one library at a time.
+pub(crate) fn load_project_bare(
+    sdk: &SdkLayout,
+    documents: &DocumentStore,
+    uri: &str,
+) -> Option<Project> {
+    load_project_with(sdk, documents, uri, None, None, false)
 }
 
 /// The synthetic file of the wide load: imports every SDK library and every
@@ -1846,11 +1873,13 @@ impl Project {
         unit: UnitId,
         mid: ast::MemberId,
     ) -> Option<FunctionElementId> {
-        self.program()
-            .functions
+        let p = self.program();
+        p.index()
+            .unit_functions
+            .get(unit.0 as usize)?
             .iter()
-            .position(|f| f.node == FunctionRef::Constructor { unit, member: mid })
-            .map(|i| FunctionElementId(i as u32))
+            .copied()
+            .find(|&f| p.function(f).node == FunctionRef::Constructor { unit, member: mid })
     }
 
     /// The element of the variable declared at node `node`.
@@ -3039,8 +3068,16 @@ impl Project {
                     }
                 }
             }
-            if !named_constructors.is_empty() {
-                self.argument_labels(&named_constructors, symbol, by);
+            if !named_constructors.is_empty()
+                && let Some(label) = symbol
+            {
+                for u in self.units() {
+                    for &(g, l, s) in &self.unit_parameter_uses(u).labels {
+                        if l == label && named_constructors.contains(&g) {
+                            by(u, s);
+                        }
+                    }
+                }
             }
             // The references of the `this.x`s (`includeParametersForFields`): the start
             // of each optional positional argument (length 0, the index's
@@ -3088,8 +3125,12 @@ impl Project {
                         if q.this_ && q.name.is_some_and(|n| self.name(n.sym) == name_) {
                             parameters.push((f, Some(i)));
                             if q.kind == ast::ParameterKind::Optional {
-                                for (x, s) in self.positional_arguments(f, i) {
-                                    by(x, s);
+                                for u in self.units() {
+                                    for &(g, j, s) in &self.unit_parameter_uses(u).positional {
+                                        if g == f && j == i {
+                                            by(u, s);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -3105,42 +3146,17 @@ impl Project {
             }
             if !parameters.is_empty() {
                 for u in self.units_in(filter) {
-                    let ast = &self.program().unit(u).ast;
-                    for (mi, m) in ast.members.iter().enumerate() {
-                        let MemberKind::Constructor(k) = &m.kind else {
-                            continue;
-                        };
-                        if !k.parameters.iter().any(|q| q.super_) {
-                            continue;
-                        }
-                        let Some(sub) = self.node_constructor(u, ast::MemberId(mi as u32)) else {
-                            continue;
-                        };
-                        let Some(sup) = self.super_constructor(sub) else {
-                            continue;
-                        };
-                        let mut position = 0usize;
-                        for q in k.parameters.iter() {
-                            let named = q.kind == ast::ParameterKind::Named;
-                            if q.super_ {
-                                let target_q = if named { None } else { Some(position) };
-                                let matches = parameters.iter().any(|&(f, i)| {
-                                    f == sup
-                                        && match (i, target_q) {
-                                            (Some(a), Some(b)) => a == b,
-                                            (None, None) => {
-                                                q.name.is_some_and(|n| self.name(n.sym) == name_)
-                                            }
-                                            _ => false,
-                                        }
-                                });
-                                if matches && let Some(n) = q.name {
-                                    by(u, n.span);
+                    for &(sup, position, n, s) in &self.unit_parameter_uses(u).supers {
+                        let matches = parameters.iter().any(|&(f, i)| {
+                            f == sup
+                                && match (i, position) {
+                                    (Some(a), Some(b)) => a == b,
+                                    (None, None) => self.name(n) == name_,
+                                    _ => false,
                                 }
-                                if !named {
-                                    position += 1;
-                                }
-                            }
+                        });
+                        if matches {
+                            by(u, s);
                         }
                     }
                 }
@@ -3163,58 +3179,117 @@ impl Project {
         // the type, of `super`/`this`, of the enum constant's name; the implicit
         // call to the super constructor is the `A`/`A.name` of the child
         // constructor, or the name of the class that only has the synthetic one.
-        let p = self.program();
         if let Some((u, s)) = self.function_name(f) {
             by(u, s);
         }
-        let Some(class) = p.function(f).class else {
+        if self.program().function(f).class.is_none() {
             return;
-        };
-        let symbol = p.function(f).name;
-        let unnamed = self.name(symbol).is_empty();
-        let empty = |o: usize| Span { start: o, end: o };
+        }
         for u in self.units_in(filter) {
-            let unit = p.unit(u);
-            let ast = &unit.ast;
-            let source = unit.source.as_str();
-            let with_dot = |s: Span| {
-                let before = source[..s.start].trim_end();
-                if before.ends_with('.') {
-                    Span {
-                        start: before.len() - 1,
-                        end: s.end,
-                    }
-                } else {
-                    s
+            for &(g, s) in &self.unit_constructor_uses(u) {
+                if g == f {
+                    by(u, s);
                 }
-            };
-            let bodies = &self.query.bodies.units[u.0 as usize];
-            for (i, e) in ast.exprs.iter().enumerate() {
-                let id = ast::ExprId(i as u32);
-                let this = matches!(bodies.get_resolved(id), Some(Resolved::Constructor(g)) if *g == f)
-                    || bodies.get_resolved(id).is_none()
-                        && call_constructor(ast, bodies, id) == Some(f)
-                    || matches!(bodies.get_resolved(id), Some(Resolved::Element(Element::Class(c))) if *c == class)
-                        && call_constructor(ast, bodies, id) == Some(f);
-                if !this {
+            }
+        }
+    }
+
+    /// The constructors of class `c` (every function of its library with it as
+    /// class and a constructor kind, in id order).
+    pub(crate) fn class_constructors(&self, c: ClassId) -> Vec<FunctionElementId> {
+        let p = self.program();
+        p.index()
+            .library_functions
+            .get(p.class(c).library.0 as usize)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|&g| {
+                let fe = p.function(g);
+                fe.class == Some(c)
+                    && matches!(
+                        fe.kind,
+                        FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+                    )
+            })
+            .collect()
+    }
+
+    /// What `u` cites of every constructor, as the search of one constructor
+    /// ([`Project::constructor_occurrences`]) finds it: the index relations
+    /// (§11.1.2), with a named constructor as `.name` (with the dot; `A.new`
+    /// gives `.new`) and the unnamed one with length 0 at the end of the type,
+    /// of `super`/`this`, of the enum constant's name; the implicit call to the
+    /// super constructor as the `A`/`A.name` of the child constructor, or the
+    /// name of the class that only has the synthetic one; the metadata's last
+    /// name.
+    pub(crate) fn unit_constructor_uses(&self, u: UnitId) -> Vec<(FunctionElementId, Span)> {
+        let p = self.program();
+        let unit = p.unit(u);
+        let ast = &unit.ast;
+        let source = unit.source.as_str();
+        let mut output: Vec<(FunctionElementId, Span)> = Vec::new();
+        let empty = |o: usize| Span { start: o, end: o };
+        let with_dot = |s: Span| {
+            let before = source[..s.start].trim_end();
+            if before.ends_with('.') {
+                Span {
+                    start: before.len() - 1,
+                    end: s.end,
+                }
+            } else {
+                s
+            }
+        };
+        let mut constructors: std::collections::HashMap<ClassId, Vec<FunctionElementId>> =
+            std::collections::HashMap::new();
+        let mut of = |c: ClassId| -> Vec<FunctionElementId> {
+            constructors
+                .entry(c)
+                .or_insert_with(|| self.class_constructors(c))
+                .clone()
+        };
+        let named = |g: FunctionElementId, n: SymbolId| p.function(g).name == n;
+        let unnamed = |g: FunctionElementId| self.name(p.function(g).name).is_empty();
+        let Some(bodies) = self.query.bodies.units.get(u.0 as usize) else {
+            return output;
+        };
+        for (i, e) in ast.exprs.iter().enumerate() {
+            let id = ast::ExprId(i as u32);
+            let resolved = bodies.get_resolved(id);
+            let call = call_constructor(ast, bodies, id);
+            let mut candidates: Vec<FunctionElementId> = Vec::new();
+            if let Some(Resolved::Constructor(g)) = resolved {
+                candidates.push(*g);
+            }
+            if let Some(g) = call {
+                let by_class = matches!(resolved, Some(Resolved::Element(Element::Class(c))) if p.function(g).class == Some(*c));
+                if (resolved.is_none() || by_class) && !candidates.contains(&g) {
+                    candidates.push(g);
+                }
+            }
+            for f in candidates {
+                let Some(class) = p.function(f).class else {
                     continue;
-                }
-                match &e.kind {
+                };
+                let symbol = p.function(f).name;
+                let unnamed = unnamed(f);
+                let span = match &e.kind {
                     ExprKind::Property { name, .. }
                         if name.sym == symbol || (unnamed && self.name(name.sym) == "new") =>
                     {
-                        by(u, with_dot(name.span))
+                        Some(with_dot(name.span))
                     }
                     // `p.A()`: the prefixed type.
-                    ExprKind::Property { .. } if unnamed => by(u, empty(e.span.end)),
+                    ExprKind::Property { .. } if unnamed => Some(empty(e.span.end)),
                     ExprKind::Identifier(_) | ExprKind::TypeArguments { .. } if unnamed => {
-                        by(u, empty(e.span.end))
+                        Some(empty(e.span.end))
                     }
                     ExprKind::InstanceCreation {
                         constructor: Some(n),
                         ..
                     } if n.sym == symbol || (unnamed && self.name(n.sym) == "new") => {
-                        by(u, with_dot(n.span))
+                        Some(with_dot(n.span))
                     }
                     // `new A.name()`: the constructor name comes in the type.
                     ExprKind::InstanceCreation {
@@ -3223,145 +3298,336 @@ impl Project {
                         ..
                     } => {
                         if unnamed {
-                            if self.constructor_in_type(u, *ty, class, symbol).is_none() {
-                                by(u, empty(ast.ty(*ty).span.end));
-                            }
-                        } else if let Some(n) = self.constructor_in_type(u, *ty, class, symbol) {
-                            by(u, with_dot(n));
+                            self.constructor_in_type(u, *ty, class, symbol)
+                                .is_none()
+                                .then(|| empty(ast.ty(*ty).span.end))
+                        } else {
+                            self.constructor_in_type(u, *ty, class, symbol)
+                                .map(with_dot)
                         }
                     }
-                    _ => {}
-                }
-            }
-            for (mi, m) in ast.members.iter().enumerate() {
-                let MemberKind::Constructor(k) = &m.kind else {
-                    continue;
+                    _ => None,
                 };
-                // The class that owns this constructor, for `this.`/`super.`.
-                let owner = self
-                    .node_constructor(u, ast::MemberId(mi as u32))
-                    .and_then(|g| p.function(g).class);
-                let mut calls_super = false;
-                for start in k.initializers.iter() {
-                    let (target_class, name_, span, word) = match start {
-                        ast::Initializer::Redirect {
-                            constructor, span, ..
-                        } => {
-                            calls_super = true;
-                            (owner, *constructor, *span, "this")
-                        }
-                        ast::Initializer::Super {
-                            constructor, span, ..
-                        } => {
-                            calls_super = true;
-                            (
-                                owner.and_then(|d| p.class(d).supertype_class),
-                                *constructor,
-                                *span,
-                                "super",
-                            )
-                        }
-                        _ => continue,
-                    };
-                    if target_class != Some(class) {
-                        continue;
-                    }
-                    match name_ {
-                        Some(n) if n.sym == symbol => by(u, with_dot(n.span)),
-                        None if unnamed => by(u, empty(span.start + word.len())),
-                        _ => {}
-                    }
-                }
-                if let Some(r) = &k.redirect {
-                    calls_super = true;
-                    match r.constructor {
-                        Some(n) if n.sym == symbol && self.type_class(u, r.ty) == Some(class) => {
-                            by(u, with_dot(n.span))
-                        }
-                        None => {
-                            if let Some(n) = self.constructor_in_type(u, r.ty, class, symbol) {
-                                by(u, with_dot(n));
-                            } else if unnamed && self.type_class(u, r.ty) == Some(class) {
-                                by(u, empty(ast.ty(r.ty).span.end));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                // The implicit call to the unnamed super constructor.
-                if unnamed
-                    && !calls_super
-                    && !k.factory
-                    && let Some(d) = owner
-                    && p.class(d).supertype_class == Some(class)
-                {
-                    let end = k.name.map_or(k.class_name.span.end, |n| n.span.end);
-                    by(
-                        u,
-                        Span {
-                            start: k.class_name.span.start,
-                            end,
-                        },
-                    );
-                }
-            }
-            // A class that only has the synthetic constructor calls the superclass's
-            // unnamed one: its name.
-            if unnamed {
-                for (ci, c) in p.classes.iter().enumerate() {
-                    let Some(dr) = c.decl else { continue };
-                    if dr.unit != u || c.supertype_class != Some(class) {
-                        continue;
-                    }
-                    let DeclKind::Class(cd) = &ast.decl(dr.decl).kind else {
-                        continue;
-                    };
-                    if cd.mixin_application {
-                        continue;
-                    }
-                    let synthetic_only = c
-                        .constructors
-                        .values()
-                        .all(|g| p.function(*g).kind == FunctionKind::SyntheticConstructor);
-                    let _ = ci;
-                    if synthetic_only {
-                        by(u, cd.name.span);
-                    }
-                }
-            }
-            // Enum constants: `a.name(...)` is `.name`; without a selector, the unnamed
-            // constructor at the end of the name.
-            for d in &ast.decls {
-                if let DeclKind::Enum(e) = &d.kind {
-                    let is_owner = p
-                        .class(class)
-                        .decl
-                        .is_some_and(|dr| dr.unit == u && std::ptr::eq(ast.decl(dr.decl), d));
-                    if !is_owner {
-                        continue;
-                    }
-                    for c in &e.constants {
-                        match c.constructor {
-                            Some(n) if n.sym == symbol => by(u, with_dot(n.span)),
-                            None if unnamed => by(u, empty(c.name.span.end)),
-                            _ => {}
-                        }
-                    }
-                }
-            }
-            // Metadata `@A.name(...)` and `@p.A.name(...)`: the `name` (without the
-            // dot, a `SimpleIdentifier`).
-            for a in metadata(ast, &unit.unit) {
-                let parts: Vec<SymbolId> = a.name.iter().map(|n| n.sym).collect();
-                if parts.len() >= 2
-                    && let Some((Target::Constructor(g), _)) =
-                        self.resolve_path(unit.library, None, &parts)
-                    && g == f
-                {
-                    by(u, a.name[a.name.len() - 1].span);
+                if let Some(s) = span {
+                    output.push((f, s));
                 }
             }
         }
+        for (mi, m) in ast.members.iter().enumerate() {
+            let MemberKind::Constructor(k) = &m.kind else {
+                continue;
+            };
+            // The class that owns this constructor, for `this.`/`super.`.
+            let owner = self
+                .node_constructor(u, ast::MemberId(mi as u32))
+                .and_then(|g| p.function(g).class);
+            let mut calls_super = false;
+            for start in k.initializers.iter() {
+                let (target_class, name_, span, word) = match start {
+                    ast::Initializer::Redirect {
+                        constructor, span, ..
+                    } => {
+                        calls_super = true;
+                        (owner, *constructor, *span, "this")
+                    }
+                    ast::Initializer::Super {
+                        constructor, span, ..
+                    } => {
+                        calls_super = true;
+                        (
+                            owner.and_then(|d| p.class(d).supertype_class),
+                            *constructor,
+                            *span,
+                            "super",
+                        )
+                    }
+                    _ => continue,
+                };
+                let Some(target_class) = target_class else {
+                    continue;
+                };
+                for g in of(target_class) {
+                    match name_ {
+                        Some(n) if named(g, n.sym) => output.push((g, with_dot(n.span))),
+                        None if unnamed(g) => output.push((g, empty(span.start + word.len()))),
+                        _ => {}
+                    }
+                }
+            }
+            if let Some(r) = &k.redirect {
+                calls_super = true;
+                match r.constructor {
+                    Some(n) => {
+                        if let Some(c) = self.type_class(u, r.ty) {
+                            for g in of(c) {
+                                if named(g, n.sym) {
+                                    output.push((g, with_dot(n.span)));
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        // `= A.name`: the name in the type; `= A`: the unnamed one at the
+                        // end of the type.
+                        let written = match &ast.ty(r.ty).kind {
+                            ast::TypeKind::Named { name, .. } => match &name[..] {
+                                [a, n] if !is_prefix(p, unit.library, a.sym) => {
+                                    match p.lookup(unit.library, a.sym).and_then(|b| b.getter) {
+                                        Some(Element::Class(c)) => Some((c, *n)),
+                                        _ => None,
+                                    }
+                                }
+                                _ => None,
+                            },
+                            _ => None,
+                        };
+                        if let Some((c, n)) = written {
+                            for g in of(c) {
+                                if named(g, n.sym) {
+                                    output.push((g, with_dot(n.span)));
+                                }
+                            }
+                        } else if let Some(c) = self.type_class(u, r.ty) {
+                            for g in of(c) {
+                                if unnamed(g) {
+                                    output.push((g, empty(ast.ty(r.ty).span.end)));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // The implicit call to the unnamed super constructor.
+            if !calls_super
+                && !k.factory
+                && let Some(d) = owner
+                && let Some(sup) = p.class(d).supertype_class
+            {
+                let end = k.name.map_or(k.class_name.span.end, |n| n.span.end);
+                for g in of(sup) {
+                    if unnamed(g) {
+                        output.push((
+                            g,
+                            Span {
+                                start: k.class_name.span.start,
+                                end,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+        // A class that only has the synthetic constructor calls the superclass's
+        // unnamed one: its name.
+        let classes: Vec<(ast::DeclId, ClassId)> = p
+            .index()
+            .unit_classes
+            .get(u.0 as usize)
+            .map(|m| m.iter().map(|(d, c)| (*d, *c)).collect())
+            .unwrap_or_default();
+        for (dr, ci) in classes {
+            let c = p.class(ci);
+            if c.decl.is_none_or(|d| d.unit != u || d.decl != dr) {
+                continue;
+            }
+            let Some(sup) = c.supertype_class else {
+                continue;
+            };
+            let DeclKind::Class(cd) = &ast.decl(dr).kind else {
+                continue;
+            };
+            if cd.mixin_application {
+                continue;
+            }
+            let synthetic_only = c
+                .constructors
+                .values()
+                .all(|g| p.function(*g).kind == FunctionKind::SyntheticConstructor);
+            if synthetic_only {
+                for g in of(sup) {
+                    if unnamed(g) {
+                        output.push((g, cd.name.span));
+                    }
+                }
+            }
+        }
+        // Enum constants: `a.name(...)` is `.name`; without a selector, the unnamed
+        // constructor at the end of the name.
+        for (di, d) in ast.decls.iter().enumerate() {
+            let DeclKind::Enum(e) = &d.kind else {
+                continue;
+            };
+            let Some(class) = p.class_of_decl(u, ast::DeclId(di as u32)) else {
+                continue;
+            };
+            if p.class(class)
+                .decl
+                .is_none_or(|dr| dr.unit != u || dr.decl.0 as usize != di)
+            {
+                continue;
+            }
+            let all = of(class);
+            for c in &e.constants {
+                for &g in &all {
+                    match c.constructor {
+                        Some(n) if named(g, n.sym) => output.push((g, with_dot(n.span))),
+                        None if unnamed(g) => output.push((g, empty(c.name.span.end))),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        // Metadata `@A.name(...)` and `@p.A.name(...)`: the `name` (without the
+        // dot, a `SimpleIdentifier`).
+        for a in metadata(ast, &unit.unit) {
+            let parts: Vec<SymbolId> = a.name.iter().map(|n| n.sym).collect();
+            if parts.len() >= 2
+                && let Some((Target::Constructor(g), _)) =
+                    self.resolve_path(unit.library, None, &parts)
+            {
+                output.push((g, a.name[a.name.len() - 1].span));
+            }
+        }
+        output
+    }
+
+    /// What `u` cites of the parameters of constructors, for every constructor
+    /// at once, as the search of a field finds it (the `this.x` of
+    /// [`Project::member_occurrences`]).
+    pub(crate) fn unit_parameter_uses(&self, u: UnitId) -> UnitParameterUses {
+        let p = self.program();
+        let ast = &p.unit(u).ast;
+        let mut output = UnitParameterUses::default();
+        let Some(bodies) = self.query.bodies.units.get(u.0 as usize) else {
+            return output;
+        };
+        // The constructor's named `this.x` labels (without another public name) and
+        // the positions of its optional positional `this.x`s.
+        let mut shapes: std::collections::HashMap<FunctionElementId, (Vec<SymbolId>, Vec<usize>)> =
+            std::collections::HashMap::new();
+        let mut shape = |g: FunctionElementId| -> (Vec<SymbolId>, Vec<usize>) {
+            shapes
+                .entry(g)
+                .or_insert_with(|| {
+                    let FunctionRef::Constructor { unit, member } = p.function(g).node else {
+                        return (Vec::new(), Vec::new());
+                    };
+                    let MemberKind::Constructor(k) = &p.unit(unit).ast.member(member).kind else {
+                        return (Vec::new(), Vec::new());
+                    };
+                    let labels = k
+                        .parameters
+                        .iter()
+                        .filter(|q| {
+                            q.this_
+                                && q.kind == ast::ParameterKind::Named
+                                && q.public_name.is_none()
+                        })
+                        .filter_map(|q| q.name.map(|n| n.sym))
+                        .collect();
+                    let optional = k
+                        .parameters
+                        .iter()
+                        .filter(|q| q.kind != ast::ParameterKind::Named)
+                        .enumerate()
+                        .filter(|(_, q)| q.this_ && q.kind == ast::ParameterKind::Optional)
+                        .map(|(i, _)| i)
+                        .collect();
+                    (labels, optional)
+                })
+                .clone()
+        };
+        for (i, e) in ast.exprs.iter().enumerate() {
+            let (arguments_, target_) = match &e.kind {
+                ExprKind::Call { target, arguments } => (&**arguments, Some(*target)),
+                ExprKind::InstanceCreation { arguments, .. } => (&**arguments, None),
+                _ => continue,
+            };
+            let call = [Some(ast::ExprId(i as u32)), target_]
+                .into_iter()
+                .flatten()
+                .find_map(|x| match bodies.get_resolved(x) {
+                    Some(Resolved::Constructor(g))
+                    | Some(Resolved::Element(Element::Function(g)))
+                    | Some(Resolved::Member {
+                        member: MemberRef::Function(g),
+                        ..
+                    })
+                    | Some(Resolved::ExtensionMember { member: g, .. }) => Some(*g),
+                    _ => None,
+                });
+            let Some(g) = call else { continue };
+            let (labels, optional) = shape(g);
+            for a in arguments_.args.iter() {
+                if let Some(n) = a.name
+                    && labels.contains(&n.sym)
+                {
+                    output.labels.push((g, n.sym, n.span));
+                }
+            }
+            for index in optional {
+                let Some(a) = arguments_
+                    .args
+                    .iter()
+                    .filter(|a| a.name.is_none())
+                    .nth(index)
+                else {
+                    continue;
+                };
+                let x = ast.expr(a.value);
+                let without_visit_expression = match &x.kind {
+                    ExprKind::Identifier(_) => true,
+                    // `MethodInvocation`: a call with an identifier or property target that is
+                    // not a constructor.
+                    ExprKind::Call { target, .. } => {
+                        matches!(
+                            ast.expr(*target).kind,
+                            ExprKind::Identifier(_) | ExprKind::Property { .. }
+                        ) && !matches!(bodies.get_resolved(a.value), Some(Resolved::Constructor(_)))
+                    }
+                    _ => false,
+                };
+                if !without_visit_expression {
+                    output.positional.push((
+                        g,
+                        index,
+                        Span {
+                            start: x.span.start,
+                            end: x.span.start,
+                        },
+                    ));
+                }
+            }
+        }
+        for (mi, m) in ast.members.iter().enumerate() {
+            let MemberKind::Constructor(k) = &m.kind else {
+                continue;
+            };
+            if !k.parameters.iter().any(|q| q.super_) {
+                continue;
+            }
+            let Some(sub) = self.node_constructor(u, ast::MemberId(mi as u32)) else {
+                continue;
+            };
+            let Some(sup) = self.super_constructor(sub) else {
+                continue;
+            };
+            let mut position = 0usize;
+            for q in k.parameters.iter() {
+                let named = q.kind == ast::ParameterKind::Named;
+                if q.super_ {
+                    if let Some(n) = q.name {
+                        output
+                            .supers
+                            .push((sup, (!named).then_some(position), n.sym, n.span));
+                    }
+                    if !named {
+                        position += 1;
+                    }
+                }
+            }
+        }
+        output
     }
 
     /// `A.name` written as a type (`new A.name()`, `= A.name`) when `A` is

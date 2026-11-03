@@ -91,24 +91,19 @@ pub(crate) enum Tag {
     ConstructorClassName,
     /// A `show`/`hide` name of an import or export.
     Combinator,
-}
-
-impl Tag {
-    fn code(self) -> u32 {
-        self as u32
-    }
-
-    fn from_code(c: u32) -> Option<Self> {
-        Some(match c {
-            0 => Tag::Element,
-            1 => Tag::TypeName,
-            2 => Tag::Function,
-            3 => Tag::Variable,
-            4 => Tag::ConstructorClassName,
-            5 => Tag::Combinator,
-            _ => return None,
-        })
-    }
+    /// What cites a constructor ([`Project::unit_constructor_uses`]).
+    Constructor,
+    /// A `this.x` parameter or an `x = e` initializer of a class's
+    /// constructor (key `<class>/p<x>`).
+    FieldParameter,
+    /// A named argument of a call to a constructor with that named `this.x`
+    /// (key `<constructor>/l<x>`).
+    Label,
+    /// A positional argument to an optional `this.x` (key `<function>/a<i>`).
+    Positional,
+    /// A `super.x` parameter (key `<super constructor>/s<i>` for a positional
+    /// one, `<super constructor>/n<x>` for a named one).
+    Super,
 }
 
 /// A resolved name of a file: the key, the tag and the source range.
@@ -132,8 +127,10 @@ pub(crate) enum DocTarget {
         name: u32,
         is_static: bool,
     },
-    /// Something no top-level or member search matches by target (a local, a
-    /// constructor, a prefix); it can still match a member by its concrete
+    /// A constructor.
+    Constructor { key: u32 },
+    /// Something no top-level, member or constructor search matches by target
+    /// (a local, a prefix); it can still match a member by its concrete
     /// element.
     Other,
 }
@@ -152,6 +149,9 @@ pub(crate) struct DocFact {
     pub word: u32,
     pub start: u32,
     pub end: u32,
+    /// The end of the previous part (`r[i - 1]`), [`NONE`] for the first: a
+    /// constructor's `[A.name]` goes from there.
+    pub previous_end: u32,
     pub target: DocTarget,
     pub concrete: Option<ConcreteKey>,
     /// [`Project::documented_field_parameter`] of the first part: the class of
@@ -174,9 +174,22 @@ pub(crate) struct ClassFact {
     pub members: Vec<(u32, bool, u32)>,
     /// Fields and enum constants: name, static, variable key.
     pub fields: Vec<(u32, bool, u32)>,
-    /// The names of the `this.x` parameters and of the `x = e` initializers of
-    /// its constructors.
-    pub field_parameters: Vec<u32>,
+    /// The `this.x` parameters of its constructors.
+    pub constructor_parameters: Vec<ConstructorParameter>,
+}
+
+/// A `this.x` parameter of a constructor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ConstructorParameter {
+    pub constructor: u32,
+    /// The parameter's name (a word).
+    pub name: u32,
+    pub named: bool,
+    /// A named one with another public name.
+    pub public_name: bool,
+    pub optional: bool,
+    /// The position among the positional parameters.
+    pub position: u32,
 }
 
 /// What the index keeps of one file.
@@ -193,6 +206,12 @@ pub(crate) struct FileRecord {
     /// Hash and length of the text the record came from.
     pub stamp: u64,
     pub length: u32,
+    /// The file's modification time (nanoseconds since the epoch, 0 when
+    /// unknown) when the record was made.
+    pub modified: u64,
+    /// The text was the disk's (not an open document's other text): the
+    /// same date and size mean the same text.
+    pub disk: bool,
     /// [`dartforge_elements::incremental::api_signature_of`] of that text.
     pub api: Option<u64>,
     /// Line starts.
@@ -286,6 +305,20 @@ fn line_table(text: &str) -> (Vec<u32>, Vec<(u32, u32)>) {
         }
     }
     (lines, wide)
+}
+
+/// The modification time (nanoseconds since the epoch, 0 when unknown) and
+/// the size of a file.
+pub(crate) fn file_date(path: &Path) -> (u64, Option<u64>) {
+    let Ok(m) = std::fs::metadata(path) else {
+        return (0, None);
+    };
+    let modified = m
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos() as u64);
+    (modified, Some(m.len()))
 }
 
 /// A stable hash of a text (the same in every process).
@@ -386,7 +419,14 @@ impl<'a> Keys<'a> {
             FunctionKind::Setter => 's',
             FunctionKind::Operator => 'o',
             FunctionKind::Constructor | FunctionKind::SyntheticConstructor => 'k',
-            FunctionKind::ImplicitAccessor => 'i',
+            // The implicit setter has the getter's name.
+            FunctionKind::ImplicitAccessor => {
+                if fe.variable.is_some_and(|v| p.variable(v).setter == Some(f)) {
+                    'j'
+                } else {
+                    'i'
+                }
+            }
         };
         let unit = match fe.node {
             FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => {
@@ -430,10 +470,7 @@ enum Declared {
 }
 
 /// Builds the [`FileRecord`]s of the libraries of one program.
-pub(crate) struct Builder {
-    /// The elements declared in each unit.
-    by_unit: Vec<Vec<Declared>>,
-}
+pub(crate) struct Builder;
 
 /// The program and the keys of one [`Builder::library`] call.
 struct Emit<'a> {
@@ -441,45 +478,83 @@ struct Emit<'a> {
     keys: Keys<'a>,
 }
 
-impl Builder {
-    pub(crate) fn new(project: &Project) -> Self {
-        let p = project.program();
-        let mut by_unit: Vec<Vec<Declared>> = vec![Vec::new(); p.units.len()];
-        let first_unit = |lib: LibraryId| p.library(lib).units.first().copied();
-        for (i, c) in p.classes.iter().enumerate() {
-            if let Some(u) = c.decl.map(|d| d.unit).or_else(|| first_unit(c.library)) {
-                by_unit[u.0 as usize].push(Declared::Class(ClassId(i as u32)));
-            }
+/// The elements `lib` declares, by declaring unit (the program's
+/// [`dartforge_elements::model::ElementIndex`] lists, in id order).
+fn declared_by_unit(project: &Project, lib: LibraryId) -> HashMap<UnitId, Vec<Declared>> {
+    let p = project.program();
+    let index = p.index();
+    let mut by_unit: HashMap<UnitId, Vec<Declared>> = HashMap::new();
+    let first_unit = p.library(lib).units.first().copied();
+    let mut put = |u: Option<UnitId>, d: Declared| {
+        if let Some(u) = u {
+            by_unit.entry(u).or_default().push(d);
         }
-        for (i, x) in p.extensions.iter().enumerate() {
-            by_unit[x.decl.unit.0 as usize].push(Declared::Extension(ExtensionId(i as u32)));
-        }
-        for (i, t) in p.typedefs.iter().enumerate() {
-            by_unit[t.decl.unit.0 as usize].push(Declared::Typedef(TypedefId(i as u32)));
-        }
-        for (i, f) in p.functions.iter().enumerate() {
-            let unit = match f.node {
-                FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => {
-                    Some(unit)
-                }
-                FunctionRef::None => f
-                    .variable
-                    .and_then(|v| p.variable(v).node.unit())
-                    .or_else(|| f.class.and_then(|c| p.class(c).decl.map(|d| d.unit)))
-                    .or_else(|| first_unit(f.library)),
-            };
-            if let Some(u) = unit {
-                by_unit[u.0 as usize].push(Declared::Function(FunctionElementId(i as u32)));
-            }
-        }
-        for (i, v) in p.variables.iter().enumerate() {
-            if let Some(u) = v.node.unit().or_else(|| first_unit(v.library)) {
-                by_unit[u.0 as usize].push(Declared::Variable(VariableId(i as u32)));
-            }
-        }
-        Builder { by_unit }
+    };
+    for &c in index
+        .library_classes
+        .get(lib.0 as usize)
+        .into_iter()
+        .flatten()
+    {
+        put(
+            p.class(c).decl.map(|d| d.unit).or(first_unit),
+            Declared::Class(c),
+        );
     }
+    for &u in &p.library(lib).units {
+        let mut extensions: Vec<ExtensionId> = index
+            .unit_extensions
+            .get(u.0 as usize)
+            .map(|m| m.values().copied().collect())
+            .unwrap_or_default();
+        extensions.sort();
+        for x in extensions {
+            put(Some(p.extension(x).decl.unit), Declared::Extension(x));
+        }
+        let mut typedefs: Vec<TypedefId> = index
+            .unit_typedefs
+            .get(u.0 as usize)
+            .map(|m| m.values().copied().collect())
+            .unwrap_or_default();
+        typedefs.sort();
+        for t in typedefs {
+            put(Some(p.typedef(t).decl.unit), Declared::Typedef(t));
+        }
+    }
+    for &g in index
+        .library_functions
+        .get(lib.0 as usize)
+        .into_iter()
+        .flatten()
+    {
+        let f = p.function(g);
+        let unit = match f.node {
+            FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => {
+                Some(unit)
+            }
+            FunctionRef::None => f
+                .variable
+                .and_then(|v| p.variable(v).node.unit())
+                .or_else(|| f.class.and_then(|c| p.class(c).decl.map(|d| d.unit)))
+                .or(first_unit),
+        };
+        put(unit, Declared::Function(g));
+    }
+    for &v in index
+        .library_variables
+        .get(lib.0 as usize)
+        .into_iter()
+        .flatten()
+    {
+        put(
+            p.variable(v).node.unit().or(first_unit),
+            Declared::Variable(v),
+        );
+    }
+    by_unit
+}
 
+impl Builder {
     /// The records of the units of `lib` (not the patches), whose bodies must
     /// be inferred. Keys and words go to `keys` and `words`.
     pub(crate) fn library(
@@ -494,14 +569,15 @@ impl Builder {
             project,
             keys: Keys::new(project),
         };
-        emit.library(&self.by_unit, lib, root, keys, words)
+        let by_unit = declared_by_unit(project, lib);
+        emit.library(&by_unit, lib, root, keys, words)
     }
 }
 
 impl Emit<'_> {
     fn library(
         &mut self,
-        by_unit: &[Vec<Declared>],
+        by_unit: &HashMap<UnitId, Vec<Declared>>,
         lib: LibraryId,
         root: &Path,
         keys: &mut Strings,
@@ -531,10 +607,20 @@ impl Emit<'_> {
                 .map(|n| words.id(n))
                 .collect();
             referenced.sort_unstable();
+            let frozen = !inside(&path, root);
+            let (modified, disk_length) = file_date(&path);
+            // A project file's record is of the disk only when the text is the
+            // disk's (an open document may differ); the SDK and the packages are.
+            let disk = disk_length == Some(unit.source.len() as u64)
+                && (frozen
+                    || std::fs::read_to_string(&path)
+                        .is_ok_and(|t| text_stamp(&t) == text_stamp(&unit.source)));
             records.push((
                 u,
                 FileRecord {
-                    frozen: !inside(&path, root),
+                    frozen,
+                    modified,
+                    disk,
                     path,
                     uri,
                     library: library_key,
@@ -576,12 +662,23 @@ impl Emit<'_> {
         // Declarations, class facts and accessors.
         let mut seen: HashMap<String, usize> = HashMap::new();
         for &u in &library.units {
-            let declared = by_unit.get(u.0 as usize).cloned().unwrap_or_default();
+            let declared = by_unit.get(&u).cloned().unwrap_or_default();
             for d in declared {
                 let (key, name) = match d {
                     Declared::Class(c) => {
                         let key = self.keys.class(c);
-                        let fact = self.class_fact(c, keys, words);
+                        let mut field_spans = Vec::new();
+                        let fact = self.class_fact(c, keys, words, &mut field_spans);
+                        for (fu, k, span) in field_spans {
+                            if let Some(i) = at(&records, fu) {
+                                records[i].1.relations.push(Relation {
+                                    key: keys.id(&k),
+                                    tag: Tag::FieldParameter,
+                                    start: span.start as u32,
+                                    end: span.end as u32,
+                                });
+                            }
+                        }
                         // Constructors written with the class name.
                         let symbol = p.class(c).name;
                         for (cu, m) in p.class_members(c) {
@@ -750,6 +847,25 @@ impl Emit<'_> {
         for (v, spans) in &index.variables {
             push(Some(self.keys.variable(*v)), Tag::Variable, spans, keys);
         }
+        for (g, s) in self.project.unit_constructor_uses(u) {
+            push(Some(self.keys.function(g)), Tag::Constructor, &[s], keys);
+        }
+        let parameters = self.project.unit_parameter_uses(u);
+        for &(g, label, s) in &parameters.labels {
+            let k = format!("{}/l{}", self.keys.function(g), self.project.name(label));
+            push(Some(k), Tag::Label, &[s], keys);
+        }
+        for &(g, i, s) in &parameters.positional {
+            let k = format!("{}/a{i}", self.keys.function(g));
+            push(Some(k), Tag::Positional, &[s], keys);
+        }
+        for &(sup, position, n, s) in &parameters.supers {
+            let k = match position {
+                Some(i) => format!("{}/s{i}", self.keys.function(sup)),
+                None => format!("{}/n{}", self.keys.function(sup), self.project.name(n)),
+            };
+            push(Some(k), Tag::Super, &[s], keys);
+        }
     }
 
     fn docs(
@@ -810,6 +926,9 @@ impl Emit<'_> {
                                 is_static: *is_static,
                             }
                         }
+                        Target::Constructor(f) => DocTarget::Constructor {
+                            key: keys.id(&self.keys.function(*f)),
+                        },
                         _ => DocTarget::Other,
                     };
                     let concrete_key = match concrete {
@@ -835,6 +954,7 @@ impl Emit<'_> {
                         word: words.id(&r[i].1),
                         start: r[i].0.start as u32,
                         end: r[i].0.end as u32,
+                        previous_end: if i > 0 { r[i - 1].0.end as u32 } else { NONE },
                         target,
                         concrete: concrete_key,
                         field_parameter,
@@ -844,7 +964,15 @@ impl Emit<'_> {
         }
     }
 
-    fn class_fact(&mut self, c: ClassId, keys: &mut Strings, words: &mut Strings) -> ClassFact {
+    /// The facts of class `c`; the spans of its constructors' `this.x` and
+    /// `x = e` go to `field_spans` (unit, key, span).
+    fn class_fact(
+        &mut self,
+        c: ClassId,
+        keys: &mut Strings,
+        words: &mut Strings,
+        field_spans: &mut Vec<(UnitId, String, Span)>,
+    ) -> ClassFact {
         let project = self.project;
         let p = project.program();
         let cl = p.class(c);
@@ -882,26 +1010,45 @@ impl Emit<'_> {
                 )
             })
             .collect();
-        let mut field_parameters = Vec::new();
+        let class_key = self.keys.class(c);
+        let mut constructor_parameters = Vec::new();
         for (u, m) in p.class_members(c) {
             let MemberKind::Constructor(k) = &p.unit(u).ast.member(m).kind else {
                 continue;
             };
+            let constructor = project
+                .node_constructor(u, m)
+                .map(|f| keys.id(&self.keys.function(f)));
+            let mut position = 0u32;
             for q in k.parameters.iter() {
+                let named = q.kind == ast::ParameterKind::Named;
                 if q.this_
                     && let Some(n) = q.name
                 {
-                    field_parameters.push(words.id(project.name(n.sym)));
+                    let name = project.name(n.sym);
+                    field_spans.push((u, format!("{class_key}/p{name}"), n.span));
+                    if let Some(constructor) = constructor {
+                        constructor_parameters.push(ConstructorParameter {
+                            constructor,
+                            name: words.id(name),
+                            named,
+                            public_name: q.public_name.is_some(),
+                            optional: q.kind == ast::ParameterKind::Optional,
+                            position,
+                        });
+                    }
+                }
+                if !named {
+                    position += 1;
                 }
             }
             for i in k.initializers.iter() {
                 if let ast::Initializer::Field { name, .. } = i {
-                    field_parameters.push(words.id(project.name(name.sym)));
+                    let name_ = project.name(name.sym);
+                    field_spans.push((u, format!("{class_key}/p{name_}"), name.span));
                 }
             }
         }
-        field_parameters.sort_unstable();
-        field_parameters.dedup();
         ClassFact {
             key: keys.id(&self.keys.class(c)),
             library: keys.id(&p.library(cl.library).uri),
@@ -910,7 +1057,7 @@ impl Emit<'_> {
             written,
             members,
             fields,
-            field_parameters,
+            constructor_parameters,
         }
     }
 
@@ -998,6 +1145,9 @@ pub(crate) struct ReferenceIndex {
     files: Vec<Option<FileRecord>>,
     by_path: HashMap<PathBuf, usize>,
     derived: Option<Derived>,
+    /// Project files no load records (a part without its library: no search
+    /// reads it either), with the stamp of the text that was not recorded.
+    pub(crate) absent: HashMap<PathBuf, u64>,
 }
 
 /// Why the index does not answer a search.
@@ -1023,6 +1173,7 @@ impl ReferenceIndex {
     /// Adds or replaces the records of their files.
     pub(crate) fn put(&mut self, records: Vec<FileRecord>) {
         for r in records {
+            self.absent.remove(&r.path);
             match self.by_path.get(&r.path) {
                 Some(&i) => self.files[i] = Some(r),
                 None => {
@@ -1203,6 +1354,75 @@ impl ReferenceIndex {
         Some(family)
     }
 
+    /// The relations a field's search adds (`member_occurrences` without the
+    /// whole family's parameters): the `this.x` and `x = e` of the family's
+    /// classes, the labels of the calls to the constructors with a named
+    /// `this.x`, and, when the owner declares the field, the positional
+    /// arguments to its optional `this.x`s and the `super.x`s that point to
+    /// its `this.x`s.
+    fn field_parameter_relations(
+        &self,
+        d: &Derived,
+        family: &KeyFamily,
+        owner: u32,
+        name: &str,
+    ) -> Vec<(u32, Tag)> {
+        let mut output = Vec::new();
+        let Some(word) = self.words.get(name) else {
+            return output;
+        };
+        let key = |text: String, tag: Tag, output: &mut Vec<(u32, Tag)>| {
+            if let Some(k) = self.keys.get(&text) {
+                output.push((k, tag));
+            }
+        };
+        let mut named = Vec::new();
+        for &c in &family.classes {
+            key(
+                format!("{}/p{name}", self.keys.text(c)),
+                Tag::FieldParameter,
+                &mut output,
+            );
+            for q in self
+                .class_fact(d, c)
+                .map(|f| &f.constructor_parameters[..])
+                .unwrap_or(&[])
+            {
+                if q.name == word && q.named && !q.public_name && !named.contains(&q.constructor) {
+                    named.push(q.constructor);
+                }
+            }
+        }
+        for g in named {
+            key(
+                format!("{}/l{name}", self.keys.text(g)),
+                Tag::Label,
+                &mut output,
+            );
+        }
+        let Some(fact) = self.class_fact(d, owner) else {
+            return output;
+        };
+        if fact.extension || !fact.fields.iter().any(|&(n, s, _)| n == word && !s) {
+            return output;
+        }
+        for q in &fact.constructor_parameters {
+            if q.name != word {
+                continue;
+            }
+            let g = self.keys.text(q.constructor);
+            if q.named {
+                key(format!("{g}/n{name}"), Tag::Super, &mut output);
+            } else {
+                key(format!("{g}/s{}", q.position), Tag::Super, &mut output);
+                if q.optional {
+                    key(format!("{g}/a{}", q.position), Tag::Positional, &mut output);
+                }
+            }
+        }
+        output
+    }
+
     /// The references of what `denoted` is in `session` (the document's
     /// library, with its bodies inferred), as `semantic::references_in`
     /// gives them over the wide load. `Err` when the index does not answer.
@@ -1240,7 +1460,10 @@ impl ReferenceIndex {
                 family: KeyFamily,
                 owner: u32,
                 is_static: bool,
+                /// The relations of the field's `this.x` search (`member_occurrences`).
+                parameters: Vec<(u32, Tag)>,
             },
+            Constructor(u32),
         }
         let key_of = |index: &Self, k: String| -> Result<u32, Miss> {
             index.keys.get(&k).ok_or(Miss::Key(k))
@@ -1267,28 +1490,25 @@ impl ReferenceIndex {
                 let family = self
                     .family(d, owner, member, *is_static)
                     .ok_or(Miss::Unsupported("a class without facts"))?;
-                if !*is_static {
-                    let w = self.words.get(member);
-                    let has_parameters = family.classes.iter().chain([&owner]).any(|c| {
-                        self.class_fact(d, *c)
-                            .is_some_and(|f| w.is_some_and(|w| f.field_parameters.contains(&w)))
-                    });
-                    if has_parameters {
-                        return Err(Miss::Unsupported("a field with this.x parameters"));
-                    }
-                }
+                let parameters = if *is_static {
+                    Vec::new()
+                } else {
+                    self.field_parameter_relations(d, &family, owner, member)
+                };
                 Covers::Member {
                     family,
                     owner,
                     is_static: *is_static,
+                    parameters,
                 }
             }
-            Target::Constructor(_) => return Err(Miss::Unsupported("a constructor")),
+            Target::Constructor(f) => Covers::Constructor(key_of(self, keys.function(*f))?),
             _ => return Err(Miss::Unsupported("a local search")),
         };
         // Ambiguous keys.
         let involved: Vec<u32> = match &covers {
             Covers::Top(set) => set.iter().copied().collect(),
+            Covers::Constructor(k) => vec![*k],
             Covers::Member { family, owner, .. } => family
                 .functions
                 .iter()
@@ -1342,7 +1562,7 @@ impl ReferenceIndex {
             Ok((Some(f), library))
         };
         match &covers {
-            Covers::Top(_) => {
+            Covers::Top(_) | Covers::Constructor(_) => {
                 for (u, s, e) in session.declarations(target) {
                     let (f, library) = declared_in(u)?;
                     if let Some(f) = f {
@@ -1430,7 +1650,23 @@ impl ReferenceIndex {
                         }
                     }
                 }
-                Covers::Member { family, .. } => {
+                Covers::Constructor(k) => {
+                    for rel in r.relations_of(*k) {
+                        if rel.tag == Tag::Constructor {
+                            uses.push((f, rel.start, rel.end));
+                        }
+                    }
+                }
+                Covers::Member {
+                    family, parameters, ..
+                } => {
+                    for &(k, tag) in parameters {
+                        for rel in r.relations_of(k) {
+                            if rel.tag == tag {
+                                uses.push((f, rel.start, rel.end));
+                            }
+                        }
+                    }
                     for k in &family.functions {
                         for rel in r.relations_of(*k) {
                             if rel.tag == Tag::Function {
@@ -1455,6 +1691,9 @@ impl ReferenceIndex {
                     continue;
                 }
                 let matches = match (&covers, &doc.concrete) {
+                    (Covers::Constructor(k), _) => {
+                        matches!(doc.target, DocTarget::Constructor { key } if key == *k)
+                    }
                     (Covers::Member { family, .. }, Some(ConcreteKey::Function(x))) => {
                         family.functions.contains(x)
                     }
@@ -1473,6 +1712,7 @@ impl ReferenceIndex {
                             family,
                             owner,
                             is_static,
+                            ..
                         },
                         None,
                     ) => match &doc.target {
@@ -1514,7 +1754,12 @@ impl ReferenceIndex {
                         continue;
                     }
                 }
-                uses.push((f, doc.start, doc.end));
+                // A constructor's `[A.name]` goes from the end of `A`.
+                let start = match covers {
+                    Covers::Constructor(_) if doc.previous_end != NONE => doc.previous_end,
+                    _ => doc.start,
+                };
+                uses.push((f, start, doc.end));
             }
         }
         uses.sort_unstable();
@@ -1552,7 +1797,7 @@ pub(crate) fn build(
     let started = std::time::Instant::now();
     let mut project = crate::project::load_wide_project_with(sdk, documents, uri, None, false)?;
     let loaded = started.elapsed();
-    let builder = Builder::new(&project);
+    let builder = Builder;
     let mut index = ReferenceIndex::new(root.clone());
     let libraries = project.program().libraries.len();
     for i in 0..libraries {
@@ -1579,6 +1824,7 @@ pub(crate) fn build(
         }
         index.put(records);
     }
+    index.note_absent(crate::project::project_files(&root).into_iter());
     if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
         let (files, relations, keys) = index.sizes();
         eprintln!(
@@ -1588,5 +1834,652 @@ pub(crate) fn build(
             started.elapsed().as_millis()
         );
     }
+    Some(index)
+}
+
+/// The version of [`ReferenceIndex::encode`]'s format (in the header).
+const FORMAT: u32 = 1;
+
+/// A little-endian LEB128 writer.
+#[derive(Default)]
+struct Writer(Vec<u8>);
+
+impl Writer {
+    fn u(&mut self, mut v: u64) {
+        loop {
+            let b = (v & 0x7f) as u8;
+            v >>= 7;
+            if v == 0 {
+                self.0.push(b);
+                return;
+            }
+            self.0.push(b | 0x80);
+        }
+    }
+
+    fn n(&mut self, v: usize) {
+        self.u(v as u64);
+    }
+
+    fn s(&mut self, t: &str) {
+        self.n(t.len());
+        self.0.extend_from_slice(t.as_bytes());
+    }
+
+    fn path(&mut self, p: &Path) {
+        self.s(&p.to_string_lossy());
+    }
+}
+
+/// The reader of [`Writer`]'s format; `None` at the end or on bad data.
+struct Reader<'a> {
+    bytes: &'a [u8],
+    at: usize,
+}
+
+impl Reader<'_> {
+    fn u(&mut self) -> Option<u64> {
+        let mut v = 0u64;
+        let mut shift = 0;
+        loop {
+            let b = *self.bytes.get(self.at)?;
+            self.at += 1;
+            v |= u64::from(b & 0x7f) << shift;
+            if b & 0x80 == 0 {
+                return Some(v);
+            }
+            shift += 7;
+            if shift > 63 {
+                return None;
+            }
+        }
+    }
+
+    fn w(&mut self) -> Option<u32> {
+        u32::try_from(self.u()?).ok()
+    }
+
+    fn n(&mut self) -> Option<usize> {
+        usize::try_from(self.u()?).ok()
+    }
+
+    fn s(&mut self) -> Option<&str> {
+        let n = self.n()?;
+        let b = self.bytes.get(self.at..self.at.checked_add(n)?)?;
+        self.at += n;
+        std::str::from_utf8(b).ok()
+    }
+
+    fn path(&mut self) -> Option<PathBuf> {
+        self.s().map(PathBuf::from)
+    }
+
+    fn list<T>(&mut self, mut item: impl FnMut(&mut Self) -> Option<T>) -> Option<Vec<T>> {
+        let n = self.n()?;
+        let mut v = Vec::with_capacity(n.min(1 << 20));
+        for _ in 0..n {
+            v.push(item(self)?);
+        }
+        Some(v)
+    }
+}
+
+fn tag_code(t: Tag) -> u64 {
+    match t {
+        Tag::Element => 0,
+        Tag::TypeName => 1,
+        Tag::Function => 2,
+        Tag::Variable => 3,
+        Tag::ConstructorClassName => 4,
+        Tag::Combinator => 5,
+        Tag::Constructor => 6,
+        Tag::FieldParameter => 7,
+        Tag::Label => 8,
+        Tag::Positional => 9,
+        Tag::Super => 10,
+    }
+}
+
+fn tag_of(c: u64) -> Option<Tag> {
+    Some(match c {
+        0 => Tag::Element,
+        1 => Tag::TypeName,
+        2 => Tag::Function,
+        3 => Tag::Variable,
+        4 => Tag::ConstructorClassName,
+        5 => Tag::Combinator,
+        6 => Tag::Constructor,
+        7 => Tag::FieldParameter,
+        8 => Tag::Label,
+        9 => Tag::Positional,
+        10 => Tag::Super,
+        _ => return None,
+    })
+}
+
+/// `NONE` and the other ids, written one above so that `NONE` is 0.
+fn opt(v: u32) -> u64 {
+    if v == NONE { 0 } else { u64::from(v) + 1 }
+}
+
+fn unopt(v: u64) -> Option<u32> {
+    if v == 0 {
+        Some(NONE)
+    } else {
+        u32::try_from(v - 1).ok()
+    }
+}
+
+fn write_record(w: &mut Writer, r: &FileRecord) {
+    w.path(&r.path);
+    w.s(&r.uri);
+    w.u(u64::from(r.library));
+    w.u(u64::from(r.frozen) | u64::from(r.disk) << 1);
+    w.u(r.stamp);
+    w.u(u64::from(r.length));
+    w.u(r.modified);
+    w.u(u64::from(r.api.is_some()));
+    if let Some(a) = r.api {
+        w.u(a);
+    }
+    let mut last = 0;
+    w.n(r.lines.len());
+    for &l in &r.lines {
+        w.u(u64::from(l - last));
+        last = l;
+    }
+    w.n(r.wide.len());
+    for &(o, s) in &r.wide {
+        w.u(u64::from(o));
+        w.u(u64::from(s));
+    }
+    w.n(r.referenced.len());
+    for &x in &r.referenced {
+        w.u(u64::from(x));
+    }
+    w.n(r.relations.len());
+    for x in &r.relations {
+        w.u(u64::from(x.key));
+        w.u(tag_code(x.tag));
+        w.u(u64::from(x.start));
+        w.u(u64::from(x.end - x.start));
+    }
+    w.n(r.declarations.len());
+    for &(k, s, e) in &r.declarations {
+        w.u(u64::from(k));
+        w.u(u64::from(s));
+        w.u(u64::from(e - s));
+    }
+    w.n(r.patch_declarations.len());
+    for &k in &r.patch_declarations {
+        w.u(u64::from(k));
+    }
+    w.n(r.docs.len());
+    for d in &r.docs {
+        w.u(u64::from(d.word));
+        w.u(u64::from(d.start));
+        w.u(u64::from(d.end - d.start));
+        w.u(opt(d.previous_end));
+        match &d.target {
+            DocTarget::Top { key, group } => {
+                w.u(0);
+                w.u(u64::from(*key));
+                w.n(group.len());
+                for &g in group {
+                    w.u(u64::from(g));
+                }
+            }
+            DocTarget::Member {
+                owner,
+                name,
+                is_static,
+            } => {
+                w.u(1);
+                w.u(u64::from(*owner));
+                w.u(u64::from(*name));
+                w.u(u64::from(*is_static));
+            }
+            DocTarget::Constructor { key } => {
+                w.u(2);
+                w.u(u64::from(*key));
+            }
+            DocTarget::Other => w.u(3),
+        }
+        match d.concrete {
+            None => w.u(0),
+            Some(ConcreteKey::Function(k)) => {
+                w.u(1);
+                w.u(u64::from(k));
+            }
+            Some(ConcreteKey::Variable(k)) => {
+                w.u(2);
+                w.u(u64::from(k));
+            }
+        }
+        match d.field_parameter {
+            None => w.u(0),
+            Some(c) => {
+                w.u(1);
+                w.u(c.map_or(0, |c| u64::from(c) + 1));
+            }
+        }
+    }
+    w.n(r.classes.len());
+    for c in &r.classes {
+        w.u(u64::from(c.key));
+        w.u(u64::from(c.library));
+        w.u(u64::from(c.extension));
+        for list in [&c.supers, &c.written] {
+            w.n(list.len());
+            for &k in list {
+                w.u(u64::from(k));
+            }
+        }
+        for list in [&c.members, &c.fields] {
+            w.n(list.len());
+            for &(n, s, k) in list {
+                w.u(u64::from(n));
+                w.u(u64::from(s));
+                w.u(u64::from(k));
+            }
+        }
+        w.n(c.constructor_parameters.len());
+        for q in &c.constructor_parameters {
+            w.u(u64::from(q.constructor));
+            w.u(u64::from(q.name));
+            w.u(u64::from(q.named) | u64::from(q.public_name) << 1 | u64::from(q.optional) << 2);
+            w.u(u64::from(q.position));
+        }
+    }
+    w.n(r.function_variables.len());
+    for &(f, v) in &r.function_variables {
+        w.u(u64::from(f));
+        w.u(u64::from(v));
+    }
+    w.n(r.accessors.len());
+    for &(v, g, s) in &r.accessors {
+        w.u(u64::from(v));
+        w.u(opt(g));
+        w.u(opt(s));
+    }
+    w.n(r.ambiguous.len());
+    for &k in &r.ambiguous {
+        w.u(u64::from(k));
+    }
+    w.n(r.imports.len());
+    for i in &r.imports {
+        w.path(i);
+    }
+}
+
+fn read_record(r: &mut Reader<'_>) -> Option<FileRecord> {
+    let path = r.path()?;
+    let uri = r.s()?.to_string();
+    let library = r.w()?;
+    let flags = r.u()?;
+    let stamp = r.u()?;
+    let length = r.w()?;
+    let modified = r.u()?;
+    let api = if r.u()? != 0 { Some(r.u()?) } else { None };
+    let mut last = 0u32;
+    let lines = r.list(|r| {
+        last = last.checked_add(r.w()?)?;
+        Some(last)
+    })?;
+    let wide = r.list(|r| Some((r.w()?, r.w()?)))?;
+    let referenced = r.list(|r| r.w())?;
+    let relations = r.list(|r| {
+        let key = r.w()?;
+        let tag = tag_of(r.u()?)?;
+        let start = r.w()?;
+        let end = start.checked_add(r.w()?)?;
+        Some(Relation {
+            key,
+            tag,
+            start,
+            end,
+        })
+    })?;
+    let declarations = r.list(|r| {
+        let k = r.w()?;
+        let s = r.w()?;
+        Some((k, s, s.checked_add(r.w()?)?))
+    })?;
+    let patch_declarations = r.list(|r| r.w())?;
+    let docs = r.list(|r| {
+        let word = r.w()?;
+        let start = r.w()?;
+        let end = start.checked_add(r.w()?)?;
+        let previous_end = unopt(r.u()?)?;
+        let target = match r.u()? {
+            0 => {
+                let key = r.w()?;
+                let group = r.list(|r| r.w())?;
+                DocTarget::Top { key, group }
+            }
+            1 => DocTarget::Member {
+                owner: r.w()?,
+                name: r.w()?,
+                is_static: r.u()? != 0,
+            },
+            2 => DocTarget::Constructor { key: r.w()? },
+            3 => DocTarget::Other,
+            _ => return None,
+        };
+        let concrete = match r.u()? {
+            0 => None,
+            1 => Some(ConcreteKey::Function(r.w()?)),
+            2 => Some(ConcreteKey::Variable(r.w()?)),
+            _ => return None,
+        };
+        let field_parameter = match r.u()? {
+            0 => None,
+            1 => Some(match r.u()? {
+                0 => None,
+                c => Some(u32::try_from(c - 1).ok()?),
+            }),
+            _ => return None,
+        };
+        Some(DocFact {
+            word,
+            start,
+            end,
+            previous_end,
+            target,
+            concrete,
+            field_parameter,
+        })
+    })?;
+    let classes = r.list(|r| {
+        let key = r.w()?;
+        let library = r.w()?;
+        let extension = r.u()? != 0;
+        let supers = r.list(|r| r.w())?;
+        let written = r.list(|r| r.w())?;
+        let members = r.list(|r| Some((r.w()?, r.u()? != 0, r.w()?)))?;
+        let fields = r.list(|r| Some((r.w()?, r.u()? != 0, r.w()?)))?;
+        let constructor_parameters = r.list(|r| {
+            let constructor = r.w()?;
+            let name = r.w()?;
+            let flags = r.u()?;
+            Some(ConstructorParameter {
+                constructor,
+                name,
+                named: flags & 1 != 0,
+                public_name: flags & 2 != 0,
+                optional: flags & 4 != 0,
+                position: r.w()?,
+            })
+        })?;
+        Some(ClassFact {
+            key,
+            library,
+            extension,
+            supers,
+            written,
+            members,
+            fields,
+            constructor_parameters,
+        })
+    })?;
+    let function_variables = r.list(|r| Some((r.w()?, r.w()?)))?;
+    let accessors = r.list(|r| Some((r.w()?, unopt(r.u()?)?, unopt(r.u()?)?)))?;
+    let ambiguous = r.list(|r| r.w())?;
+    let imports = r.list(|r| r.path())?;
+    Some(FileRecord {
+        path,
+        uri,
+        library,
+        frozen: flags & 1 != 0,
+        disk: flags & 2 != 0,
+        stamp,
+        length,
+        modified,
+        api,
+        lines,
+        wide,
+        referenced,
+        relations,
+        declarations,
+        patch_declarations,
+        docs,
+        classes,
+        function_variables,
+        accessors,
+        ambiguous,
+        imports,
+    })
+}
+
+impl ReferenceIndex {
+    /// The index as bytes (the child's answer, the disk cache): a header with
+    /// the format, the root, the strings and the records.
+    pub(crate) fn encode(&self) -> Vec<u8> {
+        let mut w = Writer::default();
+        w.0.extend_from_slice(b"DFRI");
+        w.u(u64::from(FORMAT));
+        w.path(&self.root);
+        for strings in [&self.keys, &self.words] {
+            w.n(strings.texts.len());
+            for t in &strings.texts {
+                w.s(t);
+            }
+        }
+        let records: Vec<&FileRecord> = self.records().collect();
+        w.n(records.len());
+        for r in records {
+            write_record(&mut w, r);
+        }
+        let mut absent: Vec<(&PathBuf, &u64)> = self.absent.iter().collect();
+        absent.sort();
+        w.n(absent.len());
+        for (p, s) in absent {
+            w.path(p);
+            w.u(*s);
+        }
+        w.0
+    }
+
+    /// The index of [`ReferenceIndex::encode`]'s bytes; `None` for another
+    /// format or bad data.
+    pub(crate) fn decode(bytes: &[u8]) -> Option<ReferenceIndex> {
+        let rest = bytes.strip_prefix(b"DFRI")?;
+        let mut r = Reader { bytes: rest, at: 0 };
+        if r.w()? != FORMAT {
+            return None;
+        }
+        let root = r.path()?;
+        let mut index = ReferenceIndex::new(root);
+        for i in 0..2 {
+            let n = r.n()?;
+            let strings = if i == 0 {
+                &mut index.keys
+            } else {
+                &mut index.words
+            };
+            for _ in 0..n {
+                let t = r.s()?;
+                strings.id(t);
+            }
+            if strings.len() != n {
+                return None;
+            }
+        }
+        let records = r.list(read_record)?;
+        index.put(records);
+        let absent = r.list(|r| Some((r.path()?, r.u()?)))?;
+        index.absent.extend(absent);
+        Some(index)
+    }
+}
+
+impl ReferenceIndex {
+    /// Puts the records of `other` (another process's index, with its own
+    /// strings) into this one, translating their keys and words.
+    pub(crate) fn merge(&mut self, other: ReferenceIndex) {
+        let keys: Vec<u32> = other.keys.texts.iter().map(|t| self.keys.id(t)).collect();
+        let words: Vec<u32> = other.words.texts.iter().map(|t| self.words.id(t)).collect();
+        let k = |v: &mut u32| {
+            if *v != NONE {
+                *v = keys[*v as usize];
+            }
+        };
+        let w = |v: &mut u32| *v = words[*v as usize];
+        let mut records = Vec::new();
+        for mut r in other.files.into_iter().flatten() {
+            k(&mut r.library);
+            r.referenced.iter_mut().for_each(w);
+            r.referenced.sort_unstable();
+            for x in &mut r.relations {
+                k(&mut x.key);
+            }
+            r.relations.sort_by_key(|x| (x.key, x.start, x.end, x.tag));
+            for x in &mut r.declarations {
+                k(&mut x.0);
+            }
+            r.patch_declarations.iter_mut().for_each(k);
+            for d in &mut r.docs {
+                w(&mut d.word);
+                match &mut d.target {
+                    DocTarget::Top { key, group } => {
+                        k(key);
+                        group.iter_mut().for_each(k);
+                    }
+                    DocTarget::Member { owner, name, .. } => {
+                        k(owner);
+                        w(name);
+                    }
+                    DocTarget::Constructor { key } => k(key),
+                    DocTarget::Other => {}
+                }
+                match &mut d.concrete {
+                    Some(ConcreteKey::Function(x) | ConcreteKey::Variable(x)) => k(x),
+                    None => {}
+                }
+                if let Some(Some(c)) = &mut d.field_parameter {
+                    k(c);
+                }
+            }
+            for c in &mut r.classes {
+                k(&mut c.key);
+                k(&mut c.library);
+                c.supers.iter_mut().for_each(k);
+                c.written.iter_mut().for_each(k);
+                for m in c.members.iter_mut().chain(c.fields.iter_mut()) {
+                    w(&mut m.0);
+                    k(&mut m.2);
+                }
+                for q in &mut c.constructor_parameters {
+                    k(&mut q.constructor);
+                    w(&mut q.name);
+                }
+            }
+            for x in &mut r.function_variables {
+                k(&mut x.0);
+                k(&mut x.1);
+            }
+            for x in &mut r.accessors {
+                k(&mut x.0);
+                k(&mut x.1);
+                k(&mut x.2);
+            }
+            r.ambiguous.iter_mut().for_each(k);
+            records.push(r);
+        }
+        self.put(records);
+        self.absent.extend(other.absent);
+    }
+
+    /// Notes the project files of `files` that have no record as absent.
+    fn note_absent(&mut self, files: impl Iterator<Item = PathBuf>) {
+        for f in files {
+            let f = dartforge_elements::generated::key(&f);
+            if self.by_path.contains_key(&f) {
+                continue;
+            }
+            if let Ok(t) = std::fs::read_to_string(&f) {
+                self.absent.insert(f, text_stamp(&t));
+            }
+        }
+    }
+
+    /// The paths of the records outside the SDK and the packages.
+    pub(crate) fn project_paths(&self) -> Vec<PathBuf> {
+        self.records()
+            .filter(|r| !r.frozen)
+            .map(|r| r.path.clone())
+            .collect()
+    }
+
+    /// The project files whose library imports or exports, directly or not,
+    /// the library of one of `changed` (the dependents of an API change).
+    pub(crate) fn dependents(&self, changed: &[PathBuf]) -> Vec<PathBuf> {
+        // Who imports each library (by the library of the imported file).
+        let mut importers: HashMap<u32, Vec<u32>> = HashMap::new();
+        for r in self.records().filter(|r| !r.frozen) {
+            for i in &r.imports {
+                if let Some(target) = self.file(i) {
+                    importers.entry(target.library).or_default().push(r.library);
+                }
+            }
+        }
+        let mut seen: HashSet<u32> = HashSet::new();
+        let mut stack: Vec<u32> = changed
+            .iter()
+            .filter_map(|p| self.file(p).map(|r| r.library))
+            .collect();
+        while let Some(lib) = stack.pop() {
+            for &l in importers.get(&lib).into_iter().flatten() {
+                if seen.insert(l) {
+                    stack.push(l);
+                }
+            }
+        }
+        self.records()
+            .filter(|r| !r.frozen && seen.contains(&r.library))
+            .map(|r| r.path.clone())
+            .collect()
+    }
+}
+
+/// Re-indexes the libraries of `files` (project files, canonical keys) in a
+/// load of the project of `uri` without the wide part, each library's bodies
+/// inferred and dropped in turn. The records of their units come back, and
+/// the files that are no unit of the load (a part without its library) are
+/// left out.
+pub(crate) fn build_files(
+    sdk: &dartforge_elements::sdk::SdkLayout,
+    documents: &crate::DocumentStore,
+    uri: &str,
+    files: &[PathBuf],
+) -> Option<ReferenceIndex> {
+    let file = crate::project::uri_file(uri)?;
+    let root = crate::project::project_root(&file);
+    let mut project = crate::project::load_project_bare(sdk, documents, uri)?;
+    let wanted: HashSet<&Path> = files.iter().map(PathBuf::as_path).collect();
+    let mut index = ReferenceIndex::new(root.clone());
+    let libraries = project.program().libraries.len();
+    for i in 0..libraries {
+        let lib = LibraryId(i as u32);
+        let units = project.program().library(lib).units.clone();
+        let p = project.program();
+        let hit = units.iter().any(|u| {
+            p.unit(*u)
+                .path
+                .as_deref()
+                .is_some_and(|c| wanted.contains(dartforge_elements::generated::key_of(c).as_ref()))
+        });
+        if !hit {
+            continue;
+        }
+        project.query.infer_libraries(&[lib]);
+        let records = Builder.library(&project, lib, &root, &mut index.keys, &mut index.words);
+        for u in units {
+            project.query.bodies.units[u.0 as usize] = Default::default();
+            project.forget_unit(u);
+        }
+        index.put(records);
+    }
+    index.note_absent(files.iter().cloned());
     Some(index)
 }

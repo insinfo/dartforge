@@ -40,6 +40,15 @@ pub struct SemanticAnalyzer {
     /// The resolved-reference index of the project, once built
     /// ([`crate::reference_index`]).
     reference_index: Option<crate::reference_index::ReferenceIndex>,
+    /// A build of the index running in a child: the project root and the
+    /// channel of its encoded index (`None`: it failed).
+    index_build: Option<(
+        std::path::PathBuf,
+        std::sync::mpsc::Receiver<Option<Vec<u8>>>,
+    )>,
+    /// The roots whose index could not be built (not tried again until the
+    /// configuration changes).
+    index_failed: std::collections::HashSet<std::path::PathBuf>,
     /// The summaries of the known libraries (export namespace) of `ImportLibrary`.
     known: crate::known_libraries::LibraryIndex,
     /// The current `maxCompletionItems`.
@@ -69,6 +78,8 @@ impl SemanticAnalyzer {
             wide_fits: Default::default(),
             search_exe: None,
             reference_index: None,
+            index_build: None,
+            index_failed: Default::default(),
             known: Default::default(),
             completion_max: crate::completion::MAX_PATTERN,
             not_imported_in_completion: true,
@@ -394,6 +405,9 @@ impl SemanticAnalyzer {
         offset: usize,
     ) -> Result<Option<References>, crate::reference_index::Miss> {
         use crate::reference_index::Miss;
+        if !self.ready_index(documents, uri) {
+            return Err(Miss::Unsupported("no index ready"));
+        }
         let mut index = self
             .reference_index
             .take()
@@ -406,8 +420,8 @@ impl SemanticAnalyzer {
             let Ok(Some(d)) = library.identify(unit, offset) else {
                 return Ok(None);
             };
-            let fresh = |r: &crate::reference_index::FileRecord| record_is_current(r, documents);
-            let (declaration, uses) = index.references(&library, &d, &fresh)?;
+            // `ready_index` recorded the stale files again.
+            let (declaration, uses) = index.references(&library, &d, &|_| true)?;
             let declaration_range = declaration.as_ref().and_then(|d| d.2);
             let use_ranges: Vec<(u32, u32, u32, u32)> = uses.iter().filter_map(|u| u.2).collect();
             Ok(Some(References {
@@ -442,21 +456,28 @@ impl SemanticAnalyzer {
     /// differences.
     #[doc(hidden)]
     pub fn check_reference_index(&mut self, documents: &DocumentStore, uris: &[String]) -> String {
-        use std::fmt::Write as _;
-        type Answer = Option<(Option<(String, Span)>, Vec<(String, Span)>)>;
-        let mut report = String::new();
         let Some(first) = uris.first() else {
-            return report;
+            return String::new();
         };
         let started = std::time::Instant::now();
         if !self.build_reference_index_here(documents, first) {
             return "the index could not be built".to_string();
         }
-        let _ = writeln!(
-            report,
-            "index built in {} ms",
-            started.elapsed().as_millis()
-        );
+        let built = format!("index built in {} ms\n", started.elapsed().as_millis());
+        built + &self.compare_with_current_index(documents, uris)
+    }
+
+    /// [`SemanticAnalyzer::check_reference_index`] with the index this
+    /// analyzer has (refreshed before each answer), without building it.
+    #[doc(hidden)]
+    pub fn compare_with_current_index(
+        &mut self,
+        documents: &DocumentStore,
+        uris: &[String],
+    ) -> String {
+        use std::fmt::Write as _;
+        type Answer = Option<(Option<(String, Span)>, Vec<(String, Span)>)>;
+        let mut report = String::new();
         let mut compared = 0usize;
         let mut equal = 0usize;
         let mut misses: std::collections::BTreeMap<String, usize> = Default::default();
@@ -517,12 +538,7 @@ impl SemanticAnalyzer {
                     Err(miss) => {
                         let reason = match miss {
                             crate::reference_index::Miss::Unsupported(r) => r.to_string(),
-                            crate::reference_index::Miss::Key(k) => {
-                                format!(
-                                    "a key: {}",
-                                    k.split(['#', '.']).take(3).collect::<Vec<_>>().join("|")
-                                )
-                            }
+                            crate::reference_index::Miss::Key(k) => format!("a key: {k}"),
                             crate::reference_index::Miss::Stale(_) => "stale".to_string(),
                         };
                         *misses.entry(reason).or_default() += 1;
@@ -611,22 +627,6 @@ impl SemanticAnalyzer {
         let project = self.project(documents, uri)?;
         references_in(&project, uri, offset)
     }
-}
-
-/// The record of a file is of the text the server sees: the open document's,
-/// or the disk's for a closed file.
-fn record_is_current(r: &crate::reference_index::FileRecord, documents: &DocumentStore) -> bool {
-    let open = url::Url::from_file_path(&r.path)
-        .ok()
-        .and_then(|u| documents.get(u.as_str()).map(str::to_string));
-    let text = match open {
-        Some(t) => t,
-        None => match std::fs::read_to_string(&r.path) {
-            Ok(t) => t,
-            Err(_) => return false,
-        },
-    };
-    text.len() as u32 == r.length && crate::reference_index::text_stamp(&text) == r.stamp
 }
 
 /// The hidden argument that makes the `dartforge-lsp` binary a reference
@@ -984,6 +984,9 @@ impl Analyzer for SemanticAnalyzer {
     }
 
     fn project_configuration_changed(&mut self) {
+        self.reference_index = None;
+        self.index_build = None;
+        self.index_failed.clear();
         self.syntactic.project_configuration_changed();
         self.session.invalidate();
         self.wide_session.invalidate();
@@ -1657,5 +1660,357 @@ impl Analyzer for SemanticAnalyzer {
             },
             retained.as_deref_mut(),
         )
+    }
+}
+
+/// The hidden argument that makes the `dartforge-lsp` binary a reference
+/// index process ([`reference_index_child`]).
+pub const REFERENCE_INDEX_ARGUMENT: &str = "--reference-index";
+
+/// What the server asks the index child: the whole index of the project of
+/// `uri` (`files` absent), or the records of the libraries of `files`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct IndexRequest {
+    sdk_lib: std::path::PathBuf,
+    uri: String,
+    documents: Vec<(String, i32, String)>,
+    files: Option<Vec<std::path::PathBuf>>,
+}
+
+/// The reference index child process ([`REFERENCE_INDEX_ARGUMENT`]): reads an
+/// [`IndexRequest`] from `stdin`, builds and writes the encoded index
+/// ([`crate::reference_index::ReferenceIndex::encode`]) to `stdout`. Its
+/// program (the wide load) never stays in the server's memory.
+pub fn reference_index_child() -> i32 {
+    use std::io::{Read, Write};
+    let mut input = Vec::new();
+    if std::io::stdin().read_to_end(&mut input).is_err() {
+        return 2;
+    }
+    let Ok(request) = serde_json::from_slice::<IndexRequest>(&input) else {
+        return 2;
+    };
+    let Ok(sdk) = load_sdk(&request.sdk_lib) else {
+        return 2;
+    };
+    let mut documents = DocumentStore::new();
+    for (uri, version, text) in request.documents {
+        documents.open(uri, version, text);
+    }
+    let index = match &request.files {
+        None => crate::reference_index::build(&sdk, &documents, &request.uri),
+        Some(files) => crate::reference_index::build_files(&sdk, &documents, &request.uri, files),
+    };
+    let Some(index) = index else {
+        return 1;
+    };
+    match std::io::stdout().lock().write_all(&index.encode()) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
+
+/// Runs `request` in an index child of `exe`: its bytes, or `None` when the
+/// child failed.
+fn run_index_child(exe: &std::path::Path, request: &IndexRequest) -> Option<Vec<u8>> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(exe)
+        .arg(REFERENCE_INDEX_ARGUMENT)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .ok()?;
+    let input = serde_json::to_vec(request).ok()?;
+    let mut stdin = child.stdin.take()?;
+    let writer = std::thread::spawn(move || stdin.write_all(&input));
+    let output = child.wait_with_output().ok()?;
+    let _ = writer.join();
+    output.status.success().then_some(output.stdout)
+}
+
+/// Where the index of `root` is kept between sessions (the user's cache).
+fn index_cache_path(root: &std::path::Path, sdk: &std::path::Path) -> Option<std::path::PathBuf> {
+    let key = format!("{}\n{}", root.display(), sdk.display());
+    let name = format!(
+        "reference-index-{:016x}.bin",
+        crate::reference_index::text_stamp(&key)
+    );
+    Some(
+        dartforge_elements::distribution::user_cache()?
+            .join("lsp")
+            .join(name),
+    )
+}
+
+/// The index of `root` kept by an earlier session, when the SDK and package
+/// files it recorded have the same dates and sizes (the project's files are
+/// refreshed before each search).
+fn load_cached_index(
+    root: &std::path::Path,
+    sdk: &std::path::Path,
+) -> Option<crate::reference_index::ReferenceIndex> {
+    let bytes = std::fs::read(index_cache_path(root, sdk)?).ok()?;
+    let index = crate::reference_index::ReferenceIndex::decode(&bytes)?;
+    if index.root != root {
+        return None;
+    }
+    let unchanged = index.records().filter(|r| r.frozen).all(|r| {
+        let (modified, length) = crate::reference_index::file_date(&r.path);
+        modified == r.modified && length == Some(u64::from(r.length))
+    });
+    unchanged.then_some(index)
+}
+
+/// The text of a record's file now, when it is not the record's: the open
+/// document's, or the disk's. `Some(None)`: the file is gone.
+fn changed_text(
+    r: &crate::reference_index::FileRecord,
+    documents: &DocumentStore,
+) -> Option<Option<String>> {
+    let open = url::Url::from_file_path(&r.path)
+        .ok()
+        .and_then(|u| documents.get(u.as_str()).map(str::to_string));
+    let text = match open {
+        Some(t) => t,
+        None => {
+            if r.disk {
+                let (modified, length) = crate::reference_index::file_date(&r.path);
+                if modified == r.modified && length == Some(u64::from(r.length)) {
+                    return None;
+                }
+            }
+            match std::fs::read_to_string(&r.path) {
+                Ok(t) => t,
+                Err(_) => return Some(None),
+            }
+        }
+    };
+    let same =
+        text.len() as u32 == r.length && crate::reference_index::text_stamp(&text) == r.stamp;
+    (!same).then_some(Some(text))
+}
+
+impl SemanticAnalyzer {
+    /// The documents as the children receive them.
+    fn document_list(documents: &DocumentStore) -> Vec<(String, i32, String)> {
+        documents
+            .uris()
+            .filter_map(|u| {
+                Some((
+                    u.to_string(),
+                    documents.version(u).unwrap_or(0),
+                    documents.get(u)?.to_string(),
+                ))
+            })
+            .collect()
+    }
+
+    /// The reference index of the project of `uri`, ready and of the current
+    /// texts: the built one (a build that finished, or the cache of an earlier
+    /// session) with its stale project files recorded again. Without one, a
+    /// build starts in a child and the search goes on without it.
+    fn ready_index(&mut self, documents: &DocumentStore, uri: &str) -> bool {
+        let Some(root) = crate::project::uri_file(uri).map(|f| crate::project::project_root(&f))
+        else {
+            return false;
+        };
+        if let Some((building, receiver)) = &self.index_build
+            && let Ok(bytes) = receiver.try_recv()
+        {
+            let building = building.clone();
+            self.index_build = None;
+            match bytes.and_then(|b| crate::reference_index::ReferenceIndex::decode(&b)) {
+                Some(index) => self.reference_index = Some(index),
+                None => {
+                    self.index_failed.insert(building);
+                }
+            }
+        }
+        if self
+            .reference_index
+            .as_ref()
+            .is_some_and(|i| i.root != root)
+        {
+            return false;
+        }
+        if self.reference_index.is_none() {
+            let (Some(exe), Some(sdk)) = (self.search_exe.clone(), self.sdk.as_ref()) else {
+                return false;
+            };
+            if self.index_build.is_some() || self.index_failed.contains(&root) {
+                return false;
+            }
+            if let Some(index) = load_cached_index(&root, &sdk.root) {
+                self.reference_index = Some(index);
+            } else {
+                let request = IndexRequest {
+                    sdk_lib: sdk.root.clone(),
+                    uri: uri.to_string(),
+                    documents: Self::document_list(documents),
+                    files: None,
+                };
+                let cache = index_cache_path(&root, &sdk.root);
+                let (sender, receiver) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let bytes = run_index_child(&exe, &request);
+                    if let (Some(b), Some(c)) = (&bytes, cache) {
+                        let _ = c.parent().map(std::fs::create_dir_all);
+                        let _ = std::fs::write(c, b);
+                    }
+                    let _ = sender.send(bytes);
+                });
+                self.index_build = Some((root, receiver));
+                return false;
+            }
+        }
+        self.refresh_index(documents, uri)
+    }
+
+    /// Records again the project files whose record is not of their current
+    /// text, the new ones, and the dependents of those whose API changed; drops
+    /// the deleted ones. The document's library is recorded from the bounded
+    /// session; anything else in a child (or here, without a child binary).
+    fn refresh_index(&mut self, documents: &DocumentStore, uri: &str) -> bool {
+        use dartforge_elements::generated::key;
+        let Some(mut index) = self.reference_index.take() else {
+            return false;
+        };
+        let root = index.root.clone();
+        let mut current: std::collections::HashSet<std::path::PathBuf> =
+            crate::project::project_files(&root)
+                .iter()
+                .map(|p| key(p))
+                .collect();
+        for open in documents.uris() {
+            if let Some(f) = crate::project::uri_file(open)
+                && f.starts_with(&root)
+                && f.extension().is_some_and(|e| e == "dart")
+            {
+                current.insert(key(&f));
+            }
+        }
+        let mut stale: Vec<std::path::PathBuf> = Vec::new();
+        let mut api_changed: Vec<std::path::PathBuf> = Vec::new();
+        let mut removed: Vec<std::path::PathBuf> = Vec::new();
+        let recorded = index.project_paths();
+        for path in &recorded {
+            let Some(r) = index.file(path) else { continue };
+            if !current.contains(path) {
+                removed.push(path.clone());
+                continue;
+            }
+            match changed_text(r, documents) {
+                None => {}
+                Some(None) => removed.push(path.clone()),
+                Some(Some(text)) => {
+                    if dartforge_elements::incremental::api_signature(&text) != r.api
+                        || r.api.is_none()
+                    {
+                        api_changed.push(path.clone());
+                    }
+                    stale.push(path.clone());
+                }
+            }
+        }
+        let recorded: std::collections::HashSet<&std::path::PathBuf> = recorded.iter().collect();
+        for path in &current {
+            if recorded.contains(path) {
+                continue;
+            }
+            let text = url::Url::from_file_path(path)
+                .ok()
+                .and_then(|u| documents.get(u.as_str()).map(str::to_string))
+                .or_else(|| std::fs::read_to_string(path).ok());
+            let stamp = text.as_deref().map(crate::reference_index::text_stamp);
+            if stamp.is_some() && index.absent.get(path) == stamp.as_ref() {
+                continue;
+            }
+            stale.push(path.clone());
+        }
+        api_changed.extend(removed.iter().cloned());
+        let mut again: Vec<std::path::PathBuf> = stale.clone();
+        for d in index.dependents(&api_changed) {
+            if !again.contains(&d) && !removed.contains(&d) {
+                again.push(d);
+            }
+        }
+        for path in &removed {
+            index.remove(path);
+        }
+        if again.is_empty() {
+            self.reference_index = Some(index);
+            return true;
+        }
+        let debug = std::env::var_os("DARTFORGE_LSP_DEBUG").is_some();
+        let started = std::time::Instant::now();
+        // The document's library, from the session, when it covers them all.
+        let mut done = false;
+        if let Some(library) = self.library(documents, uri)
+            && let Some(unit) = library.uri_unit(uri)
+        {
+            let p = library.program();
+            let lib = p.unit(unit).library;
+            let paths: Vec<std::path::PathBuf> = p
+                .library(lib)
+                .units
+                .iter()
+                .filter_map(|u| p.unit(*u).path.as_deref().map(key))
+                .collect();
+            if again.iter().all(|a| paths.contains(a)) {
+                let records = crate::reference_index::Builder.library(
+                    &library,
+                    lib,
+                    &root,
+                    &mut index.keys,
+                    &mut index.words,
+                );
+                index.put(records);
+                done = true;
+            }
+        }
+        if !done {
+            let Some(sdk) = self.sdk.as_ref() else {
+                self.reference_index = Some(index);
+                return false;
+            };
+            let built = match self.search_exe.clone() {
+                Some(exe) => {
+                    let request = IndexRequest {
+                        sdk_lib: sdk.root.clone(),
+                        uri: uri.to_string(),
+                        documents: Self::document_list(documents),
+                        files: Some(again.clone()),
+                    };
+                    run_index_child(&exe, &request)
+                        .and_then(|b| crate::reference_index::ReferenceIndex::decode(&b))
+                }
+                None => crate::reference_index::build_files(sdk, documents, uri, &again),
+            };
+            let Some(built) = built else {
+                // The index stays as it was; the search goes on without it.
+                self.reference_index = Some(index);
+                return false;
+            };
+            for path in &again {
+                if built.file(path).is_none() {
+                    // Not a unit of the load (a part without its library): it is
+                    // no candidate of the search either.
+                    index.remove(path);
+                }
+            }
+            index.merge(built);
+        }
+        if debug {
+            eprintln!(
+                "[dartforge-lsp] reference index: {} files recorded again ({} with a changed API) in {} ms",
+                again.len(),
+                api_changed.len(),
+                started.elapsed().as_millis()
+            );
+        }
+        self.reference_index = Some(index);
+        true
     }
 }

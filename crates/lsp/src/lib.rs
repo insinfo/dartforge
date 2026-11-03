@@ -100,7 +100,10 @@ pub use completion::{AutoImport, Call, Completion, CompletionItem};
 pub use rename::{Edit, Rename, RenameFile};
 pub use sdk_report::SdkReport;
 pub use semantic::SemanticAnalyzer;
-pub use semantic::{REFERENCE_SEARCH_ARGUMENT, reference_search_child};
+pub use semantic::{
+    REFERENCE_INDEX_ARGUMENT, REFERENCE_SEARCH_ARGUMENT, reference_index_child,
+    reference_search_child,
+};
 pub use server::{Server, Trace};
 
 /// Prints a hand-off of the trace (`DARTFORGE_LSP_TRACE=1`): the binary's
