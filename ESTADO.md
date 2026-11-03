@@ -421,10 +421,11 @@ baixado é:
 - Blazor + AOT: 14 271 044 (4 516 711).
 
 **Leitura**
-- **Quem não tem coletor fica em bytes ou poucos KB:** C, Zig, Rust e AssemblyScript.
+- **Quem não tem coletor fica em bytes ou poucos KB:** C, Zig e Rust.
 - **Quem usa o WasmGC do motor (dart2wasm, Kotlin) fica em dezenas de KB.** O DartForge não usa
   WasmGC, por decisão do projeto: um módulo que roda em qualquer motor, com o coletor dentro.
   Por isso a régua justa é o grupo que leva o próprio runtime em memória linear:
+  - **AssemblyScript 11,6 KB no `colecoes`, com coletor** (ver o estudo abaixo);
   - TinyGo 158 KB;
   - .NET mínimo 1,24 MB;
   - Go 2,4 MB;
@@ -437,6 +438,63 @@ baixado é:
   - ~400 KB do runtime Rust;
   - 194 KB de dados.
   Mais o `wasm-opt -Oz`, que tiraria ~19% se o orçamento da pilha do motor for refeito depois dele.
+
+### Estudo do AssemblyScript: coletor em memória linear em poucos KB
+
+O AssemblyScript é o caso mais próximo do nosso:
+- não usa WasmGC por padrão;
+- o runtime (alocador TLSF e coletor) é escrito em AssemblyScript sobre a memória linear;
+- esse runtime é compilado junto com o programa, num mundo fechado, e otimizado pelo Binaryen.
+
+**Custo do coletor dele**, medido com `asc -O3z --converge --noAssert`:
+
+| runtime do AssemblyScript | `hello` | `colecoes` |
+|---|---:|---:|
+| `stub` (só alocação, nunca libera) | 130 | 6 185 |
+| `minimal` (TLSF + marcação e varredura simples) | 130 | 7 728 |
+| `incremental` (padrão: TLSF + coletor incremental tricolor) | 212 | 11 628 |
+
+O coletor completo custa ~5,4 KB, e o `hello` não paga nada, porque o Binaryen remove o runtime
+que o programa não usa.
+
+**De onde vem o nosso `hello`.** Medi com o binário da correção da regressão (WIP do agente de
+corretude, 02/11 21h): **1 297 303 bytes**. Na compilação com `--debug`, a seção de nomes deu esta
+divisão:
+- **Código Dart do SDK, ~575 KB em 1 262 funções:**
+  - `dart:core` 255 KB, dos quais `NoSuchMethodError` 41 KB, `_InvocationMirror` 18 KB,
+    `Iterable.iterableToShortString` 13 KB e `_Double` 19 KB;
+  - `dart:_compact_hash` 154 KB (`LinkedHashMap`/`Set`), num programa que não usa mapa;
+  - `register` 46 KB, `dart:_internal` 42 KB, `dart:typed_data` 28 KB, `dart:collection` 28 KB.
+- **Runtime Rust, ~400 KB:**
+  - `dartforge_runtime::abi` 108 KB;
+  - `dartforge_runtime::heap` 86 KB: o coletor, contra 5,4 KB do AssemblyScript;
+  - `std`, `hashbrown`, `core::fmt` e `alloc` ~100 KB;
+  - `miniz_oxide::inflate` 17 KB, um descompressor dentro do `hello`;
+  - `dlmalloc` 7 KB.
+- **Dados:** 195 KB.
+
+**`wasm-opt -Oz` (Binaryen 123) no nosso módulo:**
+- precisa de `--enable-tail-call --enable-exception-handling --enable-reference-types --enable-simd`
+  e dos recursos MVP;
+- o resultado roda no `dartforge-wasm-run`;
+- `hello`: 1 297 303 → 1 045 436 bytes (−19%), mas com gzip só 390 179 → 378 302 (−3%).
+O ganho do otimizador é pequeno depois do gzip. **O que pesa é o que entra no módulo**, não a
+qualidade do código gerado.
+
+**O que tirar disso:**
+1. **Mundo fechado de verdade no SDK.** `print('…')` não pode puxar `LinkedHashMap`,
+   `NoSuchMethodError` e a formatação de `double`. Isso é ~575 KB contra 47 KB do dart2wasm no
+   programa inteiro. É o maior ganho; precisa achar as raízes que puxam cada um.
+2. **Runtime compilado junto com o programa.** O AssemblyScript remove o runtime que não usa
+   porque o runtime faz parte da mesma otimização. O nosso runtime Rust entra inteiro. Caminhos:
+   - LTO do runtime em bitcode junto com o módulo;
+   - runtime wasm sem `std`, `hashbrown` e `core::fmt`;
+   - descompressão só quando há dado comprimido.
+3. **Coletor menor:** 86 KB contra 5,4 KB, com o mesmo modelo de memória linear.
+4. **`wasm-opt -Oz` opcional no `--optimize`** quando o Binaryen estiver instalado, com o orçamento
+   da pilha refeito depois dele: −19% cru, −3% com gzip.
+
+Scripts da divisão por seção e por função: `/Volumes/ssd_dock/tmp/wasm-cmp/study/`.
 
 As toolchains estão em `/Volumes/ssd_dock/tools/wasm-langs/` (7,8 GB; `env.sh` lá) e
 `/Volumes/ssd_dock/tmp/wasm-cmp/tools/`. Fontes e scripts estão em `/Volumes/ssd_dock/tmp/wasm-cmp/`
