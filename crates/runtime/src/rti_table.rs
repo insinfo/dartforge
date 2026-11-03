@@ -76,9 +76,17 @@ pub fn decompress(data: &[u8]) -> Vec<u8> {
 pub fn decompressed(data: &'static [u8]) -> &'static [u8] {
     type Cache = std::sync::Mutex<Vec<((usize, usize, u32), &'static [u8])>>;
     static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
-    let mut crc = flate2::Crc::new();
-    crc.update(data);
-    let key = (data.as_ptr() as usize, data.len(), crc.sum());
+    // WebAssembly has no reload: the address and the size are the key, and
+    // the CRC table (16 KiB) stays out of the module.
+    #[cfg(target_arch = "wasm32")]
+    let sum = 0;
+    #[cfg(not(target_arch = "wasm32"))]
+    let sum = {
+        let mut crc = flate2::Crc::new();
+        crc.update(data);
+        crc.sum()
+    };
+    let key = (data.as_ptr() as usize, data.len(), sum);
     let mut cache = CACHE
         .get_or_init(Default::default)
         .lock()

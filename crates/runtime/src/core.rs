@@ -224,9 +224,11 @@ thread_local! {
     /// answer): the `v is String`/`is num`/`is Map` of
     /// `_JsonStringifier.writeJsonValue` and of the JSON bench's `somaValor` paid the
     /// tuple's hash and the map's `borrow` on every test. Cleared together with the
-    /// map.
+    /// map. An empty slot is all zeros (no query reaches it with target 0,
+    /// `Object`), so the table is zero-fill memory, not 12 KiB of a WebAssembly
+    /// module's data.
     static SUBTYPE_FAST: std::cell::Cell<[(i64, i64, u8); FAST_SUBTYPE_SLOTS]> =
-        const { std::cell::Cell::new([(-1, -1, 0); FAST_SUBTYPE_SLOTS]) };
+        const { std::cell::Cell::new([(0, 0, 0); FAST_SUBTYPE_SLOTS]) };
     /// The subtype bitmaps that generated code reads inline (`df.subclass`,
     /// `llvm/mod.rs`; [`crate::heap::Context::subtypes`]).
     static SUBTYPE_MAPS: RefCell<SubtypeMaps> = RefCell::new(SubtypeMaps::default());
@@ -521,7 +523,7 @@ pub extern "C" fn dartforge_register_subclass(sub_id: i64, super_id: i64) {
         if !list.contains(&super_id) {
             list.push(super_id);
             SUBTYPE_COMPUTED.with(|c| c.borrow_mut().clear());
-            SUBTYPE_FAST.with(|c| c.set([(-1, -1, 0); FAST_SUBTYPE_SLOTS]));
+            SUBTYPE_FAST.with(|c| c.set([(0, 0, 0); FAST_SUBTYPE_SLOTS]));
             SUBTYPE_MAPS.with(|m| m.borrow_mut().discard());
         }
     });
@@ -650,14 +652,14 @@ pub extern "C" fn dartforge_object_new_m(class_id: i64, field_count: i64, map: i
 // (`llvm/mod.rs`, `GetField`/`SetField`): 8-byte words after the block's header
 // (`heap::Header`), with the reference map in the header.
 
-use crate::heap::{INLINE_FIELDS, EMPTY_OBJECT};
-
 /// The address of the fields (8-byte words) of object `h`; for something that is
 /// not an object, the zeroed fields of [`EMPTY_OBJECT`]. Generated code no longer
 /// uses it (it reads the block inline); it remains for the ABI.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_object_fields(h: i64) -> i64 {
-    heap_without_borrow(|heap| heap.object_fields(h).map_or(EMPTY_OBJECT.fields.as_ptr() as i64, |p| p as i64))
+    // SAFETY: the empty object lives for the whole process.
+    let empty = unsafe { (*crate::heap::empty_object()).fields.as_ptr() } as i64;
+    heap_without_borrow(|heap| heap.object_fields(h).map_or(empty, |p| p as i64))
 }
 
 /// Generated code's write barrier (`llvm/mod.rs`): the old object `h` received a

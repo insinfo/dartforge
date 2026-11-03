@@ -32,7 +32,12 @@ pub extern "C" fn dartforge_context() -> *const crate::heap::Context {
         if c.stack_limit.get() == 0 {
             c.stack_limit.set(thread_stack_limit());
             if c.areas.get().is_null() {
-                c.areas.set(EMPTY_AREA_TABLE.as_ptr().cast());
+                c.areas.set(empty_area_table());
+            }
+            #[cfg(target_arch = "wasm32")]
+            if c.empties.get().is_null() {
+                // SAFETY: the empty object lives for the whole process.
+                c.empties.set(unsafe { &raw const (*crate::heap::empty_object()).header });
             }
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             publish_in_tsd(c);
@@ -326,8 +331,35 @@ thread_local! {
 /// an entry below `AREA_CAPACITY` without the bound and finds null. Atomic words
 /// (never written) so that the table is zero-fill memory, not 32 KiB of the
 /// executable's constants.
+#[cfg(not(target_arch = "wasm32"))]
 static EMPTY_AREA_TABLE: [std::sync::atomic::AtomicUsize; crate::layout::context::AREA_CAPACITY] =
     [const { std::sync::atomic::AtomicUsize::new(0) }; crate::layout::context::AREA_CAPACITY];
+
+/// The address of [`EMPTY_AREA_TABLE`].
+#[cfg(not(target_arch = "wasm32"))]
+fn empty_area_table() -> *mut *mut i64 {
+    EMPTY_AREA_TABLE.as_ptr().cast_mut().cast()
+}
+
+/// The empty area table of WebAssembly: a zeroed allocation made once. A
+/// static is not zero-fill memory there: the module's LTO sees that nothing
+/// writes it and moves it into the constants, 16 KiB of zeros in the module.
+#[cfg(target_arch = "wasm32")]
+fn empty_area_table() -> *mut *mut i64 {
+    static TABLE: std::sync::atomic::AtomicPtr<*mut i64> =
+        std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+    let t = TABLE.load(std::sync::atomic::Ordering::Relaxed);
+    if !t.is_null() {
+        return t;
+    }
+    let layout = std::alloc::Layout::array::<usize>(crate::layout::context::AREA_CAPACITY)
+        .expect("area table layout");
+    // SAFETY: a non-zero layout; the table lives for the whole process.
+    let t = unsafe { std::alloc::alloc_zeroed(layout) }.cast::<*mut i64>();
+    assert!(!t.is_null(), "out of memory for the area table");
+    TABLE.store(t, std::sync::atomic::Ordering::Relaxed);
+    t
+}
 
 /// The next module id (`@df.area_id`), the same on every thread.
 static NEXT_AREA_ID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);

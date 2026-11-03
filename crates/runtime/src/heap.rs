@@ -258,6 +258,7 @@ pub struct EmptyObject {
     pub header: Header,
     pub fields: [i64; INLINE_FIELDS],
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub static EMPTY_OBJECT: EmptyObject = EmptyObject {
     header: Header {
         state: FREE,
@@ -269,6 +270,33 @@ pub static EMPTY_OBJECT: EmptyObject = EmptyObject {
     },
     fields: [0; INLINE_FIELDS],
 };
+
+/// [`EMPTY_OBJECT`] (all of it zeros: `FREE` is 0).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn empty_object() -> *const EmptyObject {
+    &raw const EMPTY_OBJECT
+}
+
+/// Nobody's object on WebAssembly: a zeroed allocation made once. Linear
+/// memory has no read-only pages, and a static would put its 32 KiB of zeros
+/// in the module's data.
+#[cfg(target_arch = "wasm32")]
+#[allow(unsafe_code)]
+pub fn empty_object() -> *const EmptyObject {
+    static OBJECT: std::sync::atomic::AtomicPtr<EmptyObject> =
+        std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+    let o = OBJECT.load(std::sync::atomic::Ordering::Relaxed);
+    if !o.is_null() {
+        return o;
+    }
+    // SAFETY: a non-zero layout; zeros are a valid `EmptyObject` (`FREE` is 0)
+    // and the object lives for the whole process.
+    let o = unsafe { std::alloc::alloc_zeroed(std::alloc::Layout::new::<EmptyObject>()) }
+        .cast::<EmptyObject>();
+    assert!(!o.is_null(), "out of memory for the empty object");
+    OBJECT.store(o, std::sync::atomic::Ordering::Relaxed);
+    o
+}
 
 /// The runtime's view of an object of the space ([`Heap::object`]): the
 /// class and the fields, `(bits, is reference)`.
@@ -513,7 +541,7 @@ pub struct Context {
     /// of a field of something that is not an object of the space uses this object
     /// instead of the header at `h - 2` (`llvm/mod.rs`), and reads zeros, as
     /// `dartforge_object_get` did.
-    pub empties: Slot<*const Header>,
+    pub empties: Slot<std::cell::Cell<*const Header>>,
     /// The classes with a registered method table (offset 48; one
     /// 0/1 byte per id, `selectors.rs`) and how many (56): the inline allocation
     /// of a class that registers the table on the first allocation
@@ -678,7 +706,11 @@ thread_local! {
             areas: Slot::new(std::cell::Cell::new(std::ptr::null())),
             n_areas: Slot::new(std::cell::Cell::new(0)),
             interrupt: std::sync::atomic::AtomicU8::new(0),
-            empties: Slot::new(&raw const EMPTY_OBJECT.header),
+            // Set by `dartforge_context` on WebAssembly (`empty_object`).
+            #[cfg(not(target_arch = "wasm32"))]
+            empties: Slot::new(std::cell::Cell::new(&raw const EMPTY_OBJECT.header)),
+            #[cfg(target_arch = "wasm32")]
+            empties: Slot::new(std::cell::Cell::new(std::ptr::null())),
             registered: Slot::new(std::cell::Cell::new(std::ptr::null())),
             n_registered: Slot::new(std::cell::Cell::new(0)),
             tlab: [const { [Slot::new(std::cell::Cell::new(std::ptr::null_mut())), Slot::new(std::cell::Cell::new(std::ptr::null_mut()))] }; TLAB_N + 1],

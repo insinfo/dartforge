@@ -235,9 +235,10 @@ thread_local! {
     /// static with no destructor nor `RefCell`. A hit avoids accessing the
     /// universe, the `borrow` and the `test_without_value` lookups — which weighs
     /// on the two covariance checks of each `map[k] = v`. Forgotten
-    /// together with the universe memos ([`Universe::forget_memos`]).
+    /// together with the universe memos ([`Universe::forget_memos`]). An empty
+    /// slot is all zeros (no key is 0), so the memo is zero-fill memory.
     static FAST_MEMO: std::cell::UnsafeCell<[[i64; 3]; FAST_MEMO_N]> =
-        const { std::cell::UnsafeCell::new([[0, -1, 0]; FAST_MEMO_N]) };
+        const { std::cell::UnsafeCell::new([[0; 3]; FAST_MEMO_N]) };
 }
 
 /// The slot of `(key, t)` in the [`FAST_MEMO`].
@@ -249,7 +250,7 @@ fn fast_slot(key: i64, t: i64) -> usize {
 }
 
 /// `v is t` stored in the [`FAST_MEMO`] for the value key. No key
-/// is 0 and no type is -1: the empty slot never matches.
+/// is 0: the empty slot never matches.
 #[inline(always)]
 #[allow(unsafe_code)]
 fn fast_memo_read(key: i64, t: i64) -> Option<u8> {
@@ -268,7 +269,7 @@ fn fast_memo_store(key: i64, t: i64, r: bool) {
 #[allow(unsafe_code)]
 fn fast_memo_forget() {
     // SAFETY: as in `fast_memo_read`.
-    FAST_MEMO.with(|m| unsafe { *m.get() = [[0, -1, 0]; FAST_MEMO_N] });
+    FAST_MEMO.with(|m| unsafe { *m.get() = [[0; 3]; FAST_MEMO_N] });
 }
 
 impl Type {
