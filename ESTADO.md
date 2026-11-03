@@ -522,7 +522,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | **LSP** × servidor de análise | `new_sali/frontend`, revezado, com CPU (décima sétima rodada, carga 11–38). **Pedidos** (mediana, sem edição / depois de edição): `references` **0,4–0,8** / 36,7–58,6 × 27,3–30,5 / **19,2–25,4 ms** (depois de edição não ganha de forma estável), `implementation` **0,3 / 2,3–2,4 × 12,3–13,4 / 10,8–32,0 ms**, `prepareRename` **0,4 / 1,7–1,9 × 1,1 / 2,1–11,5 ms**, `hover` **0,5–0,6 / 1,2 × 1,2–1,3 / 3,6–24,2 ms**; as consultas de biblioteca saem do residente. **Sessão longa** (`new_sali` inteiro, 150 rodadas, 2 pares): onda **71–78 × 109–114 ms**, edição de corpo **30–31 × 34–39 ms**, mudança de API **46–49 × 100–112 ms**. **Windows** (i3, 2 pares de 150 rodadas): onda **221–223 × 400–443 ms**, API **124–125 × 265–426 ms**; a edição de corpo ainda perde (**76 × 60 ms**) | sessão de pedidos: repouso **791–794 × 814–944 MiB (ganha; era 1.218–1.227)**; sessão longa: pico/repouso **579/579 × 717–726/703–714 MiB**, inclinação **+2,6; +1,1 × +35,3; +36,9 MiB por 100 cargas**; Windows: bytes privados no fim **370–373 × 705–710 MiB**. Oráculo de paridade igual ao das rodadas 15 e 16 | 03/11 |
 | **`analyze`** × `dart analyze` | `new_sali/backend`: ~5 s × 21,7 s frio (2,6 s com cache); `format`: **0,42 × 1,55 s** | — | 13–14/10 |
 | **`test`** / **`pub`** × `dart test` / `dart pub` | **não medido** | — | — |
-| **Wasm** × `dart2wasm` (Node 24) | **perde** 1,2–3× em alocação/árvores, JSON, strings e crivo (ganho de só 10–20% em 31/10 noite; o coletor pesa ~25% no JSON); **ganha** 2–8× em `list.add`, `list[i]` e `sort` | módulo **0,72–1,76 MB** sem Binaryen e **0,60–1,46 MB** com o `wasm-opt -Oz` opcional do `--optimize` × 47–114 KB do dart2wasm (hello **599 KB × 47 KB, 12,7×**; era 1,30 MB e 28× em 02/11, 659 KB e 14× na primeira rodada de 03/11); gzip do hello 219 × 15 KB; memória **2,3–3,4× menor**. Exceções nativas do Wasm (`exnref`) são o padrão | tamanho: 03/11 (seções de 03/11: segunda rodada — tabela RTI só com as classes vivas, mapa compacto do runtime, guarda do `noSuchMethod` corrigida em 3 caminhos; primeira rodada — `noSuchMethod` só com invocação dinâmica, só as bibliotecas carregadas, dados zerados fora do módulo, Binaryen; velocidade igual dentro do ruído nas duas); velocidade: 31/10 noite; contra outras linguagens: seções de 02/11 e 03/11 |
+| **Wasm** × `dart2wasm` (Node 24) | **perde** 1,2–3× em alocação/árvores, JSON, strings e crivo (ganho de só 10–20% em 31/10 noite; o coletor pesa ~25% no JSON); **ganha** 2–8× em `list.add`, `list[i]` e `sort` | módulo **0,68–1,72 MB** sem Binaryen e **0,57–1,43 MB** com o `wasm-opt -Oz` opcional do `--optimize` × 47–114 KB do dart2wasm (hello **565 KB × 47 KB, 12,0×**; era 1,30 MB e 28× em 02/11, 659 KB e 14× na primeira rodada de 03/11, 599 KB e 12,7× na segunda); gzip do hello 208 × 15 KB; memória **2,3–3,4× menor**. Exceções nativas do Wasm (`exnref`) são o padrão | tamanho: 03/11 (seções de 03/11: terceira rodada — registros de classes do SDK como dados da ligação, Ryū próprio no `double.toString`, *heap* nunca destruído no wasm; segunda rodada — tabela RTI só com as classes vivas, mapa compacto do runtime, guarda do `noSuchMethod` corrigida em 3 caminhos; primeira rodada — `noSuchMethod` só com invocação dinâmica, só as bibliotecas carregadas, dados zerados fora do módulo, Binaryen; velocidade igual dentro do ruído nas duas); velocidade: 31/10 noite; contra outras linguagens: seções de 02/11 e 03/11 |
 | **AOT nativo** × `dart compile exe` | HTTP `dart:io`: **68–69,5 × 70,2 mil pedidos/s (97–99%)**; ciclos por pedido: tracing 66 mil × 70 mil (melhor), ARC real 205 mil (pior). Trees 12,4 × 11,9 ms; JSON 77,5 × 78 ms; strings 43 × 47 ms. Swift cru: 26 mil ciclos × nosso 38 mil. Compilar `new_sali/backend` com `--optimize` (macOS, objetos frios): **451 × 39 s de CPU (11,6×)**, mediana de três medidas com carga 45–116 (relógio sem significado com essa carga); era ~1 410 s em 31/10 de manhã. Desenvolvimento frio: 177 s de CPU | servidor **4,7 × 5,6 MB**; hello 0,56×; `new_sali/backend` **36,4 × 26,5 MB (1,37× maior**; era 43,5 MB); File Explorer 19,9 × 12,3 MB (1,62×); RSS do servidor 17,5 × 17,2 MB (ARC real 23,8 MB) | 30–31/10 (compilação e tamanho do grande: 01/11) |
 | **ARC real** × tracing (mesmo servidor, `DARTFORGE_ARC_PREPARED=1 --memory arc`) | instruções por pedido: `dart:io` **666 × 200 mil (3,3×)**, cru **248 × 123 mil (2,0×)**; ciclos por pedido (carga ~37): `dart:io` 306 × 123 mil (2,5×), cru 98 × 56 mil (1,7×). No início de 01/11: 813 e 361 mil instruções, 343 e 122 mil ciclos | RSS 25 × 18 MB (`dart:io`), 22 × 16 MB (cru) | 01/11 |
 
@@ -541,7 +541,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 
 | Frente | Agente |
 |---|---|
-| Wasm: tamanho (hello 12,7× o dart2wasm com Binaryen; runtime Rust ~400 KB é o maior resto) e velocidade (coletor, `List<bool>.filled` não desvirtualizado) | duas rodadas de tamanho em 03/11 concluídas (hello 1,30 → 0,78 → 0,72 MB, 0,60 MB com Binaryen); próximos: registros por biblioteca do SDK como dados da ligação (~27 KB do hello), cone do tipo estático do receptor em toda chamada na poda (o `_Double` e o resto do SDK), produtores dos ajudantes de erro pelo grafo de chamadas do runtime, formatador de `double` próprio, coletor menor, e entender por que registrar só as tabelas vivas atrasa o V8 |
+| Wasm: tamanho (hello 12,0× o dart2wasm com Binaryen; runtime Rust ~400 KB é o maior resto) e velocidade (coletor, `List<bool>.filled` não desvirtualizado) | três rodadas de tamanho em 03/11 concluídas (hello 1,30 → 0,78 → 0,72 → 0,68 MB, 0,57 MB com Binaryen); próximos: achar a chamada que o V8 deixa de inlinizar quando só as tabelas vivas são registradas (~16 KB), o `%f` exato do `toString` SIMD (tira os 23 KB de formatação de `f64` do `core::fmt`), cone do tipo estático do receptor na poda (o `_Double`), produtores dos ajudantes de erro pelo grafo de chamadas do runtime, coletor menor |
 | Wasm: perfil de compatibilidade (sem `exnref`, sem *tail calls*, sem `extended-const`), com flag própria | **anotado em 03/11, a fazer** (seção de 03/11) |
 | Wasm: isolates em threads com memória compartilhada (atomics), flag experimental | **anotado em 03/11, a fazer** (seção de 03/11) |
 | `analyze`: falsos positivos do verificador de tipos (107 → 20) | concluído em 31/10; os 12 do *parser* (`augment`) ficam para o *parser* |
@@ -641,6 +641,149 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 - **Limpeza:**
   - 13 *worktrees* antigos de agentes de sessões passadas, a conferir antes de apagar;
   - as branches `backup/*` quando o SSD for para uma porta direta.
+
+## 03/11/2026: wasm — rodada de tamanho 3: hello de 0,72 para 0,68 MB (0,57 MB com Binaryen); por que o V8 ficou mais lento com as tabelas vivas
+
+Terceira rodada sobre o `compile-wasm --optimize` (macOS; "antes" é `2accdf2e`, o fim da segunda
+rodada; "depois" é `29f4811a`). Rodada encurtada a pedido do proprietário (última do dia, antes de
+uma *release*): ficou só o que passou na validação e não atrasou o V8. Bytes do `.wasm` e, entre
+parênteses, com `gzip -9`. Scripts, módulos e registros em `/Volumes/ssd_dock/tmp/wasm-size3/` (os
+da segunda rodada adaptados, mais `regcalls.py`, as chamadas de cada função de registro, e
+`ryutest/`, a comparação em massa do formatador novo).
+
+| programa | antes, sem Binaryen | depois, sem Binaryen | antes, com `wasm-opt -Oz` | depois, com `wasm-opt -Oz` | dart2wasm |
+|---|---:|---:|---:|---:|---:|
+| hello | 718 123 (225 915) | **675 261** (214 744) | 598 885 (218 865) | **565 219** (208 162) | 47 013 (15 369) |
+| árvores (`escaping_objects`) | 771 132 (237 853) | 728 182 (226 495) | 643 900 (231 344) | 610 148 (219 900) | 48 482 (15 878) |
+| JSON | 1 762 221 (488 178) | 1 720 981 (477 538) | 1 461 886 (473 954) | 1 429 871 (464 003) | 113 505 (38 499) |
+| strings | 844 626 (254 721) | 801 836 (243 873) | 707 386 (248 058) | 673 788 (237 365) | 61 453 (19 861) |
+| objetos temporários | 771 295 (237 885) | 728 361 (226 443) | 644 109 (231 398) | 610 358 (219 981) | 48 597 (15 917) |
+| coleções | 1 219 917 (333 384) | 1 177 167 (321 928) | 1 026 558 (317 886) | 993 021 (306 590) | 67 496 (21 318) |
+| `colecoes` | 1 141 549 (316 369) | 1 098 895 (304 650) | 963 737 (302 419) | 930 292 (291 741) | 65 948 (20 643) |
+
+−2,3% (JSON) a −6,0% (hello) cru, −2,2% a −4,9% com gzip; com o Binaryen, −2,2% a −5,6% cru e −2,1%
+a −4,9% com gzip. O hello está a 3,6× do TinyGo (158 KB) com o Binaryen (era 3,8×) e a 12,0× do
+dart2wasm (era 12,7×).
+
+**O que cada passo tirou do hello** (sem Binaryen):
+
+| passo | commit | hello |
+|---|---|---:|
+| antes | `2accdf2e` | 718 123 (225 915) |
+| dígitos do `double` com Ryū próprio (`double_shortest.rs`) | `e1c28335` | 717 441 (226 414) (sem a correção do `describe_value`, ver abaixo) |
+| registros de classes do SDK como dados da ligação, só as classes vivas (`pruning/class_registry.rs`); o *heap* e o universo RTI nunca destruídos no wasm; o `describe_value` com o texto da VM | `2e69c1a8`, `3f860901`, `e1c28335` | **675 261 (214 744)** |
+| `wasm-opt -Oz` | — | **565 219 (208 162)** |
+
+Na divisão por grupos do hello: o grupo `register` (27,8 KB de código em 10 funções `df.register.dart:*`)
+saiu (ficam 16 nomes de argumento e 13 ajudantes); a inicialização preguiçosa do *heap* caiu de
+21 KB para 13 KB (categoria `std thread_local` de 32,1 para 23,7 KB); a seção de código foi de
+618 661 para 581 323 bytes e a de dados de 94 761 para 89 265.
+
+1. **Registros de classes do SDK como dados da ligação** (`2e69c1a8`). Cada biblioteca do SDK
+   registrava na partida o nome de toda classe instanciável e toda aresta de subtipo direta, viva ou
+   não: no hello, 457 chamadas de nome e 1 697 de aresta. No wasm a biblioteca deixa os nomes como
+   comentários (`; df.class-name <cid> <nome>`; as arestas já estavam nas linhas `; df.cone-parent`
+   do cabeçalho), o resumo os carrega (formato 11, linha `W`), e a ligação escreve uma cadeia de bytes
+   (LEB128: nomes, depois arestas) só com as classes que a tabela RTI guarda (`rti_table::kept`:
+   raízes, tabelas vivas, classes citadas por texto vivo, supertipos), fechada sobre as arestas; o
+   `df.prepare_isolate` do programa a entrega ao runtime (`dartforge_register_classes`), que faz os
+   mesmos registros um por um. Correto pelo mesmo argumento da tabela RTI: um objeto só existe por
+   código que cita a tabela da sua classe ou com cid fixo, e todo tipo que o código testa está na
+   tabela RTI. O nativo não muda.
+2. **Ryū próprio para o `double.toString`** (`e1c28335`). Os dígitos mais curtos vinham do `{:e}` do
+   Rust (Grisu com o Dragon de reserva), que também ligava os caminhos de precisão exata do
+   `core::fmt`. Agora o runtime calcula com Ryū e as tabelas pequenas (multiplicadores de 128 bits a
+   cada 26 potências de 5, mais uma correção de 2 bits por índice; licença BSL-1.0, em
+   `THIRD_PARTY_NOTICES.md`). Comparado em massa com o `{:e}` (`ryutest/`: 60 milhões de padrões de
+   bits aleatórios, subnormais, inteiros, frações de 1/64 e 1/1000, todo expoente binário com as
+   mantissas das pontas, todo 1e±p e m·10^p com os vizinhos; ~370 milhões de valores): **nenhuma
+   diferença além dos empates**, 14 633 casos em que o valor exato fica no meio de dois candidatos
+   mais curtos. Neles o Rust arredonda para cima e a VM (double-conversion) para o par, como o Ryū:
+   `1658206780088562.25` imprime `1658206780088562.2` na VM 3.6.2 e agora no DartForge (antes
+   `…562.3`) — **uma divergência antiga corrigida** (nos dois alvos; o teste da VM ganhou os casos).
+   O `describe_value` (o texto de um `double` cru) usava `{:.1}`/`to_string` do Rust e agora usa o
+   texto da VM (`1e+21`, `1e-7`, `Infinity` em vez de `1000000000000000000000.0`, `0.0000001`, `inf`).
+   **O ganho de tamanho foi pequeno no hello (−0,7 KB)**: a formatação de `f64` do `core::fmt`
+   (23 KB) continua viva pelo `toString` de `Float32x4`/`Float64x2` (`simd.rs`, `percent_f`, o `%f`
+   da VM via `{:.6}`), que está vivo porque as classes SIMD têm cid fixo e a tabela delas é
+   registrada. Trocar isso pede o `%f` exato com arredondamento par (o do `printf`, não o meio-para-
+   cima do `toStringAsFixed`) e não foi feito.
+3. **O *heap* e o universo RTI nunca destruídos no wasm** (`3f860901`). O wasm tem uma thread só e
+   os *thread-locals* dela nunca são destruídos, mas a inicialização preguiçosa do `HEAP` levava a
+   destruição de tudo o que o *heap* tem (148 chamadas de `dealloc`, ~8 KB). No wasm32 os dois ficam
+   num `ManuallyDrop` (`IsolateCell`); um isolado nativo continua liberando o seu ao terminar.
+
+**Por que registrar só as tabelas vivas atrasa o V8** (o item revertido da segunda rodada,
+`29c56434`). Medido de novo com um binário que gera os dois módulos (variável de experimento, fora
+dos commits): `strings/hashes` 13,7 × 16,0 ms no mínimo (+17%), `strings/build` 37,8 × 43,1 ms
+(+14%), 8 rodadas alternadas, carga ~21. O que **não** é:
+- **arranjo da memória**: com 0, 3 000, 20 000, 70 000 e 300 000 bytes alocados e vazados na partida
+  (deslocando tudo o que o `dlmalloc` entrega depois), a diferença fica (13,5–14,2 × 15,0–16,4 ms);
+- **o código**: com os nomes guardados, as funções dos dois módulos são iguais byte a byte, a não
+  ser pelo LEB128 dos índices de função (−1 byte em ~30 funções; `describe_ref` −72) e pelas funções
+  mortas que saíram (getters `df.mt.*`, `df.list_grow`, `df.rti_fill`); o combustível do Wasmtime é
+  o mesmo;
+- **o Liftoff**: com `--no-liftoff` a diferença fica (14,3 × 16,6 ms).
+O que é: **a inlinização do TurboFan**. Com `--no-wasm-inlining` os dois módulos ficam iguais e
+lentos (17,1 × 16,3 ms): o módulo com todas as tabelas ganha uma inlinização no laço quente que o
+módulo renumerado perde. A decisão do V8 depende de algo que só a numeração/ordem das funções muda
+(os candidatos e o orçamento são processados por índice e contagem de chamadas). Não foi isolado
+qual chamada perde a inlinização, e por isso as tabelas mortas **continuam registradas**: é uma
+decisão frágil do V8 (outra mudança de tamanho pode virá-la para qualquer lado), e o caminho para
+ganhar os ~16 KB sem a perda é achar a chamada (`--trace-wasm-inlining` do d8/Node) e torná-la
+barata para o LLVM inlinizar antes (ou estável, com `alwaysinline` no lado do runtime). As três
+mudanças desta rodada não mudaram `strings/hashes` (13,5 × 13,5 ms, abaixo).
+
+**Velocidade** (Node 24, CPU da thread principal, mediana das iterações quentes e mínimo entre
+parênteses, em ms; módulos com Binaryen; 5 rodadas alternadas de todos os programas; carga da
+máquina 8–30):
+
+| núcleo | antes | depois |
+|---|---:|---:|
+| árvores (`trees`) | 27,7 (25,1) | 26,1 (24,6) |
+| lista ligada | 17,0 (14,7) | 17,2 (14,8) |
+| JSON decode grande | 108,8 (100,9) | 113,0 (100,7) |
+| JSON encode grande | 113,3 (103,2) | 114,5 (100,2) |
+| JSON `utf8_bytes` | 72,9 (64,4) | 68,6 (62,6) |
+| strings `build` | 43,8 (36,9) | 43,8 (38,3) |
+| strings `hashes` | 14,8 (13,5) | 14,1 (13,5) |
+| objetos temporários (`points`) | 10,8 (9,4) | 9,8 (9,5) |
+| crivo | 20,0 (16,3) | 20,0 (17,0) |
+| `list_sort` | 75,6 (68,6) | 78,1 (71,4) |
+| `map` | 29,7 (21,4) | 27,6 (22,3) |
+| `set_str` | 13,9 (13,4) | 14,5 (13,6) |
+
+Tudo dentro do ruído (±10% na mediana nesta máquina compartilhada); `list_sort` e o crivo ficaram
+3–4% acima no mínimo, `map`, `points` e `utf8_bytes` abaixo.
+
+**Validação** (macOS, binário final `x2`, o mesmo código dos commits; carga da máquina 40–110
+durante quase toda a validação): diferencial do `corpus/native` (164 programas, `--exec-limit 60`):
+**wasm sem Binaryen 164/164**, **wasm com Binaryen 164/164**, **wasm `--gc-stress` 164/164**;
+**nativo `--optimize --gc-stress` 164/164**, **nativo de desenvolvimento 164/164** e **nativo
+`--optimize` 163/164 terminados, todos iguais** — o último, `122_literais_grandes_constantes` (o de
+link mais longo), não terminou antes do fim do dia (uma segunda execução do mesmo modo escreveu no
+mesmo registro; as duas foram paradas). `cargo test --release` de `dartforge-runtime` e
+`dartforge-emit-native`: **1 668 passam, 0 falham** (com os testes novos: o formatador contra o antigo
+fora dos empates, todo expoente binário, os empates da VM, a cadeia de bytes do registro de
+classes). `size_budget.rs` (`--features native --include-ignored`): passa (hello 675 KB, orçamento
+novo de 745 KB). `clippy -D warnings` de `dartforge-emit-native` e `dartforge-runtime`
+(`--all-targets`) limpo, e o do runtime para `wasm32-unknown-unknown` também; rustfmt limpo nos
+arquivos tocados. **Suíte `tests/language` inteira: não feita** (2 h 13 min sem carga na segunda
+rodada; com carga 90 não cabia no dia). No lugar dela, uma lista de risco (`risk3.txt`: os nomes com
+`double`, `number`, `to_string`, `runtime_type`, `type_literal`, `subtyp`, `cast`, `hash`, `print`…;
+300 arquivos, 210 deles programas da suíte): dos 210, **205 iguais à VM, 2 passam onde a VM falha
+(`variance_*_subtyping`), 3 falhas** — as 3 `canonicalize/hashing_shallow_collision_*` de sempre; os
+outros 90 são testes de erro estático fora da suíte. `run-language-suite.py compare --wasm` contra
+`wasm-size2-final`: nenhuma regressão.
+
+**O que não foi feito** (rodada encurtada):
+- registrar só as tabelas do SDK vivas (−15,6 KB com Binaryen no hello; atrasa o V8, acima);
+- a formatação de `f64` do `core::fmt` que sobra (SIMD `toString`) e o resto do `core::fmt` e do
+  pânico (17,7 + 7,0 KB no hello): o toolchain é o estável 1.98.1 (`panic=immediate-abort` pede
+  nightly, e o nightly da máquina não é usado pela compilação);
+- coletor menor (92 KB no hello) além do `ManuallyDrop`: candidatos vistos, não feitos — o
+  `memory_report` (3,7 KB, estatística), `describe_object` (12 KB), `loop_status` (8 KB);
+- o cone do tipo estático do receptor (`_Double` 18 KB) e os produtores dos ajudantes de erro.
 
 ## 03/11/2026: wasm — rodada de tamanho 2: hello de 0,78 para 0,72 MB (0,60 MB com Binaryen); guarda do `noSuchMethod` corrigida
 
