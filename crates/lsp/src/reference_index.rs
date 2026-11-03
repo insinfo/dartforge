@@ -1562,6 +1562,58 @@ impl ReferenceIndex {
     }
 
     /// Number of files, relations and keys (for the log).
+    /// The bytes each part of the index holds (capacity-based, without the
+    /// allocator's overhead), for the memory log.
+    pub(crate) fn census(&self) -> Vec<(&'static str, usize)> {
+        use std::mem::size_of;
+        let v = |n: usize, s: usize| n * s;
+        let mut parts: Vec<(&'static str, usize)> = Vec::new();
+        let mut add = |name: &'static str, b: usize| match parts.iter_mut().find(|p| p.0 == name) {
+            Some(p) => p.1 += b,
+            None => parts.push((name, b)),
+        };
+        for r in self.records() {
+            add("records", size_of::<FileRecord>());
+            add("relations", v(r.relations.capacity(), size_of::<Relation>()));
+            add("lines", v(r.lines.capacity(), 4) + v(r.wide.capacity(), 8));
+            add("referenced", v(r.referenced.capacity(), 4));
+            add("declarations", v(r.declarations.capacity(), 12));
+            add("docs", v(r.docs.capacity(), size_of::<DocFact>()));
+            add(
+                "classes",
+                r.classes
+                    .iter()
+                    .map(|c| {
+                        size_of::<ClassFact>()
+                            + 4 * (c.supers.capacity() + c.written.capacity() + c.mixins.capacity())
+                            + 12 * (c.members.capacity() + c.fields.capacity())
+                            + 16 * c.raw_members.capacity()
+                            + size_of::<ConstructorParameter>() * c.constructor_parameters.capacity()
+                    })
+                    .sum(),
+            );
+            add("idents", v(r.idents.capacity(), 8) + v(r.prepares.capacity(), 8));
+            add(
+                "facts",
+                r.facts.capacity() * size_of::<IdentFact>()
+                    + r.prepare_facts.capacity() * size_of::<PrepareFact>(),
+            );
+            add(
+                "paths and imports",
+                r.path.capacity()
+                    + r.uri.capacity()
+                    + r.imports.iter().map(|i| i.capacity() + 24).sum::<usize>(),
+            );
+        }
+        for (name, t) in [("keys", &self.keys), ("words", &self.words), ("paths", &self.paths)] {
+            add(
+                name,
+                t.text.capacity() + t.ends.capacity() * 4 + t.ids.capacity() * 16,
+            );
+        }
+        parts
+    }
+
     pub(crate) fn sizes(&self) -> (usize, usize, usize) {
         let files = self.records().count();
         let relations = self.records().map(|r| r.relations.len()).sum();

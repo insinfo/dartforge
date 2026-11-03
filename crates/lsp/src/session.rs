@@ -346,7 +346,9 @@ impl Session {
             return self.entry.as_mut().map(|(_, p)| Use::Retained(p));
         }
         self.invalidate();
+        crate::memory::log("before a session load");
         let project = load()?;
+        crate::memory::log("after a session load");
         self.stats.loaded += 1;
         let source: usize = project.program().units.iter().map(|u| u.source.len()).sum();
         // The load of one search serves only that name again: it is not worth

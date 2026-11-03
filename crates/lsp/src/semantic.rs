@@ -2176,8 +2176,18 @@ impl SemanticAnalyzer {
             if self.index_build.is_some() || self.index_failed.contains(&root) {
                 return false;
             }
+            crate::memory::log("before the index's cache");
             if let Some(index) = load_cached_index(&root, &sdk.root) {
+                if crate::memory::logging() {
+                    let census: Vec<String> = index
+                        .census()
+                        .iter()
+                        .map(|(n, b)| format!("{n} {:.1}", *b as f64 / 1048576.0))
+                        .collect();
+                    eprintln!("[dartforge-lsp] index census (MiB): {}", census.join(", "));
+                }
                 self.reference_index = Some(index);
+                crate::memory::log("after the index's cache");
             } else {
                 let request = IndexRequest {
                     sdk_lib: sdk.root.clone(),
