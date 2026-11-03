@@ -3587,7 +3587,7 @@ mod declared_field_summary_tests {
     fn persistent_field_facts_refuse_corruption_and_old_schema() {
         let summary = hir_summary(&module()).to_text();
         assert!(
-            Summary::from_string(&summary.replace("dartforge-poda\t9", "dartforge-poda\t8"))
+            Summary::from_string(&summary.replace("dartforge-poda\t10", "dartforge-poda\t9"))
                 .is_err()
         );
         assert!(
