@@ -6,7 +6,7 @@
 //! and the arguments fit its signature — except in a program with an
 //! `external` field nothing implements, or with a class that cannot have the
 //! private members of another library's supertype ([`static_calls_may_miss`]),
-//! which keeps the helpers unguarded. Only a dynamic invocation — a member of
+//! which registers the helpers whatever it calls. Only a dynamic invocation — a member of
 //! a `dynamic` receiver (also a type variable bounded by `dynamic`), a call of
 //! a value whose static type is not a function type (`Function`, `dynamic`, a
 //! type variable), a relational pattern —, a
@@ -69,6 +69,12 @@ const PORT_PRODUCERS: &[&str] = &[
     "dartforge_api_post_*",
 ];
 
+/// A producer that is always live (the program's entry, in the HIR pruning
+/// and in the link's): the guard of a helper the program needs whatever it
+/// calls ([`static_calls_may_miss`]). The SDK libraries of wasm never
+/// register the guarded helpers, so the program still does it.
+const ALWAYS: &[&str] = &["dartforge_entry"];
+
 /// The producers (`df.ref-when` patterns) of a runtime helper the program
 /// registers only when some live function cites one, on WebAssembly.
 /// `None`: the SDK library registers it at startup.
@@ -77,7 +83,9 @@ pub fn guarded_helper(ctx: &Context, name: &str) -> Option<&'static [&'static st
         return None;
     }
     match name {
-        "_dartforgeNoSuchMethod" | "_dartforgeCallError" if static_calls_may_miss(ctx) => None,
+        "_dartforgeNoSuchMethod" | "_dartforgeCallError" if static_calls_may_miss(ctx) => {
+            Some(ALWAYS)
+        }
         "_dartforgeNoSuchMethod" => Some(NO_SUCH_METHOD_PRODUCERS),
         "_dartforgeCallError" => Some(CALL_ERROR_PRODUCERS),
         "_dartforgeRebuildCopiedIndex" => Some(PORT_PRODUCERS),
@@ -86,8 +94,9 @@ pub fn guarded_helper(ctx: &Context, name: &str) -> Option<&'static [&'static st
 }
 
 /// Whether a statically checked call of the program can miss its member
-/// and reach `noSuchMethod` (the program then registers the helpers without a
-/// guard). Two cases, found by the whole `tests/language` suite on wasm:
+/// and reach `noSuchMethod` (the program then registers the helpers under a
+/// guard that always holds, [`ALWAYS`]). Two cases, found by the whole
+/// `tests/language` suite on wasm:
 ///
 /// * an `external` instance field nothing implements: its accessors are not
 ///   in the class's table, and the VM answers `NoSuchMethodError`
