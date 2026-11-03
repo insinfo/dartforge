@@ -567,6 +567,7 @@ impl SemanticAnalyzer {
         let mut equal = 0usize;
         // Equal, not answered by the index, different.
         let mut implementations = (0usize, 0usize, 0usize);
+        let mut prepares = (0usize, 0usize, 0usize);
         let mut misses: std::collections::BTreeMap<String, usize> = Default::default();
         let mut differences = Vec::new();
         let (mut old_time, mut new_time) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
@@ -639,6 +640,42 @@ impl SemanticAnalyzer {
                 let old_impl = sorted(self.unindexed_implementations(documents, uri, offset));
                 old_time += t.elapsed();
                 self.reference_index = index;
+                // `prepareRename`: the record's answer and the library's.
+                let fact = documents.get(uri).and_then(|text| {
+                    let word = crate::project::word(text, offset)?;
+                    let path = dartforge_elements::generated::key(&crate::project::uri_file(uri)?);
+                    self.reference_index
+                        .as_ref()?
+                        .prepare_at(&path, word.start)
+                        .cloned()
+                });
+                let library_answer = self
+                    .library(documents, uri)
+                    .map(|l| crate::rename::prepare(&l, uri, offset));
+                match (fact, library_answer) {
+                    (None, _) | (_, None) => prepares.1 += 1,
+                    (Some(f), Some(answer)) => {
+                        let same = match (&f, &answer) {
+                            (crate::reference_index::PrepareFact::Nothing, Ok(None)) => true,
+                            (
+                                crate::reference_index::PrepareFact::Range { start, end, old },
+                                Ok(Some((s, o))),
+                            ) => *start as usize == s.start && *end as usize == s.end && old == o,
+                            (crate::reference_index::PrepareFact::Refused(m), Err(e)) => m == e,
+                            _ => false,
+                        };
+                        if same {
+                            prepares.0 += 1;
+                        } else {
+                            prepares.2 += 1;
+                            if differences.len() < 30 {
+                                differences.push(format!(
+                                    "{uri}:{offset} {target}: prepareRename, index {f:?} library {answer:?}"
+                                ));
+                            }
+                        }
+                    }
+                }
                 match new_impl {
                     None => implementations.1 += 1,
                     Some(n) if n == old_impl => implementations.0 += 1,
@@ -702,6 +739,11 @@ impl SemanticAnalyzer {
             report,
             "implementations: equal {}, not answered {}, different {}",
             implementations.0, implementations.1, implementations.2
+        );
+        let _ = writeln!(
+            report,
+            "prepareRename: equal {}, not answered {}, different {}",
+            prepares.0, prepares.1, prepares.2
         );
         for (reason, n) in misses {
             let _ = writeln!(report, "not answered ({reason}): {n}");
@@ -1127,6 +1169,27 @@ impl Analyzer for SemanticAnalyzer {
         uri: &str,
         offset: usize,
     ) -> Result<Option<(Span, String)>, String> {
+        // The answer the document's record keeps, when it is of the text.
+        if self.ready_index(documents, uri)
+            && let Some(index) = &self.reference_index
+            && let Some(text) = documents.get(uri)
+            && let Some(word) = crate::project::word(text, offset)
+            && let Some(path) = crate::project::uri_file(uri)
+            && let Some(fact) =
+                index.prepare_at(&dartforge_elements::generated::key(&path), word.start)
+        {
+            return match fact {
+                crate::reference_index::PrepareFact::Nothing => Ok(None),
+                crate::reference_index::PrepareFact::Range { start, end, old } => Ok(Some((
+                    Span {
+                        start: *start as usize,
+                        end: *end as usize,
+                    },
+                    old.clone(),
+                ))),
+                crate::reference_index::PrepareFact::Refused(m) => Err(m.clone()),
+            };
+        }
         // `getElementToRename` and `checkInitialConditions` look only at the
         // element under the cursor: the library's load is enough (the rename
         // itself loads the whole project).
@@ -1742,6 +1805,7 @@ struct IndexRequest {
 /// program (the wide load) never stays in the server's memory.
 pub fn reference_index_child() -> i32 {
     use std::io::{Read, Write};
+    crate::reference_index::watch_parent();
     let mut input = Vec::new();
     if std::io::stdin().read_to_end(&mut input).is_err() {
         return 2;

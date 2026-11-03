@@ -1368,6 +1368,17 @@ fn resident_child() -> i32 {
                 {
                     return 1;
                 }
+                // After the answer is out: the free pages the analysis left go
+                // back to the system.
+                if crate::memory::relief() {
+                    let given = crate::memory::release_free_pages();
+                    if crate::memory::logging() {
+                        eprintln!(
+                            "[dartforge-lsp] the resident gave {:.1} MiB back",
+                            given as f64 / (1024.0 * 1024.0)
+                        );
+                    }
+                }
             }
             0
         });

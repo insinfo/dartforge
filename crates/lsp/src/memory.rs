@@ -14,6 +14,23 @@ pub(crate) fn heap_in_use() -> Option<usize> {
     platform::heap_in_use()
 }
 
+/// Gives the free pages the system allocator keeps back to the system, when
+/// the platform allows it, and returns how many bytes it gave back. The
+/// resident calls it after each analysis (`DARTFORGE_LSP_RELIEF=0` turns it
+/// off): its live data stays flat over a long session, and what grew was the
+/// pages the allocator kept after the peaks (docs/LSP.md, "Décima quinta
+/// rodada").
+pub(crate) fn release_free_pages() -> usize {
+    platform::release_free_pages()
+}
+
+/// The resident gives free pages back after each analysis
+/// (`DARTFORGE_LSP_RELIEF`, on by default).
+pub(crate) fn relief() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("DARTFORGE_LSP_RELIEF").map_or(true, |v| v.trim() != "0"))
+}
+
 /// The memory log is on (`DARTFORGE_LSP_MEMORY=1`).
 pub(crate) fn logging() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -75,6 +92,14 @@ mod platform {
 
     unsafe extern "C" {
         fn malloc_zone_statistics(zone: *mut c_void, stats: *mut MallocStatistics);
+        fn malloc_zone_pressure_relief(zone: *mut c_void, goal: usize) -> usize;
+    }
+
+    pub(super) fn release_free_pages() -> usize {
+        // SAFETY: a null zone asks every registered zone to give back its free
+        // pages, and a zero goal means as many as it can; the call touches no
+        // memory of ours.
+        unsafe { malloc_zone_pressure_relief(std::ptr::null_mut(), 0) }
     }
 
     pub(super) fn heap_in_use() -> Option<usize> {
@@ -91,5 +116,9 @@ mod platform {
 mod platform {
     pub(super) fn heap_in_use() -> Option<usize> {
         None
+    }
+
+    pub(super) fn release_free_pages() -> usize {
+        0
     }
 }

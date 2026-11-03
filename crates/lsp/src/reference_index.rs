@@ -283,6 +283,22 @@ pub(crate) struct FileRecord {
     /// [`IdentFact`] of what it denotes (an index of `facts`), sorted.
     pub idents: Vec<(u32, u32)>,
     pub facts: Vec<IdentFact>,
+    /// A project file's `prepareRename` answers: the start of each
+    /// identifier's word and the answer (an index of `prepare_facts`), sorted.
+    pub prepares: Vec<(u32, u32)>,
+    pub prepare_facts: Vec<PrepareFact>,
+}
+
+/// What `textDocument/prepareRename` answers at an identifier
+/// ([`crate::rename::prepare_in`]).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum PrepareFact {
+    /// Nothing to rename there.
+    Nothing,
+    /// The range and the current name.
+    Range { start: u32, end: u32, old: String },
+    /// The rename is refused, with this message.
+    Refused(String),
 }
 
 const NONE: u32 = u32::MAX;
@@ -1208,10 +1224,23 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
     let mut facts: HashMap<IdentFact, u32> = HashMap::new();
     let mut locals: HashMap<String, Option<u32>> = HashMap::new();
     let mut idents = Vec::new();
+    let mut prepare_facts: HashMap<PrepareFact, u32> = HashMap::new();
+    let mut prepares = Vec::new();
     for o in 0..b.len() {
         if !ident(b[o]) || b[o].is_ascii_digit() || (o > 0 && ident(b[o - 1])) {
             continue;
         }
+        let prepare = match crate::rename::prepare_in(project, u, o) {
+            Ok(None) => PrepareFact::Nothing,
+            Ok(Some((s, old))) => PrepareFact::Range {
+                start: s.start as u32,
+                end: s.end as u32,
+                old,
+            },
+            Err(message) => PrepareFact::Refused(message),
+        };
+        let n = prepare_facts.len() as u32;
+        prepares.push((o as u32, *prepare_facts.entry(prepare).or_insert(n)));
         let Ok(Some(d)) = project.identify(u, o) else {
             continue;
         };
@@ -1270,6 +1299,11 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
     ordered.sort_by_key(|x| x.0);
     r.facts = ordered.into_iter().map(|(_, f)| f).collect();
     r.idents = idents;
+    let mut ordered: Vec<(u32, PrepareFact)> =
+        prepare_facts.into_iter().map(|(f, i)| (i, f)).collect();
+    ordered.sort_by_key(|x| x.0);
+    r.prepare_facts = ordered.into_iter().map(|(_, f)| f).collect();
+    r.prepares = prepares;
 }
 
 /// What a search over the records derives from all of them, rebuilt after the
@@ -2038,6 +2072,17 @@ impl ReferenceIndex {
         r.facts.get(r.idents[i].1 as usize)
     }
 
+    /// What the record of the open document `path` says `prepareRename`
+    /// answers at the word starting at `start`.
+    pub(crate) fn prepare_at(&self, path: &Path, start: usize) -> Option<&PrepareFact> {
+        let r = self.file(path)?;
+        let i = r
+            .prepares
+            .binary_search_by_key(&(start as u32), |x| x.0)
+            .ok()?;
+        r.prepare_facts.get(r.prepares[i].1 as usize)
+    }
+
     /// [`ReferenceIndex::references`] of the answer a record keeps for a
     /// local target of the file at `path`.
     pub(crate) fn local_answer(
@@ -2236,6 +2281,32 @@ pub(crate) fn target_of(
     })
 }
 
+/// The parent process of an index child when it started
+/// ([`watch_parent`]).
+static PARENT: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+
+/// Remembers the parent of this (child) process: [`orphaned`] then tells when
+/// the server that started it is gone.
+pub(crate) fn watch_parent() {
+    #[cfg(unix)]
+    let _ = PARENT.set(std::os::unix::process::parent_id());
+}
+
+/// The server that started this child is gone (Unix; never elsewhere): the
+/// build stops instead of finishing for nobody.
+fn orphaned() -> bool {
+    #[cfg(unix)]
+    {
+        PARENT
+            .get()
+            .is_some_and(|p| *p != std::os::unix::process::parent_id())
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
 /// Builds the index of the project of `uri`: the wide load of the non-local
 /// search (the project, every SDK library and every `lib/` file of the
 /// packages), each library's bodies inferred, recorded and dropped in turn,
@@ -2269,6 +2340,9 @@ pub(crate) fn build(
         if known || !indexed {
             continue;
         }
+        if orphaned() {
+            std::process::exit(3);
+        }
         project.query.infer_libraries(&[lib]);
         let mut tables = Tables {
             keys: &mut index.keys,
@@ -2296,7 +2370,7 @@ pub(crate) fn build(
 }
 
 /// The version of [`ReferenceIndex::encode`]'s format (in the header).
-const FORMAT: u32 = 3;
+const FORMAT: u32 = 4;
 
 /// A little-endian LEB128 writer.
 #[derive(Default)]
@@ -2590,6 +2664,29 @@ fn write_record(w: &mut Writer, r: &FileRecord) {
     w.n(r.facts.len());
     for f in &r.facts {
         write_fact(w, f);
+    }
+    let mut last = 0;
+    w.n(r.prepares.len());
+    for &(o, f) in &r.prepares {
+        w.u(u64::from(o - last));
+        last = o;
+        w.u(u64::from(f));
+    }
+    w.n(r.prepare_facts.len());
+    for f in &r.prepare_facts {
+        match f {
+            PrepareFact::Nothing => w.u(0),
+            PrepareFact::Range { start, end, old } => {
+                w.u(1);
+                w.u(u64::from(*start));
+                w.u(u64::from(end - start));
+                w.s(old);
+            }
+            PrepareFact::Refused(m) => {
+                w.u(2);
+                w.s(m);
+            }
+        }
     }
 }
 
@@ -2931,6 +3028,27 @@ fn read_record(r: &mut Reader<'_>) -> Option<FileRecord> {
         Some((last, r.w()?))
     })?;
     let facts = r.list(read_fact)?;
+    let mut last = 0u32;
+    let prepares = r.list(|r| {
+        last = last.checked_add(r.w()?)?;
+        Some((last, r.w()?))
+    })?;
+    let prepare_facts = r.list(|r| {
+        Some(match r.u()? {
+            0 => PrepareFact::Nothing,
+            1 => {
+                let start = r.w()?;
+                let end = start.checked_add(r.w()?)?;
+                PrepareFact::Range {
+                    start,
+                    end,
+                    old: r.s()?.to_string(),
+                }
+            }
+            2 => PrepareFact::Refused(r.s()?.to_string()),
+            _ => return None,
+        })
+    })?;
     Some(FileRecord {
         path,
         uri,
@@ -2955,6 +3073,8 @@ fn read_record(r: &mut Reader<'_>) -> Option<FileRecord> {
         imports,
         idents,
         facts,
+        prepares,
+        prepare_facts,
     })
 }
 
@@ -3227,6 +3347,9 @@ pub(crate) fn build_files(
         });
         if !hit {
             continue;
+        }
+        if orphaned() {
+            std::process::exit(3);
         }
         project.query.infer_libraries(&[lib]);
         let mut tables = Tables {

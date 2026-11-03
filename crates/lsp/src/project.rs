@@ -1607,8 +1607,10 @@ impl Project {
 
     /// Name under the cursor in a documentation `[…]` reference.
     fn in_dartdoc(&self, unit: UnitId, name: Span) -> Option<Denoted> {
-        let u = self.program().unit(unit);
-        for c in dartdoc::comments(&u.source) {
+        if !self.program().unit(unit).source.contains('[') {
+            return None;
+        }
+        for c in self.unit_comments(unit).iter() {
             if !contains(c.span, name.start) {
                 continue;
             }

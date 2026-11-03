@@ -130,6 +130,12 @@ fn assert_same(report: &str, at_least: usize) {
         ),
         "the index's implementations differ:\n{report}"
     );
+    assert!(
+        report
+            .lines()
+            .any(|l| l.starts_with("prepareRename:") && l.ends_with("not answered 0, different 0")),
+        "the index's prepareRename differs:\n{report}"
+    );
     // Only a named parameter's search (which reaches the labels of other
     // files) is left to the search without the index.
     assert!(

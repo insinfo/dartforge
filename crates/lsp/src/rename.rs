@@ -2425,6 +2425,19 @@ pub(crate) fn prepare(
     let Some(unit) = project.uri_unit(uri) else {
         return Ok(None);
     };
+    prepare_in(project, unit, offset)
+}
+
+/// [`prepare`] at `offset` of `unit`.
+///
+/// # Errors
+///
+/// `checkInitialConditions` fatal: the message.
+pub(crate) fn prepare_in(
+    project: &Project,
+    unit: dartforge_elements::model::UnitId,
+    offset: usize,
+) -> Result<Option<(Span, String)>, String> {
     let Some(request) = project.rename_request(unit, offset) else {
         return Ok(None);
     };
