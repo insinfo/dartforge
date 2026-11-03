@@ -197,7 +197,9 @@ fn global_name(line: &str) -> Option<(&str, bool, &str)> {
 
 /// Decodes the `c"…"` of a byte constant (`\XX`).
 fn constant_text(line: &str) -> Option<String> {
-    let ini = line.find("c\"")? + 2;
+    // The `c"` of the constant, not the end of a quoted name that ends in `c`
+    // (`@"df.s.…95c" = …`): the constant's is preceded by a space.
+    let ini = line.find(" c\"")? + 3;
     let end = ini + line[ini..].find('"')?;
     let s = &line[ini..end];
     let mut v = Vec::new();
@@ -3143,6 +3145,20 @@ mod ffi_tests {
         assert_eq!(r.names[r.recipes[1].0 as usize], "m#.str.2");
         let again = Summary::from_string(&r.to_text()).unwrap();
         assert_eq!(again.recipes, r.recipes);
+    }
+
+    /// Any other constant that cites a class is kept as its citations, also
+    /// when the quoted name of the global ends in `c` (the `c"` of the name is
+    /// not the constant's).
+    #[test]
+    fn class_citations_go_to_summary() {
+        let ir = "@\"df.s.95c\" = linkonce_odr constant { i64, [8 x i8] } { i64 5, [8 x i8] c\"C1057\\00\\00\\00\" }, section \"dfimg\"\n\
+                  @.str.3 = private unnamed_addr constant [6 x i8] c\"hello!\"\n\
+                  define i64 @f() {\n  %a = call i64 @g(ptr @\"df.s.95c\", ptr @.str.3)\n  ret i64 %a\n}\n";
+        let r = summarize(ir, "m", &[]);
+        let texts: Vec<&str> = r.recipes.iter().map(|(_, t)| t.as_str()).collect();
+        assert_eq!(texts, vec!["C1057"]);
+        assert_eq!(r.names[r.recipes[0].0 as usize], "df.s.95c");
     }
 }
 
