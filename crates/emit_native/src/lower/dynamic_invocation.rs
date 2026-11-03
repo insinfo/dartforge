@@ -3,9 +3,13 @@
 //!
 //! A statically checked call cannot miss: the receiver's class has the member
 //! the static type promises (an implementation or a `noSuchMethod` forwarder),
-//! and the arguments fit its signature. Only a dynamic invocation — a member of
-//! a `dynamic` receiver, a call of a value whose static type is not a function
-//! type (`Function`, `dynamic`, a type variable), a relational pattern —, a
+//! and the arguments fit its signature — except in a program with an
+//! `external` field nothing implements, or with a class that cannot have the
+//! private members of another library's supertype ([`static_calls_may_miss`]),
+//! which keeps the helpers unguarded. Only a dynamic invocation — a member of
+//! a `dynamic` receiver (also a type variable bounded by `dynamic`), a call of
+//! a value whose static type is not a function type (`Function`, `dynamic`, a
+//! type variable), a relational pattern —, a
 //! `noSuchMethod` forwarder, `Function.apply` and the dynamic operators of the
 //! runtime can make the runtime build an `Invocation` and call `noSuchMethod`
 //! (`runtime/src/selectors.rs`, `closures.rs`, `dispatch.rs`), as in
@@ -26,6 +30,7 @@
 //! Native executables keep every helper (the mark is not emitted).
 
 use super::fn_builder::FnBuilder;
+use crate::context::Context;
 use crate::hir::*;
 use dartforge_frontend::ast::{self, AssignOp, BinaryOp, ExprId, ExprKind, UnaryOp};
 use dartforge_types::table::TypeId;
@@ -67,16 +72,81 @@ const PORT_PRODUCERS: &[&str] = &[
 /// The producers (`df.ref-when` patterns) of a runtime helper the program
 /// registers only when some live function cites one, on WebAssembly.
 /// `None`: the SDK library registers it at startup.
-pub fn guarded_helper(name: &str) -> Option<&'static [&'static str]> {
+pub fn guarded_helper(ctx: &Context, name: &str) -> Option<&'static [&'static str]> {
     if !crate::target::is_wasm() {
         return None;
     }
     match name {
+        "_dartforgeNoSuchMethod" | "_dartforgeCallError" if static_calls_may_miss(ctx) => None,
         "_dartforgeNoSuchMethod" => Some(NO_SUCH_METHOD_PRODUCERS),
         "_dartforgeCallError" => Some(CALL_ERROR_PRODUCERS),
         "_dartforgeRebuildCopiedIndex" => Some(PORT_PRODUCERS),
         _ => None,
     }
+}
+
+/// Whether a statically checked call of the program can miss its member
+/// and reach `noSuchMethod` (the program then registers the helpers without a
+/// guard). Two cases, found by the whole `tests/language` suite on wasm:
+///
+/// * an `external` instance field nothing implements: its accessors are not
+///   in the class's table, and the VM answers `NoSuchMethodError`
+///   (`external_fields`);
+/// * a concrete class whose supertype from another library declares private
+///   instance members the class cannot have: an interface it implements, or
+///   an abstract private member of a class it extends. The other library's
+///   statically checked call of that member misses
+///   (`private_name_implementation`).
+///
+/// Conservative: a supertype with private members only implemented counts,
+/// whether or not some call of them exists.
+pub fn static_calls_may_miss(ctx: &Context) -> bool {
+    use dartforge_elements::model::ClassId;
+    let program = &ctx.program;
+    for (k, class) in program.classes.iter().enumerate() {
+        if program.library(class.library).is_sdk {
+            continue;
+        }
+        if class.fields.iter().any(|&v| {
+            !program.variables[v.0 as usize].static_
+                && super::members::external_without_implementation(ctx, v)
+        }) {
+            return true;
+        }
+        if class.modifiers.abstract_ {
+            continue;
+        }
+        // The classes whose members this one inherits: the superclass chain
+        // and its mixins.
+        let mut chain: std::collections::HashSet<ClassId> = Default::default();
+        let mut pending = vec![ClassId(k as u32)];
+        while let Some(c) = pending.pop() {
+            if !chain.insert(c) {
+                continue;
+            }
+            let d = &program.classes[c.0 as usize];
+            pending.extend(d.supertype_class);
+            pending.extend(d.mixin_classes.iter().copied());
+        }
+        let Some(h) = ctx.outline.hierarchy.get(ClassId(k as u32)) else {
+            continue;
+        };
+        for sup in h.supertypes.keys() {
+            let s = &program.classes[sup.0 as usize];
+            if s.library == class.library {
+                continue;
+            }
+            let inherited = chain.contains(sup);
+            let missing = s.instance_members.iter().any(|(n, f)| {
+                ctx.symbol_name(*n).starts_with('_')
+                    && (!inherited || program.functions[f.0 as usize].abstract_)
+            });
+            if missing {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// `DARTFORGE_TRACE_DYNAMIC=1`: every function that gets the mark, and why, on
@@ -222,7 +292,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         ) {
             return false;
         }
-        self.ctx.get_type_raw(self.unit_id, e) == Some(self.ctx.core.dynamic_)
+        self.ctx
+            .get_type_raw(self.unit_id, e)
+            .is_some_and(|t| self.dynamic_type(t))
+    }
+
+    /// `dynamic`, or a type variable whose bound is (`S extends dynamic`: its
+    /// members are those of `dynamic`, `static_extension_resolution_7`).
+    fn dynamic_type(&self, t: TypeId) -> bool {
+        use dartforge_types::table::Type as T;
+        let mut t = t;
+        // A bound chain is finite (the front end rejects a cycle); the guard
+        // stops a malformed one anyway.
+        for _ in 0..64 {
+            if t == self.ctx.core.dynamic_ {
+                return true;
+            }
+            t = match self.ctx.table.get(t) {
+                T::TypeParameter { param, .. } => self.ctx.table.param(*param).bound,
+                T::Intersection { bound, .. } => *bound,
+                _ => return false,
+            };
+        }
+        false
     }
 
     /// `t.x` or `t[i]` with a `dynamic` `t` (the target of an assignment or

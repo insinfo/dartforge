@@ -2993,7 +2993,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
         if f.class.is_none() && RUNTIME_HELPERS.contains(&name_str) {
             // A helper the closed world may leave out: the program registers it,
             // under the guard of its producers (`dynamic_invocation.rs`).
-            if let Some(producers) = super::dynamic_invocation::guarded_helper(name_str) {
+            if let Some(producers) = super::dynamic_invocation::guarded_helper(ctx, name_str) {
                 if !ctx.sdk_library && ctx.program.library(f.library).is_sdk {
                     module.guarded_helpers.push((
                         name_str.to_string(),
