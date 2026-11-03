@@ -88,6 +88,10 @@ fn serve_stdio() -> i32 {
     }
 }
 
+/// How long the server stays idle after some work before it gives its free
+/// pages back ([`dartforge_lsp::relieve_memory`]).
+const RELIEF_IDLE: std::time::Duration = std::time::Duration::from_millis(500);
+
 /// Main loop: enqueues from the reader, dispatches on this thread, exits on `exit`.
 fn dispatch() -> i32 {
     if std::env::var("RUST_LOG").is_ok() || std::env::var("DARTFORGE_LSP_DEBUG").is_ok() {
@@ -116,15 +120,39 @@ fn dispatch() -> i32 {
         let _ = wake.send(Entry::Wake);
     });
     let mut closed = false;
+    // Work since the free pages last went back to the system: once the server
+    // has been idle for `RELIEF_IDLE`, they go back (the transient loads of the
+    // queries and the analyses' results leave them with the allocator).
+    let mut worked = false;
     loop {
         if !server.has_pending() && !closed {
-            match rx.recv() {
+            let entry = if worked {
+                match rx.recv_timeout(RELIEF_IDLE) {
+                    Ok(entry) => Ok(entry),
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        worked = false;
+                        let given = dartforge_lsp::relieve_memory();
+                        if std::env::var_os("DARTFORGE_LSP_MEMORY").is_some() {
+                            eprintln!(
+                                "[dartforge-lsp] the server gave {:.1} MiB back",
+                                given as f64 / (1024.0 * 1024.0)
+                            );
+                        }
+                        continue;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => Err(()),
+                }
+            } else {
+                rx.recv().map_err(|_| ())
+            };
+            worked = true;
+            match entry {
                 Ok(Entry::Message(message)) => {
                     server.register_received(&message);
                     server.receive(message);
                 }
                 Ok(Entry::Wake) => {}
-                Ok(Entry::End) | Err(_) => closed = true,
+                Ok(Entry::End) | Err(()) => closed = true,
             }
         }
         loop {

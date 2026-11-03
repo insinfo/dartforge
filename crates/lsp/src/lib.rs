@@ -114,6 +114,21 @@ pub fn trace_hop(event: &str) {
 }
 pub use typed::{CHILD_ARGUMENT as TYPED_ANALYSIS_ARGUMENT, typed_analysis_child};
 
+/// Gives the free pages the system allocator keeps back to the system
+/// (`DARTFORGE_LSP_RELIEF=0` turns it off) and returns how many bytes went
+/// back: the binary's dispatcher calls it once the server goes idle after
+/// some work, as the resident does after each analysis (docs/LSP.md,
+/// "Décima sexta rodada").
+#[doc(hidden)]
+pub fn relieve_memory() -> usize {
+    memory::log("server idle");
+    if memory::relief() {
+        memory::release_free_pages()
+    } else {
+        0
+    }
+}
+
 pub use actions::{CodeAction, Linked, LinkedGroup};
 pub use call_hierarchy::{CallItem, CallKind};
 pub use inlay_hints::Hint;
