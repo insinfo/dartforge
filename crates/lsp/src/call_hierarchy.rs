@@ -32,7 +32,7 @@ use dartforge_frontend::ast;
 use dartforge_types::{MemberRef, Resolved};
 
 /// `CallHierarchyKind`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CallKind {
     Class,
     Constructor,
@@ -61,7 +61,7 @@ impl CallKind {
 }
 
 /// An item of the call hierarchy.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CallItem {
     pub name: String,
     pub kind: CallKind,
@@ -495,7 +495,13 @@ impl Project {
     pub(crate) fn call_target(&self, unit: UnitId, offset: usize) -> Option<CallElem> {
         let cx = Context::new(self, unit);
         let n = self.at_target(&cx, offset)?;
-        let e = self.call_node_element(&cx, n)?;
+        let e = match self.call_node_element(&cx, n)? {
+            // A function an SDK patch stands in for is its declaration's item.
+            CallElem::Function(f) => {
+                CallElem::Function(self.program().function(f).public_declaration.unwrap_or(f))
+            }
+            e => e,
+        };
         matches!(e, CallElem::Function(_) | CallElem::Local(..)).then_some(e)
     }
 

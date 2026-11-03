@@ -30,17 +30,21 @@ pub struct FileStamp {
 impl FileStamp {
     /// Reads the stamp of a path; `None` if the file does not exist.
     pub fn read(path: &Path) -> Option<FileStamp> {
-        let md = std::fs::metadata(path).ok()?;
+        crate::fs_cache::stamp(path)
+    }
+
+    /// The stamp of a file's metadata.
+    pub fn of(md: &std::fs::Metadata) -> FileStamp {
         let mtime_ns = md
             .modified()
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        Some(FileStamp {
+        FileStamp {
             mtime_ns,
             size: md.len(),
-        })
+        }
     }
 }
 

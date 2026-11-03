@@ -105,6 +105,10 @@ pub(crate) struct Session {
     /// watcher reported a change since.
     disk_checked: Option<std::time::Instant>,
     disk_dirty: bool,
+    /// A program lent by the resident analysis process for one query
+    /// ([`Session::lend`]): it serves the library queries of its documents,
+    /// and nothing loads in its place.
+    lent: Option<Project>,
 }
 
 impl Session {
@@ -137,7 +141,34 @@ impl Session {
             trust_watcher: false,
             disk_checked: None,
             disk_dirty: false,
+            lent: None,
         }
+    }
+
+    /// Serves the next queries from `project`, a program the resident lent
+    /// with the current texts and the bodies of the queried library inferred,
+    /// until [`Session::take_lent`]: a library query whose document the
+    /// program has gets it, and any other scope gets nothing (no load).
+    pub(crate) fn lend(&mut self, project: Project) {
+        self.invalidate();
+        self.lent = Some(project);
+    }
+
+    /// Drops the entry when it is a library's (the resident answers those
+    /// queries now; a project's entry serves rename and stays).
+    pub(crate) fn drop_library(&mut self) {
+        if self
+            .entry
+            .as_ref()
+            .is_some_and(|(key, _)| matches!(key.scope, Scope::Library(_)))
+        {
+            self.invalidate();
+        }
+    }
+
+    /// The program [`Session::lend`] gave, back to its owner.
+    pub(crate) fn take_lent(&mut self) -> Option<Project> {
+        self.lent.take()
     }
 
     /// The client watches the files and reports their changes
@@ -177,6 +208,9 @@ impl Session {
     /// The session holds a program that serves a query on `file`'s library
     /// (its library's entry, or its project's).
     pub(crate) fn holds_library(&self, file: &Path) -> bool {
+        if let Some(p) = &self.lent {
+            return p.file_unit(file).is_some();
+        }
         self.entry
             .as_ref()
             .is_some_and(|(key, _)| match &key.scope {
@@ -321,6 +355,14 @@ impl Session {
         documents: &DocumentStore,
         load: impl FnOnce() -> Option<Project>,
     ) -> Option<Use<'_>> {
+        if let Some(p) = &self.lent {
+            let serves = matches!(&scope, Scope::Library(file) if p.file_unit(file).is_some());
+            return if serves {
+                self.lent.as_mut().map(Use::Retained)
+            } else {
+                None
+            };
+        }
         let open = open(documents);
         let key = self.entry.take().map(|(key, project)| {
             let scope_serves = match (&key.scope, &scope) {

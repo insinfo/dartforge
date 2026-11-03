@@ -474,7 +474,13 @@ impl Resident {
                 .get()
                 .is_some_and(|t| t.elapsed() < DISK_SCAN_EVERY)
         {
+            // What the file system said stays true but for what changed
+            // (`dartforge_elements::fs_cache`, when its owner trusts it).
+            dartforge_elements::fs_cache::forget(&known);
             let _ = self.disk_scan.set(known);
+        } else {
+            // This analysis looks at the disk again.
+            dartforge_elements::fs_cache::clear();
         }
         let Some(mut world) = self.world.take() else {
             return Taken::Nothing;
@@ -874,8 +880,9 @@ impl Resident {
     /// Lends what the last analysis built ([`LentAnalysis`]) to `f`, which
     /// gives it back with its answer; `None` when the last analysis kept no
     /// body tables ([`Resident::keep_bodies`]) or `f` panicked (the resident is
-    /// then [cleared](Resident::clear)). The body tables are dropped after the
-    /// loan.
+    /// then [cleared](Resident::clear)). The body tables `f` gives back (with
+    /// the libraries they hold) stay until the next analysis, so that the
+    /// next loan finds them; `f` may drop them by giving back empty ones.
     ///
     /// `f` may intern types and infer on demand, as a query over the program
     /// does; it must give back the same program and interner it was lent.
@@ -883,11 +890,33 @@ impl Resident {
         &mut self,
         f: impl FnOnce(LentAnalysis) -> (LentAnalysis, R),
     ) -> Option<R> {
-        let mut world = self.world.take()?;
-        let Some(last) = world.last.take() else {
-            self.world = Some(world);
+        if self.world.as_ref().is_none_or(|w| w.last.is_none()) {
             return None;
-        };
+        }
+        self.lend_world(f)
+    }
+
+    /// The package root the kept program was loaded for, when there is one.
+    pub fn world_root(&self) -> Option<&Path> {
+        self.world.as_ref().map(|w| w.root.as_path())
+    }
+
+    /// [`Resident::lend_analysis`], also when the last analysis kept no body
+    /// tables: the loan then starts with empty ones (no library inferred),
+    /// for a caller that infers the bodies it needs. `None` without a kept
+    /// program, or when `f` panicked.
+    pub fn lend_world<R>(
+        &mut self,
+        f: impl FnOnce(LentAnalysis) -> (LentAnalysis, R),
+    ) -> Option<R> {
+        let mut world = self.world.take()?;
+        let last = world.last.take().unwrap_or_else(|| LastBodies {
+            bodies: dartforge_types::BodyTypes {
+                units: vec![Default::default(); world.program.units.len()],
+                used_extensions: Default::default(),
+            },
+            libraries: Vec::new(),
+        });
         let World {
             program,
             table,
@@ -932,10 +961,16 @@ impl Resident {
             table,
             core,
             outline,
+            bodies,
+            libraries,
             touched,
             ..
         } = lent;
         self.interner = interner;
+        // Body tables given back with the libraries they hold stay for the next
+        // loan; empty ones (or tables of another program) drop here.
+        let last = (!libraries.is_empty() && bodies.units.len() == program.units.len())
+            .then_some(LastBodies { bodies, libraries });
         self.world = Some(World {
             program,
             table,
@@ -953,11 +988,38 @@ impl Resident {
             onto_loads,
             words,
             cited,
-            last: None,
+            last,
             generation,
             touched,
         });
         Some(answer)
+    }
+
+    /// Keeps only the body tables of the last analysis's libraries that `keep`
+    /// accepts (the LSP keeps those of the open documents, for its queries,
+    /// and drops the rest of a large batch's).
+    pub fn retain_bodies(&mut self, keep: &dyn Fn(&Program, LibraryId) -> bool) {
+        let Some(world) = self.world.as_mut() else {
+            return;
+        };
+        let Some(last) = world.last.as_mut() else {
+            return;
+        };
+        last.libraries.retain(|l| keep(&world.program, *l));
+        if last.libraries.is_empty() {
+            world.last = None;
+            return;
+        }
+        let units: HashSet<usize> = last
+            .libraries
+            .iter()
+            .flat_map(|l| world.program.library(*l).units.iter().map(|u| u.0 as usize))
+            .collect();
+        for (i, t) in last.bodies.units.iter_mut().enumerate() {
+            if !units.contains(&i) {
+                *t = Default::default();
+            }
+        }
     }
 
     /// The live bytes of each structure the resident keeps, measured by

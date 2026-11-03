@@ -111,7 +111,7 @@ pub fn without_verbatim(p: PathBuf) -> PathBuf {
 /// `std::fs::canonicalize` without the Windows verbatim prefix
 /// ([`without_verbatim`]): the one way the tools canonicalize a path.
 pub fn canonicalize(path: &Path) -> std::io::Result<PathBuf> {
-    std::fs::canonicalize(path).map(without_verbatim)
+    crate::fs_cache::canonicalize(path)
 }
 
 impl PackageConfig {
@@ -213,14 +213,14 @@ impl PackageConfig {
     /// Finds the `package_config.json` file, searching from the directory of
     /// `entry` and walking up the directory tree.
     pub fn discover(entry: &Path) -> Option<PathBuf> {
-        let parent = if entry.is_dir() {
+        let parent = if crate::fs_cache::is_dir(entry) {
             entry
         } else {
             entry.parent()?
         };
         for dir in parent.ancestors() {
             let candidate = dir.join(".dart_tool").join("package_config.json");
-            if candidate.is_file() {
+            if crate::fs_cache::is_file(&candidate) {
                 return Some(candidate);
             }
         }
@@ -243,7 +243,7 @@ impl PackageConfig {
         let stamp = crate::unit_cache::FileStamp::read(path);
         let generated = path
             .parent()
-            .is_some_and(|d| d.join("build").join("generated").is_dir());
+            .is_some_and(|d| crate::fs_cache::is_dir(&d.join("build").join("generated")));
         let cache = CACHE.get_or_init(Default::default);
         if let Some(stamp) = stamp
             && let Some((s, g, c)) = cache

@@ -162,7 +162,7 @@ impl AnalysisOptions {
 
     /// Reads an options file with the `include:`s merged.
     pub fn read_file(file: &Path) -> AnalysisOptions {
-        if !file.is_file() {
+        if !dartforge_elements::fs_cache::is_file(file) {
             return AnalysisOptions::default();
         }
         let config = dartforge_elements::config::PackageConfig::discover(file)
@@ -248,7 +248,7 @@ impl AnalysisOptions {
                 return None;
             }
             let candidate = p.join("analysis_options.yaml");
-            if candidate.is_file() {
+            if dartforge_elements::fs_cache::is_file(&candidate) {
                 return Some(candidate);
             }
             folder = p.parent();

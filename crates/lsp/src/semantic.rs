@@ -22,7 +22,7 @@ pub struct SemanticAnalyzer {
     syntactic: SyntacticAnalyzer,
     sdk: Option<SdkLayout>,
     /// The last loaded program, reused while nothing changed.
-    session: crate::session::Session,
+    pub(crate) session: crate::session::Session,
     /// The wide load of the non-local searches (`references`, `implementation`:
     /// the project, the whole SDK and the packages), retained apart from the
     /// main session so it is not swapped at every `hover`; the bodies of the
@@ -155,6 +155,54 @@ impl SemanticAnalyzer {
             .get(crate::session::Scope::Library(file), documents, || {
                 crate::project::load_library(sdk, documents, uri)
             })
+    }
+
+    /// The resident's answer to the library query `call` on `uri`
+    /// ([`crate::remote`]); `None` when it gives none (the caller answers here,
+    /// as before). An answer drops a library the session loaded while the
+    /// resident could not answer.
+    fn remote(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        call: crate::remote::Call,
+    ) -> Option<crate::remote::Answer> {
+        if !crate::remote::enabled() {
+            return None;
+        }
+        let link = self.resident_records.clone()?;
+        let sdk = self.sdk.as_ref()?;
+        let file = crate::project::uri_file(uri)?;
+        if file.extension().is_none_or(|e| e != "dart") || documents.get(uri).is_none() {
+            return None;
+        }
+        let request = crate::remote::QueryRequest {
+            sdk_lib: sdk.root.clone(),
+            uri: uri.to_string(),
+            documents: Self::document_list(documents),
+            call,
+        };
+        let started = std::time::Instant::now();
+        let answer = link.query(&file, &request, crate::remote::wait_limit());
+        if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
+            eprintln!(
+                "[dartforge-lsp] resident query {:?}: {} in {} us",
+                request.call,
+                match &answer {
+                    None => "no answer",
+                    Some(crate::remote::Answer::Unavailable) => "unavailable",
+                    Some(_) => "answered",
+                },
+                started.elapsed().as_micros()
+            );
+        }
+        match answer? {
+            crate::remote::Answer::Unavailable => None,
+            answer => {
+                self.session.drop_library();
+                Some(answer)
+            }
+        }
     }
 
     /// The whole project of `uri` (references, rename), from the session or loaded.
@@ -649,6 +697,7 @@ impl SemanticAnalyzer {
                     &texts,
                     &|| false,
                 );
+                cache.analyzed();
                 made = analysis.and_then(|_| {
                     resident
                         .lend_analysis(|lent| {
@@ -996,7 +1045,7 @@ pub fn reference_search_child() -> i32 {
 /// # Errors
 /// Why the SDK is not usable: an unreadable or invalid `libraries.json`,
 /// no `dart:core`, or a `core.dart` that cannot be read.
-fn load_sdk(lib: &std::path::Path) -> Result<SdkLayout, String> {
+pub(crate) fn load_sdk(lib: &std::path::Path) -> Result<SdkLayout, String> {
     let sdk = SdkLayout::load_as_analyzer(lib)?;
     let core = sdk
         .library("core")
@@ -1221,6 +1270,11 @@ impl Analyzer for SemanticAnalyzer {
         offset: usize,
         documents: &DocumentStore,
     ) -> Option<(String, Option<Span>)> {
+        if let Some(crate::remote::Answer::Definition(d)) =
+            self.remote(documents, uri, crate::remote::Call::Definition { offset })
+        {
+            return d;
+        }
         self.define(uri, text, offset, documents)
     }
 
@@ -1252,6 +1306,11 @@ impl Analyzer for SemanticAnalyzer {
         offset: usize,
         documents: &DocumentStore,
     ) -> Option<Hover> {
+        if let Some(crate::remote::Answer::Hover(h)) =
+            self.remote(documents, uri, crate::remote::Call::Hover { offset })
+        {
+            return h;
+        }
         self.pass_hover(uri, text, offset, documents)
     }
 
@@ -1398,6 +1457,13 @@ impl Analyzer for SemanticAnalyzer {
         // `getElementToRename` and `checkInitialConditions` look only at the
         // element under the cursor: the library's load is enough (the rename
         // itself loads the whole project).
+        if let Some(crate::remote::Answer::Prepare(r)) = self.remote(
+            documents,
+            uri,
+            crate::remote::Call::PrepareRename { offset },
+        ) {
+            return r;
+        }
         let Some(project) = self.library(documents, uri) else {
             return Ok(None);
         };
@@ -1654,6 +1720,13 @@ impl Analyzer for SemanticAnalyzer {
         offset: usize,
         auto: bool,
     ) -> Option<crate::Signature> {
+        if let Some(crate::remote::Answer::Signature(r)) = self.remote(
+            documents,
+            uri,
+            crate::remote::Call::Signature { offset, auto },
+        ) {
+            return r;
+        }
         let mut project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         project.signature(unit, offset, auto)
@@ -1668,6 +1741,11 @@ impl Analyzer for SemanticAnalyzer {
         if self.sdk.is_none() {
             let text = documents.get(uri)?.to_string();
             return self.syntactic.references(uri, &text, offset);
+        }
+        if let Some(crate::remote::Answer::Spans(r)) =
+            self.remote(documents, uri, crate::remote::Call::Highlights { offset })
+        {
+            return r;
         }
         let project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
@@ -1687,6 +1765,11 @@ impl Analyzer for SemanticAnalyzer {
     }
 
     fn colors(&mut self, documents: &DocumentStore, uri: &str) -> Vec<(Span, [u8; 4])> {
+        if let Some(crate::remote::Answer::Colors(r)) =
+            self.remote(documents, uri, crate::remote::Call::Colors)
+        {
+            return r;
+        }
         // The libraries of the color constants (Flutter's `Colors`) need their
         // bodies: without them inferred, a dedicated load with them.
         let extras = {
@@ -1723,6 +1806,7 @@ impl Analyzer for SemanticAnalyzer {
             occurrences_by_unit,
             written_subtypes,
             patch_keys,
+            unit_paths,
         } = project;
         let mut list: Vec<dartforge_elements::model::LibraryId> = libraries
             .iter()
@@ -1742,6 +1826,7 @@ impl Analyzer for SemanticAnalyzer {
             occurrences_by_unit,
             written_subtypes,
             patch_keys,
+            unit_paths,
         };
         let Some(unit) = project.uri_unit(uri) else {
             return Vec::new();
@@ -1755,6 +1840,13 @@ impl Analyzer for SemanticAnalyzer {
         uri: &str,
         offset: usize,
     ) -> Option<bool> {
+        if let Some(crate::remote::Answer::Flag(r)) = self.remote(
+            documents,
+            uri,
+            crate::remote::Call::ColorPresentation { offset },
+        ) {
+            return r;
+        }
         let project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         project
@@ -1801,6 +1893,11 @@ impl Analyzer for SemanticAnalyzer {
         uri: &str,
         offset: usize,
     ) -> Option<(String, Span)> {
+        if let Some(crate::remote::Answer::Location(r)) =
+            self.remote(documents, uri, crate::remote::Call::Upper { offset })
+        {
+            return r;
+        }
         let mut project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         let (u, s) = project.upper(unit, offset)?;
@@ -1813,6 +1910,13 @@ impl Analyzer for SemanticAnalyzer {
         uri: &str,
         offset: usize,
     ) -> Option<(String, Span)> {
+        if let Some(crate::remote::Answer::Location(r)) = self.remote(
+            documents,
+            uri,
+            crate::remote::Call::TypeDefinition { offset },
+        ) {
+            return r;
+        }
         let project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         let (u, s) = project.type_definition(unit, offset)?;
@@ -1820,6 +1924,11 @@ impl Analyzer for SemanticAnalyzer {
     }
 
     fn closing_labels(&mut self, documents: &DocumentStore, uri: &str) -> Vec<(Span, String)> {
+        if let Some(crate::remote::Answer::Labels(r)) =
+            self.remote(documents, uri, crate::remote::Call::ClosingLabels)
+        {
+            return r;
+        }
         let Some(project) = self.library(documents, uri) else {
             return Vec::new();
         };
@@ -1830,6 +1939,11 @@ impl Analyzer for SemanticAnalyzer {
     }
 
     fn hints(&mut self, documents: &DocumentStore, uri: &str) -> Vec<crate::Hint> {
+        if let Some(crate::remote::Answer::Hints(r)) =
+            self.remote(documents, uri, crate::remote::Call::Hints)
+        {
+            return r;
+        }
         let Some(project) = self.library(documents, uri) else {
             return Vec::new();
         };
@@ -1846,6 +1960,13 @@ impl Analyzer for SemanticAnalyzer {
         multiline: bool,
         range: Option<(usize, usize)>,
     ) -> Option<Vec<u32>> {
+        if let Some(crate::remote::Answer::Tokens(r)) = self.remote(
+            documents,
+            uri,
+            crate::remote::Call::SemanticTokens { multiline, range },
+        ) {
+            return r;
+        }
         let project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         let highlights = project.highlights(unit);
@@ -1866,6 +1987,11 @@ impl Analyzer for SemanticAnalyzer {
         uri: &str,
         offset: usize,
     ) -> Option<crate::CallItem> {
+        if let Some(crate::remote::Answer::CallItem(r)) =
+            self.remote(documents, uri, crate::remote::Call::PrepareCalls { offset })
+        {
+            return r;
+        }
         let project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         let e = project.call_target(unit, offset)?;
@@ -1911,6 +2037,13 @@ impl Analyzer for SemanticAnalyzer {
         uri: &str,
         offset: usize,
     ) -> Option<crate::TypeItem> {
+        if let Some(crate::remote::Answer::TypeItem(r)) = self.remote(
+            documents,
+            uri,
+            crate::remote::Call::PrepareHierarchy { offset },
+        ) {
+            return r;
+        }
         let mut project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         let (c, ty) = project.hierarchy_target(unit, offset)?;
@@ -2406,9 +2539,32 @@ impl SemanticAnalyzer {
         let mut done = false;
         let mut transient = false;
         let file = crate::project::uri_file(uri);
-        let fits = file
-            .as_ref()
-            .is_some_and(|f| self.session.holds_library(f) || !self.over_budget.contains(f));
+        let held = file.as_ref().is_some_and(|f| self.session.holds_library(f));
+        // The resident's program has the document's library (and usually the
+        // rest of the package): it records them without a load here.
+        if !held
+            && let Some(crate::remote::Answer::Records(hex)) = self.remote(
+                documents,
+                uri,
+                crate::remote::Call::Records {
+                    files: again.clone(),
+                },
+            )
+            && let Some(mut part) = crate::typed::from_hex(&hex)
+                .and_then(|b| crate::reference_index::ReferenceIndex::decode(&b))
+            && again.iter().all(|a| part.file(a).is_some())
+        {
+            if let Some(sdk) = &self.sdk {
+                index.adopt_sdk_locations(&mut part, &key(&sdk.root));
+            }
+            index.merge(part);
+            done = true;
+        }
+        let fits = !done
+            && file.as_ref().is_some_and(|f| {
+                held || ((!crate::remote::enabled() || self.search_exe.is_none())
+                    && !self.over_budget.contains(f))
+            });
         if fits
             && let Some(library) = self.library(documents, uri)
             && let Some(unit) = library.uri_unit(uri)

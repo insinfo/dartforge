@@ -1144,7 +1144,7 @@ fn library_path(lib_uri: &str, package_config: &PackageConfig) -> Option<PathBuf
         // `file:` without a file in place: the `build_runner` generated file, if
         // any.
         if package_config.generated_root.is_some()
-            && !p.is_file()
+            && !crate::fs_cache::is_file(&p)
             && !package_config
                 .generated_sources
                 .as_ref()
@@ -1606,7 +1606,7 @@ fn resolve_directive_target(
                 if segs.len() >= 2 {
                     let joined = format!("package:{}", segs.join("/"));
                     if let Ok(file_path) = package_config.resolve_package_uri(&joined) {
-                        if file_path.is_file() {
+                        if crate::fs_cache::is_file(&file_path) {
                             return Ok((joined, Some(file_path)));
                         }
                     }
@@ -1627,7 +1627,7 @@ fn resolve_directive_target(
         let canonical_uri = canonical_file_uri(&canonical, package_config);
         // Outside `lib/` (`test/`, `web/`), the `build_runner` generated file takes
         // the place of the missing file, with the place's URI.
-        if !canonical.is_file()
+        if !crate::fs_cache::is_file(&canonical)
             && !package_config
                 .generated_sources
                 .as_ref()

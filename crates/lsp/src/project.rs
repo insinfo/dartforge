@@ -85,7 +85,14 @@ pub(crate) struct Project {
     /// view has not (the resident's, `crate::reference_index::records_of_analysis`),
     /// so that a patched member keys as the declaration the server sees.
     pub(crate) patch_keys: bool,
+    /// The unit of each file path (canonical keys), built at the first
+    /// [`Project::file_unit`]: the program's units do not change for the
+    /// project's life (a swap keeps every unit's path).
+    pub(crate) unit_paths: std::sync::OnceLock<std::sync::Arc<UnitPaths>>,
 }
+
+/// [`Project::unit_paths`].
+pub(crate) type UnitPaths = std::collections::HashMap<PathBuf, UnitId>;
 
 /// The direct subtypes of each class through the index relations.
 pub(crate) type WrittenSubtypes = std::collections::HashMap<ClassId, Vec<ClassId>>;
@@ -679,6 +686,7 @@ fn load_project_with(
         occurrences_by_unit: Default::default(),
         written_subtypes: Default::default(),
         patch_keys: true,
+        unit_paths: Default::default(),
     })
 }
 
@@ -704,6 +712,7 @@ pub(crate) fn load_library(
         occurrences_by_unit: Default::default(),
         written_subtypes: Default::default(),
         patch_keys: true,
+        unit_paths: Default::default(),
     })
 }
 
@@ -788,19 +797,24 @@ impl Project {
 
     /// The unit loaded from the file of `uri` (canonical path).
     pub(crate) fn uri_unit(&self, uri: &str) -> Option<UnitId> {
-        let path = uri_file(uri)?;
-        let key = dartforge_elements::generated::key(&path);
-        self.program()
-            .units
-            .iter()
-            .position(|u| {
-                u.path
-                    .as_deref()
-                    .map(dartforge_elements::generated::key)
-                    .as_ref()
-                    == Some(&key)
-            })
-            .map(|i| UnitId(i as u32))
+        self.file_unit(&uri_file(uri)?)
+    }
+
+    /// The unit of the file at `path` (compared by canonical keys).
+    pub(crate) fn file_unit(&self, path: &Path) -> Option<UnitId> {
+        let paths = self.unit_paths.get_or_init(|| {
+            let mut m = UnitPaths::new();
+            for (i, u) in self.program().units.iter().enumerate() {
+                if let Some(p) = u.path.as_deref() {
+                    m.entry(dartforge_elements::generated::key(p))
+                        .or_insert(UnitId(i as u32));
+                }
+            }
+            std::sync::Arc::new(m)
+        });
+        paths
+            .get(dartforge_elements::generated::key_of(path).as_ref())
+            .copied()
     }
 
     /// The library belongs to the project (and not to the SDK or an external package).
@@ -2047,8 +2061,30 @@ impl Project {
     /// keeps the constructor); an annotation's name is the class (the
     /// identifier's element, not `annotation.element`); and a `super.x`
     /// parameter is the parameter of the super constructor.
+    /// `d` with each function an SDK patch stands in for as the declaration it
+    /// stands in for ([`dartforge_elements::model::FunctionElement::public_declaration`]):
+    /// the resident's program has DDC's patches, and the analyzer's view (the
+    /// server's) has none, so the location, signature and documentation are
+    /// the declaration's. A program without patches gives `d` back as it is.
+    pub(crate) fn public_view(&self, d: &Denoted) -> Denoted {
+        let p = self.program();
+        let public = |f: FunctionElementId| p.function(f).public_declaration.unwrap_or(f);
+        let mut d = d.clone();
+        d.concrete = d.concrete.map(|c| match c {
+            Concrete::Function(f) => Concrete::Function(public(f)),
+            c => c,
+        });
+        d.target = match d.target {
+            Target::Constructor(f) => Target::Constructor(public(f)),
+            Target::Top(Element::Function(f)) => Target::Top(Element::Function(public(f))),
+            t => t,
+        };
+        d
+    }
+
     pub(crate) fn definition(&self, unit: UnitId, offset: usize) -> Option<(UnitId, Span)> {
         let d = self.identify(unit, offset).ok()??;
+        let d = self.public_view(&d);
         let p = self.program();
         let u = p.unit(unit);
         let ast = &u.ast;

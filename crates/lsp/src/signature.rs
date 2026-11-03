@@ -31,7 +31,7 @@ use dartforge_types::{Type, TypeId};
 use std::collections::HashMap;
 
 /// A signature ready for the protocol.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Signature {
     /// `name(int a, {int b = 0})`.
     pub label: String,
@@ -201,6 +201,8 @@ impl Project {
                     Some(dartforge_types::Resolved::Constructor(f)) => *f,
                     _ => return None,
                 };
+                // A constructor an SDK patch stands in for shows its declaration's.
+                let f = self.program().function(f).public_declaration.unwrap_or(f);
                 let parameters = self.constructor_parameters(unit, call, f);
                 let documentation =
                     self.documentation_of(unit, constructor_.map_or(ty_, |c| c.span));
@@ -213,6 +215,7 @@ impl Project {
                 receiver,
             } => {
                 let d = self.identify(unit, name_span.start).ok()??;
+                let d = self.public_view(&d);
                 let documentation = self.hover(unit, &d).and_then(|h| h.documentation);
                 match d.concrete {
                     Some(Concrete::Function(f)) => match self.program().function(f).kind {

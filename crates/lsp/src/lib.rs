@@ -76,6 +76,7 @@ mod referenced_names;
 mod registration;
 mod relevance;
 mod relevance_tables;
+mod remote;
 mod rename;
 mod sdk_report;
 mod semantic;
@@ -162,7 +163,7 @@ pub struct ContentChange {
 /// the cursor, the element's description (`int sum(int a, int b)`), the
 /// static type when it is a variable or getter, and the documentation
 /// comment.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Hover {
     /// Range of the name under the cursor, in bytes of the current text.
     pub range: dartforge_diagnostics::Span,
@@ -896,7 +897,7 @@ pub trait Analyzer {
 /// whole declaration (with the documentation) and the name, the class's
 /// `ElementLocation` and the anchor (reference and path) of the supertypes
 /// with type arguments.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TypeItem {
     pub name: String,
     pub uri: String,

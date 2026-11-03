@@ -131,6 +131,11 @@ struct State {
     documents: HashMap<String, Document>,
     /// Packages (root) with an analysis requested and not started yet.
     dirty: BTreeSet<PathBuf>,
+    /// Packages whose open documents the resident process should load for the
+    /// queries ([`crate::remote`]) when no resident runs: after the first
+    /// analysis of a package (which runs in a process of its own), or when a
+    /// query found none.
+    warm: BTreeSet<PathBuf>,
     /// Package being analyzed now.
     running: Option<PathBuf>,
     /// Packages of `dirty` that only `.dart` files changed on the disk made
@@ -214,11 +219,35 @@ impl std::fmt::Debug for Wake {
 /// asks for them while the server has an index, and the semantic analyzer
 /// takes them (waiting for one of the current text) before a search, instead
 /// of inferring the edited library again in the server.
+///
+/// It is also the server's link to the resident for the library queries the
+/// resident answers ([`crate::remote`]).
 #[doc(hidden)]
 #[derive(Default)]
 pub struct ResidentRecords {
     state: Mutex<RecordState>,
     changed: Condvar,
+    queries: Mutex<QueryState>,
+    answered: Condvar,
+    /// The worker's state, to ask it for a resident with the open documents.
+    worker: std::sync::OnceLock<std::sync::Weak<(Mutex<State>, Condvar)>>,
+}
+
+/// The queries sent to the resident process and their answers.
+#[derive(Default)]
+struct QueryState {
+    /// The resident's input while it runs (the worker writes its analyses
+    /// to the same pipe).
+    input: Option<Arc<Mutex<std::io::BufWriter<std::process::ChildStdin>>>>,
+    /// A new number for each resident process started.
+    generation: u64,
+    next: u64,
+    /// The queries sent and not answered yet, and the answers not taken.
+    waiting: std::collections::HashSet<u64>,
+    answers: HashMap<u64, crate::remote::Answer>,
+    /// When the last query was answered: the resident does not end idle
+    /// while it answers queries.
+    used: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -324,11 +353,146 @@ impl ResidentRecords {
         let mut state = self.lock();
         state.pending.clear();
         self.changed.notify_all();
+        drop(state);
+        self.detach();
+    }
+
+    fn queries(&self) -> std::sync::MutexGuard<'_, QueryState> {
+        self.queries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A resident process started with this input.
+    fn attach(&self, input: Arc<Mutex<std::io::BufWriter<std::process::ChildStdin>>>) {
+        let mut q = self.queries();
+        q.input = Some(input);
+        q.generation += 1;
+        self.answered.notify_all();
+    }
+
+    /// The resident process ended: the queries waiting for it get no answer.
+    fn detach(&self) {
+        let mut q = self.queries();
+        if q.input.take().is_some() {
+            q.generation += 1;
+        }
+        self.answered.notify_all();
+    }
+
+    /// The resident answered query `id`.
+    fn answer(&self, id: u64, answer: crate::remote::Answer) {
+        let mut q = self.queries();
+        if q.waiting.contains(&id) {
+            q.answers.insert(id, answer);
+            q.used = Some(Instant::now());
+            self.answered.notify_all();
+        }
+    }
+
+    /// When the resident last answered a query.
+    fn last_query(&self) -> Option<Instant> {
+        self.queries().used
+    }
+
+    /// Asks the worker for a resident process with the open documents of the
+    /// package of `file` (it starts one when none runs); false when none can
+    /// come (the analyses run in this process, the resident is off, the worker
+    /// is paused or nothing of that package is open).
+    fn warm(&self, file: &Path) -> bool {
+        let Some(worker) = self.worker.get().and_then(std::sync::Weak::upgrade) else {
+            return false;
+        };
+        let mut e = worker
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if e.process.is_none() || e.paused || e.shutdown || resident_budget() == 0 {
+            return false;
+        }
+        let root = package_root(file, &e.folders);
+        if !e.documents.values().any(|d| d.root == root) {
+            return false;
+        }
+        e.warm.insert(root);
+        worker.1.notify_all();
+        true
+    }
+
+    /// Sends `request` (a query on `file`) to the resident process and waits
+    /// for its answer, up to `limit`; `None` when there is no resident in time
+    /// (the worker is asked for one), it ended, or it did not answer in time.
+    pub(crate) fn query(
+        &self,
+        file: &Path,
+        request: &crate::remote::QueryRequest,
+        limit: Duration,
+    ) -> Option<crate::remote::Answer> {
+        use std::io::Write;
+        let deadline = Instant::now() + limit;
+        let mut asked = false;
+        let (input, generation, id) = loop {
+            let mut q = self.queries();
+            if let Some(input) = q.input.clone() {
+                q.next += 1;
+                let id = q.next;
+                q.waiting.insert(id);
+                break (input, q.generation, id);
+            }
+            if !asked {
+                asked = true;
+                drop(q);
+                if !self.warm(file) {
+                    return None;
+                }
+                continue;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return None;
+            }
+            drop(
+                self.answered
+                    .wait_timeout(q, left)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            );
+        };
+        crate::memory::trace("query sent");
+        let sent = {
+            let mut w = input
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            serde_json::to_writer(&mut *w, &Sent::Query { id, query: request }).is_ok()
+                && w.write_all(b"\n").is_ok()
+                && w.flush().is_ok()
+        };
+        let mut q = self.queries();
+        if !sent {
+            q.waiting.remove(&id);
+            return None;
+        }
+        loop {
+            if let Some(a) = q.answers.remove(&id) {
+                q.waiting.remove(&id);
+                crate::memory::trace("query answered");
+                return Some(a);
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if q.generation != generation || left.is_zero() {
+                q.waiting.remove(&id);
+                return None;
+            }
+            q = self
+                .answered
+                .wait_timeout(q, left)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
     }
 }
 
 /// Bytes as lowercase hexadecimal (the records go on the resident's JSON lines).
-fn to_hex(bytes: &[u8]) -> String {
+pub(crate) fn to_hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -339,7 +503,7 @@ fn to_hex(bytes: &[u8]) -> String {
 }
 
 /// The bytes of [`to_hex`]'s text; `None` when it is not hexadecimal.
-fn from_hex(text: &str) -> Option<Vec<u8>> {
+pub(crate) fn from_hex(text: &str) -> Option<Vec<u8>> {
     let digit = |c: u8| -> Option<u8> {
         match c {
             b'0'..=b'9' => Some(c - b'0'),
@@ -410,6 +574,7 @@ impl Typed {
         let (tx, rx) = mpsc::channel();
         let p = Arc::clone(&shared);
         let records = Arc::new(ResidentRecords::default());
+        let _ = records.worker.set(Arc::downgrade(&shared));
         let r = Arc::clone(&records);
         // Deep bodies recurse deeply: a dedicated stack, as in `analyze`.
         std::thread::Builder::new()
@@ -671,7 +836,7 @@ fn work(
             let mut e = block();
             while !e.shutdown
                 && e.memory_request.is_none()
-                && ((e.dirty.is_empty() && !e.scan) || e.paused)
+                && ((e.dirty.is_empty() && !e.scan && e.warm.is_empty()) || e.paused)
             {
                 let Some(r) = &resident else {
                     e = sinal
@@ -679,7 +844,9 @@ fn work(
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     continue;
                 };
-                let left = idle.saturating_sub(r.used.elapsed());
+                // The queries it answers count as use.
+                let used = records.last_query().map_or(r.used, |q| q.max(r.used));
+                let left = idle.saturating_sub(used.elapsed());
                 if left.is_zero() {
                     // Idle for long: its memory goes back to the system.
                     resident = None;
@@ -708,6 +875,73 @@ fn work(
                     continue;
                 }
                 e.disk_at = None;
+            }
+            if e.dirty.is_empty()
+                && !e.scan
+                && let Some(root) = e.warm.pop_first()
+            {
+                // A resident with the open documents of `root`, for the queries.
+                let open: Vec<(String, i32, PathBuf, Arc<str>)> = e
+                    .documents
+                    .iter()
+                    .filter(|(_, d)| d.root == root)
+                    .map(|(u, d)| (u.clone(), d.version, d.path.clone(), d.text.clone()))
+                    .collect();
+                let process = e.process.clone();
+                if open.is_empty() || resident.is_some() || process.is_none() || budget == 0 {
+                    continue;
+                }
+                let texts: HashMap<PathBuf, Arc<str>> = e
+                    .documents
+                    .values()
+                    .map(|d| (key(&d.path), d.text.clone()))
+                    .collect();
+                let config = AnalysisConfiguration {
+                    all: e.all,
+                    all_types: e.all_types.clone(),
+                    excluded: e.excluded.clone(),
+                };
+                let in_workspace = e
+                    .folders
+                    .iter()
+                    .any(|p| root.starts_with(p) || p.starts_with(&root));
+                // Not an analysis the client sees: the server stays idle.
+                drop(e);
+                let package = if in_workspace {
+                    package_files(&mut listed, &root, &BTreeSet::new())
+                } else {
+                    Vec::new()
+                };
+                let excluded = |c: &Path| config.excluded.iter().any(|x| c.starts_with(x));
+                let job = Arc::new(Job {
+                    sdk_lib: sdk_lib.to_path_buf(),
+                    root: root.clone(),
+                    open: open.into_iter().filter(|o| !excluded(&o.2)).collect(),
+                    others: Vec::new(),
+                    texts,
+                    in_workspace,
+                    all: false,
+                    records: Vec::new(),
+                    changed: BTreeSet::new(),
+                    context: package.into_iter().filter(|a| !excluded(a)).collect(),
+                    config,
+                });
+                let cancelled = || {
+                    let e = block();
+                    e.shutdown || (e.dirty.contains(&root) && !e.soft.contains(&root))
+                };
+                crate::memory::trace("worker warm");
+                if let Some(exe) = process.as_deref() {
+                    // What it publishes is what the last analysis published.
+                    drop(run_in_resident(
+                        &mut resident,
+                        exe,
+                        &job,
+                        &cancelled,
+                        records,
+                    ));
+                }
+                continue;
             }
             if e.scan {
                 // The walk runs without the lock: the server keeps answering.
@@ -948,6 +1182,11 @@ fn work(
         {
             let mut e = block();
             e.running = None;
+            // The first analysis of a package ran in a process of its own: the
+            // resident loads the open documents for the queries it answers.
+            if job.all && resident.is_none() && crate::remote::enabled() {
+                e.warm.insert(root.clone());
+            }
             sinal.notify_all();
         }
         // Even without results: the server reports the end of the analysis.
@@ -1208,14 +1447,31 @@ enum Request {
     /// Measure what the process keeps, structure by structure, emptying it;
     /// the answer carries the same id and [`Response::memory`].
     Measure { id: u64 },
+    /// Answer a library query over the kept program ([`crate::remote`]); the
+    /// answer carries the same id and [`Response::answer`].
+    Query {
+        id: u64,
+        query: Box<crate::remote::QueryRequest>,
+    },
 }
 
 /// [`Request`] as the worker writes it (the job borrowed, not copied).
 #[derive(serde::Serialize)]
 enum Sent<'a> {
-    Analyze { id: u64, job: &'a Job },
-    Cancel { id: u64 },
-    Measure { id: u64 },
+    Analyze {
+        id: u64,
+        job: &'a Job,
+    },
+    Cancel {
+        id: u64,
+    },
+    Measure {
+        id: u64,
+    },
+    Query {
+        id: u64,
+        query: &'a crate::remote::QueryRequest,
+    },
 }
 
 /// The answer of the resident process to [`Request::Analyze`]: the results, or
@@ -1233,6 +1489,9 @@ struct Response {
     /// analysis.
     #[serde(default)]
     records: Option<String>,
+    /// The answer to a [`Request::Query`] (its id is the query's).
+    #[serde(default)]
+    answer: Option<crate::remote::Answer>,
 }
 
 /// What the resident process keeps
@@ -1278,7 +1537,9 @@ fn resident_idle() -> Duration {
 /// another one.
 struct ResidentChild {
     child: std::process::Child,
-    input: std::io::BufWriter<std::process::ChildStdin>,
+    /// Shared with the queries ([`ResidentRecords::query`]).
+    input: Arc<Mutex<std::io::BufWriter<std::process::ChildStdin>>>,
+    records: Arc<ResidentRecords>,
     output: mpsc::Receiver<Response>,
     next: u64,
     /// When the last analysis ended.
@@ -1296,9 +1557,11 @@ impl ResidentChild {
             .stderr(Stdio::inherit())
             .spawn()
             .ok()?;
-        let input = std::io::BufWriter::new(child.stdin.take()?);
+        let input = Arc::new(Mutex::new(std::io::BufWriter::new(child.stdin.take()?)));
+        records.attach(Arc::clone(&input));
         let stdout = child.stdout.take()?;
         let (sent, output) = mpsc::channel();
+        let owner = Arc::clone(records);
         let records = Arc::clone(records);
         std::thread::spawn(move || {
             use std::io::BufRead;
@@ -1311,6 +1574,10 @@ impl ResidentChild {
                     records.arrived(response.id, hex);
                     continue;
                 }
+                if let Some(answer) = response.answer {
+                    records.answer(response.id, answer);
+                    continue;
+                }
                 if sent.send(response).is_err() {
                     break;
                 }
@@ -1320,6 +1587,7 @@ impl ResidentChild {
         Some(Self {
             child,
             input,
+            records: owner,
             output,
             next: 0,
             used: Instant::now(),
@@ -1328,9 +1596,13 @@ impl ResidentChild {
 
     fn send(&mut self, request: &Sent<'_>) -> bool {
         use std::io::Write;
-        serde_json::to_writer(&mut self.input, request).is_ok()
-            && self.input.write_all(b"\n").is_ok()
-            && self.input.flush().is_ok()
+        let mut input = self
+            .input
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        serde_json::to_writer(&mut *input, request).is_ok()
+            && input.write_all(b"\n").is_ok()
+            && input.flush().is_ok()
     }
 
     /// Runs `job`. `None` when the process is no longer usable (it died, or did
@@ -1404,6 +1676,7 @@ impl ResidentChild {
 
 impl Drop for ResidentChild {
     fn drop(&mut self) {
+        self.records.detach();
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -1450,184 +1723,101 @@ fn run_in_resident(
 /// is dropped after the analysis. Ends when `stdin` closes.
 fn resident_child() -> i32 {
     use dartforge_parity::analysis::Resident;
-    use std::io::{BufRead, Write};
     use std::sync::atomic::{AtomicU64, Ordering};
+    // The resident knows when the disk changes (the watcher's reports, its own
+    // scan every 30 s): what the file system said stays between its loads
+    // (`DARTFORGE_LSP_FS_CACHE=0` asks the disk every time).
+    dartforge_elements::fs_cache::trust(
+        std::env::var("DARTFORGE_LSP_FS_CACHE").map_or(true, |v| v.trim() != "0"),
+    );
     let cancelled = Arc::new(AtomicU64::new(0));
-    // A job, or `None`: the memory measure.
-    let (jobs, queue) = mpsc::channel::<(u64, Option<Job>)>();
+    let (jobs, queue) = mpsc::channel::<(u64, Work)>();
     let reader = {
         let cancelled = Arc::clone(&cancelled);
         std::thread::spawn(move || {
+            use std::io::BufRead;
             for line in std::io::stdin().lock().lines() {
                 let Ok(line) = line else { break };
-                match serde_json::from_str::<Request>(&line) {
+                let work = match serde_json::from_str::<Request>(&line) {
                     Ok(Request::Analyze { id, job }) => {
                         crate::memory::trace("resident read");
-                        if jobs.send((id, Some(*job))).is_err() {
-                            break;
-                        }
+                        (id, Work::Analyze(job))
                     }
-                    Ok(Request::Cancel { id }) => cancelled.store(id, Ordering::SeqCst),
-                    Ok(Request::Measure { id }) => {
-                        if jobs.send((id, None)).is_err() {
-                            break;
-                        }
+                    Ok(Request::Cancel { id }) => {
+                        cancelled.store(id, Ordering::SeqCst);
+                        continue;
+                    }
+                    Ok(Request::Measure { id }) => (id, Work::Measure),
+                    Ok(Request::Query { id, query }) => {
+                        crate::memory::trace("resident query read");
+                        (id, Work::Query(query))
                     }
                     Err(_) => break,
+                };
+                if jobs.send(work).is_err() {
+                    break;
                 }
             }
         })
     };
-    let budget = resident_budget();
     // Deep bodies recurse deeply: a dedicated stack, as in the worker thread.
     let run = std::thread::Builder::new()
         .name("dartforge-lsp-typed".into())
         .stack_size(1 << 30)
         .spawn(move || {
-            let mut engine: Option<(PathBuf, Engine)> = None;
-            let mut kept = Resident::new();
-            let mut index_cache = crate::reference_index::ResidentCache::default();
-            let mut patch_keys: Option<bool> = None;
-            let mut out = std::io::BufWriter::new(std::io::stdout());
-            while let Ok((id, job)) = queue.recv() {
-                crate::memory::trace("resident start");
-                let Some(job) = job else {
-                    let heap = || crate::memory::heap_in_use().unwrap_or(0);
-                    let heap_before = heap();
-                    let parts = kept.measure_memory(&heap);
-                    let memory = ResidentMemory {
-                        heap_before,
-                        heap_after: heap(),
-                        parts,
-                    };
-                    let response = Response {
-                        id,
-                        results: None,
-                        memory: Some(memory),
-                        records: None,
-                    };
-                    if serde_json::to_writer(&mut out, &response).is_err()
-                        || out.write_all(b"\n").is_err()
-                        || out.flush().is_err()
-                    {
-                        return 1;
-                    }
-                    continue;
-                };
-                if engine.as_ref().is_none_or(|(sdk, _)| *sdk != job.sdk_lib) {
-                    match lsp_engine(&job.sdk_lib) {
-                        Ok(e) => engine = Some((job.sdk_lib.clone(), e)),
-                        Err(error) => {
-                            eprintln!("[dartforge-lsp] typed diagnostics disabled: {error}");
-                            return 2;
+            let mut resident = ResidentLoop {
+                engine: None,
+                kept: Resident::new(),
+                index_cache: crate::reference_index::ResidentCache::default(),
+                patch_keys: None,
+                served: crate::remote::Served::default(),
+                out: std::io::BufWriter::new(std::io::stdout()),
+                budget: resident_budget(),
+                buffer: std::collections::VecDeque::new(),
+                deferred: Vec::new(),
+                ready: false,
+            };
+            loop {
+                let (id, work) = match resident.buffer.pop_front() {
+                    Some(w) => w,
+                    None => match resident.deferred.iter().map(|d| d.2).min() {
+                        None => match queue.recv() {
+                            Ok(w) => w,
+                            Err(_) => break,
+                        },
+                        Some(soonest) => {
+                            let left = soonest.saturating_duration_since(Instant::now());
+                            match queue.recv_timeout(left) {
+                                Ok(w) => w,
+                                Err(mpsc::RecvTimeoutError::Timeout) => {
+                                    if !resident.expire_deferred() {
+                                        return 1;
+                                    }
+                                    continue;
+                                }
+                                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                            }
                         }
-                    }
-                    kept.clear();
-                }
-                // A changed configuration may change how every unit loads.
-                if job.all {
-                    kept.clear();
-                }
-                let (_, engine_ref) = engine.as_ref().expect("engine ready");
-                kept.keep_bodies(!job.records.is_empty());
-                let stop = || cancelled.load(Ordering::SeqCst) == id;
-                let results = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    analyze_package(engine_ref, &job, &stop, Some(&mut kept))
-                }));
-                let results = match results {
-                    Ok(r) if stop() => {
-                        drop(r);
-                        None
-                    }
-                    Ok(r) => Some(r),
-                    Err(_) => {
-                        eprintln!(
-                            "[dartforge-lsp] the typed analysis of {} panicked; the syntactic diagnostics remain",
-                            job.root.display()
-                        );
-                        kept.clear();
-                        Some(Vec::new())
-                    }
+                    },
                 };
-                if kept.source_bytes() > budget {
-                    kept.clear();
-                }
-                crate::memory::log(&format!(
-                    "after the analysis, in the resident child ({} units kept)",
-                    kept.units()
-                ));
-                if crate::memory::logging() {
-                    let census: Vec<String> = kept
-                        .census()
-                        .iter()
-                        .map(|(name, n)| format!("{name} {n}"))
-                        .collect();
-                    eprintln!("[dartforge-lsp] resident census: {}", census.join(", "));
-                }
-                crate::memory::trace("resident end");
-                let completed = results.is_some();
-                let response = Response {
-                    id,
-                    results,
-                    memory: None,
-                    records: None,
+                let ok = match work {
+                    Work::Query(query) => resident.query(id, query),
+                    Work::Measure => resident.measure(id),
+                    Work::Analyze(job) => match resident.analyze(id, &job, &cancelled) {
+                        Some(completed) => {
+                            // The queries that came during the analysis, and those
+                            // that waited for it, before the records: the records
+                            // are not what the editor waits for.
+                            while let Ok(w) = queue.try_recv() {
+                                resident.buffer.push_back(w);
+                            }
+                            resident.serve_waiting() && resident.records(id, &job, completed)
+                        }
+                        None => false,
+                    },
                 };
-                if serde_json::to_writer(&mut out, &response).is_err()
-                    || out.write_all(b"\n").is_err()
-                    || out.flush().is_err()
-                {
+                if !ok {
                     return 1;
-                }
-                // The edited files' index records, after the diagnostics are out:
-                // the bodies the analysis inferred, recorded where they are.
-                if !job.records.is_empty() {
-                    let started = Instant::now();
-                    let made = if completed {
-                        kept.lend_analysis(|lent| {
-                            crate::reference_index::records_of_analysis(
-                                lent,
-                                &job.records,
-                                &mut index_cache,
-                                *patch_keys.get_or_insert_with(|| {
-                                    crate::reference_index::analyzer_view_has_patches(&job.sdk_lib)
-                                }),
-                            )
-                        })
-                        .flatten()
-                    } else {
-                        None
-                    };
-                    if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
-                        eprintln!(
-                            "[dartforge-lsp] resident: records of {} files in {} us ({} bytes)",
-                            job.records.len(),
-                            started.elapsed().as_micros(),
-                            made.as_ref().map_or(0, Vec::len)
-                        );
-                    }
-                    let response = Response {
-                        id,
-                        results: None,
-                        memory: None,
-                        records: Some(made.map(|b| to_hex(&b)).unwrap_or_default()),
-                    };
-                    if serde_json::to_writer(&mut out, &response).is_err()
-                        || out.write_all(b"\n").is_err()
-                        || out.flush().is_err()
-                    {
-                        return 1;
-                    }
-                }
-                // After the answer is out: the free pages the analysis left go
-                // back to the system.
-                if crate::memory::relief() {
-                    let given = crate::memory::release_free_pages();
-                    if crate::memory::logging() {
-                        eprintln!(
-                            "[dartforge-lsp] the resident gave {:.1} MiB back",
-                            given as f64 / (1024.0 * 1024.0)
-                        );
-                    }
                 }
             }
             0
@@ -1638,6 +1828,287 @@ fn resident_child() -> i32 {
     };
     drop(reader);
     code
+}
+
+/// What the resident process reads: an analysis, the memory measure or a
+/// query.
+enum Work {
+    Analyze(Box<Job>),
+    Measure,
+    Query(Box<crate::remote::QueryRequest>),
+}
+
+/// How long a query whose texts the resident's program does not have yet
+/// waits for the analysis that brings them before it is answered
+/// [`crate::remote::Answer::Unavailable`] (the server stops waiting earlier,
+/// [`crate::remote::wait_limit`]).
+const QUERY_DEFER: Duration = Duration::from_secs(20);
+
+/// The state of the resident process's analysis thread.
+struct ResidentLoop {
+    engine: Option<(PathBuf, Engine)>,
+    kept: dartforge_parity::analysis::Resident,
+    index_cache: crate::reference_index::ResidentCache,
+    patch_keys: Option<bool>,
+    served: crate::remote::Served,
+    out: std::io::BufWriter<std::io::Stdout>,
+    budget: usize,
+    /// What was read and not handled yet (the queries handled ahead of an
+    /// analysis's records leave the rest here, in order).
+    buffer: std::collections::VecDeque<(u64, Work)>,
+    /// The queries waiting for an analysis, with their deadline.
+    deferred: Vec<(u64, Box<crate::remote::QueryRequest>, Instant)>,
+    /// The last analysis completed: the kept program is whole (a cancelled one
+    /// may leave a unit swapped without its tables).
+    ready: bool,
+}
+
+impl ResidentLoop {
+    fn write(&mut self, response: &Response) -> bool {
+        use std::io::Write;
+        serde_json::to_writer(&mut self.out, response).is_ok()
+            && self.out.write_all(b"\n").is_ok()
+            && self.out.flush().is_ok()
+    }
+
+    fn respond(&mut self, id: u64, answer: crate::remote::Answer) -> bool {
+        crate::memory::trace("resident query answered");
+        self.write(&Response {
+            id,
+            results: None,
+            memory: None,
+            records: None,
+            answer: Some(answer),
+        })
+    }
+
+    /// Answers the query now, or defers it until an analysis brings its texts.
+    fn query(&mut self, id: u64, query: Box<crate::remote::QueryRequest>) -> bool {
+        let answer = if self.ready {
+            crate::remote::serve(
+                &mut self.kept,
+                &mut self.served,
+                &mut self.index_cache,
+                &query,
+            )
+        } else {
+            None
+        };
+        match answer {
+            Some(answer) => self.respond(id, answer),
+            None => {
+                self.deferred
+                    .push((id, query, Instant::now() + QUERY_DEFER));
+                true
+            }
+        }
+    }
+
+    /// Answers the deferred queries whose texts the program now has, and the
+    /// buffered ones before the next analysis.
+    fn serve_waiting(&mut self) -> bool {
+        let mut waiting = std::mem::take(&mut self.deferred);
+        while matches!(self.buffer.front(), Some((_, Work::Query(_)))) {
+            if let Some((id, Work::Query(q))) = self.buffer.pop_front() {
+                waiting.push((id, q, Instant::now() + QUERY_DEFER));
+            }
+        }
+        for (id, q, deadline) in waiting {
+            let answer = if self.ready {
+                crate::remote::serve(&mut self.kept, &mut self.served, &mut self.index_cache, &q)
+            } else {
+                None
+            };
+            match answer {
+                Some(answer) => {
+                    if !self.respond(id, answer) {
+                        return false;
+                    }
+                }
+                None => self.deferred.push((id, q, deadline)),
+            }
+        }
+        self.expire_deferred()
+    }
+
+    /// Answers the deferred queries past their deadline as unavailable.
+    fn expire_deferred(&mut self) -> bool {
+        let now = Instant::now();
+        let (expired, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.deferred)
+            .into_iter()
+            .partition(|d| d.2 <= now);
+        self.deferred = kept;
+        expired
+            .into_iter()
+            .all(|(id, _, _)| self.respond(id, crate::remote::Answer::Unavailable))
+    }
+
+    fn measure(&mut self, id: u64) -> bool {
+        let heap = || crate::memory::heap_in_use().unwrap_or(0);
+        let heap_before = heap();
+        let parts = self.kept.measure_memory(&heap);
+        let memory = ResidentMemory {
+            heap_before,
+            heap_after: heap(),
+            parts,
+        };
+        self.write(&Response {
+            id,
+            results: None,
+            memory: Some(memory),
+            records: None,
+            answer: None,
+        })
+    }
+
+    /// Analyzes `job` and writes its results; `None` when the process must
+    /// end (no engine, or the output closed), otherwise whether the analysis
+    /// completed.
+    fn analyze(
+        &mut self,
+        id: u64,
+        job: &Job,
+        cancelled: &Arc<std::sync::atomic::AtomicU64>,
+    ) -> Option<bool> {
+        use std::sync::atomic::Ordering;
+        crate::memory::trace("resident start");
+        if self
+            .engine
+            .as_ref()
+            .is_none_or(|(sdk, _)| *sdk != job.sdk_lib)
+        {
+            match lsp_engine(&job.sdk_lib) {
+                Ok(e) => self.engine = Some((job.sdk_lib.clone(), e)),
+                Err(error) => {
+                    eprintln!("[dartforge-lsp] typed diagnostics disabled: {error}");
+                    return None;
+                }
+            }
+            self.kept.clear();
+        }
+        // A changed configuration may change how every unit loads.
+        if job.all {
+            self.kept.clear();
+        }
+        let (_, engine_ref) = self.engine.as_ref().expect("engine ready");
+        let queries = crate::remote::enabled();
+        self.kept.keep_bodies(queries || !job.records.is_empty());
+        let stop = || cancelled.load(Ordering::SeqCst) == id;
+        let kept = &mut self.kept;
+        let results = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            analyze_package(engine_ref, job, &stop, Some(kept))
+        }));
+        let results = match results {
+            Ok(r) if stop() => {
+                drop(r);
+                None
+            }
+            Ok(r) => Some(r),
+            Err(_) => {
+                eprintln!(
+                    "[dartforge-lsp] the typed analysis of {} panicked; the syntactic diagnostics remain",
+                    job.root.display()
+                );
+                self.kept.clear();
+                Some(Vec::new())
+            }
+        };
+        self.ready = false;
+        self.index_cache.analyzed();
+        if self.kept.source_bytes() > self.budget {
+            self.kept.clear();
+        }
+        // The queries read the open documents' libraries: the bodies of the rest
+        // of a large batch drop.
+        let open: std::collections::HashSet<PathBuf> = job.texts.keys().cloned().collect();
+        self.kept.retain_bodies(&|program, lib| {
+            program.library(lib).units.iter().any(|u| {
+                program.unit(*u).path.as_deref().is_some_and(|p| {
+                    open.contains(dartforge_elements::generated::key_of(p).as_ref())
+                })
+            })
+        });
+        crate::memory::log(&format!(
+            "after the analysis, in the resident child ({} units kept)",
+            self.kept.units()
+        ));
+        if crate::memory::logging() {
+            let census: Vec<String> = self
+                .kept
+                .census()
+                .iter()
+                .map(|(name, n)| format!("{name} {n}"))
+                .collect();
+            eprintln!("[dartforge-lsp] resident census: {}", census.join(", "));
+        }
+        crate::memory::trace("resident end");
+        let completed = results.is_some();
+        self.ready = completed && self.kept.world_root().is_some();
+        let written = self.write(&Response {
+            id,
+            results,
+            memory: None,
+            records: None,
+            answer: None,
+        });
+        written.then_some(completed)
+    }
+
+    /// The edited files' index records, after the diagnostics are out: the
+    /// bodies the analysis inferred, recorded where they are. Then the free
+    /// pages the analysis left go back to the system.
+    fn records(&mut self, id: u64, job: &Job, completed: bool) -> bool {
+        if !job.records.is_empty() {
+            let started = Instant::now();
+            let sdk_lib = job.sdk_lib.clone();
+            let patch_keys = *self
+                .patch_keys
+                .get_or_insert_with(|| crate::reference_index::analyzer_view_has_patches(&sdk_lib));
+            let cache = &mut self.index_cache;
+            let made = if completed {
+                self.kept
+                    .lend_analysis(|lent| {
+                        crate::reference_index::records_of_analysis(
+                            lent,
+                            &job.records,
+                            cache,
+                            patch_keys,
+                        )
+                    })
+                    .flatten()
+            } else {
+                None
+            };
+            if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
+                eprintln!(
+                    "[dartforge-lsp] resident: records of {} files in {} us ({} bytes)",
+                    job.records.len(),
+                    started.elapsed().as_micros(),
+                    made.as_ref().map_or(0, Vec::len)
+                );
+            }
+            let response = Response {
+                id,
+                results: None,
+                memory: None,
+                records: Some(made.map(|b| to_hex(&b)).unwrap_or_default()),
+                answer: None,
+            };
+            if !self.write(&response) {
+                return false;
+            }
+        }
+        if crate::memory::relief() {
+            let given = crate::memory::release_free_pages();
+            if crate::memory::logging() {
+                eprintln!(
+                    "[dartforge-lsp] the resident gave {:.1} MiB back",
+                    given as f64 / (1024.0 * 1024.0)
+                );
+            }
+        }
+        true
+    }
 }
 
 /// The packages of the workspace folders: that of each `.dart` in them.

@@ -55,6 +55,8 @@ impl Project {
 
     /// The hover of what `d` denotes in unit `unit`.
     pub(crate) fn hover(&self, unit: UnitId, d: &Denoted) -> Option<Hover> {
+        let public = self.public_view(d);
+        let d = &public;
         // `_targetNode`: the type name of `A.n(…)` (the `NamedType` of a creation's
         // `ConstructorName`) shows the creation, the constructor.
         let adjusted;

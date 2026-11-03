@@ -40,7 +40,7 @@ use std::collections::HashMap;
 
 /// A hint: offset (bytes) where it appears, text, LSP kind (1 type, 2
 /// parameter) and whether it takes a space on the right.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Hint {
     pub offset: usize,
     pub label: String,

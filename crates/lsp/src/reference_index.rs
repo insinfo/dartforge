@@ -3720,6 +3720,80 @@ pub(crate) fn records_of_analysis(
     cache: &mut ResidentCache,
     patch_keys: bool,
 ) -> (dartforge_parity::analysis::LentAnalysis, Option<Vec<u8>>) {
+    let wanted: HashSet<&Path> = files.iter().map(PathBuf::as_path).collect();
+    let of_files: Vec<LibraryId> = lent
+        .libraries
+        .iter()
+        .copied()
+        .filter(|l| {
+            let lib = lent.program.library(*l);
+            !lib.is_sdk
+                && lib.units.iter().any(|u| {
+                    lent.program.unit(*u).path.as_deref().is_some_and(|c| {
+                        wanted.contains(dartforge_elements::generated::key_of(c).as_ref())
+                    })
+                })
+        })
+        .collect();
+    let root = files
+        .first()
+        .map(|f| crate::project::project_root(f))
+        .unwrap_or_default();
+    let (mut project, loan) = project_of_loan(lent, root.clone(), cache, patch_keys);
+    project.libraries = of_files.iter().copied().collect();
+    let mut index = ReferenceIndex::new(root.clone());
+    for &lib in &of_files {
+        let mut tables = Tables {
+            keys: &mut index.keys,
+            words: &mut index.words,
+            paths: &mut index.paths,
+        };
+        let records = Builder.library(&project, lib, &root, &mut tables);
+        index.put(records.into_iter().filter(|r| !r.frozen).collect());
+    }
+    let encoded = (!of_files.is_empty()).then(|| index.encode());
+    (loan_of_project(project, loan, cache), encoded)
+}
+
+/// The encoded index of the records of `libraries` (inferred) of `project`,
+/// a program over the resident's analysis.
+pub(crate) fn records_of_project(
+    project: &Project,
+    libraries: &[LibraryId],
+    root: &Path,
+) -> Vec<u8> {
+    let mut index = ReferenceIndex::new(root.to_path_buf());
+    for &lib in libraries {
+        let mut tables = Tables {
+            keys: &mut index.keys,
+            words: &mut index.words,
+            paths: &mut index.paths,
+        };
+        let records = Builder.library(project, lib, root, &mut tables);
+        index.put(records.into_iter().filter(|r| !r.frozen).collect());
+    }
+    index.encode()
+}
+
+/// What a [`Project`] built over a loan of the resident's analysis
+/// ([`project_of_loan`]) gives back with it ([`loan_of_project`]).
+pub(crate) struct Loan {
+    libraries: Vec<LibraryId>,
+    generation: u64,
+    touched: Vec<UnitId>,
+}
+
+/// A [`Project`] over the resident's last analysis (`lent`), with the caches
+/// the earlier loans of the same program left ([`ResidentCache`]) for the
+/// units that did not change since; its inferred libraries are the lent
+/// tables' (the caller may infer more). `patch_keys`: see
+/// [`records_of_analysis`].
+pub(crate) fn project_of_loan(
+    lent: dartforge_parity::analysis::LentAnalysis,
+    root: PathBuf,
+    cache: &mut ResidentCache,
+    patch_keys: bool,
+) -> (Project, Loan) {
     let dartforge_parity::analysis::LentAnalysis {
         program,
         interner,
@@ -3736,36 +3810,29 @@ pub(crate) fn records_of_analysis(
     if cache.generation == generation && cache.seen <= touched.len() {
         cache.reused += 1;
         changed.extend(touched[cache.seen..].iter().copied());
-        for l in &libraries {
-            changed.extend(program.library(*l).units.iter().copied());
+        // An analysis since the last loan inferred these libraries again.
+        if cache.analysis != cache.loaned_analysis {
+            for l in &libraries {
+                changed.extend(program.library(*l).units.iter().copied());
+            }
         }
         for u in &changed {
             cache.referenced.remove(u);
+            cache.comments.remove(u);
+            cache.occurrences.remove(u);
         }
     } else {
         cache.referenced.clear();
+        cache.comments.clear();
+        cache.occurrences.clear();
         cache.subtypes = None;
+    }
+    if cache.generation != generation {
+        cache.unit_paths = None;
     }
     cache.generation = generation;
     cache.seen = touched.len();
-    let wanted: HashSet<&Path> = files.iter().map(PathBuf::as_path).collect();
-    let of_files: Vec<LibraryId> = libraries
-        .iter()
-        .copied()
-        .filter(|l| {
-            let lib = program.library(*l);
-            !lib.is_sdk
-                && lib.units.iter().any(|u| {
-                    program.unit(*u).path.as_deref().is_some_and(|c| {
-                        wanted.contains(dartforge_elements::generated::key_of(c).as_ref())
-                    })
-                })
-        })
-        .collect();
-    let root = files
-        .first()
-        .map(|f| crate::project::project_root(f))
-        .unwrap_or_default();
+    cache.loaned_analysis = cache.analysis;
     let project = Project {
         query: crate::query::Query {
             program,
@@ -3777,14 +3844,18 @@ pub(crate) fn records_of_analysis(
             scope: None,
             refused: None,
         },
-        root: root.clone(),
-        libraries: of_files.iter().copied().collect(),
+        root,
+        libraries: libraries.iter().copied().collect(),
         referenced_names: std::sync::Mutex::new(std::mem::take(&mut cache.referenced)),
         reverse_index: Default::default(),
-        comments: Default::default(),
-        occurrences_by_unit: Default::default(),
+        comments: std::sync::Mutex::new(std::mem::take(&mut cache.comments)),
+        occurrences_by_unit: std::sync::Mutex::new(std::mem::take(&mut cache.occurrences)),
         written_subtypes: Default::default(),
         patch_keys,
+        unit_paths: match &cache.unit_paths {
+            Some(m) => std::sync::OnceLock::from(std::sync::Arc::clone(m)),
+            None => Default::default(),
+        },
     };
     if let Some(old) = cache.subtypes.take() {
         let old = std::sync::Arc::try_unwrap(old).unwrap_or_else(|a| (*a).clone());
@@ -3793,39 +3864,55 @@ pub(crate) fn records_of_analysis(
             *m = Some(std::sync::Arc::new(now));
         }
     }
-    let mut index = ReferenceIndex::new(root.clone());
-    for &lib in &of_files {
-        let mut tables = Tables {
-            keys: &mut index.keys,
-            words: &mut index.words,
-            paths: &mut index.paths,
-        };
-        let records = Builder.library(&project, lib, &root, &mut tables);
-        index.put(records.into_iter().filter(|r| !r.frozen).collect());
-    }
-    let encoded = (!of_files.is_empty()).then(|| index.encode());
+    (
+        project,
+        Loan {
+            libraries,
+            generation,
+            touched,
+        },
+    )
+}
+
+/// Gives back what [`project_of_loan`] lent, keeping the project's caches in
+/// `cache` for the next loan, and its body tables with the libraries they
+/// hold (those of the loan, and any the project inferred since).
+pub(crate) fn loan_of_project(
+    project: Project,
+    loan: Loan,
+    cache: &mut ResidentCache,
+) -> dartforge_parity::analysis::LentAnalysis {
     cache.referenced = project.referenced_names.into_inner().unwrap_or_default();
+    cache.comments = project.comments.into_inner().unwrap_or_default();
+    cache.occurrences = project.occurrences_by_unit.into_inner().unwrap_or_default();
     cache.subtypes = project.written_subtypes.into_inner().ok().flatten();
+    cache.unit_paths = project.unit_paths.into_inner();
+    let mut libraries = loan.libraries;
+    for l in &project.libraries {
+        if !libraries.contains(l) {
+            libraries.push(*l);
+        }
+    }
     let crate::query::Query {
         program,
         names,
         table,
         core,
         outline,
+        bodies,
         ..
     } = project.query;
-    let lent = dartforge_parity::analysis::LentAnalysis {
+    dartforge_parity::analysis::LentAnalysis {
         program,
         interner: names,
         table,
         core,
         outline,
-        bodies: Default::default(),
+        bodies,
         libraries,
-        generation,
-        touched,
-    };
-    (lent, encoded)
+        generation: loan.generation,
+        touched: loan.touched,
+    }
 }
 
 /// What [`records_of_analysis`] keeps between loans of the resident's
@@ -3837,10 +3924,29 @@ pub(crate) struct ResidentCache {
     generation: u64,
     seen: usize,
     referenced: HashMap<UnitId, std::sync::Arc<HashSet<String>>>,
+    /// The documentation comments and the occurrence indexes of the units
+    /// (what a query's `identify` and `hover` read).
+    comments: HashMap<UnitId, crate::project::ReadComments>,
+    occurrences: HashMap<UnitId, crate::project::StampedOccurrences>,
     /// [`Project::written_subtypes`] of the last loan.
     subtypes: Option<std::sync::Arc<crate::project::WrittenSubtypes>>,
+    /// [`Project::unit_paths`] of the program (the same for a generation).
+    unit_paths: Option<std::sync::Arc<crate::project::UnitPaths>>,
+    /// Analyses of the resident so far ([`ResidentCache::analyzed`]), and
+    /// the count at the last loan: an analysis in between inferred the bodies
+    /// of its batch again.
+    analysis: u64,
+    loaned_analysis: u64,
     /// Loans that reused what an earlier one computed (tests and measurement).
     pub(crate) reused: usize,
+}
+
+impl ResidentCache {
+    /// The resident analyzed again: the next loan forgets what it computed of
+    /// the batch's libraries.
+    pub(crate) fn analyzed(&mut self) {
+        self.analysis += 1;
+    }
 }
 
 /// Whether the SDK the server sees (`SdkLayout::load_as_analyzer`) applies
