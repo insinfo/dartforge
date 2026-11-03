@@ -143,6 +143,20 @@ fn list_tuple_set(tuple: i64, class: i64) -> usize {
     memo_slot(tuple, class, 0) & (LIST_TUPLE_MEMO_N - 2)
 }
 
+/// Sorts the named parameters or fields of a recipe by name, stably: a few
+/// entries, where an insertion sort is as fast as the standard one in a small
+/// part of its code (each standard sort instance took ~5 KB of a WebAssembly
+/// module).
+fn sort_named<T>(named: &mut [T], name: impl Fn(&T) -> &str) {
+    for i in 1..named.len() {
+        let mut j = i;
+        while j > 0 && name(&named[j - 1]) > name(&named[j]) {
+            named.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+}
+
 /// The slot of a key in the direct-mapped memos.
 fn memo_slot(a: i64, b: i64, c: i64) -> usize {
     let h = (a as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
@@ -1183,7 +1197,7 @@ impl Reader<'_> {
                     }
                 }
                 self.wait_for('>');
-                named.sort_by(|a, b| a.0.cmp(&b.0));
+                sort_named(&mut named, |e| e.0.as_str());
                 u.intern(Type::Function {
                     generics,
                     bounds,
@@ -1208,7 +1222,7 @@ impl Reader<'_> {
                     }
                 }
                 self.wait_for('>');
-                named.sort_by(|a, b| a.0.cmp(&b.0));
+                sort_named(&mut named, |e| e.0.as_str());
                 u.intern(Type::Record { pos, named })
             }
             'L' => {
