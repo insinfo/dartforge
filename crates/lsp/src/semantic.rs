@@ -52,6 +52,11 @@ pub struct SemanticAnalyzer {
     /// The index's answers from a record's identifier facts and from an
     /// identification in the document's library (the comparison's counts).
     index_answers: (usize, usize),
+    /// When the project's files were last compared with the index's records
+    /// on disk, and whether the watcher reported a change since: until one of
+    /// them asks for it, a search only compares the open documents.
+    index_disk_check: Option<std::time::Instant>,
+    index_disk_dirty: bool,
     /// The summaries of the known libraries (export namespace) of `ImportLibrary`.
     known: crate::known_libraries::LibraryIndex,
     /// The current `maxCompletionItems`.
@@ -84,6 +89,8 @@ impl SemanticAnalyzer {
             index_build: None,
             index_failed: Default::default(),
             index_answers: (0, 0),
+            index_disk_check: None,
+            index_disk_dirty: true,
             known: Default::default(),
             completion_max: crate::completion::MAX_PATTERN,
             not_imported_in_completion: true,
@@ -1117,6 +1124,12 @@ impl Analyzer for SemanticAnalyzer {
         self.search_exe = Some(exe);
     }
 
+    fn disk_changed(&mut self, paths: &[std::path::PathBuf]) {
+        if !paths.is_empty() {
+            self.index_disk_dirty = true;
+        }
+    }
+
     fn project_configuration_changed(&mut self) {
         self.reference_index = None;
         self.index_build = None;
@@ -2009,11 +2022,30 @@ impl SemanticAnalyzer {
             return false;
         };
         let root = index.root.clone();
-        let mut current: std::collections::HashSet<std::path::PathBuf> =
+        // The whole project is compared with the disk after the watcher reported
+        // a change, or when the last comparison is more than 30 s old (the
+        // resident's rule for its scan); otherwise only the open documents.
+        let whole = self.index_disk_dirty
+            || self
+                .index_disk_check
+                .is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(30));
+        if whole {
+            self.index_disk_dirty = false;
+            self.index_disk_check = Some(std::time::Instant::now());
+        }
+        let open_paths: std::collections::HashSet<std::path::PathBuf> = documents
+            .uris()
+            .filter_map(crate::project::uri_file)
+            .map(|f| key(&f))
+            .collect();
+        let mut current: std::collections::HashSet<std::path::PathBuf> = if whole {
             crate::project::project_files(&root)
                 .iter()
                 .map(|p| key(p))
-                .collect();
+                .collect()
+        } else {
+            Default::default()
+        };
         for open in documents.uris() {
             if let Some(f) = crate::project::uri_file(open)
                 && f.starts_with(&root)
@@ -2028,7 +2060,12 @@ impl SemanticAnalyzer {
         let recorded = index.project_paths();
         for path in &recorded {
             let Some(r) = index.file(path) else { continue };
-            if !current.contains(path) {
+            if !whole && !open_paths.contains(path) {
+                continue;
+            }
+            // A file of the program outside the project's walk (the generated
+            // ones under `.dart_tool/build`) is gone only when it is gone from disk.
+            if !current.contains(path) && !open_paths.contains(path) && !path.is_file() {
                 removed.push(path.clone());
                 continue;
             }
@@ -2075,6 +2112,14 @@ impl SemanticAnalyzer {
             return true;
         }
         let debug = std::env::var_os("DARTFORGE_LSP_DEBUG").is_some();
+        if debug {
+            for p in stale.iter().take(3) {
+                eprintln!("[dartforge-lsp] reference index: stale {}", p.display());
+            }
+            for p in removed.iter().take(3) {
+                eprintln!("[dartforge-lsp] reference index: removed {}", p.display());
+            }
+        }
         let started = std::time::Instant::now();
         // The document's library, from the session when it holds it and it
         // covers them all (a load here would leave its pages with this

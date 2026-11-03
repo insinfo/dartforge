@@ -606,6 +606,10 @@ pub trait Analyzer {
     /// retained programs) drops, even for documents that stay open.
     fn project_configuration_changed(&mut self) {}
 
+    /// The file watcher reported these files changed on disk
+    /// (`workspace/didChangeWatchedFiles`).
+    fn disk_changed(&mut self, _paths: &[std::path::PathBuf]) {}
+
     /// Runs the searches that load more than the retained programs (a
     /// reference search whose whole load does not fit in the wide session) in
     /// a child process: `exe` (the `dartforge-lsp` binary) started with

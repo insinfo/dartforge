@@ -1541,7 +1541,9 @@ fn main() {
         "workspace/symbol",
     ];
     if !positions.is_empty() {
-        let edit = "    0;\n";
+        // Every edit is new (a number no earlier one wrote): an answer kept
+        // from an identical earlier text does not count as after an edit.
+        let mut edits = 0usize;
         for method in methods {
             let name = method
                 .trim_start_matches("textDocument/")
@@ -1552,6 +1554,9 @@ fn main() {
             let mut after = Vec::new();
             let mut after_cpu = Vec::new();
             for r in 0..o.reps {
+                edits += 1;
+                let edit = format!("    {edits};\n");
+                let edit = edit.as_str();
                 main_doc.insert(&mut c, at, edit);
                 c.settle_after(Instant::now());
                 let p = positions[r % positions.len()];

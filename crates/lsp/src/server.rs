@@ -1355,6 +1355,7 @@ impl<A: Analyzer> Server<A> {
                         analysis |= t.file_on_disk(path);
                     }
                 }
+                self.analyzer.disk_changed(&paths);
                 // Dart reports the analysis its watcher starts the same way as
                 // an edit's.
                 if analysis {
