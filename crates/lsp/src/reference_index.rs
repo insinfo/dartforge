@@ -2402,7 +2402,7 @@ pub(crate) fn build(
 }
 
 /// The version of [`ReferenceIndex::encode`]'s format (in the header).
-const FORMAT: u32 = 4;
+const FORMAT: u32 = 5;
 
 /// A little-endian LEB128 writer.
 #[derive(Default)]
