@@ -465,7 +465,7 @@ a curva de memória dos dois servidores.
   - os corpos dos dependentes (~2 s de CPU × 110 ms no frontend);
   - o item 2 inteiro: o índice de referências (passo 5).
 
-## Painel: DartForge × Dart oficial (atualizado em 03/11/2026)
+## Painel: DartForge × Dart oficial (atualizado em 03/11/2026, fim do dia)
 
 Resumo de cada ferramenta contra a oficial correspondente (SDK 3.6.2), com a medição mais
 recente e a data dela. "Não medido" significa que não existe número. A última coluna diz quem
@@ -512,6 +512,93 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | AOT nativo: tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`) e tamanho (1,37×); próximo: mapa de campo, `$c`/`$g`/`$tc`, `$async` | em rodízio: agentes de desempenho um por vez desde 01/11 (ordem LSP → ARC → AOT); seção de 31/10 abaixo |
 | ARC real: 2,5× os ciclos do tracing no HTTP `dart:io` e 1,7× no cru (eram 3× e 2,2×); próximos passos na seção de 01/11 | em rodízio: agentes de desempenho um por vez (fila: LSP prioridade → AOT → ARC) |
 | LSP: memória de uma sessão com pedidos (a sessão e o índice do servidor ao lado do residente: servir as consultas do residente pede o mesmo SDK nos dois processos), edição de corpo no Windows, recarga no lugar casando os elementos por nome, ordem dos arquivos conhecidos do `workspace/symbol` | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
+| CI (`CI` e `Heavy`) vermelho desde 31/10 | 03/11: testes do CI corrigidos (`2cabc620`); no `Heavy` faltam o nativo do `corpus/js` (253 e 273) e o `corpus/modern` (340 e 341). Seção "fechamento do dia" abaixo |
+
+## 03/11/2026: fechamento do dia — o que foi feito e o que falta
+
+### Feito em 03/11
+
+- **LSP, décima quinta rodada** (no GitHub, `abc9a187`):
+  - `references`, `implementation` e `prepareRename` respondem de um índice: 3,7 ms contra 20,7 do Dart, sem edição;
+  - a sessão longa ganha as três cargas no macOS;
+  - o mimalloc não foi adotado no Windows (regra do proprietário de 02/11).
+- **LSP, décima sexta rodada** (`main` local, validada pela v27):
+  - todos os pedidos medidos ganham do Dart, sem edição e depois de edição;
+  - a sessão longa ganha as três cargas no macOS, com memória plana (527–574 contra 686–756 MiB);
+  - no Windows ganha a onda e a mudança de API, com memória estável;
+  - corrigido um defeito real: duas bibliotecas "quentes" que se importam publicavam "Undefined class" em quem as importa.
+- **Wasm, primeira rodada de tamanho** (no GitHub, `ed55371b`):
+  - hello de 1,30 MB para 0,78 MB (0,66 MB com Binaryen);
+  - a regressão de 10× do `863d4159` foi corrigida no wasm e no nativo.
+- **Wasm, segunda rodada de tamanho** (`main` local):
+  - hello de 0,78 para 0,72 MB (0,60 MB com Binaryen);
+  - tabela RTI só com as classes vivas, o que tirou o descompressor;
+  - mapa compacto no runtime;
+  - 3 furos da guarda do `noSuchMethod` corrigidos;
+  - suíte wasm em 2829 iguais e 11 falhas (eram 2826 e 14).
+- **Estudo do AssemblyScript** (coletor em ~5 KB) e as anotações do perfil de compatibilidade do wasm e dos isolates com memória compartilhada (seções abaixo).
+- **Windows:**
+  - lint `is_multiple_of` do clippy corrigido no `space.rs`;
+  - os 4 testes de caminhos `\\?\` corrigidos em 02/11.
+- **GitHub:** a proteção contra segredos recusava as chaves falsas da AWS dos testes do `leaks.rs`. Os literais agora são partidos com `concat!`.
+- **Validações completas no macOS:**
+  - v25, v26 e v27 passaram em tudo: nativo dev, `--optimize`, `--gc-stress`, wasm e programas grandes 164/164; JS dev e produção 277/277;
+  - suíte de linguagem sem regressão contra a `vm-r6`;
+  - `cargo test`, doc e clippy limpos.
+- **CI** (`2cabc620`):
+  - o teste do `pub global` no Windows lia o nome do *stub* do Unix (no Windows é `<executável>.bat`);
+  - dois testes nativos com `--gc-stress` não definiam o registro de tear-offs da biblioteca do SDK (`7af464d1`).
+
+### Em andamento no fim do dia
+
+- **LSP, décima sétima rodada:**
+  - servir as consultas do residente e tirar a cópia do servidor, buscando a documentação do SDK sem *patch* por (biblioteca, classe, membro);
+  - inclinação ≤ 0;
+  - perfil do Windows com `xperf`.
+- **Wasm, terceira rodada de tamanho:**
+  - registros por biblioteca do SDK sem atrasar o V8;
+  - formatador de `double` próprio, sem `core::fmt`;
+  - coletor menor.
+- **`Heavy` vermelho:**
+  - **nativo do `corpus/js`, 825/831 nos três modos:**
+    - `253_downcasts_para_parametros_e_campos_de_record`: o campo de record com contexto de tipo função não vira `.call`;
+    - `273_instanciacao_para_limites`: a instanciação pelos limites com os parâmetros de tipo de fora dá `dynamic`.
+
+    As duas correções de 26–27/10 (`0f327d91`, `2d5c6e4c`) foram feitas só no `emit_js` e faltam no nativo.
+  - **`corpus/modern` (SDK 3.13), regressão:** `340_construtores_primarios` e `341_primarios_escopo` não compilam para JS ("Undefined name": os parâmetros do construtor primário não são vistos nos inicializadores de campo). Já passavam 26/26 em 27/09; o culpado está sendo achado com `git bisect`.
+- **Versão:** `v0.1.0-alpha.3` no GitHub quando o CI e o `Heavy` estiverem verdes.
+
+### A fazer (próximos dias)
+
+- **LSP:**
+  - memória em repouso de uma sessão com pedidos (1.218–1.227 contra 858–889 MiB);
+  - inclinação ≤ 0 em toda sessão longa;
+  - edição de corpo da sessão longa no Windows (77 contra 60–61 ms);
+  - recarga no lugar casando os elementos por nome;
+  - a primeira edição da sessão pelo caminho novo;
+  - ordem do `workspace/symbol`.
+- **Wasm:**
+  - chegar perto dos 158 KB do TinyGo no hello: registros do SDK por biblioteca, `double` sem `core::fmt`, coletor menor, cone do tipo estático do receptor (`_Double`), ajudantes de erro pelo grafo de chamadas;
+  - velocidade (perde 1,2–3× em alocação, JSON e strings);
+  - perfil de compatibilidade com flag própria;
+  - isolates em threads com memória compartilhada (flag experimental).
+- **Suíte `tests/language`:**
+  - nativo, 13 falhas: 9 de pilha simbólica, 2 de *hash*, 2 em que o CFE da VM quebra;
+  - wasm, 11 falhas;
+  - JS dev, 1 falha;
+  - JS produção, não medido.
+- **JS produção:** `jsonEncode` 1,0–1,2× o `dart2js -O4`.
+- **AOT nativo:**
+  - tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`);
+  - tamanho (1,37×).
+- **ARC real:** 2,5× os ciclos do tracing no HTTP `dart:io`.
+- **`pub`, `test` e `analyze`:**
+  - `pub login` (OAuth2);
+  - `line`/`column`/`url` no JSON do `test`;
+  - os 12 falsos positivos do `analyze` vindos do *parser* (`augment`).
+- **Limpeza:**
+  - 13 *worktrees* antigos de agentes de sessões passadas, a conferir antes de apagar;
+  - as branches `backup/*` quando o SSD for para uma porta direta.
 
 ## 03/11/2026: wasm — rodada de tamanho 2: hello de 0,78 para 0,72 MB (0,60 MB com Binaryen); guarda do `noSuchMethod` corrigida
 
