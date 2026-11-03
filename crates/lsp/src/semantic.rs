@@ -392,14 +392,28 @@ impl SemanticAnalyzer {
         // file's library. What is at the cursor resolves the same in the
         // library's load (the file and what it imports) as in the whole
         // project's, so the library names the search.
-        let name = {
+        let (name, parameter) = {
             let project = self.library(documents, uri)?;
             let unit = project.uri_unit(uri)?;
             let d = project.identify(unit, offset).ok()??;
-            project.search_name(&d.target)
+            let parameter = match d.target {
+                crate::project::Target::Local { unit, declaration } => {
+                    crate::project::parameter_in(&project.program().unit(unit).ast, declaration)
+                        .is_some()
+                }
+                _ => false,
+            };
+            (project.search_name(&d.target), parameter)
         };
         let Some(name) = name else {
-            // A local, a type parameter or a prefix: only this file has them.
+            // A parameter's search reaches the calls of other files (the labels of
+            // a named one, the arguments of an optional positional one): the whole
+            // project. A local, a type parameter or a prefix: only this file has
+            // them.
+            if parameter {
+                let project = self.project(documents, uri)?;
+                return references_in(&project, uri, offset);
+            }
             let library = self.library(documents, uri)?;
             return references_in(&library, uri, offset);
         };
@@ -455,8 +469,12 @@ impl SemanticAnalyzer {
             }
             let found = match fact {
                 Some(crate::reference_index::IdentFact::Target(t)) => index.references(&t)?,
-                Some(crate::reference_index::IdentFact::Local { declaration, uses }) => index
-                    .local_answer(&path, declaration, &uses)
+                Some(crate::reference_index::IdentFact::Local {
+                    declaration,
+                    uses,
+                    positional,
+                }) => index
+                    .local_answer(&path, declaration, &uses, positional)
                     .ok_or(Miss::Unsupported("no record"))?,
                 None => {
                     self.index_answers.1 += 1;

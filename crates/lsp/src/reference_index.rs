@@ -1268,14 +1268,22 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
         let fact = match target_of(project, u, tables, &d) {
             Some(t) => Some(IdentFact::Target(t)),
             None => {
-                // A parameter's search reaches other files: the labels of a named
-                // one, the empty references of the arguments of an optional
-                // positional one, the `super.x` that point to it. Their bodies are
-                // not inferred while this library is recorded.
+                // A named parameter's search reaches the labels of other files and
+                // the overrides' homonyms: it has no fact. An optional positional
+                // one cites the start of its argument in the calls of other files,
+                // whose bodies are not inferred while this library is recorded: the
+                // fact names those relations, read at the query.
+                let mut positional = None;
                 if let Target::Local { declaration, .. } = d.target
-                    && crate::project::parameter_in(&unit.ast, declaration).is_some()
+                    && let Some((q, _)) = crate::project::parameter_in(&unit.ast, declaration)
                 {
-                    continue;
+                    if q.kind == ast::ParameterKind::Named {
+                        continue;
+                    }
+                    if let Some((f, i)) = project.optional_parameter_of(u, declaration) {
+                        let key = format!("{}/a{i}", Keys::new(project).function(f));
+                        positional = Some(tables.keys.id(&key));
+                    }
                 }
                 // A prefix's answer depends on where its use is (§11.5): in an
                 // expression, in a type, or the `as p` of its directive.
@@ -1306,6 +1314,7 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
                                 .iter()
                                 .map(|(_, s)| (s.start as u32, s.end as u32))
                                 .collect(),
+                            positional,
                         },
                     )
                 });
@@ -2120,21 +2129,45 @@ impl ReferenceIndex {
         path: &Path,
         declaration: Option<(u32, u32)>,
         uses: &[(u32, u32)],
+        positional: Option<u32>,
     ) -> Option<(Option<Located>, Vec<Located>)> {
-        let r = self.file(path)?;
-        let at = |(s, e): (u32, u32)| -> Located {
+        let here = *self.by_path.get(path)?;
+        let at = |f: usize, (s, e): (u32, u32)| -> Option<Located> {
+            let r = self.files[f].as_ref()?;
             let (l0, c0) = r.position(s);
             let (l1, c1) = r.position(e);
-            (
+            Some((
                 r.uri.clone(),
                 Span {
                     start: s as usize,
                     end: e as usize,
                 },
                 Some((l0, c0, l1, c1)),
-            )
+            ))
         };
-        Some((declaration.map(at), uses.iter().copied().map(at).collect()))
+        let mut found: Vec<(usize, u32, u32)> = uses.iter().map(|&(s, e)| (here, s, e)).collect();
+        // The optional positional parameter's arguments, in every file.
+        if let Some(k) = positional {
+            for (f, r) in self.files.iter().enumerate() {
+                let Some(r) = r else { continue };
+                for rel in r.relations_of(k) {
+                    if rel.tag == Tag::Positional {
+                        found.push((f, rel.start, rel.end));
+                    }
+                }
+            }
+        }
+        found.sort_unstable();
+        found.dedup();
+        if let Some(d) = declaration {
+            found.retain(|x| *x != (here, d.0, d.1));
+        }
+        let mut located: Vec<Located> = found
+            .into_iter()
+            .filter_map(|(f, s, e)| at(f, (s, e)))
+            .collect();
+        located.sort_by(|a, b| (a.0.as_str(), a.1.start).cmp(&(b.0.as_str(), b.1.start)));
+        Some((declaration.and_then(|d| at(here, d)), located))
     }
 }
 
@@ -2195,10 +2228,13 @@ pub(crate) enum IdentFact {
     /// A target the index searches.
     Target(IndexTarget),
     /// A target only this file has (a local, a type parameter, a prefix): the
-    /// whole answer, declaration and uses.
+    /// whole answer, declaration and uses. An optional positional parameter
+    /// also cites the start of its argument in the calls of every file: the
+    /// key of those relations (`<function>/a<i>`).
     Local {
         declaration: Option<(u32, u32)>,
         uses: Vec<(u32, u32)>,
+        positional: Option<u32>,
     },
 }
 
@@ -2401,7 +2437,7 @@ pub(crate) fn build(
 }
 
 /// The version of [`ReferenceIndex::encode`]'s format (in the header).
-const FORMAT: u32 = 5;
+const FORMAT: u32 = 6;
 
 /// A little-endian LEB128 writer.
 #[derive(Default)]
@@ -2723,8 +2759,13 @@ fn write_record(w: &mut Writer, r: &FileRecord) {
 
 fn write_fact(w: &mut Writer, f: &IdentFact) {
     match f {
-        IdentFact::Local { declaration, uses } => {
+        IdentFact::Local {
+            declaration,
+            uses,
+            positional,
+        } => {
             w.u(1);
+            w.u(opt(positional.unwrap_or(NONE)));
             match declaration {
                 None => w.u(0),
                 Some((s, e)) => {
@@ -2835,6 +2876,10 @@ fn write_fact(w: &mut Writer, f: &IdentFact) {
 fn read_fact(r: &mut Reader<'_>) -> Option<IdentFact> {
     Some(match r.u()? {
         1 => {
+            let positional = match unopt(r.u()?)? {
+                NONE => None,
+                k => Some(k),
+            };
             let declaration = match r.u()? {
                 0 => None,
                 _ => {
@@ -2846,7 +2891,11 @@ fn read_fact(r: &mut Reader<'_>) -> Option<IdentFact> {
                 let s = r.w()?;
                 Some((s, s.checked_add(r.w()?)?))
             })?;
-            IdentFact::Local { declaration, uses }
+            IdentFact::Local {
+                declaration,
+                uses,
+                positional,
+            }
         }
         0 => {
             let kind = match r.u()? {
@@ -3254,6 +3303,13 @@ impl ReferenceIndex {
             }
             r.ambiguous.iter_mut().for_each(k);
             for f in &mut r.facts {
+                if let IdentFact::Local {
+                    positional: Some(p),
+                    ..
+                } = f
+                {
+                    k(p);
+                }
                 let IdentFact::Target(t) = f else { continue };
                 match &mut t.kind {
                     TargetKey::Top(x) | TargetKey::Constructor(x) => k(x),

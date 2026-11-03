@@ -116,8 +116,8 @@ pub(crate) struct UnitParameterUses {
     /// label and its span.
     pub(crate) labels: Vec<(FunctionElementId, SymbolId, Span)>,
     /// The start (an empty range) of positional argument `i` of the calls to a
-    /// function whose `i`-th positional parameter is an optional `this.x`,
-    /// when it goes through the index's `visitExpression`.
+    /// function whose `i`-th positional parameter is optional, when it goes
+    /// through the index's `visitExpression`.
     pub(crate) positional: Vec<(FunctionElementId, usize, Span)>,
     /// The `super.x` parameters: the super constructor, the position among
     /// the positional super parameters (`None` for a named one), the name and
@@ -2595,6 +2595,50 @@ impl Project {
         Ok(output)
     }
 
+    /// The function an optional positional parameter declared at `declaration`
+    /// of `unit_` belongs to, and its position among the positional ones: the
+    /// calls of other files that a search of it reaches (`local_occurrences`).
+    pub(crate) fn optional_parameter_of(
+        &self,
+        unit_: UnitId,
+        declaration: usize,
+    ) -> Option<(FunctionElementId, usize)> {
+        let u = self.program().unit(unit_);
+        let (p, owner) = parameter_in(&u.ast, declaration)?;
+        if p.kind != ast::ParameterKind::Optional {
+            return None;
+        }
+        let (function_, positional): (Option<FunctionElementId>, Vec<usize>) = match owner {
+            OwnerParameter::Function(fid) => (
+                self.node_function(unit_, fid),
+                u.ast
+                    .function(fid)
+                    .parameters
+                    .iter()
+                    .flatten()
+                    .filter(|q| q.kind != ast::ParameterKind::Named)
+                    .filter_map(|q| q.name.map(|n| n.span.start))
+                    .collect(),
+            ),
+            OwnerParameter::Constructor(mid) => (
+                self.node_constructor(unit_, mid),
+                match &u.ast.member(mid).kind {
+                    MemberKind::Constructor(k) => k
+                        .parameters
+                        .iter()
+                        .filter(|q| q.kind != ast::ParameterKind::Named)
+                        .filter_map(|q| q.name.map(|n| n.span.start))
+                        .collect(),
+                    _ => Vec::new(),
+                },
+            ),
+        };
+        Some((
+            function_?,
+            positional.iter().position(|&o| o == declaration)?,
+        ))
+    }
+
     /// The documentation `[ref]`s that resolve to `target`.
     fn docs_that_refer(&self, target: &Target) -> Vec<(UnitId, Span)> {
         self.documentation_references(target, None, |a, _| a == target, false)
@@ -3533,28 +3577,42 @@ impl Project {
             shapes
                 .entry(g)
                 .or_insert_with(|| {
-                    let FunctionRef::Constructor { unit, member } = p.function(g).node else {
-                        return (Vec::new(), Vec::new());
-                    };
-                    let MemberKind::Constructor(k) = &p.unit(unit).ast.member(member).kind else {
-                        return (Vec::new(), Vec::new());
-                    };
-                    let labels = k
-                        .parameters
+                    let (parameters, constructor): (&[ast::Parameter], bool) =
+                        match p.function(g).node {
+                            FunctionRef::Constructor { unit, member } => {
+                                match &p.unit(unit).ast.member(member).kind {
+                                    MemberKind::Constructor(k) => (&k.parameters[..], true),
+                                    _ => return (Vec::new(), Vec::new()),
+                                }
+                            }
+                            FunctionRef::Function { unit, function } => (
+                                p.unit(unit)
+                                    .ast
+                                    .function(function)
+                                    .parameters
+                                    .as_deref()
+                                    .unwrap_or(&[]),
+                                false,
+                            ),
+                            FunctionRef::None => return (Vec::new(), Vec::new()),
+                        };
+                    let labels = parameters
                         .iter()
                         .filter(|q| {
-                            q.this_
+                            constructor
+                                && q.this_
                                 && q.kind == ast::ParameterKind::Named
                                 && q.public_name.is_none()
                         })
                         .filter_map(|q| q.name.map(|n| n.sym))
                         .collect();
-                    let optional = k
-                        .parameters
+                    // Every optional positional one: a field's search takes those of
+                    // its `this.x`, a parameter's search its own.
+                    let optional = parameters
                         .iter()
                         .filter(|q| q.kind != ast::ParameterKind::Named)
                         .enumerate()
-                        .filter(|(_, q)| q.this_ && q.kind == ast::ParameterKind::Optional)
+                        .filter(|(_, q)| q.kind == ast::ParameterKind::Optional)
                         .map(|(i, _)| i)
                         .collect();
                     (labels, optional)
