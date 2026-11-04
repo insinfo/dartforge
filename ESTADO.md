@@ -554,7 +554,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | AOT nativo: tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`) e tamanho (1,37×); próximo: mapa de campo, `$c`/`$g`/`$tc`, `$async` | em rodízio: agentes de desempenho um por vez desde 01/11 (ordem LSP → ARC → AOT); seção de 31/10 abaixo |
 | ARC real: 2,5× os ciclos do tracing no HTTP `dart:io` e 1,7× no cru (eram 3× e 2,2×); próximos passos na seção de 01/11 | em rodízio: agentes de desempenho um por vez (fila: LSP prioridade → AOT → ARC) |
 | LSP: edição de corpo no Windows (fases de CPU do residente: *heap* e caminhos), inclinação ≤ 0 da sessão longa, recarga no lugar casando os elementos por nome, ordem dos arquivos conhecidos do `workspace/symbol`, consultas de projeto ainda no servidor | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
-| CI (`CI` e `Heavy`) vermelho desde 31/10 | 03/11: testes do CI corrigidos (`2cabc620`); no `Heavy` faltam o nativo do `corpus/js` (253 e 273) e o `corpus/modern` (340 e 341). Seção "fechamento do dia" abaixo |
+| CI (`CI` e `Heavy`) vermelho desde 31/10 | 03/11: todas as falhas conhecidas corrigidas no `main` e validadas no macOS (v30); falta confirmar no GitHub. Seção "fechamento do dia" abaixo |
 
 ## 03/11/2026: fechamento do dia — o que foi feito e o que falta
 
@@ -591,33 +591,40 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
   - o teste do `pub global` no Windows lia o nome do *stub* do Unix (no Windows é `<executável>.bat`);
   - dois testes nativos com `--gc-stress` não definiam o registro de tear-offs da biblioteca do SDK (`7af464d1`).
 
-### Em andamento no fim do dia
+- **LSP, décima sétima rodada** (`main`):
+  - as consultas de biblioteca saem do residente: memória em repouso de uma sessão com pedidos em **791–794 contra 814–944 MiB** (era 1.218–1.227; agora ganha);
+  - a primeira edição da sessão não carrega mais a biblioteca no servidor;
+  - o Windows foi amostrado com `xperf`: `stat` 10%, *heap* 16%, núcleo 19%, caminhos ~10%.
+- **Wasm, terceira rodada de tamanho** (`main`):
+  - hello de 0,72 para 0,68 MB (0,57 MB com Binaryen), velocidade igual dentro do ruído;
+  - registros de classes do SDK como dados da ligação;
+  - Ryū próprio no `double.toString`, que corrige uma divergência antiga com a VM (empates para o dígito par);
+  - achada a causa da lentidão no V8 quando se registram só as tabelas vivas: a inlinização do TurboFan. Falta saber qual chamada a perde.
+- **`Heavy`, corrigido no `main`:**
+  - **`253_downcasts_para_parametros_e_campos_de_record` no nativo:** `r.$1(args)` em receptor de tipo record chamava um método `$1` em vez de ler o campo (`dde7d472`);
+  - **`273_instanciacao_para_limites` no nativo:** a closure genérica chamada sem argumentos de tipo agora lê os parâmetros da classe do `this` capturado (`abdc09af`);
+  - **`corpus/modern` 340 e 341 no JS, regressão do `9bd8e2c6`:** classes com construtor generativo ficam fora do inicializador de mixin legado (`5a2ffdcd`). A primeira versão dessa correção excluía também as classes só com *factory*, e a v29 pegou a regressão em `mixin_legacy/factory_constructor_test` (corrigida em `a629a91e`).
+- **Validação final, v30, macOS, `a629a91e`:**
+  - nativo dev, `--optimize`, `--gc-stress`, wasm e programas grandes: 164/164;
+  - `corpus/js`: JS dev e produção 277/277; nativo 277/277, normal e com `--gc-stress`;
+  - `corpus/modern`: 26/26 nos dois perfis;
+  - suíte de linguagem no JS dev contra a `vm-r6`: 2794 iguais, 49 falhas, sem regressão;
+  - `cargo test --release --workspace`, testes ignorados do `emit_native`, doc e clippy limpos.
 
-- **LSP, décima sétima rodada:**
-  - servir as consultas do residente e tirar a cópia do servidor, buscando a documentação do SDK sem *patch* por (biblioteca, classe, membro);
-  - inclinação ≤ 0;
-  - perfil do Windows com `xperf`.
-- **Wasm, terceira rodada de tamanho:**
-  - registros por biblioteca do SDK sem atrasar o V8;
-  - formatador de `double` próprio, sem `core::fmt`;
-  - coletor menor.
-- **`Heavy` vermelho:**
-  - **nativo do `corpus/js`, 825/831 nos três modos:**
-    - `253_downcasts_para_parametros_e_campos_de_record`: o campo de record com contexto de tipo função não vira `.call`;
-    - `273_instanciacao_para_limites`: a instanciação pelos limites com os parâmetros de tipo de fora dá `dynamic`.
+  A suíte `tests/language` inteira **não** foi repetida no wasm e no nativo depois das rodadas de hoje (última medição completa do wasm: rodada 2 de tamanho). Os testes do `Heavy` no Windows dependem do CI.
 
-    As duas correções de 26–27/10 (`0f327d91`, `2d5c6e4c`) foram feitas só no `emit_js` e faltam no nativo.
-  - **`corpus/modern` (SDK 3.13), regressão:** `340_construtores_primarios` e `341_primarios_escopo` não compilam para JS ("Undefined name": os parâmetros do construtor primário não são vistos nos inicializadores de campo). Já passavam 26/26 em 27/09; o culpado está sendo achado com `git bisect`.
-- **Versão:** `v0.1.0-alpha.3` no GitHub quando o CI e o `Heavy` estiverem verdes.
+### A partir daqui
+
+- Push do `main`, CI e `Heavy` no GitHub e, com os dois verdes, a versão `v0.1.0-alpha.3`.
 
 ### A fazer (próximos dias)
 
 - **LSP:**
-  - memória em repouso de uma sessão com pedidos (1.218–1.227 contra 858–889 MiB);
-  - inclinação ≤ 0 em toda sessão longa;
-  - edição de corpo da sessão longa no Windows (77 contra 60–61 ms);
+  - inclinação ≤ 0 em toda sessão longa (+2,6 e +1,1 MiB por 100 cargas; o Dart, +35 a +37);
+  - edição de corpo da sessão longa no Windows (76 contra 60 ms; o residente leva ~50 ms lá contra ~19 no macOS, por causa do *heap* e dos caminhos);
+  - `references` logo depois de uma edição (36,7–58,6 contra 19,2–25,4 ms, com poucas amostras);
+  - consultas de projeto ainda no servidor (`rename`, hierarquias completas, buscas sem índice);
   - recarga no lugar casando os elementos por nome;
-  - a primeira edição da sessão pelo caminho novo;
   - ordem do `workspace/symbol`.
 - **Wasm:**
   - chegar perto dos 158 KB do TinyGo no hello: registros do SDK por biblioteca, `double` sem `core::fmt`, coletor menor, cone do tipo estático do receptor (`_Double`), ajudantes de erro pelo grafo de chamadas;
