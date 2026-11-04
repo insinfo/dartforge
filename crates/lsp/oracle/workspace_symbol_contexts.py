@@ -8,6 +8,8 @@ of one package. The child also has a private dependency and generated output.
 The oracle checks full ordered JSON through two catalog changes, including a
 dependency URI that must not replace an explicitly added library's first owner.
 Exit status is 1 on any mismatch. This checks correctness, not performance.
+--without-watcher omits client watcher support and exercises disk revalidation
+on each symbol request. Dart still observes the filesystem natively.
 """
 
 import argparse
@@ -33,7 +35,7 @@ def _package(root, name, source):
             "packageUri": "lib/", "languageVersion": "3.6"}
 
 
-def _run(output, binary, fixture):
+def _run(output, binary, fixture, watch_files=True):
     root = fixture / "workspace"
     child = root / "example"
     parent_package = _package(root, "catalog_parent", "class CatalogNeedleParent {}\n")
@@ -48,7 +50,9 @@ def _run(output, binary, fixture):
     _write(fixture / "version_one/lib/old.dart", "class CatalogNeedleOld {}\n")
     _write(fixture / "version_two/lib/new.dart", "class CatalogNeedleNew {}\n")
     anchor = root / "lib/anchor.dart"
-    _write(anchor, "import 'package:bridge/api.dart'; void catalogAnchor() {}\n")
+    # The adapter exists only in the child's generated workspace. Remembering
+    # the parent's missing FileState must survive repeated symbol requests.
+    _write(anchor, "import 'package:bridge/api.dart';\nimport 'package:bridge/adapter.dart';\nvoid catalogAnchor() {}\n")
     child_anchor = child / "lib/anchor.dart"
     child_text = "import 'package:bridge/api.dart';\nimport 'package:bridge/adapter.dart';\nimport 'package:catalog_child/generated.dart';\nimport 'package:versioned/api.dart';\nimport 'package:catalog_parent/api.dart';\n"
     _write(child_anchor, child_text)
@@ -68,7 +72,8 @@ def _run(output, binary, fixture):
     _write(child_config, json.dumps({"configVersion": 2, "packages": child_packages}))
 
     capabilities = copy.deepcopy(CAPABILITIES)
-    capabilities["workspace"]["didChangeWatchedFiles"] = {"dynamicRegistration": True}
+    if watch_files:
+        capabilities["workspace"]["didChangeWatchedFiles"] = {"dynamicRegistration": True}
     env = dict(os.environ, DARTFORGE_SDK_LIB=SDK_LIB)
     command = [DART, "language-server", "--protocol=lsp", "--client-id=oracle"]
     if DART_CACHE:
@@ -82,7 +87,7 @@ def _run(output, binary, fixture):
         for query in ("CatalogNeedle", "CatalogNeedleVersion", "CatalogNeedleBridge",
                       "CatalogNeedleChildDependency", "CatalogNeedleGenerated", "CatalogNeedleOld"):
             row = {"project": "symbol_contexts", "phase": phase,
-                   "method": "workspace/symbol", "pos": query}
+                   "method": "workspace/symbol", "pos": query, "watchedFiles": watch_files}
             for server in servers:
                 row[server.name], _ = server.request("workspace/symbol", {"query": query})
                 if not isinstance(row[server.name], list):
@@ -133,10 +138,11 @@ def _run(output, binary, fixture):
                 child_packages[1] = shadow
             _write(child_config, json.dumps({"configVersion": 2, "packages": child_packages}))
             previous = servers[0].analysis_completions
-            for server in servers:
-                server.notify("workspace/didChangeWatchedFiles", {"changes": [{
-                    "uri": child_config.as_uri(), "type": 2,
-                }]})
+            if watch_files:
+                for server in servers:
+                    server.notify("workspace/didChangeWatchedFiles", {"changes": [{
+                        "uri": child_config.as_uri(), "type": 2,
+                    }]})
             if not servers[0].wait_analysis(previous, limit=60, quiet=1.5):
                 raise RuntimeError("changed catalog analysis did not finish")
             # Status from resolution of a preceding query can arrive after the
@@ -172,10 +178,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output")
     parser.add_argument("binary")
+    parser.add_argument("--without-watcher", action="store_true")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="dartforge-symbol-contexts-") as temporary:
         with open(args.output, "w", encoding="utf-8") as output:
-            return _run(output, os.path.abspath(args.binary), Path(temporary).resolve())
+            return _run(output, os.path.abspath(args.binary), Path(temporary).resolve(), not args.without_watcher)
 
 
 if __name__ == "__main__":

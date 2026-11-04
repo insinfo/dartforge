@@ -453,15 +453,27 @@ impl Discovery {
         }
     }
 
-    fn retain_live(&mut self, open: &HashMap<PathBuf, Fingerprint>) {
+    fn retain_live(&mut self, open: &HashMap<PathBuf, Fingerprint>, contexts: &[Context]) {
         self.files
             .retain(|f| open.contains_key(&f.path) || f.path.is_file());
-        self.created
-            .retain(|(_, p)| open.contains_key(p) || p.is_file());
         self.positions.clear();
         for (i, file) in self.files.iter().enumerate() {
             self.positions.insert(file.identity.clone(), i);
         }
+        // A missing FileState can share a canonical URI with a live file in
+        // another context. Forgetting that creation would let it reclaim the
+        // URI on the next traversal. Keep these collision records, while
+        // discarding missing imports with no live binding to avoid retaining
+        // an unbounded history of invalid directives typed in the editor.
+        self.created.retain(|(context, path)| {
+            open.contains_key(path)
+                || path.is_file()
+                || self.positions.contains_key(
+                    &contexts
+                        .get(*context)
+                        .map_or_else(|| FileIdentity::File(path.clone()), |c| c.identity(path)),
+                )
+        });
     }
 }
 
@@ -1305,7 +1317,7 @@ impl Index {
                     && last.contexts == inputs.contexts =>
             {
                 if !trust_disk {
-                    previous.retain_live(open);
+                    previous.retain_live(open, contexts);
                 }
                 previous
             }
@@ -1738,6 +1750,109 @@ mod tests {
             .iter()
             .filter_map(|s| s["name"].as_str().map(str::to_owned))
             .collect()
+    }
+
+    #[test]
+    fn missing_parent_import_cannot_reclaim_a_live_generated_uri() {
+        let root = fixture("missing-owner");
+        let child = root.join("example");
+        let package = root.join("shared/lib");
+        let generated = child.join(".dart_tool/build/generated/shared/lib");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::create_dir_all(&generated).unwrap();
+        let parent_entry = root.join("parent.dart");
+        let child_entry = child.join("child.dart");
+        let imports = "import 'package:shared/api.template.dart';";
+        std::fs::write(&parent_entry, imports).unwrap();
+        std::fs::write(&child_entry, imports).unwrap();
+        std::fs::write(
+            generated.join("api.template.dart"),
+            "class StableTemplate {}",
+        )
+        .unwrap();
+        let contexts = [
+            Context {
+                root: root.clone(),
+                packages: vec![("shared".into(), package.clone())],
+                ..Context::default()
+            },
+            Context {
+                root: child,
+                packages: vec![("shared".into(), package.clone())],
+                generated: vec![("shared".into(), package, generated.clone())],
+                ..Context::default()
+            },
+        ];
+        let mut symbols = Index::default();
+        let added = [parent_entry.clone(), child_entry];
+        let mut open = HashMap::new();
+        let before = symbols.search(
+            "StableTemplate",
+            &added,
+            &added[..1],
+            None,
+            &contexts,
+            &open,
+            None,
+            false,
+        );
+        assert_eq!(before.len(), 1);
+        assert_eq!(
+            before[0]["location"]["uri"],
+            url::Url::from_file_path(generated.join("api.template.dart"))
+                .unwrap()
+                .to_string()
+        );
+        // Revalidating disk state must preserve the child's owner, including
+        // the fact that the parent's missing FileState was already created.
+        assert_eq!(
+            symbols.search(
+                "StableTemplate",
+                &added,
+                &added[..1],
+                None,
+                &contexts,
+                &open,
+                None,
+                false
+            ),
+            before
+        );
+        for i in 0..128 {
+            let text = format!("{imports} import 'package:shared/missing_{i}.dart';");
+            open.insert(
+                parent_entry.clone(),
+                (
+                    url::Url::from_file_path(&parent_entry).unwrap().to_string(),
+                    text,
+                ),
+            );
+            assert_eq!(
+                symbols.search(
+                    "StableTemplate",
+                    &added,
+                    &added[..1],
+                    None,
+                    &contexts,
+                    &open,
+                    None,
+                    false
+                ),
+                before
+            );
+        }
+        let state = &symbols.paths.as_ref().unwrap().1;
+        assert!(
+            state.created.len() < 12,
+            "missing-import history retained {} file states",
+            state.created.len()
+        );
+        assert!(
+            symbols.entries.len() < 12,
+            "missing-import history retained {} indexes",
+            symbols.entries.len()
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

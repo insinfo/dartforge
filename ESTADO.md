@@ -103,20 +103,27 @@ mas com paridade ainda incompleta nos projetos grandes:**
   A varredura segue o `HashMap` de drivers da VM 3.6.2 e a ordem de raízes do catálogo.
   Gerados também são resolvidos em `test/` e `web/`; imports relativos partem da URI
   canônica, sem ocultar a biblioteca real por um caminho inexistente no diretório gerado.
-- **Projetos grandes, pendência atual:** a nova dupla com cache Dart frio/quente deu
-  **11/24 e 20/24 respostas completas iguais**, contra 8/24 e 17/24 na auditoria anterior.
-  No quente: `limitless_ui` **7/8**, core **8/8**, frontend **5/8**. Uma repetição do mesmo
-  frontend e do mesmo cache deu **8/8**: mudou a ordem do Dart, e a resposta do DartForge
-  permaneceu idêntica. Os manifestos de entrada continuaram iguais e sem raízes ausentes.
-  O core usa a cópia com os 64 caminhos Windows corrigidos, mantendo versões e fontes.
-  Ainda faltam três declarações em `Ponto` no `limitless_ui`, além de fechar as diferenças
-  de ordem entre condições do Dart. Descoberta condicional, edições nos projetos grandes
-  e histórico de expansão/remoção de contextos continuam pendentes. Detalhes em `docs/LSP.md`.
-- **Regressões:** **319 testes do LSP passaram**, incluindo doctests e o platô de memória.
-  O novo oráculo de dois contextos passou em **24/24 respostas completas**, repetido três
-  vezes com caminhos de fixture diferentes: **72/72**. Inclui versão de pacote, dono de
-  URI, gerados fora de `lib/` e mudança de catálogo. Mantidos **112/112** no ciclo de vida
-  e **32/32** nos quatro projetos pequenos.
+- **URI válida preservada ao revalidar o disco:** as três declarações de `Ponto` estavam
+  no índice na primeira consulta, mas sumiam na seguinte. A limpeza esquecia um import
+  inexistente do pai, que então retomava a URI do gerado válido do filho. Agora essa
+  colisão fica registrada enquanto houver uma biblioteca válida; imports inválidos sem
+  vínculo válido são descartados. O teste mantém a resposta após 128 mudanças de import,
+  sem acumular os estados e índices antigos.
+- **Projetos grandes, resultado atual:** a nova dupla deu **9/24 respostas completas no
+  cache Dart frio e 24/24 no quente**, com **20/24 e 24/24 conjuntos**, respectivamente.
+  Os três projetos deram **8/8 no quente**, incluindo os 373 resultados de `Ponto` no
+  `limitless_ui`; outra execução com os mesmos caches manteve **24/24**, sem mudar as
+  respostas de nenhum dos servidores. A dupla anterior dava 11/24 e 20/24; a queda no
+  frio veio da variação do Dart no core, sem mudar a resposta do DartForge nesse projeto.
+  Os manifestos de entrada continuaram iguais e sem raízes ausentes. O core usa a cópia com os 64
+  caminhos Windows corrigidos, mantendo versões e fontes. Os 24/24 quentes não fecham
+  a paridade no frio, a descoberta condicional, edições nos projetos grandes nem o
+  histórico de expansão/remoção de contextos. Detalhes e reprodução em `docs/LSP.md`.
+- **Regressões:** **320 testes do LSP passaram**, incluindo doctests e o platô de memória.
+  O oráculo de dois contextos passou em **24/24 com watcher do cliente e 24/24 sem ele**,
+  repetidos duas vezes: **96/96**. Sem watcher, eram 15/24 antes de preservar a colisão
+  da URI; o teste unitário também falhava na segunda consulta. Mantidos **112/112** no
+  ciclo de vida e **32/32** nos quatro projetos pequenos.
 - **Desempenho ainda sem repetição:** capturar a ordem inicial exige enumerar os arquivos
   ao criar cada contexto. Contextos existentes não são reenumerados por edições de corpo;
   o custo de abertura nos projetos grandes ainda precisa ser medido. Faltam a paridade
@@ -643,7 +650,7 @@ As correções desta seção são posteriores ao pacote publicado.
   eventos distinguem remoção/recriação mesmo sem consulta entre eles. A opção de só
   analisar projetos abertos impede raízes permanentes e libera o índice de símbolos
   ao fechar o último documento; pedidos com escopo de raiz continuam alcançando os
-  projetos abertos. **319 testes do LSP passaram**, incluindo doctests, criação antes
+  projetos abertos. **320 testes do LSP passaram**, incluindo doctests, criação antes
   da primeira busca e pacotes aninhados com/sem configuração própria de packages.
   O teste de versão obsoleta agora espera a análise válida pendente antes de exigir
   ausência de publicações e verifica também que não começou outra análise.
@@ -660,6 +667,13 @@ As correções desta seção são posteriores ao pacote publicado.
   O novo `workspace_symbol_contexts.py` passou em **24/24** em três execuções; a dupla
   completa dos projetos grandes passou a **11/24 no frio e 20/24 no quente**, mantendo
   a variação do próprio Dart registrada separadamente. Os hashes de entrada não mudaram.
+  A etapa seguinte corrigiu a perda de `Ponto` entre consultas ao revalidar o disco:
+  estados de imports inexistentes continuam lembrados quando compartilham uma URI
+  válida, sem reter o histórico dos demais imports inválidos. Passaram **24/24 com
+  watcher e 24/24 sem watcher do cliente**, repetidos duas vezes, e 128 mudanças de
+  import no teste de retenção. A nova dupla dos projetos grandes deu **9/24 no frio e
+  24/24 no quente**; a queda no frio veio da variação do Dart no core, com a mesma
+  resposta do DartForge. Os três símbolos antes ausentes reapareceram no `limitless_ui`.
   `crates/lsp/oracle/workspace_symbol_lifecycle.py` reproduz os casos e retorna erro se
   houver diferenças. Não há medição de desempenho nessa ampliação.
 - **Gates atuais:** `rustfmt`, clippy do workspace com `-D warnings` e documentação de
@@ -671,8 +685,8 @@ As correções desta seção são posteriores ao pacote publicado.
   já foi repetido integralmente: **117 testes passaram, zero falhas, zero ignorados**, em
   16 executáveis de teste; log em `/tmp/dartforge-cli-native-recheck.log` (saída 0).
   A execução do workspace começou antes do ajuste de ciclo de vida do LSP; a suíte
-  completa desse crate foi repetida separadamente na árvore atual: **319 aprovados,
-  zero falhas, zero ignorados**, com log em `/tmp/dartforge-symbol-catalog-verified-tests.log`.
+  completa desse crate foi repetida separadamente na árvore atual: **320 aprovados,
+  zero falhas, zero ignorados**, com log em `/tmp/dartforge-symbol-missing-owner-verified-tests.log`.
   Formatação, clippy e documentação sem avisos passaram novamente depois desse ajuste.
 - **CLI `native,jit`, correção do runner:** na primeira execução, os 114 demais testes
   passaram, incluindo geração de fontes, I/O, recarga e orçamentos de tamanho. Os dois
@@ -859,11 +873,11 @@ Dentro dos ignorados, um único binário de teste com 1 teste leva 621 s, e outr
 
 ### A partir daqui
 
-- Fechar a paridade de `workspace/symbol` nos três projetos grandes: a dupla atual dá
-  11/24 no frio e 20/24 no quente; o Dart continua variando mesmo com o mesmo cache.
-  Investigar as três declarações ausentes em `Ponto` no `limitless_ui`, as dependências
-  condicionais e a descoberta posterior às consultas. Preservar o histórico da tabela
-  de drivers quando muitos contextos fecham/reabrem; os testes atuais não o encerram.
+- Fechar a paridade de `workspace/symbol` nas condições ainda divergentes: a dupla atual
+  dá 9/24 no frio e 24/24 no quente; o Dart continua variando mesmo com o mesmo cache.
+  Conferir dependências condicionais e descoberta posterior às consultas. Preservar o
+  histórico da tabela de drivers quando muitos contextos fecham/reabrem; a VM já
+  confirmou uma inversão de ordem após remover 40 chaves sem limpar a tabela.
   Depois medir a abertura dos contextos e repetir CPU/latência/memória. Os gates locais
   foram repetidos com sucesso; detalhes e limites na continuação de 04/11 acima.
 - Testes ignorados do Windows em debug (48,3 min), o maior gasto do job: medir em release, aproveitando a compilação que já existe. O `Heavy` roda no Windows diariamente, mas não cobre todos esses testes (conferência de 04/11 acima); antes de transferir o passo, acrescentar e validar a cobertura que falta.

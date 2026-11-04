@@ -3357,7 +3357,7 @@ O driver espera um intervalo de repouso de análise; nas trocas, também espera 
 definição do import corresponda ao catálogo novo, evitando usar um status atrasado.
 Esse pedido de preparação é enviado aos dois servidores e faz parte da sequência do cenário.
 
-O cenário passou em **24/24**, em três execuções com diretórios temporários diferentes:
+O cenário com watcher do cliente passou em **24/24**, em três execuções com diretórios temporários diferentes:
 **72/72 respostas completas iguais**. Os arquivos estão em
 `/tmp/dartforge-symbol-contexts-final-identical-{1,2,3}.jsonl`. Para repetir:
 
@@ -3392,18 +3392,18 @@ Os manifestos são `/tmp/dartforge-catalog-final-{limitless,core,frontend}-input
 e `/tmp/dartforge-catalog-final-frontend-inputs-repeat.json`. Todos mantiveram os mesmos
 digests; a repetição fria/quente também manteve idênticas as respostas do DartForge.
 
-**Pendências concretas:** `Ponto` no `limitless_ui` ainda não inclui o getter
+**Achado dessa etapa, corrigido na continuação abaixo:** `Ponto` no `limitless_ui` não incluía o getter
 `LiNotificationOutletComponentNgFactory`, a variável `_LiNotificationOutletComponentNgFactory`
 e a função `createLiNotificationOutletComponentFactory()` do template de notification.
-O rastreador do SDK mostra esse arquivo conhecido antes da varredura de disponibilidade;
-é preciso conferir sua entrada no índice e as declarações extraídas. Continuam faltando
+O rastreador do SDK mostrava esse arquivo conhecido antes da varredura de disponibilidade;
+a continuação abaixo identifica a causa e a correção. Continuam faltando
 as alternativas condicionais, a descoberta iniciada durante consultas e a paridade
 após edições nos projetos grandes. O modelo do mapa de drivers reconstrói os buckets
 para os contextos ativos; ainda falta preservar a capacidade histórica quando muitos
 contextos são removidos e reabertos depois de uma expansão. Os testes de crescimento
 conferem uma tabela criada do zero, não esse histórico.
 
-A suíte atual do LSP passou com **319 testes, zero falhas e zero ignorados**, incluindo
+A suíte dessa etapa passou com **319 testes, zero falhas e zero ignorados**, incluindo
 doctests e o platô por protocolo. A regressão de navegação confere as versões escolhidas,
 a dependência privativa, gerados em teste e um import relativo do output para a fonte real.
 Mantidos **112/112** no ciclo de vida e **32/32** nos quatro projetos pequenos. Logs:
@@ -3411,6 +3411,94 @@ Mantidos **112/112** no ciclo de vida e **32/32** nos quatro projetos pequenos. 
 formatação e documentação com avisos negados passaram. Os JSONL repetidos desses cenários
 anteriores têm o prefixo `/tmp/dartforge-symbol-catalog-final-`. As execuções servem à
 corretude; não são novas medições de CPU, latência ou memória nos projetos grandes.
+
+### Continuação: o estado de um import inexistente não pode retomar uma URI válida
+
+O diagnóstico das três ausências de `Ponto` isolou uma falha de revalidação, não de
+extração: uma primeira busca pelo índice retornou **373 símbolos**, incluindo as três
+declarações de `notification_toast.template.dart`, com prefilter e matcher aprovando
+os nomes. Depois das consultas anteriores do oráculo, a resposta caía para **370**.
+O diagnóstico temporário foi removido; seus dados estão em
+`/tmp/dartforge-symbol-coverage-probe.json`.
+
+`Discovery::retain_live` descartava o registro de criação de um arquivo inexistente
+no pai, embora sua URI canônica pertencesse a um gerado válido do filho. Ao percorrer
+de novo as dependências, esse arquivo parecia recém-criado e retomava a URI. O filho
+não a recuperava: seu arquivo já tinha sido criado naquele contexto. A posição era
+preservada, mas apontava para um arquivo sem declarações. O efeito aparecia ao revalidar
+o disco, inclusive em clientes que não anunciam watcher.
+
+A limpeza agora mantém o registro de criação inexistente enquanto ele compartilhar
+uma URI com uma biblioteca válida. Os demais imports inexistentes continuam sendo
+descartados; conservar todos eles acumularia o histórico das diretivas inválidas
+digitadas no editor. A nova regressão falhava na segunda busca antes da correção.
+Agora repete a resposta completa e sua URI após **128 mudanças de import inválido**;
+ao final, mantém menos de 12 estados de arquivo e menos de 12 índices, em vez de reter
+os 128 alvos anteriores.
+
+O oráculo de contextos ganhou um import que só o filho resolve para o output e o modo
+`--without-watcher`. Nesse modo o cliente não anuncia suporte a watcher e não envia
+notificações de disco; o Dart continua observando o sistema de arquivos nativamente.
+O DartForge revalida as listagens a cada pedido. Resultado antes/depois:
+
+| Cenário, resposta completa em ordem | Antes | Depois |
+|---|---:|---:|
+| contexto com watcher do cliente | 24/24 | 24/24 |
+| contexto sem watcher do cliente | 15/24 | 24/24 |
+
+Os dois modos passaram duas vezes, com novos diretórios de fixture: **96/96 respostas
+completas iguais**. Os JSONL anteriores estão em
+`/tmp/dartforge-symbol-missing-owner-before.jsonl` e
+`/tmp/dartforge-symbol-missing-owner-unwatched-before.jsonl`; os posteriores, em
+`/tmp/dartforge-symbol-missing-owner-{watched,unwatched}-{1,2}.jsonl`. O resultado anterior
+com watcher não cobria a revalidação que apagava o registro. Para repetir o modo novo:
+
+```sh
+python3 crates/lsp/oracle/workspace_symbol_contexts.py /tmp/symbol-contexts-unwatched.jsonl target/debug/dartforge-lsp --without-watcher
+python3 crates/lsp/oracle/summary.py /tmp/symbol-contexts-unwatched.jsonl --method workspace/symbol
+```
+
+A repetição isolada do `limitless_ui`, com o cache Dart quente anterior, passou em
+**8/8 respostas completas**, incluindo `Ponto` com **373/373**. A nova dupla completa
+dos projetos, com cache Dart novo por projeto e reaproveitado na segunda execução,
+ficou assim:
+
+| Projeto | Completa, cache Dart frio | Completa, quente | Conjunto, frio | Conjunto, quente |
+|---|---:|---:|---:|---:|
+| `limitless_ui` | 3/8 | 8/8 | 6/8 | 8/8 |
+| core, mesma cópia corrigida | 2/8 | 8/8 | 6/8 | 8/8 |
+| `new_sali/frontend` | 4/8 | 8/8 | 8/8 | 8/8 |
+| Total desta dupla | **9/24** | **24/24** | **20/24** | **24/24** |
+
+A dupla anterior dava 11/24 no frio e 20/24 no quente. A diferença negativa no frio
+veio do core: sua resposta do DartForge permaneceu idêntica nas oito consultas, mas
+o Dart mudou seis delas. Os digests e as contagens de arquivos continuaram iguais,
+sem raízes ausentes, nos três projetos. As quatro diferenças de conjunto no frio
+ficam em `Arg` e `parse` do core e do `limitless_ui`, com 500 resultados em cada lado.
+Essas divergências continuam reprovadas: os 24/24 quentes não as substituem.
+
+A execução quente foi repetida nos três projetos, reutilizando os mesmos caches:
+manteve **24/24 respostas completas**, idênticas às da execução quente anterior nos
+dois servidores. São **48/48** nas duas matrizes quentes desta árvore, sem conclusão
+de paridade para o frio ou para outros históricos de sessão.
+
+Os resultados estão em `/tmp/dartforge-symbol-missing-owner-{limitless,core,frontend}-{cold,warm}.jsonl`;
+as repetições quentes têm sufixo `-repeat.jsonl`. Os manifestos estão em
+`/tmp/dartforge-missing-owner-{limitless,core,frontend}-inputs-{before,cold,warm,repeat}.json`.
+A verificação completa do LSP passou com **320 testes, zero falhas e zero ignorados**,
+incluindo doctests; mantidos **112/112** no ciclo de vida e **32/32** nos quatro projetos
+pequenos. Clippy de todo o workspace, formatação e documentação com avisos negados
+passaram. Logs: `/tmp/dartforge-symbol-missing-owner-verified-{tests,clippy,doc}.log`.
+As execuções continuam sendo de corretude, sem nova medição de desempenho.
+
+**Próxima pendência já reproduzida na VM:** uma tabela com as chaves `/workspace` e
+`/projects/catalog_2` enumera nessa ordem quando nova, mas inverte a ordem após inserir
+e remover 40 chaves sem `clear`; o `clear` restaura a ordem inicial. O ensaio é da
+tabela da VM, não de uma sessão LSP de 40 contextos, e está em
+`/tmp/dartforge-driver-capacity-reference.json`. Como o SDK remove os drivers sem limpar
+o mapa, falta preservar esse histórico no modelo atual. Também permanecem a paridade
+no frio, as dependências condicionais, a descoberta iniciada durante consultas e as
+edições nos projetos grandes antes de repetir as medidas da rodada 17.
 
 ## Capacidades
 
