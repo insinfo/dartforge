@@ -226,13 +226,41 @@ pub(crate) fn project_files(root: &Path) -> Vec<PathBuf> {
     output
 }
 
-/// Project files in the analyzer's depth-first directory discovery order.
+/// Project files in the analyzer's context and directory discovery order.
 ///
 /// `workspace/symbol` preserves this order, including at its result limit.
 /// Other project loads keep using the sorted [`project_files`] so that their
 /// element layout does not depend on directory enumeration order.
 pub(crate) fn symbol_files(root: &Path) -> Vec<PathBuf> {
-    fn visit(dir: &Path, ancestors: &mut HashSet<PathBuf>, output: &mut Vec<PathBuf>) {
+    fn contexts(dir: &Path, ancestors: &mut HashSet<PathBuf>, roots: &mut Vec<PathBuf>) {
+        let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        if !ancestors.insert(canonical.clone()) {
+            return;
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name();
+                if path.is_dir() && !name.to_string_lossy().starts_with('.') && name != "build" {
+                    // ContextLocator starts a child context for its own
+                    // package configuration, not for a pubspec alone.
+                    if path.join(".dart_tool/package_config.json").is_file()
+                        || path.join("BUILD.gn").is_file()
+                    {
+                        roots.push(path.clone());
+                    }
+                    contexts(&path, ancestors, roots);
+                }
+            }
+        }
+        ancestors.remove(&canonical);
+    }
+    fn visit(
+        dir: &Path,
+        ancestors: &mut HashSet<PathBuf>,
+        boundaries: &HashSet<PathBuf>,
+        output: &mut Vec<PathBuf>,
+    ) {
         if output.len() >= MAX_FILES {
             return;
         }
@@ -249,11 +277,8 @@ pub(crate) fn symbol_files(root: &Path) -> Vec<PathBuf> {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
                 if path.is_dir() {
-                    if !name.starts_with('.')
-                        && name != "build"
-                        && !path.join("pubspec.yaml").is_file()
-                    {
-                        visit(&path, ancestors, output);
+                    if !name.starts_with('.') && name != "build" && !boundaries.contains(&path) {
+                        visit(&path, ancestors, boundaries, output);
                     }
                 } else if name.ends_with(".dart") {
                     output.push(path);
@@ -263,8 +288,17 @@ pub(crate) fn symbol_files(root: &Path) -> Vec<PathBuf> {
         ancestors.remove(&canonical);
     }
 
+    let mut roots = vec![root.to_path_buf()];
+    contexts(root, &mut HashSet::new(), &mut roots);
+    let boundaries: HashSet<_> = roots.iter().skip(1).cloned().collect();
     let mut output = Vec::new();
-    visit(root, &mut HashSet::new(), &mut output);
+    for context in roots {
+        // All files of a containing context precede its child contexts.
+        visit(&context, &mut HashSet::new(), &boundaries, &mut output);
+        if output.len() >= MAX_FILES {
+            break;
+        }
+    }
     output
 }
 

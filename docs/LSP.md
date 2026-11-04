@@ -3040,11 +3040,11 @@ Os JSONL desta medição estão em `/tmp/dartforge-workspace-symbols-before.json
 as latências do driver rodaram junto dos testes do workspace e não são uma nova
 medição de desempenho. A suíte completa do LSP, com doctests, passou.
 
-Ainda falta repetir a comparação em projetos grandes, com dependências condicionais
-e eventos anteriores à primeira consulta. As mudanças de arquivos ganharam a verificação
-sintética abaixo. Depois, medir CPU, latência e memória nos
-três projetos do painel sem compilação ou testes concorrentes. Os 32/32 não fecham
-essas verificações nem as demais metas de desempenho da rodada 17.
+A criação antes da primeira consulta e a primeira comparação em projetos grandes foram
+acrescentadas abaixo. Ainda falta fechar a paridade nesses projetos, repetir depois
+de edições e com dependências condicionais, e medir CPU, latência e memória sem
+compilação ou testes concorrentes. Os 32/32 não fecham essas verificações nem as demais
+metas de desempenho da rodada 17.
 
 ### Continuação: ciclo de vida de 38/56 para 56/56 depois de duas correções
 
@@ -3089,10 +3089,10 @@ Os JSONL anteriores estão em `/tmp/dartforge-symbol-lifecycle-settled.jsonl` e
 `/tmp/dartforge-symbol-lifecycle-settled-repeat.jsonl`; os novos, em
 `/tmp/dartforge-symbol-lifecycle-final.jsonl` e
 `/tmp/dartforge-workspace-symbols-lifecycle-fixed-initial.jsonl` (os quatro projetos).
-A suíte completa do LSP passou com **310 testes, zero falhas e zero ignorados**, incluindo
+A suíte completa atual do LSP passou com **312 testes, zero falhas e zero ignorados**, incluindo
 doctests. Formatação, clippy de todo o workspace e documentação com avisos negados
 passaram depois dos ajustes. Esses números ampliam a evidência de corretude; não são
-medições de desempenho e não encerram os cenários grandes e de dependências condicionais.
+medições de desempenho e não encerram as pendências dos projetos grandes e de dependências condicionais.
 
 Para repetir, configure `ORACLE_DART` e `ORACLE_SDK_LIB` para o mesmo SDK 3.6.2 e rode:
 
@@ -3104,6 +3104,79 @@ python3 crates/lsp/oracle/summary.py /tmp/symbol-lifecycle.jsonl --method worksp
 O oráculo termina com código 1 enquanto houver diferenças; não transforma essas
 divergências em aprovações. O resumo identifica a fase de cada exemplo e não inventa
 latências zero quando o arquivo de corretude não contém tempos.
+
+### Continuação: a primeira busca e os projetos grandes
+
+O modo `--create-before-first-query` cria um arquivo depois da análise inicial e antes
+de qualquer `workspace/symbol`. A matriz normal passava em 56/56, mas essa variante
+dava só **38/56**: o índice ainda não existia para guardar a ordem anterior aos eventos.
+Agora a ordem dos arquivos é capturada ao abrir o contexto, separada da criação do
+índice de declarações. Os eventos atualizam essa ordem global desde então; os contextos
+fechados saem do registro. As duas matrizes passaram com **112/112 respostas completas**,
+e os quatro projetos pequenos mantiveram **32/32** na árvore atual.
+
+Os resultados atuais estão em `/tmp/dartforge-symbol-context-final-warm.jsonl`,
+`/tmp/dartforge-symbol-context-final-cold.jsonl` e
+`/tmp/dartforge-symbol-context-final-initial.jsonl`. Para repetir a variante:
+
+```sh
+python3 crates/lsp/oracle/workspace_symbol_lifecycle.py /tmp/symbol-before-first.jsonl target/debug/dartforge-lsp --create-before-first-query
+```
+
+A captura inicial faz a descoberta das fronteiras dos contextos e enumera seus arquivos;
+os contextos existentes não são varridos novamente por edições de corpo. O custo adicional
+na abertura e na revalidação da listagem ainda precisa ser medido nos projetos grandes.
+Esses resultados são de corretude, sem conclusão nova de velocidade ou memória.
+
+O oráculo geral passou a esperar a conclusão real de `$/analyzerStatus`: uma análise
+sem erros pode não publicar diagnósticos vazios para todos os arquivos. O limite opcional
+`ORACLE_OPEN_FILES=1` abre só o primeiro documento, sem limitar a busca de símbolos a ele;
+sem essa variável, continuam sendo abertos todos os arquivos anteriores. Isso permite
+examinar os projetos grandes sem criar milhares de buffers no editor simulado.
+
+A primeira execução nos três projetos abriu `lib/core.dart` no `limitless_ui`,
+`lib/argon2.dart` no `new_sali/core` e `lib/new_sali_frontend.dart` no frontend. Cada um
+recebeu as mesmas oito consultas anteriores, com Dart 3.6.2 e as dependências já resolvidas
+no macOS. Resultado **ainda incompleto**, depois do ajuste dos contextos aninhados:
+
+| Projeto | Resposta completa igual | Conjunto de nomes/URIs igual |
+|---|---:|---:|
+| `limitless_ui` | 3/8 | 4/8 |
+| `new_sali/core` | 5/8 | 8/8 |
+| `new_sali/frontend` | 2/8 | 3/8 |
+| Total | **10/24** | **15/24** |
+
+Antes do ajuste eram 9/24 respostas e 13/24 conjuntos. O `ContextLocator` do SDK não
+separa uma pasta só por ter `pubspec.yaml`: `benchmarks`, sem configuração própria de
+packages, participa do contexto pai. Já `example/.dart_tool/package_config.json` cria
+um contexto filho, cujos arquivos vêm depois dos do pai. A descoberta agora segue essas
+fronteiras (também `BUILD.gn`), mantendo o limite total de arquivos e a ordem dos contextos.
+Uma regressão compara as duas situações. Em `limitless_ui`, a consulta `Arg` passou a
+coincidir integralmente, incluindo `AppComponent.rowTarget` do benchmark.
+
+Ainda há diferenças da ordem das bibliotecas conhecidas: em `new_sali/core`, os 8/8
+conjuntos coincidem, mas três consultas divergem em ordem; em `Arg`, o Dart chega a
+`developer/timeline.dart` antes de `_http/http.dart`, e o DartForge faz o contrário.
+No frontend, a primeira diferença de `Arg` está no item 169: o Dart retorna
+`EssentialCoreUtils._accentRegex`, enquanto o DartForge já está em `html_dart2js.dart`.
+Também sobram diferenças de conjunto nos outros dois projetos. A configuração e a
+descoberta de dependências por contexto precisam ser conferidas; os 112/112 sintéticos
+não demonstram paridade nesses casos reais.
+
+Os JSONL estão em `/tmp/dartforge-symbol-context-large.jsonl` (antes) e
+`/tmp/dartforge-symbol-context-large-grouped.jsonl` (depois). Para repetir, com as variáveis
+do SDK já configuradas:
+
+```sh
+ORACLE_METHODS=symbol ORACLE_OPEN_FILES=1 python3 crates/lsp/oracle/oracle.py /tmp/symbol-large.jsonl target/debug/dartforge-lsp /Volumes/ssd_dock/MyProjectsDart/limitless_ui /Volumes/ssd_dock/MyProjectsDart/new_sali/core /Volumes/ssd_dock/MyProjectsDart/new_sali/frontend
+python3 crates/lsp/oracle/summary.py /tmp/symbol-large.jsonl --method workspace/symbol
+```
+
+Na repetição dos testes, `semantic.rs` expôs uma suposição de sincronização: um `pump`
+sem nova análise ainda pode drenar publicações da versão válida anterior. O teste agora
+espera esse trabalho terminar antes de enviar a versão obsoleta, mantém a exigência de
+fila vazia e verifica que o número de análises não aumentou. A suíte atual, incluindo
+essa correção, está em `/tmp/dartforge-symbol-context-verified-tests.log`.
 
 ## Capacidades
 
@@ -3119,13 +3192,18 @@ republicar diagnósticos. Testes direcionados: `cargo test -p dartforge-lsp
 `workspace/symbol` busca nos documentos abertos **e** nos arquivos `.dart`
 dos projetos do workspace: as raízes do `initialize` (`workspaceFolders`,
 senão `rootUri`/`rootPath`) e o projeto (diretório com `pubspec.yaml`) de
-cada documento aberto, sem diretórios ocultos, `build` nem subpacotes. O
-texto aberto vale mais que o disco; cada árvore é descartada antes da
-próxima (nada fica indexado entre pedidos). O casamento é aproximado
-(`crates/lsp/src/aproximado.rs`, no espírito do `FuzzyMatcher` do Dart):
-prefixo, contém e iniciais de palavras (`cR` acha `CarregadorRemoto`); os
-que contêm a consulta vêm antes das subsequências, e entre iguais a ordem é
-(URI, posição). O resultado é `SymbolInformation[]`, no intervalo do nome.
+cada documento aberto, sem diretórios ocultos ou `build`. Os arquivos de pacotes
+aninhados participam conforme as fronteiras dos contextos descritas acima. Com
+`onlyAnalyzeProjectsWithOpenFiles`, as pastas anunciadas não fixam raízes permanentes;
+os contextos acompanham os projetos abertos. O texto do editor vale mais que o disco.
+As árvores do parser saem depois de extrair as declarações; o índice sintático conserva
+essas declarações com suas impressões digitais e invalida o que mudou.
+
+O casamento usa `crates/lsp/src/fuzzy_matcher.rs` (`FuzzyMatcher`, estilo `Text`), sem
+reordenar os resultados pela pontuação. O `SymbolInformation[]` mantém a ordem de
+descoberta e das declarações, para em 500 e usa o intervalo de código do elemento.
+Consulta vazia retorna lista vazia. A paridade desses campos e da ordem continua sujeita
+aos limites de evidência da seção de 04/11, especialmente os 10/24 nos projetos grandes.
 
 ### Definição, hover e referências pela identidade da declaração
 

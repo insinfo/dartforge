@@ -74,8 +74,8 @@ os campos, e consultas que chegam ao limite de 500; igualdade só do conjunto n�
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
-**Andamento (04/11), décima oitava rodada: paridade completa de `workspace/symbol` nos quatro
-projetos do oráculo:**
+**Andamento (04/11), décima oitava rodada: `workspace/symbol` igual nos cenários sintéticos,
+mas com paridade ainda incompleta nos projetos grandes:**
 - O oráculo antigo comparava conjuntos de `(nome, URI)` em 24 consultas. Seus 100% não
   verificavam a ordem nem os demais campos: a resposta completa coincidia em **4/24**.
 - Acrescentadas as consultas amplas `a` e `e`, agora são 32. Antes da correção, coincidiam
@@ -85,14 +85,24 @@ projetos do oráculo:**
   `dart:core` e suas referências, as dependências alcançadas antes da varredura geral e o
   nome de elemento `unary-` do operador unário. A ordem alfabética das cargas semânticas
   não foi alterada.
-- **Limite da evidência:** sessões iniciais de `args`, `path`, `string_scanner` e do projeto
-  pequeno de erros, com Dart 3.6.2 no macOS. O novo oráculo de ciclo de vida revelou
-  **38/56 respostas completas iguais** antes da correção e **56/56 depois**. A ordem
-  agora sobrevive aos eventos do disco, e `onlyAnalyzeProjectsWithOpenFiles` não conserva
-  símbolos depois de fechar o último documento. Repetidos também os quatro projetos
-  iniciais: **32/32**. Detalhes e regressões em `docs/LSP.md`.
-  Falta repetir nos projetos grandes, com mudanças anteriores à primeira consulta e
-  dependências condicionais, e medir CPU/latência/memória sem a suíte em paralelo.
+- **Sessões e primeira consulta:** as duas matrizes do ciclo de vida passaram com
+  **112/112 respostas completas iguais**, incluindo criação antes da primeira busca;
+  essa variante dava 38/56 antes do ajuste. A descoberta inicial agora acompanha a
+  abertura dos contextos, e os eventos preservam a ordem mesmo sem índice consultado.
+  Os quatro projetos pequenos foram repetidos na árvore atual: **32/32**. O índice não
+  conserva símbolos ao fechar o último documento com `onlyAnalyzeProjectsWithOpenFiles`.
+- **Projetos grandes, pendência atual:** com um documento aberto por projeto,
+  `limitless_ui` dá **3/8**, `new_sali/core` **5/8** e `new_sali/frontend` **2/8** respostas
+  completas iguais: **10/24**, com **15/24 conjuntos** iguais. Antes do ajuste dos
+  contextos aninhados eram 9/24 respostas e 13/24 conjuntos. O `pubspec.yaml` sozinho
+  não separa contextos; uma configuração própria de packages separa, depois dos arquivos
+  do pai. Ainda diferem a ordem de bibliotecas conhecidas do SDK/dependências e parte
+  dos conjuntos. Detalhes, arquivos abertos e reprodução em `docs/LSP.md`.
+- **Desempenho ainda sem repetição:** capturar a ordem inicial exige enumerar os arquivos
+  ao criar cada contexto. Contextos existentes não são reenumerados por edições de corpo;
+  o custo de abertura nos projetos grandes ainda precisa ser medido. Faltam a paridade
+  após edições nesses projetos e com dependências condicionais, e CPU/latência/memória
+  sem compilações ou testes concorrentes.
 - Detalhes e critérios em `docs/LSP.md`, seção de 04/11. Os problemas de desempenho e de
   memória da décima sétima rodada abaixo continuam abertos.
 
@@ -563,8 +573,9 @@ As correções desta seção são posteriores ao pacote publicado.
   pacote usaram `env -i` com `PATH=/usr/bin:/bin`; Node rodou o JS pelo caminho de
   validação. Isso **não** é uma nova medição de desempenho ou tamanho do release.
   `cargo clippy --locked --workspace --all-targets -- -D warnings` e `rustfmt` passaram.
-  A suíte do workspace terminou com cinco alvos reprovados, repetidos com sucesso após
-  corrigir o ambiente e a concorrência do oráculo DDC (detalhes abaixo). A suíte do CLI
+  A primeira suíte do workspace teve cinco alvos reprovados; depois de corrigir o ambiente
+  e a concorrência do oráculo DDC, a repetição integral terminou com saída 0 (detalhes
+  abaixo). A suíte do CLI
   com `native,jit` revelou dois testes reprovados em `test_runner_cli`, agora corrigidos;
   a nova execução integral passou com **117 testes, zero falhas e zero ignorados**.
   Ainda não há resultado do
@@ -606,26 +617,33 @@ As correções desta seção são posteriores ao pacote publicado.
   A ampliação para ciclo de vida encontrou **38/56 respostas completas** e **46/56
   conjuntos** iguais antes do ajuste, repetido duas vezes; depois, **56/56 nos dois
   critérios**. O projeto sintético passa do limite de 500 símbolos, com oito fases de
-  edição e eventos do disco. Os quatro projetos iniciais foram repetidos: **32/32**.
+  edição e eventos do disco. A variante com criação antes da primeira busca também
+  passou: **56/56**, contra 38/56 antes de capturar a ordem na abertura dos contextos;
+  as duas matrizes somam **112/112**. Os quatro projetos iniciais foram repetidos: **32/32**.
   A listagem conserva a ordem dos arquivos sobreviventes e a inserção dos novos; os
   eventos distinguem remoção/recriação mesmo sem consulta entre eles. A opção de só
   analisar projetos abertos impede raízes permanentes e libera o índice de símbolos
   ao fechar o último documento; pedidos com escopo de raiz continuam alcançando os
-  projetos abertos. **310 testes do LSP passaram**, incluindo doctests e três regressões
-  novas (ordem/limite, opção de inicialização e apresentações de cor).
+  projetos abertos. **312 testes do LSP passaram**, incluindo doctests, criação antes
+  da primeira busca e pacotes aninhados com/sem configuração própria de packages.
+  O teste de versão obsoleta agora espera a análise válida pendente antes de exigir
+  ausência de publicações e verifica também que não começou outra análise.
+  A primeira ampliação aos três projetos grandes ficou em **10/24 respostas completas
+  e 15/24 conjuntos** iguais; essa pendência está destacada no topo.
   `crates/lsp/oracle/workspace_symbol_lifecycle.py` reproduz os casos e retorna erro se
   houver diferenças. Não há medição de desempenho nessa ampliação.
 - **Gates atuais:** `rustfmt`, clippy do workspace com `-D warnings` e documentação de
   todo o workspace com `RUSTDOCFLAGS='-D warnings'` passaram depois das alterações.
-  A execução completa anterior não é registrada como verde: os cinco alvos foram
-  repetidos separadamente com sucesso; uma nova execução integral no ambiente corrigido
-  foi iniciada, com log em `/tmp/dartforge-workspace-recheck.log`. O CLI com `native,jit`
+  A execução completa que revelou os cinco alvos continua registrada como reprovada.
+  A nova execução de `cargo test --locked --workspace --no-fail-fast -- --include-ignored`
+  terminou com **saída 0, sem alvos reprovados**, no ambiente corrigido; log completo em
+  `/tmp/dartforge-workspace-recheck.log`. O CLI com `native,jit`
   já foi repetido integralmente: **117 testes passaram, zero falhas, zero ignorados**, em
   16 executáveis de teste; log em `/tmp/dartforge-cli-native-recheck.log` (saída 0).
   A execução do workspace começou antes do ajuste de ciclo de vida do LSP; a suíte
-  completa desse crate foi repetida separadamente na árvore atual, com log em
-  `/tmp/dartforge-lsp-lifecycle-final-tests.log`. Formatação, clippy e documentação sem
-  avisos passaram novamente depois desse ajuste.
+  completa desse crate foi repetida separadamente na árvore atual: **312 aprovados,
+  zero falhas, zero ignorados**, com log em `/tmp/dartforge-symbol-context-verified-tests.log`.
+  Formatação, clippy e documentação sem avisos passaram novamente depois desse ajuste.
 - **CLI `native,jit`, correção do runner:** na primeira execução, os 114 demais testes
   passaram, incluindo geração de fontes, I/O, recarga e orçamentos de tamanho. Os dois
   do runner foram corrigidos:
@@ -811,8 +829,10 @@ Dentro dos ignorados, um único binário de teste com 1 teste leva 621 s, e outr
 
 ### A partir daqui
 
-- Concluir a repetição integral dos gates no ambiente completo, após corrigir os dois
-  testes de `test_runner_cli`; detalhes e evidências na continuação de 04/11 acima.
+- Fechar a paridade de `workspace/symbol` nos três projetos grandes: ainda são 10/24
+  respostas completas e 15/24 conjuntos iguais, apesar dos 112/112 casos sintéticos.
+  Depois medir a abertura dos contextos e repetir CPU/latência/memória. Os gates locais
+  foram repetidos com sucesso; detalhes e limites na continuação de 04/11 acima.
 - Testes ignorados do Windows em debug (48,3 min), o maior gasto do job: medir em release, aproveitando a compilação que já existe. O `Heavy` roda no Windows diariamente, mas não cobre todos esses testes (conferência de 04/11 acima); antes de transferir o passo, acrescentar e validar a cobertura que falta.
 - O perfil sem LTO no Windows economiza só cerca de 1 min: avaliar se vale mantê-lo.
 - Validar o pacote com as correções dos três achados listados acima (seção de 04/11), antes de publicar outra versão.

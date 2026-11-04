@@ -146,12 +146,18 @@ fn imported_uses_types_and_current_text_without_retaining_versions() {
         request(&mut server, 4, "textDocument/hover", &uri, 10)["contents"],
         "Type: InvalidType"
     );
+    // Publications from accepted version 2 may arrive asynchronously. Drain
+    // them before attributing output or a new analysis to the stale edit.
+    assert!(server.wait_idle_analysis(std::time::Duration::from_secs(120)));
+    server.await_diagnostics(std::time::Duration::ZERO);
+    let analyses_before_stale_edit = server.typed_analyses();
     server.receive(
         json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
             "textDocument":{"uri":uri,"version":1},"contentChanges":[{"text":text}]
         }}),
     );
     assert!(server.pump().is_empty());
+    assert_eq!(server.typed_analyses(), analyses_before_stale_edit);
     // The older version is ignored: the text is still version 2's.
     assert_eq!(
         request(&mut server, 5, "textDocument/hover", &uri, 10)["contents"],

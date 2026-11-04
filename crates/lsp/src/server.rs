@@ -320,6 +320,11 @@ pub struct Server<A = SyntacticAnalyzer> {
     workspace_symbol_kinds: Option<Vec<u64>>,
     /// The syntactic index of the libraries for `workspace/symbol`.
     symbol_index: crate::workspace_symbols::Index,
+    /// Initial file membership of the live analysis contexts, captured when
+    /// they open, before the first workspace symbol request.
+    symbol_contexts: Vec<(std::path::PathBuf, Vec<std::path::PathBuf>)>,
+    /// Global OwnedFiles insertion order, including events before any query.
+    symbol_file_order: Vec<std::path::PathBuf>,
     /// What `workspace/symbol` listed (the roots, when, the added files, the
     /// packages' `lib/`s, their generated `lib/`s and the SDK), reused while the
     /// client's watcher reports no change ([`Server::workspace_symbols`]).
@@ -496,6 +501,8 @@ impl<A: Analyzer> Server<A> {
             symbol_kinds: None,
             workspace_symbol_kinds: None,
             symbol_index: Default::default(),
+            symbol_contexts: Vec::new(),
+            symbol_file_order: Vec::new(),
             symbol_listing: None,
             symbol_disk_dirty: false,
             requestable_configuration: false,
@@ -1247,6 +1254,7 @@ impl<A: Analyzer> Server<A> {
                 }
                 // The files of the roots are analyzed and published from the start (Dart's
                 // driver adds them when creating the contexts, §3.2).
+                self.refresh_symbol_contexts(&self.symbol_roots());
                 self.analyze_folders();
                 None
             }
@@ -1282,6 +1290,7 @@ impl<A: Analyzer> Server<A> {
                 self.documents
                     .open(uri.to_string(), version, text.to_string());
                 self.analyzer.open_document(&self.documents, uri);
+                self.refresh_symbol_contexts(&self.symbol_roots());
                 self.request_typed(uri);
                 if self.pulled_diagnostics {
                     return None;
@@ -1317,6 +1326,7 @@ impl<A: Analyzer> Server<A> {
                         t.closed(uri);
                     }
                 }
+                self.refresh_symbol_contexts(&self.symbol_roots());
                 if self.only_analyze_open_projects && self.documents.uris().next().is_none() {
                     self.symbol_listing = None;
                     self.symbol_index = Default::default();
@@ -1377,6 +1387,7 @@ impl<A: Analyzer> Server<A> {
                 }
                 // What the session retains may depend on the roots.
                 self.analyzer.changed_document("");
+                self.refresh_symbol_contexts(&self.symbol_roots());
                 // The new folders join the worker's analysis (I7).
                 if self.typed_tried {
                     self.analyze_folders();
@@ -1402,6 +1413,15 @@ impl<A: Analyzer> Server<A> {
                     .collect();
                 if let Some((roots, _, added, ..)) = &mut self.symbol_listing {
                     update_symbol_file_order(roots, added, &changes);
+                }
+                let roots: Vec<_> = self
+                    .symbol_contexts
+                    .iter()
+                    .map(|(r, _)| r.clone())
+                    .collect();
+                update_symbol_file_order(&roots, &mut self.symbol_file_order, &changes);
+                for (root, files) in &mut self.symbol_contexts {
+                    update_symbol_file_order(std::slice::from_ref(root), files, &changes);
                 }
                 let paths: Vec<_> = changes.into_iter().map(|(p, _)| p).collect();
                 let mut analysis = false;
@@ -4328,6 +4348,48 @@ impl<A: Analyzer> Server<A> {
         json!({"changes": changes})
     }
 
+    /// Analysis roots with the open documents' additional package contexts.
+    fn symbol_roots(&self) -> Vec<std::path::PathBuf> {
+        let mut roots = self.roots.clone();
+        for uri in self.documents.uris() {
+            if let Ok(uri) = url::Url::parse(uri) {
+                let path = uri
+                    .to_file_path()
+                    .unwrap_or_else(|_| std::path::PathBuf::from(uri.path()));
+                let root = crate::project::project_root(&path);
+                if root.join("pubspec.yaml").is_file() && !roots.contains(&root) {
+                    roots.push(root);
+                }
+            }
+        }
+        roots
+    }
+
+    /// A context's original discovery order must exist before watcher events,
+    /// even if no workspace/symbol request has needed its syntax index yet.
+    /// Existing contexts are never walked again by document edits or opens.
+    fn refresh_symbol_contexts(&mut self, roots: &[std::path::PathBuf]) {
+        let before = self.symbol_contexts.len();
+        self.symbol_contexts.retain(|(r, _)| roots.contains(r));
+        if self.symbol_contexts.len() != before {
+            let retained: HashSet<_> = self
+                .symbol_contexts
+                .iter()
+                .flat_map(|(_, files)| files)
+                .collect();
+            self.symbol_file_order.retain(|p| retained.contains(p));
+        }
+        for root in roots {
+            if !self.symbol_contexts.iter().any(|(r, _)| r == root) {
+                let files = crate::project::symbol_files(root);
+                let mut seen: HashSet<_> = self.symbol_file_order.iter().cloned().collect();
+                self.symbol_file_order
+                    .extend(files.iter().filter(|p| seen.insert((*p).clone())).cloned());
+                self.symbol_contexts.push((root.clone(), files));
+            }
+        }
+    }
+
     /// `workspace/symbol`: the symbols of the open documents and of the `.dart`
     /// files of the workspace projects (the `initialize` roots and the project,
     /// with `pubspec.yaml`, of each open document). The open text wins over the
@@ -4339,7 +4401,7 @@ impl<A: Analyzer> Server<A> {
         if query.is_empty() {
             return Vec::new();
         }
-        let mut roots = self.roots.clone();
+        let roots = self.symbol_roots();
         // The path of each open document (that of the `file:` URI; otherwise the
         // URI's path, only to index the open text).
         let open_path = |u: &str| -> Option<std::path::PathBuf> {
@@ -4355,10 +4417,6 @@ impl<A: Analyzer> Server<A> {
             let Some(file) = open_path(open) else {
                 continue;
             };
-            let root = crate::project::project_root(&file);
-            if root.join("pubspec.yaml").is_file() && !roots.contains(&root) {
-                roots.push(root);
-            }
             if let Some(text) = self.documents.get(open) {
                 open_texts.insert(
                     dartforge_elements::generated::key(&file),
@@ -4369,6 +4427,7 @@ impl<A: Analyzer> Server<A> {
                 loose.push(file);
             }
         }
+        self.refresh_symbol_contexts(&roots);
         if roots.is_empty() && loose.is_empty() {
             self.symbol_listing = None;
             self.symbol_index = Default::default();
@@ -4393,17 +4452,21 @@ impl<A: Analyzer> Server<A> {
             // OwnedFiles.addAdded retains surviving entries and appends new
             // ones. A fresh directory enumeration can put a new file first.
             let available: HashSet<_> = discovered.iter().collect();
-            let mut added = self
-                .symbol_listing
-                .as_ref()
-                .map(|l| l.2.clone())
-                .unwrap_or_default();
+            let mut added = self.symbol_file_order.clone();
             added.retain(|p| available.contains(p));
             let mut seen: HashSet<_> = added.iter().cloned().collect();
             for path in discovered {
                 if seen.insert(path.clone()) {
                     added.push(path);
                 }
+            }
+            self.symbol_file_order = added.clone();
+            for (root, files) in &mut self.symbol_contexts {
+                *files = added
+                    .iter()
+                    .filter(|p| p.starts_with(&*root))
+                    .cloned()
+                    .collect();
             }
             let packages: Vec<(String, std::path::PathBuf)> = roots
                 .iter()

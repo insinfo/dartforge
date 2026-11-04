@@ -7,6 +7,8 @@ The temporary project exceeds the 500-symbol limit. An anchor document keeps
 it analyzed while another document closes and files change; closing the anchor
 then checks onlyAnalyzeProjectsWithOpenFiles. Exit status is 1 on any mismatch.
 This checks correctness, not performance.
+--create-before-first-query inserts the first new file after initial analysis,
+before any workspace/symbol request has populated the index.
 """
 
 import argparse
@@ -49,25 +51,11 @@ def _wait_for_context(server, path, analyzed):
 def _wait_for_analysis(server, previous):
     # Watched-file handlers finish before the analyzer has applied their work.
     # Wait for a new completion and a quiet interval, including debounce waves.
-    deadline = time.monotonic() + 60
-    with server.cv:
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise RuntimeError("Dart did not finish the changed project's analysis")
-            if server.analysis_completions > previous and server.analyzing is False:
-                completed = server.analysis_completions
-                quiet_until = time.monotonic() + 0.2
-                while not server.analyzing and server.analysis_completions == completed:
-                    quiet_remaining = quiet_until - time.monotonic()
-                    if quiet_remaining <= 0:
-                        return
-                    server.cv.wait(timeout=min(quiet_remaining, remaining))
-            else:
-                server.cv.wait(timeout=remaining)
+    if not server.wait_analysis(previous, limit=60):
+        raise RuntimeError("Dart did not finish the changed project's analysis")
 
 
-def _run(output, binary, root):
+def _run(output, binary, root, create_before_first_query=False):
     lib = root / "lib"
     lib.mkdir()
     (root / ".dart_tool").mkdir()
@@ -126,7 +114,7 @@ def _run(output, binary, root):
                 row[server.name], _ = server.request("workspace/symbol", {"query": query})
                 if not isinstance(row[server.name], list):
                     raise RuntimeError(f"{phase} {query} {server.name}: {row[server.name]}")
-            if phase == "initial" and query == "Lifecycle":
+            if phase in ("initial", "created_before_first_query") and query == "Lifecycle":
                 assert len(row["dart"]) == 500, "the fixture must exercise the result limit"
             same = row["dart"] == row["dartforge"]
             total += 1
@@ -153,7 +141,15 @@ def _run(output, binary, root):
         opened(anchor, anchor.read_text(encoding="utf-8"))
         _wait_for_context(servers[0], anchor, True)
         opened(a, original)
-        record("initial")
+        if create_before_first_query:
+            _wait_for_context(servers[0], a, True)
+            _wait_for_analysis(servers[0], pending_completion)
+            pending_completion = None
+            c.write_text("class LifecycleCreated {}\n", encoding="utf-8")
+            watched(c, 1)
+            record("created_before_first_query")
+        else:
+            record("initial")
         notify("textDocument/didChange", {
             "textDocument": {"uri": a.as_uri(), "version": 2},
             "contentChanges": [{"text": "class LifecycleUnsaved {}\n" +
@@ -188,10 +184,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("binary", type=Path)
+    parser.add_argument("--create-before-first-query", action="store_true")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="dartforge-symbol-lifecycle-") as directory:
         with args.output.open("w", encoding="utf-8") as output:
-            return _run(output, args.binary.resolve(), Path(directory).resolve())
+            return _run(output, args.binary.resolve(), Path(directory).resolve(),
+                        args.create_before_first_query)
 
 
 if __name__ == "__main__":

@@ -574,6 +574,38 @@ fn workspace_symbols_include_closed_project_files() {
 }
 
 #[test]
+fn workspace_symbols_include_nested_package_files() {
+    let mut p = Project::new("nav-symbol-nested-package");
+    p.write("benchmarks/pubspec.yaml", "name: benchmark_app\n");
+    p.write(
+        "benchmarks/lib/app.dart",
+        "class SessionNestedBenchmark {}\n",
+    );
+    p.write("example/pubspec.yaml", "name: example_app\n");
+    p.write(
+        "example/.dart_tool/package_config.json",
+        r#"{"configVersion":2,"packages":[]}"#,
+    );
+    p.write("example/lib/app.dart", "class SessionNestedExample {}\n");
+    p.write("lib/parent.dart", "class SessionNestedParent {}\n");
+    p.open("lib/anchor.dart", "void anchor() {}\n");
+    let result = p.request("workspace/symbol", json!({"query": "SessionNested"}));
+    let items = result["result"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    // A pubspec alone stays in the containing context. A child package
+    // configuration creates a later context, regardless of directory order.
+    assert_eq!(items[2]["name"], "SessionNestedExample");
+    let benchmark = items
+        .iter()
+        .find(|v| v["name"] == "SessionNestedBenchmark")
+        .unwrap();
+    assert_eq!(
+        benchmark["location"]["uri"],
+        p.uri("benchmarks/lib/app.dart")
+    );
+}
+
+#[test]
 fn workspace_symbols_preserve_discovery_order_through_file_events() {
     fn symbols(p: &mut Project, query: &str) -> Vec<Value> {
         p.request("workspace/symbol", json!({"query": query}))["result"]
@@ -631,6 +663,40 @@ fn workspace_symbols_preserve_discovery_order_through_file_events() {
     let remaining = before.len() - expected.len();
     expected.extend(first.into_iter().take(remaining));
     assert_eq!(symbols(&mut p, "SessionMember"), expected);
+}
+
+#[test]
+fn workspace_symbols_keep_events_before_the_first_search() {
+    let capabilities =
+        json!({"workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}}});
+    let mut p = Project::with_capabilities("nav-symbol-before-first", capabilities.clone());
+    for prefix in ["A", "B"] {
+        let text = (0..300)
+            .map(|i| format!("class SessionBefore{prefix}{i:03} {{}}\n"))
+            .collect::<String>();
+        p.write(&format!("lib/{prefix}.dart"), &text);
+    }
+    p.open("lib/anchor.dart", "void anchor() {}\n");
+    let initial =
+        p.request("workspace/symbol", json!({"query": "SessionBefore"}))["result"].clone();
+    assert_eq!(initial.as_array().unwrap().len(), 500);
+
+    // A fresh server sees the same initial context, but its first search
+    // occurs after a watcher event, without a cached result to preserve.
+    p.restart(json!({"capabilities": capabilities}));
+    p.write("lib/created.dart", "class SessionBeforeCreated {}\n");
+    p.server.receive(
+        json!({"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+        "params": {"changes": [{"uri": p.uri("lib/created.dart"), "type": 1}]}}),
+    );
+    p.server.pump();
+    assert_eq!(
+        p.request("workspace/symbol", json!({"query": "SessionBefore"}))["result"],
+        initial
+    );
+    let created = p.request("workspace/symbol", json!({"query": "SessionBeforeCreated"}));
+    assert_eq!(created["result"].as_array().unwrap().len(), 1);
+    assert_eq!(created["result"][0]["name"], "SessionBeforeCreated");
 }
 
 #[test]

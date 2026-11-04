@@ -4,7 +4,7 @@
 #
 # Usage: python oracle.py <output.jsonl> <dartforge-binary> [project ...]
 # (environment variables: ORACLE_DART, ORACLE_SDK_LIB, ORACLE_PER_FILE,
-# ORACLE_SNIPPETS, ORACLE_METHODS)
+# ORACLE_SNIPPETS, ORACLE_METHODS, ORACLE_OPEN_FILES)
 # The summary (parity table) comes out of `summary.py`.
 import json, os, re, subprocess, sys, threading, time, queue, urllib.parse, pathlib
 
@@ -15,6 +15,8 @@ import json, os, re, subprocess, sys, threading, time, queue, urllib.parse, path
 DART = os.environ.get("ORACLE_DART", r"C:\tools\dartsdk-3.6.2\bin\dart.exe")
 SDK_LIB = os.environ.get("ORACLE_SDK_LIB", r"C:\tools\dartsdk-3.6.2\lib")
 PER_FILE = int(os.environ.get("ORACLE_PER_FILE", "12"))
+# Limit open documents for large projects; zero keeps the original full set.
+OPEN_FILES = int(os.environ.get("ORACLE_OPEN_FILES", "0"))
 # Only these methods (comma separated, without `textDocument/`); empty: all.
 METHODS = {m.strip() for m in os.environ.get("ORACLE_METHODS", "").split(",") if m.strip()}
 
@@ -95,6 +97,29 @@ class Lsp:
 
     def notify(self, method, params):
         self._send({"jsonrpc": "2.0", "method": method, "params": params})
+
+    def wait_analysis(self, previous=0, limit=90, quiet=0.2):
+        """Wait for a new completed analysis and a quiet interval, not diagnostics.
+
+        A clean file may never produce publishDiagnostics. Completion status
+        also avoids using stale results while watched files are still pending.
+        """
+        deadline = time.monotonic() + limit
+        with self.cv:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                if self.analysis_completions > previous and self.analyzing is False:
+                    completed = self.analysis_completions
+                    quiet_until = time.monotonic() + quiet
+                    while not self.analyzing and self.analysis_completions == completed:
+                        quiet_remaining = quiet_until - time.monotonic()
+                        if quiet_remaining <= 0:
+                            return True
+                        self.cv.wait(timeout=min(quiet_remaining, remaining))
+                else:
+                    self.cv.wait(timeout=remaining)
 
     def close(self):
         try:
@@ -223,6 +248,8 @@ def main():
             root = pathlib.Path(proj).resolve()
             root_uri = root.as_uri()
             files = sorted(p for d in ("lib", "bin") for p in (root / d).rglob("*.dart"))
+            if OPEN_FILES > 0:
+                files = files[:OPEN_FILES]
             servers = [
                 Lsp("dart", [DART, "language-server", "--protocol=lsp", "--client-id=oracle"]),
                 Lsp("dartforge", [binary, "--stdio"], env=env),
@@ -236,18 +263,20 @@ def main():
                                       "result": r}) + "\n")
                 s.notify("initialized", {})
             texts = {}
+            analysis_before = servers[0].analysis_completions
             for a in files:
                 t = a.read_text(encoding="utf-8")
                 texts[a] = t
                 for s in servers:
                     s.notify("textDocument/didOpen", {"textDocument": {"uri": a.as_uri(), "languageId": "dart",
                                                                        "version": 1, "text": t}})
-            # Waits for Dart's diagnostics (initial analysis).
-            deadline = time.time() + 90
+            # Empty diagnostics are not necessarily published for clean files.
+            # The status is the analyzer's actual completion barrier.
             dart = servers[0]
-            with dart.cv:
-                while len(dart.diagnostics) < len(files) and time.time() < deadline:
-                    dart.cv.wait(timeout=1)
+            if not dart.wait_analysis(analysis_before):
+                for s in servers:
+                    s.close()
+                raise RuntimeError(f"initial analysis did not finish: {root}")
             time.sleep(1.0)
             for a in files:
                 t = texts[a]
