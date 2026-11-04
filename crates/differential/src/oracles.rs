@@ -333,7 +333,35 @@ fn cache_write(env: &Environment, executor: &str, key: &str, s: &Output) {
     let dir = env.work_dir.join("cache");
     let _ = std::fs::create_dir_all(&dir);
     let text = format!("{}\n{}\n{}{}", s.code, s.stdout.len(), s.stdout, s.stderr);
-    let _ = std::fs::write(dir.join(format!("{executor}-{key}.txt")), text);
+    // Readers do not hold an output lock. Publish the complete answer at
+    // once, even when separate harness runs fill the same shared cache.
+    static NEXT_WRITE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let temporary = dir.join(format!(
+        ".{executor}-{key}-{}-{}.tmp",
+        std::process::id(),
+        NEXT_WRITE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    if std::fs::write(&temporary, text).is_ok() {
+        let _ = std::fs::rename(&temporary, dir.join(format!("{executor}-{key}.txt")));
+    }
+    let _ = std::fs::remove_file(temporary);
+}
+
+/// Holds the output directory until compilation and execution both finish.
+/// Two DDC runs must not expose each other's not-yet-rewritten SDK imports.
+fn lock_output(dir: &Path) -> Result<std::fs::File, Output> {
+    let acquire = || -> std::io::Result<std::fs::File> {
+        std::fs::create_dir_all(dir)?;
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(dir.join(".output.lock"))?;
+        lock.lock()?;
+        Ok(lock)
+    };
+    acquire().map_err(|e| Output::error(format!("locking {}: {e}", dir.display())))
 }
 
 // ---------------------------------------------------------------- dart run
@@ -616,7 +644,20 @@ pub fn ddc_oracle(env: &Environment, program: &Program, dir: &Path) -> Output {
         Err(e) => return Output::error(e),
     };
     let key = cache_key(program);
-    if let Some(s) = cache_read(env, &label, &key) {
+    let cacheable =
+        |s: &Output| s.code == 0 || program.compile_error || program.ddc_wrong.is_some();
+    let cached = || cache_read(env, &label, &key).filter(cacheable);
+    // Old overlapping executions may have cached a Node loader failure.
+    // Re-run invalid answers instead of preserving that transient failure.
+    if let Some(s) = cached() {
+        return s;
+    }
+    let _output_lock = match lock_output(dir) {
+        Ok(lock) => lock,
+        Err(error) => return error,
+    };
+    // A concurrent caller may have completed this oracle while we waited.
+    if let Some(s) = cached() {
         return s;
     }
     let s = match compile_ddc(env, program, dir) {
@@ -633,7 +674,9 @@ pub fn ddc_oracle(env: &Environment, program: &Program, dir: &Path) -> Output {
             }
         },
     };
-    cache_write(env, &label, &key, &s);
+    if cacheable(&s) {
+        cache_write(env, &label, &key, &s);
+    }
     s
 }
 
@@ -1324,6 +1367,70 @@ fn split_executor_timings(output: &mut Output) -> Option<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ddc_cache_recovers_failures_without_discarding_declared_errors() {
+        let root = std::env::temp_dir().join(format!(
+            "dartforge-ddc-cache-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let sdk = root.join("sdk");
+        std::fs::create_dir_all(sdk.join("bin")).unwrap();
+        std::fs::write(sdk.join("version"), "3.6.2\n").unwrap();
+        // An existing but non-executable SDK tool fails deterministically,
+        // without depending on a real Dart installation or on PATH.
+        std::fs::write(
+            sdk.join("bin")
+                .join(format!("dart{}", std::env::consts::EXE_SUFFIX)),
+            [],
+        )
+        .unwrap();
+        std::fs::write(root.join("sample.dart"), "void main() {}\n").unwrap();
+        let mut program = crate::corpus::list(&root, None).pop().unwrap();
+        let runtime = root.join("dart_sdk.js");
+        let env = Environment {
+            root: root.clone(),
+            sdk: sdk.clone(),
+            dart_sdk_js: runtime.clone(),
+            sdks: vec![OracleSdk::detect(sdk, runtime, true).unwrap()],
+            dartforge_bin: None,
+            work_dir: root.join("work"),
+            use_cache: true,
+            timeout: Duration::from_secs(1),
+            native_timeout: Duration::from_secs(1),
+            extra_path: Vec::new(),
+            gc_stress: false,
+            optimize: false,
+        };
+        let failure = Output {
+            code: 1,
+            stdout: String::new(),
+            stderr: "cached loader failure".to_string(),
+        };
+        cache_write(&env, "ddc", &cache_key(&program), &failure);
+        let output = env.output_dir("ddc", &program);
+        assert_eq!(ddc_oracle(&env, &program, &output).code, -1);
+
+        program.compile_error = true;
+        assert_eq!(ddc_oracle(&env, &program, &output).stderr, failure.stderr);
+        program.compile_error = false;
+        program.ddc_wrong = Some("known DDC defect".to_string());
+        assert_eq!(ddc_oracle(&env, &program, &output).stderr, failure.stderr);
+        program.ddc_wrong = None;
+
+        let success = Output {
+            code: 0,
+            stdout: "valid cached answer".to_string(),
+            stderr: String::new(),
+        };
+        cache_write(&env, "ddc", &cache_key(&program), &success);
+        assert_eq!(ddc_oracle(&env, &program, &output).stdout, success.stdout);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn exported() {
