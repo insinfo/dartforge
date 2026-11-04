@@ -272,17 +272,21 @@ impl Generator {
         Generator::Clang(clang.to_path_buf())
     }
 
-    /// Clang, for bitcode with the ThinLTO summary, when it exists;
-    /// otherwise the usual generator ([`Generator::choose`]). The distribution without
-    /// the system toolchain (`dartforge pack`, N15/N16) does not ship
-    /// Clang: production uses the embedded generator, and `lld` does the full LTO
-    /// (slower, the same program).
+    /// Clang, for bitcode with the ThinLTO summary, when it exists and belongs to
+    /// the release line of the embedded LLVM; otherwise the usual generator
+    /// ([`Generator::choose`]). The distribution without the system toolchain
+    /// (`dartforge pack`, N15/N16) does not ship Clang: production uses the
+    /// embedded generator, and `lld` does the full LTO (slower, the same program).
+    /// The lookup ends on `PATH`, so another Clang the machine happens to have
+    /// must not take over: it may not know the IR or the options of this LLVM.
     pub fn clang_if_any(clang: &Path) -> Generator {
-        if crate::object_cache::clang_identity(clang).is_ok() {
-            Generator::Clang(clang.to_path_buf())
-        } else {
-            Generator::choose(clang)
+        #[cfg(feature = "embedded-llvm")]
+        if !crate::object_cache::clang_identity(clang)
+            .is_ok_and(|id| same_release_line(&id, &dartforge_llvm::version()))
+        {
+            return Generator::choose(clang);
         }
+        Generator::Clang(clang.to_path_buf())
     }
 
     /// Whether the bitcode of this generator carries the ThinLTO summary. The embedded one emits
@@ -409,9 +413,47 @@ impl Generator {
     }
 }
 
+/// Whether a `clang --version` names the release line (`22.1`) of the LLVM
+/// `llvm` (`22.1.8`). Apple numbers its Clang on its own, unrelated to LLVM's.
+#[cfg(any(feature = "embedded-llvm", test))]
+fn same_release_line(identity: &str, llvm: &str) -> bool {
+    let first_line = identity.lines().next().unwrap_or_default();
+    let Some((vendor, version)) = first_line.split_once("clang version ") else {
+        return false;
+    };
+    let release_line = llvm.rsplit_once('.').map_or(llvm, |(line, _)| line);
+    !vendor.starts_with("Apple")
+        && version
+            .strip_prefix(release_line)
+            .is_some_and(|rest| rest.starts_with('.'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_clang_of_the_embedded_release_line_is_taken() {
+        for identity in [
+            "clang version 22.1.8\nTarget: arm64-apple-darwin\n",
+            "clang version 22.1.0",
+            "Ubuntu clang version 22.1.8 (++20260101+abc-1~exp1)\nTarget: x86_64-pc-linux-gnu\n",
+            "Homebrew clang version 22.1.3\n",
+        ] {
+            assert!(same_release_line(identity, "22.1.8"), "{identity}");
+        }
+        for identity in [
+            "",
+            "Apple clang version 21.0.0 (clang-2100.3.34.2)\n",
+            "Apple clang version 22.1.0 (clang-2200.0.0)\n",
+            "Ubuntu clang version 18.1.3 (1ubuntu1)\n",
+            "clang version 22.2.0\n",
+            "clang version 221.1.0\n",
+            "Target: x86_64-pc-linux-gnu\nclang version 22.1.8\n",
+        ] {
+            assert!(!same_release_line(identity, "22.1.8"), "{identity}");
+        }
+    }
 
     #[test]
     fn description_distinguishes_profiles() {
