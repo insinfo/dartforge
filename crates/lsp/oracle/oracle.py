@@ -328,7 +328,9 @@ def main():
                                {"textDocument": doc, "position": pos,
                                 "context": {"triggerKind": 1, "isRetrigger": False}})
             # workspace/symbol
-            for q in ["Arg", "parse", "Scanner", "ctx", "Ponto", "join"] if requested("workspace/symbol") else []:
+            # Single-letter queries exercise the 500-result cutoff, where
+            # discovery order also changes which declarations are returned.
+            for q in ["Arg", "parse", "Scanner", "ctx", "Ponto", "join", "a", "e"] if requested("workspace/symbol") else []:
                 line = {"project": root.name, "method": "workspace/symbol", "pos": q}
                 for s in servers:
                     r, ms = s.request("workspace/symbol", {"query": q})

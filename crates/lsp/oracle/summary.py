@@ -186,6 +186,12 @@ def ws(x):
     return frozenset((i["name"], nu((i.get("location") or {}).get("uri"))) for i in x)
 
 
+def ws_ordered(x):
+    if x is None or error(x):
+        return x
+    return [(i["name"], nu((i.get("location") or {}).get("uri"))) for i in x]
+
+
 def signature(x):
     if not x or error(x) or not x.get("signatures"):
         return None
@@ -334,6 +340,24 @@ for l in lines:
             return [(rg(e.get("range")), e.get("newText")) for e in x]
         fa, fb = fmt_list(a), fmt_list(b)
         count("formatting (identical edits)", fa == fb, bool(fa), bool(fb), (where, str(fa)[:200], str(fb)[:200]))
+        continue
+    if m == "workspace/symbol":
+        na, nb = ws(a), ws(b)
+        count("symbol: names and URIs (set)", na == nb, bool(na), bool(nb),
+              (where, sorted(na - nb)[:5], sorted(nb - na)[:5]))
+        # Full items keep every field and the result order, without URI
+        # normalization or collapsing duplicate declarations into a set.
+        for label, na, nb in [("symbol: names and URIs (ordered)", ws_ordered(a), ws_ordered(b)),
+                              ("symbol: complete items (ordered)", a, b)]:
+            if isinstance(na, list) and isinstance(nb, list):
+                mismatch = next((i for i, (x, y) in enumerate(zip(na, nb)) if x != y),
+                                min(len(na), len(nb)))
+                ex = (where, f"first difference at {mismatch}",
+                      na[mismatch:mismatch + 1], nb[mismatch:mismatch + 1],
+                      f"counts {len(na)} / {len(nb)}")
+            else:
+                ex = (where, na, nb)
+            count(label, na == nb, isinstance(a, list) and bool(a), isinstance(b, list) and bool(b), ex)
         continue
     f = NORMALIZERS.get(m)
     if not f:

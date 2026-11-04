@@ -325,7 +325,7 @@ pub struct Server<A = SyntacticAnalyzer> {
         Vec<std::path::PathBuf>,
         std::time::Instant,
         Vec<std::path::PathBuf>,
-        Vec<std::path::PathBuf>,
+        Vec<(String, std::path::PathBuf)>,
         Vec<(String, std::path::PathBuf, std::path::PathBuf)>,
         Option<std::path::PathBuf>,
     )>,
@@ -4287,9 +4287,8 @@ impl<A: Analyzer> Server<A> {
     /// `workspace/symbol`: the symbols of the open documents and of the `.dart`
     /// files of the workspace projects (the `initialize` roots and the project,
     /// with `pubspec.yaml`, of each open document). The open text wins over the
-    /// disk; each tree is discarded before the next one. Matches fuzzily
-    /// (`crate::fuzzy_matcher`): those that contain the query first, then the
-    /// subsequences; among equals, (URI, position) order.
+    /// disk. Matches fuzzily (`crate::fuzzy_matcher`) and keeps declaration
+    /// discovery order, without ranking or sorting the matching symbols.
     fn workspace_symbols(&mut self, query: &str) -> Vec<Value> {
         // `handler_workspace_symbols.dart:28-123` (docs/LSP-ESPECIFICACAO.md §5):
         // an empty query returns nothing.
@@ -4340,9 +4339,9 @@ impl<A: Analyzer> Server<A> {
         if !trust_disk {
             let added: Vec<std::path::PathBuf> = roots
                 .iter()
-                .flat_map(|r| crate::project::project_files(r))
+                .flat_map(|r| crate::project::symbol_files(r))
                 .collect();
-            let packages: Vec<std::path::PathBuf> = roots
+            let packages: Vec<(String, std::path::PathBuf)> = roots
                 .iter()
                 .flat_map(|r| crate::workspace_symbols::package_folders(r))
                 .collect();

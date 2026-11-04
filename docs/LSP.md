@@ -2998,6 +2998,53 @@ tipada anterior até a nova tipada chegar (os códigos que dependem de tipos
 somem por algumas dezenas de ms a cada edição); as ações de código usam só
 os diagnósticos imediatos.
 
+## 04/11/2026: décima oitava rodada — `workspace/symbol` comparado como resposta completa
+
+O oráculo de `crates/lsp/oracle` chamava seis consultas por projeto e comparava só o
+conjunto de `(nome, URI)`. A tabela anterior dizia 24/24 iguais; reler os mesmos JSONL
+com a ordem e todos os campos mostra apenas 4/24. Isso não era evidência de igualdade
+da resposta inteira.
+
+O driver agora acrescenta `a` e `e`, que alcançam os 500 resultados, e o resumo separa
+conjunto, lista ordenada de nomes/URIs e lista completa de itens. O último critério não
+normaliza URIs, não elimina duplicatas e não descarta campos. Resultados nos quatro
+projetos anteriores (`args-2.7.0`, `path-1.9.1`, `string_scanner-1.4.1` e `app`), com o
+mesmo Dart 3.6.2 no macOS:
+
+| Critério | Antes | Depois |
+|---|---:|---:|
+| conjunto de nomes e URIs | 24/32 | 32/32 |
+| nomes e URIs em ordem | 4/32 | 32/32 |
+| resposta completa em ordem | 4/32 | 32/32 |
+
+O conserto segue os pontos de descoberta do analisador 3.6.2, conferidos no commit
+`b0cc5495e0f5e8ae150825a5352e708cb49e65ff` do SDK:
+
+- os arquivos adicionados seguem a enumeração do sistema de arquivos em profundidade,
+  como `ContextRoot.analyzedFiles`, sem a ordenação alfabética de `project_files`;
+- `AnalysisDriver._discoverDartCore` cria `dart:core` e suas referências diretas antes
+  da descoberta geral; as listas de exports são materializadas antes das de imports;
+- bibliotecas alcançadas pelas dependências entram antes dos arquivos restantes do SDK
+  e dos pacotes. A resolução usa o mapa de nomes do `package_config.json`, incluindo
+  a alternativa gerada em `.dart_tool/build/generated`;
+- o elemento do operador `-()` chama-se `unary-`. O índice sintático usava `-`, e a
+  consulta `a` perdia esses métodos, deslocando também o corte dos 500 resultados.
+
+A ordenação das demais cargas semânticas permanece determinística: só a lista de
+arquivos para símbolos ganhou a enumeração compatível. O cache conserva a ordem
+descoberta, e há regressões para a descoberta inicial do SDK, dependências de pacotes
+antes do SDK ainda não descoberto e os dois operadores de subtração.
+
+Os JSONL desta medição estão em `/tmp/dartforge-workspace-symbols-before.jsonl` e
+`/tmp/dartforge-workspace-symbols-final.jsonl`. A comparação serve para corretude;
+as latências do driver rodaram junto dos testes do workspace e não são uma nova
+medição de desempenho. A suíte completa do LSP, com doctests, passou.
+
+Ainda falta repetir a comparação em projetos grandes, em sessões com mudanças de
+arquivos e com dependências condicionais; depois medir CPU, latência e memória nos
+três projetos do painel sem compilação ou testes concorrentes. Os 32/32 não fecham
+essas verificações nem as demais metas de desempenho da rodada 17.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da

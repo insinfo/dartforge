@@ -554,11 +554,19 @@ fn workspace_symbols_include_closed_project_files() {
             .collect()
     };
     let r = p.request("workspace/symbol", json!({"query": "carregar"}));
-    // In the order of the project files and, per file, classes before
-    // functions; executables with the `()` suffix.
+    // Inter-file order follows directory discovery, which is platform
+    // dependent. Check inclusion here; the parity oracle compares full order.
+    let found = in_project(&r);
+    let mut names = found.clone();
+    names.sort();
     assert_eq!(
-        in_project(&r),
-        vec!["carregarDados()", "CarregadorRemoto", "carregarTudo()"]
+        names,
+        vec!["CarregadorRemoto", "carregarDados()", "carregarTudo()"]
+    );
+    // Within the closed file, classes precede functions.
+    assert!(
+        found.iter().position(|n| n == "CarregadorRemoto")
+            < found.iter().position(|n| n == "carregarTudo()")
     );
     // Fuzzy: word initials.
     let r = p.request("workspace/symbol", json!({"query": "cR"}));

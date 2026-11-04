@@ -2,9 +2,9 @@
 //! §5): the `WorkspaceSymbolHandler` over the analyzer's `FindDeclarations`.
 //!
 //! * the libraries come in `OwnedFiles` order: first the added files (the
-//!   project's), then those known through `discoverAvailableFiles` (the SDK
-//!   libraries in `libraries.dart` order and the `lib/` of the packages in
-//!   `package_config.json`); a part is not a library and is left out (its
+//!   project's), then those reached during analysis, then those known through
+//!   `discoverAvailableFiles` (the SDK libraries and the `lib/` of the packages
+//!   in `package_config.json`); a part is not a library and is left out (its
 //!   content comes in through the owning library);
 //! * each library goes through the `ElementNameUnion.contains` pre-filter;
 //! * per unit, in the order of `_FindCompilationUnitDeclarations`: top-level
@@ -25,8 +25,8 @@
 //! import (`package:x/a.template.dart`, which only exists under
 //! `.dart_tool/build/generated`): the analyzer's `PackageBuildWorkspace`
 //! resolves those URIs to the generated files, and each `FileState` it
-//! creates is a known file. They come last, in the order the imports reach
-//! them from the added files.
+//! creates is a known file. They come in the order dependencies reach them
+//! from the added files, before the remaining available libraries.
 
 use crate::fuzzy_matcher::{Matcher, Style};
 use dartforge_frontend::ast::{
@@ -312,8 +312,18 @@ struct Library {
     union: NameUnion,
     units: Vec<Unit>,
     types: LocalTypes,
-    /// The URIs its units import and export, with the unit's file.
+    /// The URIs its units import, with the unit's file.
     imports: Vec<(PathBuf, String)>,
+    /// Exports are discovered before imports by FileState.
+    exports: Vec<(PathBuf, String)>,
+}
+
+#[derive(Debug)]
+struct SdkFiles {
+    root: PathBuf,
+    layout: dartforge_elements::sdk::SdkLayout,
+    bootstrap: Vec<PathBuf>,
+    available: Vec<PathBuf>,
 }
 
 /// The fingerprint of a read file: its size and date on disk, or the open
@@ -335,8 +345,8 @@ struct Entry {
 #[derive(Debug, Default)]
 pub(crate) struct Index {
     entries: HashMap<PathBuf, Entry>,
-    /// The SDK libraries in `libraries.dart` order, by `lib/`.
-    sdk: Option<(PathBuf, Vec<PathBuf>)>,
+    /// The SDK's bootstrap and discovery order, by `lib/`.
+    sdk: Option<Arc<SdkFiles>>,
     /// The `.dart` files of each package's `lib/`, as last listed.
     listed: HashMap<PathBuf, Vec<PathBuf>>,
     /// The last search's files, with what they were listed from.
@@ -345,7 +355,7 @@ pub(crate) struct Index {
         (
             Vec<PathBuf>,
             Option<PathBuf>,
-            Vec<PathBuf>,
+            Vec<(String, PathBuf)>,
             Vec<(String, PathBuf, PathBuf)>,
         ),
         Vec<PathBuf>,
@@ -550,7 +560,14 @@ impl Collector<'_, '_> {
                 MemberKind::Method(fid) => {
                     let f = ast.function(*fid);
                     let Some(n) = f.name else { continue };
-                    let name = l.name(n);
+                    let name = if f.kind == FunctionKind::Operator
+                        && l.names.resolve(n.sym) == "-"
+                        && f.parameters.as_ref().is_some_and(|p| p.is_empty())
+                    {
+                        "unary-".to_string()
+                    } else {
+                        l.name(n)
+                    };
                     self.union.add(&name);
                     let signature = self.function_signature(f, m.augment, &[]);
                     match f.kind {
@@ -897,6 +914,7 @@ fn index(
     let mut types = LocalTypes::new();
     let mut units = Vec::new();
     let mut imports = Vec::new();
+    let mut exports = Vec::new();
     // The units in pre-order: the defining one, each part and its parts.
     let mut pending = vec![path.to_path_buf()];
     let mut seen: HashSet<PathBuf> = HashSet::new();
@@ -936,10 +954,13 @@ fn index(
         let uri = uri_of(&file);
         units.push(Unit { uri, declarations });
         for d in &analyzed.unit.directives {
-            if let DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } = &d.kind
-                && let Some(u) = dartforge_elements::load::string_lit_value(uri)
-            {
-                imports.push((file.clone(), u.to_string()));
+            let (uri, output) = match &d.kind {
+                DirectiveKind::Import { uri, .. } => (uri, &mut imports),
+                DirectiveKind::Export { uri, .. } => (uri, &mut exports),
+                _ => continue,
+            };
+            if let Some(u) = dartforge_elements::load::string_lit_value(uri) {
+                output.push((file.clone(), u.to_string()));
             }
         }
         for p in parts(&analyzed.unit, &file).into_iter().rev() {
@@ -953,6 +974,7 @@ fn index(
             units,
             types,
             imports,
+            exports,
         }),
     )
 }
@@ -994,18 +1016,49 @@ impl Index {
         library
     }
 
-    /// The SDK libraries (`dartSdk.sdkLibraries`): the entries of the
-    /// `libraries` map in `_internal/sdk_library_metadata/lib/libraries.dart`,
-    /// in written order, with the path relative to `lib/`.
-    fn sdk_libraries(&mut self, lib: &Path) -> Vec<PathBuf> {
-        if let Some((root, list)) = &self.sdk
-            && root == lib
+    /// The SDK files discovered before and during `discoverAvailableFiles`:
+    /// dart:core and its direct references first, then the `libraries` map
+    /// of `_internal/sdk_library_metadata/lib/libraries.dart` in written order.
+    fn sdk_files(&mut self, lib: &Path) -> Arc<SdkFiles> {
+        if let Some(files) = &self.sdk
+            && files.root == lib
         {
-            return list.clone();
+            return files.clone();
         }
-        let list = read_libraries_dart(lib);
-        self.sdk = Some((lib.to_path_buf(), list.clone()));
-        list
+        let layout = dartforge_elements::sdk::SdkLayout::load_as_analyzer(lib).unwrap_or_default();
+        let mut list = Vec::new();
+        if let Some(core) = layout.library("core") {
+            list.push(dartforge_elements::generated::key(&core.path));
+            if let Ok(source) = std::fs::read_to_string(&core.path) {
+                let mut names = Interner::new();
+                let parsed = dartforge_frontend::parser::parse(&source, &mut names);
+                // AnalysisDriver._discoverDartCore calls discoverReferencedFiles:
+                // exports are created before imports, regardless of source order.
+                for exports in [true, false] {
+                    for directive in &parsed.unit.directives {
+                        let uri = match &directive.kind {
+                            DirectiveKind::Export { uri, .. } if exports => uri,
+                            DirectiveKind::Import { uri, .. } if !exports => uri,
+                            _ => continue,
+                        };
+                        if let Some(uri) = dartforge_elements::load::string_lit_value(uri)
+                            && let Some(name) = uri.strip_prefix("dart:")
+                            && let Some(library) = layout.library(name)
+                        {
+                            list.push(dartforge_elements::generated::key(&library.path));
+                        }
+                    }
+                }
+            }
+        }
+        let files = Arc::new(SdkFiles {
+            root: lib.to_path_buf(),
+            layout,
+            bootstrap: list,
+            available: read_libraries_dart(lib),
+        });
+        self.sdk = Some(files.clone());
+        files
     }
 
     /// `FindDeclarations.compute` + the handler's `_asSymbolInformation`.
@@ -1019,7 +1072,7 @@ impl Index {
         query: &str,
         added: &[PathBuf],
         sdk: Option<&Path>,
-        packages: &[PathBuf],
+        packages: &[(String, PathBuf)],
         generated: &[(String, PathBuf, PathBuf)],
         open_texts: &HashMap<PathBuf, (String, String)>,
         kinds: Option<&[u64]>,
@@ -1068,22 +1121,47 @@ impl Index {
         }
         let mut paths: Vec<PathBuf> = Vec::new();
         let mut seen: HashSet<PathBuf> = HashSet::new();
-        let mut include = |p: PathBuf, paths: &mut Vec<PathBuf>| -> bool {
-            let new = seen.insert(dartforge_elements::generated::key(&p));
-            if new {
-                paths.push(p);
-            }
-            new
-        };
         for p in added {
-            include(p.clone(), &mut paths);
+            include_path(p.clone(), &mut paths, &mut seen);
         }
-        if let Some(lib) = sdk {
-            for p in self.sdk_libraries(lib) {
-                include(p, &mut paths);
+        let sdk_files = sdk.map(|lib| self.sdk_files(lib));
+        if let Some(sdk) = &sdk_files {
+            for p in &sdk.bootstrap {
+                include_path(p.clone(), &mut paths, &mut seen);
             }
         }
-        for folder in packages {
+        // Analysis discovers imported libraries before discoverAvailableFiles
+        // scans the remaining SDK and package files. Create each library's
+        // direct references before visiting them, as FileState's lazy lists do.
+        let mut pending: Vec<PathBuf> = added.iter().rev().cloned().collect();
+        let mut visited = HashSet::new();
+        while let Some(path) = pending.pop() {
+            if !visited.insert(dartforge_elements::generated::key(&path)) {
+                continue;
+            }
+            let Some(library) = self.library(&path, read, open, &uri_of, trust_disk) else {
+                continue;
+            };
+            let mut next = Vec::new();
+            for (unit, uri) in library.exports.iter().chain(&library.imports) {
+                if let Some(target) =
+                    dependency_target(unit, uri, sdk_files.as_deref(), packages, generated)
+                {
+                    include_path(target.clone(), &mut paths, &mut seen);
+                    next.push(target);
+                }
+            }
+            if let Some(core) = sdk_files.as_ref().and_then(|s| s.layout.library("core")) {
+                next.push(core.path.clone());
+            }
+            pending.extend(next.into_iter().rev());
+        }
+        if let Some(sdk) = &sdk_files {
+            for p in &sdk.available {
+                include_path(p.clone(), &mut paths, &mut seen);
+            }
+        }
+        for (_, folder) in packages {
             let files = match self.listed.get(folder) {
                 Some(files) if trust_disk => files.clone(),
                 _ => {
@@ -1094,25 +1172,7 @@ impl Index {
                 }
             };
             for p in files {
-                include(p, &mut paths);
-            }
-        }
-        // The generated files the added libraries import, transitively, after
-        // the rest: the analyzer reaches them through imports while it analyzes,
-        // and a query that stops at the limit sees the SDK and the packages first.
-        if !generated.is_empty() {
-            let mut queue: std::collections::VecDeque<PathBuf> = added.iter().cloned().collect();
-            while let Some(p) = queue.pop_front() {
-                let Some(library) = self.library(&p, read, open, &uri_of, trust_disk) else {
-                    continue;
-                };
-                for (unit, uri) in &library.imports {
-                    if let Some(g) = generated_target(unit, uri, generated)
-                        && include(g.clone(), &mut paths)
-                    {
-                        queue.push_back(g);
-                    }
-                }
+                include_path(p, &mut paths, &mut seen);
             }
         }
         self.paths = Some((inputs, paths.clone()));
@@ -1237,6 +1297,42 @@ fn symbol(
     v
 }
 
+/// Adds a known file once, preserving the discovery order.
+fn include_path(path: PathBuf, paths: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) -> bool {
+    let new = seen.insert(dartforge_elements::generated::key(&path));
+    if new {
+        paths.push(path);
+    }
+    new
+}
+
+/// Resolves a written dependency through the analyzer SDK and package map,
+/// including the generated package workspace used by build_runner.
+fn dependency_target(
+    unit: &Path,
+    uri: &str,
+    sdk: Option<&SdkFiles>,
+    packages: &[(String, PathBuf)],
+    generated: &[(String, PathBuf, PathBuf)],
+) -> Option<PathBuf> {
+    if let Some(name) = uri.strip_prefix("dart:") {
+        return sdk?.layout.library(name).map(|l| l.path.clone());
+    }
+    if let Some(rest) = uri.strip_prefix("package:") {
+        let (name, relative) = rest.split_once('/')?;
+        let (_, lib) = packages.iter().find(|(n, _)| n == name)?;
+        return generated_target(unit, uri, generated).or_else(|| Some(lib.join(relative)));
+    }
+    generated_target(unit, uri, generated).or_else(|| {
+        url::Url::from_file_path(unit)
+            .ok()?
+            .join(uri)
+            .ok()?
+            .to_file_path()
+            .ok()
+    })
+}
+
 /// `discoverRecursively`: the `.dart` files of the folder and its subfolders,
 /// in file system order (the same as Dart's `Directory.listSync`).
 fn discover(folder: &Path, output: &mut Vec<PathBuf>) {
@@ -1295,47 +1391,10 @@ fn read_libraries_dart(lib: &Path) -> Vec<PathBuf> {
     output
 }
 
-/// The `lib/` directories (the `packageUri`) of the packages of `root`'s
-/// `.dart_tool/package_config.json`, in file order.
-pub(crate) fn package_folders(root: &Path) -> Vec<PathBuf> {
-    let file = root.join(".dart_tool").join("package_config.json");
-    let Ok(text) = std::fs::read_to_string(&file) else {
-        return Vec::new();
-    };
-    let Ok(json) = serde_json::from_str::<Value>(&text) else {
-        return Vec::new();
-    };
-    let Some(packages) = json.get("packages").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    let Some(base) = file.parent() else {
-        return Vec::new();
-    };
-    let resolve = |uri: &str, relative_to: &Path| -> Option<PathBuf> {
-        if let Ok(u) = url::Url::parse(uri) {
-            return u.to_file_path().ok();
-        }
-        Some(dartforge_elements::generated::key(
-            &relative_to.join(uri.trim_end_matches('/')),
-        ))
-    };
-    let mut output = Vec::new();
-    for p in packages {
-        let Some(root_uri) = p.get("rootUri").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some(package_root) = resolve(root_uri, base) else {
-            continue;
-        };
-        let package_uri = p
-            .get("packageUri")
-            .and_then(Value::as_str)
-            .unwrap_or("lib/");
-        if let Some(lib) = resolve(package_uri, &package_root) {
-            output.push(lib);
-        }
-    }
-    output
+/// The names and `lib/` directories (the `packageUri`) of the packages of
+/// `root`'s `.dart_tool/package_config.json`, in file order.
+pub(crate) fn package_folders(root: &Path) -> Vec<(String, PathBuf)> {
+    crate::project::packages_with_name(root)
 }
 
 /// The generated file `uri` (imported or exported by `unit`) points to, when
@@ -1382,6 +1441,111 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sdk_bootstrap_precedes_library_discovery_and_survives_the_cache() {
+        let root = std::env::temp_dir().join(format!(
+            "dartforge-symbol-sdk-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let metadata = root.join("_internal/sdk_library_metadata/lib");
+        std::fs::create_dir_all(&metadata).unwrap();
+        std::fs::write(
+            metadata.join("libraries.dart"),
+            "final libraries = const {
+  'async': const LibraryInfo('async.dart'),
+  'other': const LibraryInfo('other.dart'),
+  'collection': const LibraryInfo('collection.dart'),
+  '_internal': const LibraryInfo('internal.dart'),
+  'core': const LibraryInfo('core.dart'),
+};\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("core.dart"),
+            "import 'dart:collection'; import 'dart:_internal';
+export 'dart:async'; class NeedleCore {}\n",
+        )
+        .unwrap();
+        for name in ["Async", "Other", "Collection", "Internal"] {
+            std::fs::write(
+                root.join(format!("{}.dart", name.to_ascii_lowercase())),
+                format!("class Needle{name} {{}}\n"),
+            )
+            .unwrap();
+        }
+        let mut index = Index::default();
+        for trust_disk in [false, true] {
+            let symbols = index.search(
+                "Needle",
+                &[],
+                Some(&root),
+                &[],
+                &[],
+                &HashMap::new(),
+                None,
+                trust_disk,
+            );
+            let names: Vec<_> = symbols.iter().filter_map(|s| s["name"].as_str()).collect();
+            assert_eq!(
+                names,
+                [
+                    "NeedleCore",
+                    "NeedleAsync",
+                    "NeedleCollection",
+                    "NeedleInternal",
+                    "NeedleOther",
+                ],
+                "trust_disk={trust_disk}"
+            );
+        }
+        // A dependency reached during analysis precedes unrelated available
+        // SDK libraries, even when its file is exported by another dependency.
+        let package = root.join("dependency/lib");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(
+            package.join("api.dart"),
+            "export 'detail.dart'; class NeedleApi {}\n",
+        )
+        .unwrap();
+        std::fs::write(package.join("detail.dart"), "class NeedleDetail {}\n").unwrap();
+        let entry = root.join("entry.dart");
+        std::fs::write(
+            &entry,
+            "import 'package:dependency/api.dart'; class NeedleEntry {}\n",
+        )
+        .unwrap();
+        let mut index = Index::default();
+        let symbols = index.search(
+            "Needle",
+            &[entry],
+            Some(&root),
+            &[("dependency".to_string(), package)],
+            &[],
+            &HashMap::new(),
+            None,
+            false,
+        );
+        let names: Vec<_> = symbols.iter().filter_map(|s| s["name"].as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "NeedleEntry",
+                "NeedleCore",
+                "NeedleAsync",
+                "NeedleCollection",
+                "NeedleInternal",
+                "NeedleApi",
+                "NeedleDetail",
+                "NeedleOther",
+            ]
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn union_like_analyzer() {
         let mut u = NameUnion::empty();
         u.add("parseArgs");
@@ -1390,6 +1554,34 @@ mod tests {
         assert!(u.contains("p_a"));
         assert!(!u.contains("xyz"));
         assert!(!u.contains("parseArgsX"));
+    }
+
+    #[test]
+    fn unary_minus_uses_the_element_name_in_symbol_search() {
+        let source = "class Negation { Negation operator -() => this; Negation operator -(Negation other) => this; }";
+        let path = PathBuf::from("/operators.dart");
+        let read = |_: &Path| Some((source.to_string(), text_fingerprint(source)));
+        let (_, library) = index(&path, &read, &|_| "file:///operators.dart".to_string());
+        let library = library.unwrap();
+        assert!(library.union.contains("unary"));
+        let operators: Vec<_> = library.units[0]
+            .declarations
+            .iter()
+            .filter(|d| matches!(d.kind, Kind::Method))
+            .map(|d| {
+                symbol(
+                    d,
+                    "file:///operators.dart",
+                    &library.types,
+                    &HashMap::new(),
+                    None,
+                )["name"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(operators, ["unary-()", "-(…)"]);
     }
 
     #[test]

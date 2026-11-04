@@ -226,6 +226,48 @@ pub(crate) fn project_files(root: &Path) -> Vec<PathBuf> {
     output
 }
 
+/// Project files in the analyzer's depth-first directory discovery order.
+///
+/// `workspace/symbol` preserves this order, including at its result limit.
+/// Other project loads keep using the sorted [`project_files`] so that their
+/// element layout does not depend on directory enumeration order.
+pub(crate) fn symbol_files(root: &Path) -> Vec<PathBuf> {
+    fn visit(dir: &Path, ancestors: &mut HashSet<PathBuf>, output: &mut Vec<PathBuf>) {
+        if output.len() >= MAX_FILES {
+            return;
+        }
+        let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        if !ancestors.insert(canonical.clone()) {
+            return;
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if output.len() >= MAX_FILES {
+                    break;
+                }
+                let path = entry.path();
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if path.is_dir() {
+                    if !name.starts_with('.')
+                        && name != "build"
+                        && !path.join("pubspec.yaml").is_file()
+                    {
+                        visit(&path, ancestors, output);
+                    }
+                } else if name.ends_with(".dart") {
+                    output.push(path);
+                }
+            }
+        }
+        ancestors.remove(&canonical);
+    }
+
+    let mut output = Vec::new();
+    visit(root, &mut HashSet::new(), &mut output);
+    output
+}
+
 /// The folders [`project_files`] walks (the root included), each with its
 /// modification time: a `.dart` file created, renamed or deleted in one changes
 /// that time, so comparing them tells whether the list of files changed without

@@ -69,8 +69,27 @@ de forma estável.
 100% e a medição revezada com o servidor oficial (com a coluna de CPU) nos três projetos.
 Nenhum projeto pode piorar. O item 3 se mede no `new_sali` inteiro, na sessão longa, com
 a curva de memória dos dois servidores.
+Para `workspace/symbol`, a comparação agora inclui a lista completa em ordem, com todos
+os campos, e consultas que chegam ao limite de 500; igualdade só do conjunto não basta.
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
+
+**Andamento (04/11), décima oitava rodada: paridade completa de `workspace/symbol` nos quatro
+projetos do oráculo:**
+- O oráculo antigo comparava conjuntos de `(nome, URI)` em 24 consultas. Seus 100% não
+  verificavam a ordem nem os demais campos: a resposta completa coincidia em **4/24**.
+- Acrescentadas as consultas amplas `a` e `e`, agora são 32. Antes da correção, coincidiam
+  **24/32 conjuntos** e **4/32 respostas completas em ordem**; depois, **32/32 nos dois
+  critérios**, também comparando espécie, intervalo, contêiner e demais campos JSON.
+- Corrigidos a ordem de descoberta dos arquivos do projeto, a descoberta inicial de
+  `dart:core` e suas referências, as dependências alcançadas antes da varredura geral e o
+  nome de elemento `unary-` do operador unário. A ordem alfabética das cargas semânticas
+  não foi alterada.
+- **Limite da evidência:** sessões iniciais de `args`, `path`, `string_scanner` e do projeto
+  pequeno de erros, com Dart 3.6.2 no macOS. Falta repetir nos projetos grandes e depois
+  de edições/criação/remoção de arquivos, e medir CPU/latência/memória sem a suíte em paralelo.
+- Detalhes e critérios em `docs/LSP.md`, seção de 04/11. Os problemas de desempenho e de
+  memória da décima sétima rodada abaixo continuam abertos.
 
 **Andamento (03/11, 11h), décima sétima rodada: as consultas servidas pelo residente:**
 - **As consultas de biblioteca saem do residente** (`hover`, `definition`, `signatureHelp`,
@@ -539,7 +558,10 @@ As correções desta seção são posteriores ao pacote publicado.
   pacote usaram `env -i` com `PATH=/usr/bin:/bin`; Node rodou o JS pelo caminho de
   validação. Isso **não** é uma nova medição de desempenho ou tamanho do release.
   `cargo clippy --locked --workspace --all-targets -- -D warnings` e `rustfmt` passaram.
-  As suítes completas com ignorados estão em andamento. Ainda não há resultado do
+  A suíte do workspace terminou com cinco alvos reprovados, repetidos com sucesso após
+  corrigir o ambiente e a concorrência do oráculo DDC (detalhes abaixo). A suíte do CLI
+  com `native,jit` terminou com 114 testes aprovados e dois reprovados em `test_runner_cli`,
+  ainda a corrigir. Ainda não há resultado do
   novo workflow nos três sistemas nem nova versão publicada.
   O link estático local avisou que objetos do LLVM instalado têm versão mínima
   macOS 27 acima do alvo 11; o pacote foi executado no sistema desta máquina,
@@ -552,6 +574,45 @@ As correções desta seção são posteriores ao pacote publicado.
 - **Pré-requisitos:** o teste ignorado do gzip do Pub exige `DARTFORGE_GZIP_CORPUS`,
   além dos SDKs e do compilador preservado. Requisito registrado no `CONTRIBUTING.md`;
   nesta rodada, cinco entradas e seus `.gz` foram gerados pela VM 3.6.2 do macOS.
+  O verificador agora exige também `DARTFORGE_SDK_LIB` explícito e confere os pares do
+  corpus gzip. Antes, as variáveis dos dois oráculos passavam no verificador, mas os
+  testes de sobreposição do SDK liam `DARTFORGE_SDK_LIB` diretamente e falhavam. A
+  ausência de cada uma das duas variáveis novas foi testada: erro antes da compilação.
+- **Suíte completa, primeira execução:** terminou com código 101 e cinco alvos reprovados:
+  corpus do diferencial, `fresh_list_append`, `native_number_ranges`, contratos nativos
+  e corpus do frontend. O log completo ficou em `/tmp/dartforge-workspace-tests.log`.
+  - Quatro alvos exigiam `DARTFORGE_SDK_LIB` explícito: repetidos com a biblioteca da
+    3.6.2, passaram os **6 testes de JS de produção**, os **23 contratos nativos** e os
+    **6 do corpus do frontend**. Os demais executáveis da execução completa passaram;
+    o comando continuou até o fim com `--no-fail-fast`.
+  - No diferencial, os dois testes compilavam DDC e executavam Node no mesmo diretório.
+    Um Node podia ler o módulo antes de outro compilador substituir o import de
+    `dart_sdk.js`, falhando ao resolver o pacote. Agora um bloqueio de arquivo cobre a
+    compilação e a execução; o cache é publicado por renomeação, sem leitura parcial.
+    Falhas de execução inválidas não são reutilizadas, e rejeições previstas e defeitos
+    declarados do DDC continuam distinguíveis.
+  - Os dois testes concorrentes do corpus passaram com **cache frio (277 programas)**
+    e quente. Os **30 testes unitários do diferencial** passaram; uma regressão verifica
+    a recuperação de cache inválido e a preservação dos erros declarados.
+- **LSP, rodada 18:** **32/32 respostas completas de `workspace/symbol` iguais ao Dart**,
+  em ordem, após ampliar o oráculo; resumo no topo. Suíte do LSP com ignorados e doctests,
+  clippy dos dois crates alterados e documentação com avisos negados passaram.
+- **Gates atuais:** `rustfmt`, clippy do workspace com `-D warnings` e documentação de
+  todo o workspace com `RUSTDOCFLAGS='-D warnings'` passaram depois das alterações.
+  A execução completa anterior não é registrada como verde: os cinco alvos foram
+  repetidos separadamente com sucesso, e ainda falta uma execução integral no ambiente
+  corrigido.
+- **CLI `native,jit`, pendência concreta:** os 114 demais testes passaram, incluindo
+  geração de fontes, I/O, recarga e orçamentos de tamanho. Os dois do runner falharam:
+  - `--platform chrome` fora de um pacote retorna erro de dependências e saída 1,
+    antes da recusa de modo com saída 64 que o teste exige; falta restaurar a recusa
+    antecipada dos modos não suportados;
+  - o comparador de resultados nativos ainda lê o antigo JSON próprio, mas o runner
+    agora emite os eventos de `package:test`, e o teste quebra ao procurar `name` no
+    local antigo. A matriz de recusas também ainda chama `--fail-fast` e o relator
+    `github` de não suportados, apesar do suporte implementado em 02/11.
+  O log está em `/tmp/dartforge-cli-native-tests.log`. Corrigir o contrato de entrada e
+  atualizar o teste ao protocolo atual antes de considerar essa suíte validada.
 - **CI, cobertura conferida no código:** o `Heavy` diário roda no Windows, mas não
   executa a suíte de ignorados do workspace. Ele cobre corpora diferenciais e testes
   nativos/JIT selecionados; os ignorados de `dartforge-build`, macros e gerador ngdart
@@ -716,6 +777,8 @@ Dentro dos ignorados, um único binário de teste com 1 teste leva 621 s, e outr
 
 ### A partir daqui
 
+- Fechar os dois testes de `test_runner_cli` com `native,jit` e repetir os gates no
+  ambiente completo; detalhes e falhas observadas na continuação de 04/11 acima.
 - Testes ignorados do Windows em debug (48,3 min), o maior gasto do job: medir em release, aproveitando a compilação que já existe. O `Heavy` roda no Windows diariamente, mas não cobre todos esses testes (conferência de 04/11 acima); antes de transferir o passo, acrescentar e validar a cobertura que falta.
 - O perfil sem LTO no Windows economiza só cerca de 1 min: avaliar se vale mantê-lo.
 - Validar o pacote com as correções dos três achados listados acima (seção de 04/11), antes de publicar outra versão.
@@ -729,7 +792,8 @@ Dentro dos ignorados, um único binário de teste com 1 teste leva 621 s, e outr
   - `references` logo depois de uma edição (36,7–58,6 contra 19,2–25,4 ms, com poucas amostras);
   - consultas de projeto ainda no servidor (`rename`, hierarquias completas, buscas sem índice);
   - recarga no lugar casando os elementos por nome;
-  - ordem do `workspace/symbol`.
+  - `workspace/symbol`: validar a ordem nos projetos grandes e depois de mudanças no
+    workspace; os quatro projetos pequenos passaram em 04/11 (rodada 18).
 - **Wasm:**
   - chegar perto dos 158 KB do TinyGo no hello: registros do SDK por biblioteca, `double` sem `core::fmt`, coletor menor, cone do tipo estático do receptor (`_Double`), ajudantes de erro pelo grafo de chamadas;
   - velocidade (perde 1,2–3× em alocação, JSON e strings);
