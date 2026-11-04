@@ -280,9 +280,12 @@ for l in lines:
     if m == "initialize" or (ONLY and ONLY not in m):
         continue
     a, b = l.get("dart"), l.get("dartforge")
-    ms[m][0].append(l.get("ms_dart", 0))
-    ms[m][1].append(l.get("ms_dartforge", 0))
+    if "ms_dart" in l and "ms_dartforge" in l:
+        ms[m][0].append(l["ms_dart"])
+        ms[m][1].append(l["ms_dartforge"])
     where = f'{l.get("project")}/{l.get("file")} {l.get("pos")} {l.get("name", "")}'
+    if "phase" in l:
+        where = f'{l["phase"]}: {where}'
     if m == "textDocument/completion":
         pre = l.get("prefix", "")
         la, lb = completion_list(a, pre), completion_list(b, pre)
@@ -376,12 +379,13 @@ print("|---|---|---|---|---|")
 for k, (n, eq, ca, cb, _, _) in stats.items():
     print(f"| {k} | {n} | {100 * eq / n:.0f}% | {ca} | {cb}/{ca} |")
 print()
-print("| Method | Dart median ms | DartForge median ms |")
-print("|---|---|---|")
-for m, (xa, xb) in ms.items():
-    xa, xb = sorted(xa), sorted(xb)
-    print(f"| {m} | {xa[len(xa) // 2]:.1f} | {xb[len(xb) // 2]:.1f} |")
-print()
+if ms:
+    print("| Method | Dart median ms | DartForge median ms |")
+    print("|---|---|---|")
+    for m, (xa, xb) in ms.items():
+        xa, xb = sorted(xa), sorted(xb)
+        print(f"| {m} | {xa[len(xa) // 2]:.1f} | {xb[len(xb) // 2]:.1f} |")
+    print()
 for k, ex in examples.items():
     print("##", k)
     for e in ex:

@@ -86,8 +86,11 @@ projetos do oráculo:**
   nome de elemento `unary-` do operador unário. A ordem alfabética das cargas semânticas
   não foi alterada.
 - **Limite da evidência:** sessões iniciais de `args`, `path`, `string_scanner` e do projeto
-  pequeno de erros, com Dart 3.6.2 no macOS. Falta repetir nos projetos grandes e depois
-  de edições/criação/remoção de arquivos, e medir CPU/latência/memória sem a suíte em paralelo.
+  pequeno de erros, com Dart 3.6.2 no macOS. O novo oráculo de ciclo de vida revelou
+  **38/56 respostas completas iguais**, repetido duas vezes: a ordem diverge depois de
+  criar/remover arquivos, e `onlyAnalyzeProjectsWithOpenFiles` não é respeitado ao fechar
+  o último documento. Esses dois defeitos continuam abertos; detalhes em `docs/LSP.md`.
+  Falta repetir nos projetos grandes e medir CPU/latência/memória sem a suíte em paralelo.
 - Detalhes e critérios em `docs/LSP.md`, seção de 04/11. Os problemas de desempenho e de
   memória da décima sétima rodada abaixo continuam abertos.
 
@@ -598,6 +601,13 @@ As correções desta seção são posteriores ao pacote publicado.
 - **LSP, rodada 18:** **32/32 respostas completas de `workspace/symbol` iguais ao Dart**,
   em ordem, após ampliar o oráculo; resumo no topo. Suíte do LSP com ignorados e doctests,
   clippy dos dois crates alterados e documentação com avisos negados passaram.
+  A ampliação para ciclo de vida encontrou **38/56 respostas completas** e **46/56
+  conjuntos** iguais, em duas execuções com o analisador em repouso antes de cada fase.
+  O projeto sintético passa do limite de 500 símbolos. As sessões inicial, editada sem
+  salvar e fechada com outro arquivo aberto coincidem; criação, remoção/renomeação e
+  fechamento do último documento revelam as duas pendências registradas no topo.
+  `crates/lsp/oracle/workspace_symbol_lifecycle.py` reproduz os casos e sai com código 1
+  enquanto houver diferenças. Não há medição de desempenho nessa ampliação.
 - **Gates atuais:** `rustfmt`, clippy do workspace com `-D warnings` e documentação de
   todo o workspace com `RUSTDOCFLAGS='-D warnings'` passaram depois das alterações.
   A execução completa anterior não é registrada como verde: os cinco alvos foram

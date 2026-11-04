@@ -32,6 +32,8 @@ class Lsp:
         self.responses = {}
         self.cv = threading.Condition()
         self.diagnostics = {}
+        self.analyzing = None
+        self.analysis_completions = 0
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
@@ -56,7 +58,13 @@ class Lsp:
                     r = [{} for _ in m["params"]["items"]]
                 self._send({"jsonrpc": "2.0", "id": m["id"], "result": r})
             elif "method" in m:
-                if m["method"] == "textDocument/publishDiagnostics":
+                if m["method"] == "$/analyzerStatus":
+                    with self.cv:
+                        self.analyzing = m["params"]["isAnalyzing"]
+                        if not self.analyzing:
+                            self.analysis_completions += 1
+                        self.cv.notify_all()
+                elif m["method"] == "textDocument/publishDiagnostics":
                     with self.cv:
                         self.diagnostics[norm_uri(m["params"]["uri"])] = m["params"]["diagnostics"]
                         self.cv.notify_all()

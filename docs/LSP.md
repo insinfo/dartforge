@@ -3040,10 +3040,52 @@ Os JSONL desta medição estão em `/tmp/dartforge-workspace-symbols-before.json
 as latências do driver rodaram junto dos testes do workspace e não são uma nova
 medição de desempenho. A suíte completa do LSP, com doctests, passou.
 
-Ainda falta repetir a comparação em projetos grandes, em sessões com mudanças de
-arquivos e com dependências condicionais; depois medir CPU, latência e memória nos
+Ainda falta repetir a comparação em projetos grandes e com dependências condicionais;
+as mudanças de arquivos ganharam a verificação sintética abaixo. Depois, medir CPU, latência e memória nos
 três projetos do painel sem compilação ou testes concorrentes. Os 32/32 não fecham
 essas verificações nem as demais metas de desempenho da rodada 17.
+
+### Continuação: ciclo de vida revela duas divergências abertas
+
+O novo `crates/lsp/oracle/workspace_symbol_lifecycle.py` cria um pacote temporário com
+mais de 620 símbolos e compara sete consultas em oito fases: inicial, edição sem salvar,
+fechamento com outro arquivo aberto, criação, mudança em disco, remoção, renomeação e
+fechamento do último arquivo. A comparação mantém todos os campos e a ordem, inclusive
+o corte de 500 resultados. Antes de consultar, o driver espera o contexto de análise e
+um novo `$/analyzerStatus` concluído com intervalo de repouso; não compara a resposta
+antiga do Dart enquanto os eventos do disco ainda estão pendentes.
+
+Duas execuções com Dart 3.6.2 no macOS deram **38/56 respostas completas iguais** e
+**46/56 conjuntos de nomes/URIs iguais**. As primeiras três fases deram **21/21**.
+Os resultados estão em `/tmp/dartforge-symbol-lifecycle-settled.jsonl` e
+`/tmp/dartforge-symbol-lifecycle-settled-repeat.jsonl`. Esses números ampliam a evidência
+de corretude; não medem desempenho e não substituem os 32 casos iniciais anteriores.
+
+As divergências permanecem abertas:
+
+- **A ordem deve sobreviver aos eventos do disco.** `OwnedFiles.addAdded` do analisador
+  mantém os arquivos existentes em um mapa com ordem de inserção e acrescenta os novos
+  no fim (`analyzer/lib/src/dart/analysis/driver.dart`). O DartForge refaz a enumeração
+  em `Server::workspace_symbols`: um arquivo novo pode aparecer antes dos antigos.
+  Depois da criação, `LifecycleCreated` entra no corte de 500 no DartForge e desloca
+  `LifecycleA188`, que o Dart ainda retorna. Depois de remover/renomear, também há
+  diferenças só de ordem em listas menores que 500. Preservar só a ordem da última
+  varredura inicial não atende a esse contrato.
+- **Fechar o último arquivo deve respeitar a opção de inicialização.** Com
+  `onlyAnalyzeProjectsWithOpenFiles=true`, o Dart remove o contexto e todas as sete
+  consultas ficam vazias. O DartForge conserva as raízes do `initialize` e retorna
+  símbolos do projeto e do SDK. Seis das sete respostas diferem nessa fase.
+
+Para repetir, configure `ORACLE_DART` e `ORACLE_SDK_LIB` para o mesmo SDK 3.6.2 e rode:
+
+```sh
+python3 crates/lsp/oracle/workspace_symbol_lifecycle.py /tmp/symbol-lifecycle.jsonl target/debug/dartforge-lsp
+python3 crates/lsp/oracle/summary.py /tmp/symbol-lifecycle.jsonl --method workspace/symbol
+```
+
+O oráculo termina com código 1 enquanto houver diferenças; não transforma essas
+divergências em aprovações. O resumo identifica a fase de cada exemplo e não inventa
+latências zero quando o arquivo de corretude não contém tempos.
 
 ## Capacidades
 
