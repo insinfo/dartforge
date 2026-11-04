@@ -404,7 +404,14 @@ pub(crate) fn packages_with_name(root: &Path) -> Vec<(String, PathBuf)> {
         if let Ok(x) = Url::parse(u) {
             return x.to_file_path().ok();
         }
-        Some(relative_to.join(u.trim_end_matches('/')))
+        // Both rootUri and packageUri are URI references: resolve dot
+        // segments and percent escapes before using the result as a path.
+        Url::from_directory_path(relative_to)
+            .ok()?
+            .join(u)
+            .ok()?
+            .to_file_path()
+            .ok()
     };
     let mut output = Vec::new();
     for p in list {

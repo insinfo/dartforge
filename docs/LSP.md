@@ -3089,7 +3089,7 @@ Os JSONL anteriores estão em `/tmp/dartforge-symbol-lifecycle-settled.jsonl` e
 `/tmp/dartforge-symbol-lifecycle-settled-repeat.jsonl`; os novos, em
 `/tmp/dartforge-symbol-lifecycle-final.jsonl` e
 `/tmp/dartforge-workspace-symbols-lifecycle-fixed-initial.jsonl` (os quatro projetos).
-A suíte completa atual do LSP passou com **312 testes, zero falhas e zero ignorados**, incluindo
+A suíte completa dessa etapa passou com **312 testes, zero falhas e zero ignorados**, incluindo
 doctests. Formatação, clippy de todo o workspace e documentação com avisos negados
 passaram depois dos ajustes. Esses números ampliam a evidência de corretude; não são
 medições de desempenho e não encerram as pendências dos projetos grandes e de dependências condicionais.
@@ -3136,8 +3136,10 @@ examinar os projetos grandes sem criar milhares de buffers no editor simulado.
 
 A primeira execução nos três projetos abriu `lib/core.dart` no `limitless_ui`,
 `lib/argon2.dart` no `new_sali/core` e `lib/new_sali_frontend.dart` no frontend. Cada um
-recebeu as mesmas oito consultas anteriores, com Dart 3.6.2 e as dependências já resolvidas
-no macOS. Resultado **ainda incompleto**, depois do ajuste dos contextos aninhados:
+recebeu as mesmas oito consultas anteriores, com Dart 3.6.2 e as configurações de packages
+encontradas no disco. A auditoria posterior, abaixo, identificou caminhos Windows
+inexistentes no core; essa primeira medição não valida suas dependências completas.
+Resultado **histórico e ainda incompleto**, depois do ajuste dos contextos aninhados:
 
 | Projeto | Resposta completa igual | Conjunto de nomes/URIs igual |
 |---|---:|---:|
@@ -3154,7 +3156,7 @@ fronteiras (também `BUILD.gn`), mantendo o limite total de arquivos e a ordem d
 Uma regressão compara as duas situações. Em `limitless_ui`, a consulta `Arg` passou a
 coincidir integralmente, incluindo `AppComponent.rowTarget` do benchmark.
 
-Ainda há diferenças da ordem das bibliotecas conhecidas: em `new_sali/core`, os 8/8
+Havia diferenças da ordem das bibliotecas conhecidas: em `new_sali/core`, os 8/8
 conjuntos coincidem, mas três consultas divergem em ordem; em `Arg`, o Dart chega a
 `developer/timeline.dart` antes de `_http/http.dart`, e o DartForge faz o contrário.
 No frontend, a primeira diferença de `Arg` está no item 169: o Dart retorna
@@ -3177,6 +3179,130 @@ sem nova análise ainda pode drenar publicações da versão válida anterior. O
 espera esse trabalho terminar antes de enviar a versão obsoleta, mantém a exigência de
 fila vazia e verifica que o número de análises não aumentou. A suíte atual, incluindo
 essa correção, está em `/tmp/dartforge-symbol-context-verified-tests.log`.
+
+### Continuação: descoberta de dependências e auditoria dos caches do Dart
+
+A investigação da revisão 3.6.2 separou dois caminhos de descoberta. O bootstrap de
+`dart:core` usa `discoverReferencedFiles`, que materializa exports antes de imports.
+Já `LibraryNode.computeDependencies` materializa imports, acrescenta o core implícito
+e só depois materializa exports. O índice usava a primeira ordem também nos ciclos
+normais. Agora segue a segunda nesses ciclos e inicia o percurso pelas prioridades
+abertas antes dos demais arquivos adicionados.
+
+A enumeração de bibliotecas disponíveis conserva a ordem dos nomes em `libraries.dart`,
+mas resolve cada nome pelo `SdkLayout::load_as_analyzer`. O caminho posicional não
+necessariamente é o selecionado: `dart2jsPath` substitui, por exemplo, a variante de
+`html_common`. Indexar também a variante padrão duplicava declarações de parts
+compartilhadas e deslocava o limite de 500 resultados. A regressão usa duas variantes
+com a mesma part e exige uma única declaração, tanto no cache frio como no quente.
+
+Outras correções verificadas:
+
+- o grafo guarda as diretivas dos documentos prioritários; mudar um import/export sem
+  salvar descobre os novos alvos, enquanto uma edição de corpo atualiza os intervalos
+  sem mudar a descoberta. Novas prioridades não reordenam bibliotecas já conhecidas;
+- a substituição de um catálogo elimina os índices e listagens que deixaram de participar.
+  Uma regressão verifica a resposta nova e, por referência fraca, a liberação da biblioteca
+  antiga;
+- `rootUri` e `packageUri` relativos são resolvidos como URIs, incluindo segmentos `..`
+  e escapes percentuais. Um teste pelo protocolo importa um pacote numa pasta com espaço
+  e exige a URI normalizada real, sem caminhos contendo `../`;
+- fechar documentos remove sua prioridade e reduz a capacidade do vetor quando ele fica
+  esparso. A primeira suíte detectou retenção no teste `plateau_protocol`; corrigir a
+  estrutura fez o teste passar com o mesmo limite. Esse teste usou documentos sintéticos,
+  pois o corpus opcional não estava configurado; não mede o platô dos projetos grandes.
+
+O rastreador auxiliar `crates/lsp/oracle/trace_discovery.dart` registra contextos,
+`OwnedFiles.addedFiles` e arquivos conhecidos antes/depois de `discoverAvailableFiles`.
+Ele foi executado com fontes do analyzer exportados da tag 3.6.2, com a licença
+preservada (origem em `docs/REFERENCIAS.md`). As dependências auxiliares resolvidas offline
+não reproduzem o lock completo do SDK; o servidor do SDK binário continua sendo a
+referência de paridade. O rastreador não substitui as respostas LSP.
+
+#### Por que não registrar um único percentual dos projetos grandes
+
+Duas execuções do mesmo binário do DartForge deram respostas idênticas, mas o próprio
+Dart variou em cinco consultas do `limitless_ui`. Para separar essa variação de mudanças
+nos fontes, `fingerprint_inputs.py` passou a registrar tamanho, mtime e SHA-256 de Dart,
+YAML, configurações de packages, metadados do SDK, executável e snapshot do servidor,
+incluindo arquivos Dart gerados. Raízes ausentes aparecem explicitamente no manifesto
+e agora também causam saída de erro, para impedir uma nova auditoria incompleta.
+Erros de leitura ou mudança durante o hash também fazem o script falhar.
+
+A auditoria também encontrou **64 raízes Windows inexistentes** no
+`new_sali/core/.dart_tool/package_config.json`. Os resultados anteriores desse caminho
+não demonstravam paridade com suas dependências completas. Uma cópia de teste em
+`/tmp/dartforge-core-resolved-ue807bom/core` corrigiu somente esses `rootUri` para as mesmas
+64 versões já presentes no cache local. Os 554 demais arquivos foram comparados por
+SHA-256 e mantidos idênticos. O projeto original não foi alterado, nem houve nova resolução
+de versões. O manifesto de substituições está em `/tmp/dartforge-core-resolved-relocations.json`.
+
+Cada projeto foi então executado com um diretório de cache do Dart inicialmente vazio,
+seguido de uma execução que reutilizou esse diretório (`ORACLE_DART_CACHE`, opção
+`--cache` do servidor). Os manifestos antes e depois foram idênticos em cada projeto:
+
+| Projeto | Arquivos monitorados | Digest do manifesto (prefixo) | Raízes ausentes |
+|---|---:|---|---:|
+| `limitless_ui` original | 9.761 | `a78e1d65cfd2` | 0 |
+| core, cópia com caminhos corrigidos | 6.640 | `aab688b0487d` | 0 |
+| `new_sali/frontend` original | 10.894 | `0f834beeaf55` | 0 |
+
+O mesmo documento inicial e as mesmas oito consultas foram usados nos dois lados.
+Os números abaixo comparam a resposta inteira em ordem; a coluna de conjunto é separada:
+
+| Projeto | Completa, cache Dart frio | Completa, quente | Conjunto, frio | Conjunto, quente |
+|---|---:|---:|---:|---:|
+| `limitless_ui` | 2/8 | 4/8 | 2/8 | 4/8 |
+| core, cópia corrigida | 2/8 | 8/8 | 6/8 | 8/8 |
+| `new_sali/frontend` | 4/8 | 5/8 | 7/8 | 7/8 |
+| Total desta matriz | **8/24** | **17/24** | **15/24** | **19/24** |
+
+As respostas do DartForge foram idênticas nas duas condições de cada projeto. As do Dart
+mudaram em cinco consultas do `limitless_ui`, seis do core e quatro do frontend. No
+`limitless_ui`, uma terceira execução quente repetiu integralmente a segunda. Em `Arg`,
+a primeira diferença entre os dois Dart está no item 480: `ffi.VarArgs` no frio e
+`ngx_test.TestAlreadyRunningError` no quente; ambos retornam 500 itens. A ordem também
+altera o conjunto quando a busca chega ao limite. Isso documenta a variação observada
+sob essas condições; ainda falta isolar sua causa interna. Não elimina divergências
+nem transforma igualdade de conjuntos em igualdade da resposta.
+
+Há diferenças estáveis a corrigir. `Scanner` no `limitless_ui` inclui no Dart
+`cli_pkg/src/last_changelog_section.dart`, ausente no DartForge; o contexto filho do
+`example` tem catálogo próprio. Os namespaces e a propriedade de URIs por contexto
+ainda estão achatados no índice. Também faltam a criação dos estados de todas as
+alternativas condicionais e a descoberta disparada ao resolver bibliotecas durante
+uma consulta, visível nas consultas seguintes. Não basta percorrer todas as alternativas
+como se fossem imports selecionados: isso também mudaria a ordem.
+
+Os resultados estão em `/tmp/dartforge-symbol-limitless-audit-{cold,warm,repeat}.jsonl`,
+`/tmp/dartforge-symbol-core-resolved-{cold,warm}.jsonl` e
+`/tmp/dartforge-symbol-frontend-isolated-{cold,warm}.jsonl`. Os manifestos correspondentes
+são `/tmp/dartforge-limitless-inputs-{before,cold,warm,repeat}.json`,
+`/tmp/dartforge-core-resolved-inputs-{before,cold,warm}.json` e
+`/tmp/dartforge-frontend-isolated-inputs-{before,cold,warm}.json`. As linhas `initialize`
+do oráculo agora registram raiz, arquivos abertos, SDK e cache de referência para novas
+execuções. Para repetir uma dupla, com o SDK e o projeto já configurados:
+
+```sh
+export ORACLE_METHODS=symbol ORACLE_OPEN_FILES=1
+export ORACLE_DART_CACHE="$(mktemp -d)"
+python3 crates/lsp/oracle/fingerprint_inputs.py "$PROJECT" "$DARTFORGE_DART_SDK" /tmp/inputs-before.json
+python3 crates/lsp/oracle/oracle.py /tmp/symbol-cold.jsonl target/debug/dartforge-lsp "$PROJECT"
+python3 crates/lsp/oracle/fingerprint_inputs.py "$PROJECT" "$DARTFORGE_DART_SDK" /tmp/inputs-cold.json
+python3 crates/lsp/oracle/oracle.py /tmp/symbol-warm.jsonl target/debug/dartforge-lsp "$PROJECT"
+python3 crates/lsp/oracle/fingerprint_inputs.py "$PROJECT" "$DARTFORGE_DART_SDK" /tmp/inputs-warm.json
+python3 crates/lsp/oracle/summary.py /tmp/symbol-cold.jsonl --method workspace/symbol
+python3 crates/lsp/oracle/summary.py /tmp/symbol-warm.jsonl --method workspace/symbol
+```
+
+Os quatro projetos pequenos mantiveram **32/32**, e as duas matrizes de ciclo de vida,
+**112/112 respostas completas**. A suíte atual do LSP terminou com **316 aprovados,
+zero falhas e zero ignorados**, incluindo doctests, em
+`/tmp/dartforge-symbol-discovery-verified-tests.log`. Clippy de todo o workspace e
+documentação com avisos negados passaram novamente (logs de mesmo prefixo,
+`verified-clippy.log` e `verified-doc.log`); a formatação passou. Esta rodada valida
+corretude e retenção nos testes citados; não repete CPU, latência ou memória nos projetos
+grandes, nem conclui a meta de desempenho da rodada 17.
 
 ## Capacidades
 
@@ -3203,7 +3329,8 @@ O casamento usa `crates/lsp/src/fuzzy_matcher.rs` (`FuzzyMatcher`, estilo `Text`
 reordenar os resultados pela pontuação. O `SymbolInformation[]` mantém a ordem de
 descoberta e das declarações, para em 500 e usa o intervalo de código do elemento.
 Consulta vazia retorna lista vazia. A paridade desses campos e da ordem continua sujeita
-aos limites de evidência da seção de 04/11, especialmente os 10/24 nos projetos grandes.
+aos limites de evidência da seção de 04/11, especialmente a variação entre caches do
+Dart e as divergências ainda abertas nos projetos grandes.
 
 ### Definição, hover e referências pela identidade da declaração
 

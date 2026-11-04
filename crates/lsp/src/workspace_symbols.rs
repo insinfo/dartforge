@@ -314,7 +314,8 @@ struct Library {
     types: LocalTypes,
     /// The URIs its units import, with the unit's file.
     imports: Vec<(PathBuf, String)>,
-    /// Exports are discovered before imports by FileState.
+    /// Exports are separate from imports: bootstrap and cycle discovery
+    /// materialize their lazy lists in different orders.
     exports: Vec<(PathBuf, String)>,
 }
 
@@ -324,6 +325,25 @@ struct SdkFiles {
     layout: dartforge_elements::sdk::SdkLayout,
     bootstrap: Vec<PathBuf>,
     available: Vec<PathBuf>,
+}
+
+/// Inputs that can change library discovery, excluding edits to bodies and
+/// declaration ranges. Opening order follows AnalysisDriver.priorityFiles.
+#[derive(Debug, PartialEq, Eq)]
+struct DiscoveryInputs {
+    added: Vec<PathBuf>,
+    sdk: Option<PathBuf>,
+    packages: Vec<(String, PathBuf)>,
+    generated: Vec<(String, PathBuf, PathBuf)>,
+    priority: Vec<PathBuf>,
+    open_dependencies: Vec<OpenDependencies>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct OpenDependencies {
+    path: PathBuf,
+    imports: Vec<(PathBuf, String)>,
+    exports: Vec<(PathBuf, String)>,
 }
 
 /// The fingerprint of a read file: its size and date on disk, or the open
@@ -350,16 +370,7 @@ pub(crate) struct Index {
     /// The `.dart` files of each package's `lib/`, as last listed.
     listed: HashMap<PathBuf, Vec<PathBuf>>,
     /// The last search's files, with what they were listed from.
-    #[allow(clippy::type_complexity)]
-    paths: Option<(
-        (
-            Vec<PathBuf>,
-            Option<PathBuf>,
-            Vec<(String, PathBuf)>,
-            Vec<(String, PathBuf, PathBuf)>,
-        ),
-        Vec<PathBuf>,
-    )>,
+    paths: Option<(DiscoveryInputs, Vec<PathBuf>)>,
 }
 
 /// Reads a file (open or from disk) with its fingerprint.
@@ -1051,18 +1062,20 @@ impl Index {
                 }
             }
         }
+        let available = read_libraries_dart(lib, &layout);
         let files = Arc::new(SdkFiles {
             root: lib.to_path_buf(),
             layout,
             bootstrap: list,
-            available: read_libraries_dart(lib),
+            available,
         });
         self.sdk = Some(files.clone());
         files
     }
 
     /// `FindDeclarations.compute` + the handler's `_asSymbolInformation`.
-    /// `added` are the project files; `packages`, the packages' `lib/`s (in
+    /// `added` are the project files; `priority`, the current documents in
+    /// opening order; `packages`, the packages' `lib/`s (in
     /// `package_config.json` order); `open_texts`, the URI and text of the open
     /// documents by normalized path (`gerado::key`); `kinds`, the
     /// `SymbolKind`s the client accepts.
@@ -1071,6 +1084,7 @@ impl Index {
         &mut self,
         query: &str,
         added: &[PathBuf],
+        priority: &[PathBuf],
         sdk: Option<&Path>,
         packages: &[(String, PathBuf)],
         generated: &[(String, PathBuf, PathBuf)],
@@ -1106,12 +1120,31 @@ impl Index {
         // The files in `OwnedFiles` order (added ones, then the known ones that
         // were not added), kept while the disk is trusted and the inputs are the
         // same.
-        let inputs = (
-            added.to_vec(),
-            sdk.map(Path::to_path_buf),
-            packages.to_vec(),
-            generated.to_vec(),
-        );
+        let open_dependencies = priority
+            .iter()
+            .map(|p| {
+                let library = self.library(p, read, open, &uri_of, trust_disk);
+                OpenDependencies {
+                    path: p.clone(),
+                    imports: library
+                        .as_ref()
+                        .map(|l| l.imports.clone())
+                        .unwrap_or_default(),
+                    exports: library
+                        .as_ref()
+                        .map(|l| l.exports.clone())
+                        .unwrap_or_default(),
+                }
+            })
+            .collect();
+        let inputs = DiscoveryInputs {
+            added: added.to_vec(),
+            sdk: sdk.map(Path::to_path_buf),
+            packages: packages.to_vec(),
+            generated: generated.to_vec(),
+            priority: priority.to_vec(),
+            open_dependencies,
+        };
         if trust_disk
             && let Some((last, paths)) = &self.paths
             && *last == inputs
@@ -1130,10 +1163,25 @@ impl Index {
                 include_path(p.clone(), &mut paths, &mut seen);
             }
         }
-        // Analysis discovers imported libraries before discoverAvailableFiles
-        // scans the remaining SDK and package files. Create each library's
-        // direct references before visiting them, as FileState's lazy lists do.
+        // A later priority or import change adds known files; it does not
+        // reorder those already discovered in the same context and catalog.
+        if let Some((last, previous)) = &self.paths
+            && last.added == inputs.added
+            && last.sdk == inputs.sdk
+            && last.packages == inputs.packages
+            && last.generated == inputs.generated
+        {
+            for path in previous {
+                if open.contains_key(&dartforge_elements::generated::key(path)) || path.is_file() {
+                    include_path(path.clone(), &mut paths, &mut seen);
+                }
+            }
+        }
+        // LibraryNode.computeDependencies materializes imports (including
+        // implicit dart:core) before exports, then walks those dependencies.
+        // The dart:core bootstrap above uses a different discovery entry point.
         let mut pending: Vec<PathBuf> = added.iter().rev().cloned().collect();
+        pending.extend(priority.iter().rev().cloned());
         let mut visited = HashSet::new();
         while let Some(path) = pending.pop() {
             if !visited.insert(dartforge_elements::generated::key(&path)) {
@@ -1143,7 +1191,7 @@ impl Index {
                 continue;
             };
             let mut next = Vec::new();
-            for (unit, uri) in library.exports.iter().chain(&library.imports) {
+            for (unit, uri) in &library.imports {
                 if let Some(target) =
                     dependency_target(unit, uri, sdk_files.as_deref(), packages, generated)
                 {
@@ -1153,6 +1201,14 @@ impl Index {
             }
             if let Some(core) = sdk_files.as_ref().and_then(|s| s.layout.library("core")) {
                 next.push(core.path.clone());
+            }
+            for (unit, uri) in &library.exports {
+                if let Some(target) =
+                    dependency_target(unit, uri, sdk_files.as_deref(), packages, generated)
+                {
+                    include_path(target.clone(), &mut paths, &mut seen);
+                    next.push(target);
+                }
             }
             pending.extend(next.into_iter().rev());
         }
@@ -1175,6 +1231,16 @@ impl Index {
                 include_path(p, &mut paths, &mut seen);
             }
         }
+        // Catalog replacement and deleted files must release old declaration
+        // data, rather than retaining every package version seen in a session.
+        let retained: HashSet<_> = paths
+            .iter()
+            .chain(priority)
+            .map(|p| dartforge_elements::generated::key(p))
+            .collect();
+        self.entries.retain(|p, _| retained.contains(p));
+        self.listed
+            .retain(|folder, _| packages.iter().any(|(_, p)| p == folder));
         self.paths = Some((inputs, paths.clone()));
         self.find(query, &paths, read, open, &uri_of, kinds, trust_disk)
     }
@@ -1299,7 +1365,11 @@ fn symbol(
 
 /// Adds a known file once, preserving the discovery order.
 fn include_path(path: PathBuf, paths: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) -> bool {
-    let new = seen.insert(dartforge_elements::generated::key(&path));
+    let path = match dartforge_elements::generated::key_of(&path) {
+        std::borrow::Cow::Borrowed(_) => path,
+        std::borrow::Cow::Owned(path) => path,
+    };
+    let new = seen.insert(path.clone());
     if new {
         paths.push(path);
     }
@@ -1354,7 +1424,7 @@ fn discover(folder: &Path, output: &mut Vec<PathBuf>) {
 
 /// The entries of the `libraries` map of the SDK's `libraries.dart`, in
 /// written order: `'name': const LibraryInfo('path', …)`.
-fn read_libraries_dart(lib: &Path) -> Vec<PathBuf> {
+fn read_libraries_dart(lib: &Path, layout: &dartforge_elements::sdk::SdkLayout) -> Vec<PathBuf> {
     let file = lib
         .join("_internal")
         .join("sdk_library_metadata")
@@ -1372,21 +1442,22 @@ fn read_libraries_dart(lib: &Path) -> Vec<PathBuf> {
     let mut output = Vec::new();
     let mut rest = body;
     while let Some(i) = rest.find("LibraryInfo(") {
+        // Preserve metadata insertion order, but resolve the name through
+        // the analyzer layout. Its dart2jsPath may replace the positional
+        // path; indexing both would duplicate their shared part declarations.
+        let before = rest[..i].trim_end();
+        let before = before.strip_suffix("const").unwrap_or(before).trim_end();
+        let name = before.strip_suffix(':').and_then(|before| {
+            let before = before.trim_end();
+            let quote = before.chars().last().filter(|c| matches!(c, '\'' | '"'))?;
+            let before = &before[..before.len() - 1];
+            let start = before.rfind(quote)?;
+            Some(&before[start + 1..])
+        });
+        if let Some(library) = name.and_then(|n| layout.library(n)) {
+            output.push(dartforge_elements::generated::key(&library.path));
+        }
         rest = &rest[i + "LibraryInfo(".len()..];
-        let entry_text = rest.trim_start();
-        let Some(quotes) = entry_text
-            .chars()
-            .next()
-            .filter(|c| *c == '\'' || *c == '"')
-        else {
-            continue;
-        };
-        let content = &entry_text[1..];
-        let Some(f) = content.find(quotes) else {
-            continue;
-        };
-        let relative = &content[..f];
-        output.push(dartforge_elements::generated::key(&lib.join(relative)));
     }
     output
 }
@@ -1440,6 +1511,247 @@ fn generated_target(
 mod tests {
     use super::*;
 
+    fn fixture(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "dartforge-symbol-{name}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn symbol_names(symbols: Vec<Value>) -> Vec<String> {
+        symbols
+            .iter()
+            .filter_map(|s| s["name"].as_str().map(str::to_owned))
+            .collect()
+    }
+
+    #[test]
+    fn priorities_and_unsaved_imports_preserve_known_file_order() {
+        let root = fixture("priority");
+        let package = root.join("dependency/lib");
+        std::fs::create_dir_all(&package).unwrap();
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        std::fs::write(
+            &a,
+            "import 'package:dependency/a.dart'; class NeedleEntryA {}",
+        )
+        .unwrap();
+        std::fs::write(
+            &b,
+            "import 'package:dependency/b.dart'; class NeedleEntryB {}",
+        )
+        .unwrap();
+        std::fs::write(package.join("a.dart"), "class NeedleDependencyA {}").unwrap();
+        std::fs::write(package.join("b.dart"), "class NeedleDependencyB {}").unwrap();
+        let added = [b.clone(), a.clone()];
+        let packages = [("dependency".to_string(), package.join("../lib"))];
+        let mut index = Index::default();
+        let symbols = index.search(
+            "Needle",
+            &added,
+            std::slice::from_ref(&a),
+            None,
+            &packages,
+            &[],
+            &HashMap::new(),
+            None,
+            false,
+        );
+        assert_eq!(
+            symbols[2]["location"]["uri"],
+            url::Url::from_file_path(package.join("a.dart"))
+                .unwrap()
+                .to_string()
+        );
+        let before = symbol_names(symbols);
+        assert_eq!(
+            before,
+            [
+                "NeedleEntryB",
+                "NeedleEntryA",
+                "NeedleDependencyA",
+                "NeedleDependencyB"
+            ]
+        );
+        // Closing the first priority file does not reorder known dependencies.
+        assert_eq!(
+            symbol_names(index.search(
+                "Needle",
+                &added,
+                std::slice::from_ref(&b),
+                None,
+                &packages,
+                &[],
+                &HashMap::new(),
+                None,
+                true,
+            )),
+            before
+        );
+
+        let late = root.join("late.dart");
+        std::fs::write(late, "class NeedleLate {}").unwrap();
+        let changed = "import 'late.dart'; class NeedleEntryB {}";
+        let mut open = HashMap::from([(
+            b.clone(),
+            ("file:///b.dart".to_string(), changed.to_string()),
+        )]);
+        let expected = [
+            "NeedleEntryB",
+            "NeedleEntryA",
+            "NeedleDependencyA",
+            "NeedleDependencyB",
+            "NeedleLate",
+        ];
+        assert_eq!(
+            symbol_names(index.search(
+                "Needle",
+                &added,
+                std::slice::from_ref(&b),
+                None,
+                &packages,
+                &[],
+                &open,
+                None,
+                true,
+            )),
+            expected
+        );
+        let body_edit = "import 'late.dart'; class NeedleEntryB { void f() {} }";
+        open.get_mut(&b).unwrap().1 = body_edit.to_string();
+        let symbols = index.search(
+            "Needle",
+            &added,
+            std::slice::from_ref(&b),
+            None,
+            &packages,
+            &[],
+            &open,
+            None,
+            true,
+        );
+        assert_eq!(
+            symbols[0]["location"]["range"]["end"]["character"],
+            body_edit.len()
+        );
+        assert_eq!(symbol_names(symbols), expected);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn replacing_a_package_catalog_releases_its_old_libraries() {
+        let root = fixture("catalog");
+        let old = root.join("old/lib");
+        let new = root.join("new/lib");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(old.join("api.dart"), "class NeedleOld {}").unwrap();
+        std::fs::write(new.join("api.dart"), "class NeedleNew {}").unwrap();
+        let entry = root.join("entry.dart");
+        std::fs::write(
+            &entry,
+            "import 'package:dependency/api.dart'; class NeedleEntry {}",
+        )
+        .unwrap();
+        let mut index = Index::default();
+        assert_eq!(
+            symbol_names(index.search(
+                "Needle",
+                std::slice::from_ref(&entry),
+                &[],
+                None,
+                &[("dependency".to_string(), old.clone())],
+                &[],
+                &HashMap::new(),
+                None,
+                false,
+            )),
+            ["NeedleEntry", "NeedleOld"]
+        );
+        let old_library = Arc::downgrade(
+            index.entries[&old.join("api.dart")]
+                .library
+                .as_ref()
+                .unwrap(),
+        );
+        assert_eq!(
+            symbol_names(index.search(
+                "Needle",
+                &[entry],
+                &[],
+                None,
+                &[("dependency".to_string(), new)],
+                &[],
+                &HashMap::new(),
+                None,
+                true,
+            )),
+            ["NeedleEntry", "NeedleNew"]
+        );
+        assert!(
+            old_library.upgrade().is_none(),
+            "the old library is still retained"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sdk_discovery_indexes_only_the_analyzer_selected_variant() {
+        let root = std::env::temp_dir().join(format!(
+            "dartforge-symbol-sdk-variant-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let metadata = root.join("_internal/sdk_library_metadata/lib");
+        std::fs::create_dir_all(&metadata).unwrap();
+        std::fs::write(
+            metadata.join("libraries.dart"),
+            "final libraries = const {\n  'core': const LibraryInfo('core.dart'),\n  'platform': const LibraryInfo('default.dart', dart2jsPath: 'selected.dart'),\n};\n",
+        )
+        .unwrap();
+        for (name, text) in [
+            ("core.dart", "import 'dart:platform'; class NeedleCore {}"),
+            (
+                "default.dart",
+                "library platform; part 'shared.dart'; class NeedleDefault {}",
+            ),
+            (
+                "selected.dart",
+                "library platform; part 'shared.dart'; class NeedleSelected {}",
+            ),
+            ("shared.dart", "part of platform; class NeedlePart {}"),
+        ] {
+            std::fs::write(root.join(name), text).unwrap();
+        }
+        let mut index = Index::default();
+        for trust_disk in [false, true] {
+            let symbols = index.search(
+                "Needle",
+                &[],
+                &[],
+                Some(&root),
+                &[],
+                &[],
+                &HashMap::new(),
+                None,
+                trust_disk,
+            );
+            let names: Vec<_> = symbols.iter().filter_map(|s| s["name"].as_str()).collect();
+            assert_eq!(names, ["NeedleCore", "NeedleSelected", "NeedlePart"]);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn sdk_bootstrap_precedes_library_discovery_and_survives_the_cache() {
         let root = std::env::temp_dir().join(format!(
@@ -1481,6 +1793,7 @@ export 'dart:async'; class NeedleCore {}\n",
             let symbols = index.search(
                 "Needle",
                 &[],
+                &[],
                 Some(&root),
                 &[],
                 &[],
@@ -1507,10 +1820,11 @@ export 'dart:async'; class NeedleCore {}\n",
         std::fs::create_dir_all(&package).unwrap();
         std::fs::write(
             package.join("api.dart"),
-            "export 'detail.dart'; class NeedleApi {}\n",
+            "export 'detail.dart'; import 'imported.dart'; class NeedleApi {}\n",
         )
         .unwrap();
         std::fs::write(package.join("detail.dart"), "class NeedleDetail {}\n").unwrap();
+        std::fs::write(package.join("imported.dart"), "class NeedleImported {}\n").unwrap();
         let entry = root.join("entry.dart");
         std::fs::write(
             &entry,
@@ -1521,6 +1835,7 @@ export 'dart:async'; class NeedleCore {}\n",
         let symbols = index.search(
             "Needle",
             &[entry],
+            &[],
             Some(&root),
             &[("dependency".to_string(), package)],
             &[],
@@ -1538,6 +1853,7 @@ export 'dart:async'; class NeedleCore {}\n",
                 "NeedleCollection",
                 "NeedleInternal",
                 "NeedleApi",
+                "NeedleImported",
                 "NeedleDetail",
                 "NeedleOther",
             ]

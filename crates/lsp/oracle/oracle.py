@@ -4,7 +4,7 @@
 #
 # Usage: python oracle.py <output.jsonl> <dartforge-binary> [project ...]
 # (environment variables: ORACLE_DART, ORACLE_SDK_LIB, ORACLE_PER_FILE,
-# ORACLE_SNIPPETS, ORACLE_METHODS, ORACLE_OPEN_FILES)
+# ORACLE_SNIPPETS, ORACLE_METHODS, ORACLE_OPEN_FILES, ORACLE_DART_CACHE)
 # The summary (parity table) comes out of `summary.py`.
 import json, os, re, subprocess, sys, threading, time, queue, urllib.parse, pathlib
 
@@ -17,6 +17,8 @@ SDK_LIB = os.environ.get("ORACLE_SDK_LIB", r"C:\tools\dartsdk-3.6.2\lib")
 PER_FILE = int(os.environ.get("ORACLE_PER_FILE", "12"))
 # Limit open documents for large projects; zero keeps the original full set.
 OPEN_FILES = int(os.environ.get("ORACLE_OPEN_FILES", "0"))
+# Optional isolated reference cache for cold/warm reproducibility checks.
+DART_CACHE = os.environ.get("ORACLE_DART_CACHE")
 # Only these methods (comma separated, without `textDocument/`); empty: all.
 METHODS = {m.strip() for m in os.environ.get("ORACLE_METHODS", "").split(",") if m.strip()}
 
@@ -250,8 +252,11 @@ def main():
             files = sorted(p for d in ("lib", "bin") for p in (root / d).rglob("*.dart"))
             if OPEN_FILES > 0:
                 files = files[:OPEN_FILES]
+            dart_command = [DART, "language-server", "--protocol=lsp", "--client-id=oracle"]
+            if DART_CACHE:
+                dart_command.append("--cache=" + DART_CACHE)
             servers = [
-                Lsp("dart", [DART, "language-server", "--protocol=lsp", "--client-id=oracle"]),
+                Lsp("dart", dart_command),
                 Lsp("dartforge", [binary, "--stdio"], env=env),
             ]
             for s in servers:
@@ -260,6 +265,8 @@ def main():
                                                  "capabilities": CAPABILITIES,
                                                  "initializationOptions": {"onlyAnalyzeProjectsWithOpenFiles": True}})
                 out.write(json.dumps({"project": root.name, "server": s.name, "method": "initialize",
+                                      "rootUri": root_uri, "openFiles": [p.as_uri() for p in files],
+                                      "sdkLib": SDK_LIB, "referenceCache": DART_CACHE,
                                       "result": r}) + "\n")
                 s.notify("initialized", {})
             texts = {}

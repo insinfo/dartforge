@@ -325,6 +325,9 @@ pub struct Server<A = SyntacticAnalyzer> {
     symbol_contexts: Vec<(std::path::PathBuf, Vec<std::path::PathBuf>)>,
     /// Global OwnedFiles insertion order, including events before any query.
     symbol_file_order: Vec<std::path::PathBuf>,
+    /// Current documents in priority-file insertion order, without history
+    /// after a document closes.
+    symbol_priority_files: Vec<String>,
     /// What `workspace/symbol` listed (the roots, when, the added files, the
     /// packages' `lib/`s, their generated `lib/`s and the SDK), reused while the
     /// client's watcher reports no change ([`Server::workspace_symbols`]).
@@ -503,6 +506,7 @@ impl<A: Analyzer> Server<A> {
             symbol_index: Default::default(),
             symbol_contexts: Vec::new(),
             symbol_file_order: Vec::new(),
+            symbol_priority_files: Vec::new(),
             symbol_listing: None,
             symbol_disk_dirty: false,
             requestable_configuration: false,
@@ -1289,6 +1293,9 @@ impl<A: Analyzer> Server<A> {
                 }
                 self.documents
                     .open(uri.to_string(), version, text.to_string());
+                if !self.symbol_priority_files.iter().any(|p| p == uri) {
+                    self.symbol_priority_files.push(uri.to_string());
+                }
                 self.analyzer.open_document(&self.documents, uri);
                 self.refresh_symbol_contexts(&self.symbol_roots());
                 self.request_typed(uri);
@@ -1320,6 +1327,13 @@ impl<A: Analyzer> Server<A> {
                 let params = message.get("params")?;
                 let uri = params.get("textDocument")?.get("uri")?.as_str()?;
                 if self.documents.close(uri) {
+                    self.symbol_priority_files.retain(|p| p != uri);
+                    if self.symbol_priority_files.capacity()
+                        > self.symbol_priority_files.len().saturating_mul(4)
+                    {
+                        self.symbol_priority_files
+                            .shrink_to(self.symbol_priority_files.len().saturating_mul(2));
+                    }
                     self.typed_published.remove(uri);
                     self.analyzer.document_closed_at(&self.documents, uri);
                     if let Some(t) = &self.typed {
@@ -4507,9 +4521,16 @@ impl<A: Analyzer> Server<A> {
         loose.sort();
         added.extend(loose);
         let kinds = self.workspace_symbol_kinds.clone();
+        let priority: Vec<_> = self
+            .symbol_priority_files
+            .iter()
+            .filter_map(|u| url::Url::parse(u).ok()?.to_file_path().ok())
+            .filter(|p| p.extension().is_some_and(|e| e == "dart"))
+            .collect();
         self.symbol_index.search(
             query,
             &added,
+            &priority,
             sdk.as_deref(),
             packages,
             generated,

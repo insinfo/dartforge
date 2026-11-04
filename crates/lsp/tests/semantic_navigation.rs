@@ -574,6 +574,39 @@ fn workspace_symbols_include_closed_project_files() {
 }
 
 #[test]
+fn workspace_symbols_resolve_relative_package_roots_as_uris() {
+    let mut p = Project::new("nav-symbol-package-uri");
+    p.write(
+        "../shared package/pubspec.yaml",
+        "name: shared_dependency\n",
+    );
+    p.write(
+        "../shared package/lib/api.dart",
+        "class PackageUriNeedle {}\n",
+    );
+    p.write(
+        ".dart_tool/package_config.json",
+        &json!({"configVersion": 2, "packages": [
+            {"name": "projeto", "rootUri": "../", "packageUri": "lib/", "languageVersion": "3.6"},
+            {"name": "shared_dependency", "rootUri": "../../shared%20package/", "packageUri": "lib/../lib/", "languageVersion": "3.6"}
+        ]}).to_string(),
+    );
+    p.open(
+        "lib/anchor.dart",
+        "import 'package:shared_dependency/api.dart'; void anchor() {}\n",
+    );
+    let response = p.request("workspace/symbol", json!({"query": "PackageUriNeedle"}));
+    let items = response["result"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{response}");
+    assert_eq!(
+        items[0]["location"]["uri"],
+        url::Url::from_file_path(p.root.join("shared package/lib/api.dart"))
+            .unwrap()
+            .to_string()
+    );
+}
+
+#[test]
 fn workspace_symbols_include_nested_package_files() {
     let mut p = Project::new("nav-symbol-nested-package");
     p.write("benchmarks/pubspec.yaml", "name: benchmark_app\n");

@@ -91,13 +91,25 @@ mas com paridade ainda incompleta nos projetos grandes:**
   abertura dos contextos, e os eventos preservam a ordem mesmo sem índice consultado.
   Os quatro projetos pequenos foram repetidos na árvore atual: **32/32**. O índice não
   conserva símbolos ao fechar o último documento com `onlyAnalyzeProjectsWithOpenFiles`.
-- **Projetos grandes, pendência atual:** com um documento aberto por projeto,
-  `limitless_ui` dá **3/8**, `new_sali/core` **5/8** e `new_sali/frontend` **2/8** respostas
-  completas iguais: **10/24**, com **15/24 conjuntos** iguais. Antes do ajuste dos
-  contextos aninhados eram 9/24 respostas e 13/24 conjuntos. O `pubspec.yaml` sozinho
-  não separa contextos; uma configuração própria de packages separa, depois dos arquivos
-  do pai. Ainda diferem a ordem de bibliotecas conhecidas do SDK/dependências e parte
-  dos conjuntos. Detalhes, arquivos abertos e reprodução em `docs/LSP.md`.
+- **Descoberta de dependências corrigida:** os ciclos descobrem imports antes de exports;
+  o bootstrap de `dart:core` mantém sua ordem própria. A enumeração do SDK usa a variante
+  selecionada pelo analisador, sem duplicar declarações de parts compartilhadas. Arquivos
+  abertos têm prioridade na descoberta; imports editados sem salvar invalidam o grafo,
+  preservando a ordem já conhecida. URIs relativas de packages agora resolvem `..` e
+  escapes percentuais. Catálogos substituídos liberam suas bibliotecas antigas.
+- **Projetos grandes, pendência atual:** os antigos **10/24** não são a medição atual.
+  A auditoria encontrou variação no próprio Dart entre caches frio/quente, com manifestos
+  de entrada idênticos, e 64 raízes Windows inexistentes na configuração original do core.
+  Uma cópia do core com só esses caminhos corrigidos dá **2/8 no frio e 8/8 no quente**;
+  `limitless_ui`, **2/8 e 4/8**; o frontend, **4/8 e 5/8**. Essa matriz soma **8/24 no
+  frio e 17/24 no quente**, sem escolher só o melhor percentual. As respostas do
+  DartForge foram idênticas nas repetições.
+  Isso não aprova as consultas divergentes: faltam dependências por contexto, descoberta
+  condicional e paridade após edições. Resultados por condição e reprodução em `docs/LSP.md`.
+- **Regressões:** **316 testes do LSP passaram**, incluindo doctests. O teste de platô
+  detectou capacidade retida pela nova lista de prioridades depois de fechar abas;
+  a correção libera essa capacidade, sem relaxar o limite do teste. As matrizes
+  sintéticas continuam em **112/112**, e os quatro projetos pequenos, em **32/32**.
 - **Desempenho ainda sem repetição:** capturar a ordem inicial exige enumerar os arquivos
   ao criar cada contexto. Contextos existentes não são reenumerados por edições de corpo;
   o custo de abertura nos projetos grandes ainda precisa ser medido. Faltam a paridade
@@ -624,12 +636,18 @@ As correções desta seção são posteriores ao pacote publicado.
   eventos distinguem remoção/recriação mesmo sem consulta entre eles. A opção de só
   analisar projetos abertos impede raízes permanentes e libera o índice de símbolos
   ao fechar o último documento; pedidos com escopo de raiz continuam alcançando os
-  projetos abertos. **312 testes do LSP passaram**, incluindo doctests, criação antes
+  projetos abertos. **316 testes do LSP passaram**, incluindo doctests, criação antes
   da primeira busca e pacotes aninhados com/sem configuração própria de packages.
   O teste de versão obsoleta agora espera a análise válida pendente antes de exigir
   ausência de publicações e verifica também que não começou outra análise.
   A primeira ampliação aos três projetos grandes ficou em **10/24 respostas completas
-  e 15/24 conjuntos** iguais; essa pendência está destacada no topo.
+  e 15/24 conjuntos** iguais. A continuação corrigiu a ordem dos ciclos, a escolha de
+  variantes do SDK, prioridades abertas e URIs de packages. A auditoria posterior
+  separa caches frios/quentes e invalida a conclusão sobre dependências resolvidas do
+  core original: sua configuração aponta 64 raízes inexistentes do Windows. A cópia
+  corrigida preserva as versões e os 554 demais arquivos; passa de **2/8 no frio para
+  8/8 no quente**, com os mesmos hashes nas duas condições. As divergências ainda
+  abertas e os limites da comparação estão no topo e em `docs/LSP.md`.
   `crates/lsp/oracle/workspace_symbol_lifecycle.py` reproduz os casos e retorna erro se
   houver diferenças. Não há medição de desempenho nessa ampliação.
 - **Gates atuais:** `rustfmt`, clippy do workspace com `-D warnings` e documentação de
@@ -641,8 +659,8 @@ As correções desta seção são posteriores ao pacote publicado.
   já foi repetido integralmente: **117 testes passaram, zero falhas, zero ignorados**, em
   16 executáveis de teste; log em `/tmp/dartforge-cli-native-recheck.log` (saída 0).
   A execução do workspace começou antes do ajuste de ciclo de vida do LSP; a suíte
-  completa desse crate foi repetida separadamente na árvore atual: **312 aprovados,
-  zero falhas, zero ignorados**, com log em `/tmp/dartforge-symbol-context-verified-tests.log`.
+  completa desse crate foi repetida separadamente na árvore atual: **316 aprovados,
+  zero falhas, zero ignorados**, com log em `/tmp/dartforge-symbol-discovery-verified-tests.log`.
   Formatação, clippy e documentação sem avisos passaram novamente depois desse ajuste.
 - **CLI `native,jit`, correção do runner:** na primeira execução, os 114 demais testes
   passaram, incluindo geração de fontes, I/O, recarga e orçamentos de tamanho. Os dois
@@ -829,8 +847,10 @@ Dentro dos ignorados, um único binário de teste com 1 teste leva 621 s, e outr
 
 ### A partir daqui
 
-- Fechar a paridade de `workspace/symbol` nos três projetos grandes: ainda são 10/24
-  respostas completas e 15/24 conjuntos iguais, apesar dos 112/112 casos sintéticos.
+- Fechar a paridade de `workspace/symbol` nos três projetos grandes, distinguindo os
+  caches frio/quente do Dart e usando configurações sem raízes de outra plataforma.
+  Corrigir catálogos por contexto, dependências condicionais e descoberta posterior
+  às consultas; os 112/112 casos sintéticos não cobrem essas diferenças reais.
   Depois medir a abertura dos contextos e repetir CPU/latência/memória. Os gates locais
   foram repetidos com sucesso; detalhes e limites na continuação de 04/11 acima.
 - Testes ignorados do Windows em debug (48,3 min), o maior gasto do job: medir em release, aproveitando a compilação que já existe. O `Heavy` roda no Windows diariamente, mas não cobre todos esses testes (conferência de 04/11 acima); antes de transferir o passo, acrescentar e validar a cobertura que falta.

@@ -69,7 +69,15 @@ não web ou flags internas precisam de classificação explícita.
 
 ## Versão alvo
 
-O alvo inicial é Dart 3.6.2, definido pelo proprietário para ngdart. O executável identificado no PATH informa 3.6.2 e corresponde ao alvo. O clone dart-sdk foi baixado da branch padrão e ainda não foi alinhado a essa versão. Para testes normativos e comparação com Analyzer/DDC/dart2js, selecionar e registrar a revisão correspondente a 3.6.2. Código mais recente serve apenas como referência de arquitetura até essa seleção.
+O alvo inicial é Dart 3.6.2, definido pelo proprietário para ngdart. A revisão de referência
+é `b0cc5495e0f5e8ae150825a5352e708cb49e65ff`, tag `3.6.2`, registrada em
+`references-manifest.json`. As consultas normativas usam `git show 3.6.2:<caminho>`, sem
+alterar o checkout do clone. Na investigação LSP de 04/11/2026, `git archive 3.6.2`
+também exportou os pacotes `analyzer`, `_fe_analyzer_shared`, `macros`, `_macros` e `meta`,
+com `LICENSE` e `AUTHORS`, para executar `crates/lsp/oracle/trace_discovery.dart`.
+As dependências auxiliares desse rastreador foram resolvidas offline; ele explica a
+descoberta de arquivos, mas o oráculo de paridade continua sendo o servidor do SDK
+binário 3.6.2. Código de revisões posteriores serve apenas como referência de arquitetura.
 
 ## Snapshots
 
