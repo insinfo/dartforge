@@ -554,7 +554,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | AOT nativo: tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`) e tamanho (1,37×); próximo: mapa de campo, `$c`/`$g`/`$tc`, `$async` | em rodízio: agentes de desempenho um por vez desde 01/11 (ordem LSP → ARC → AOT); seção de 31/10 abaixo |
 | ARC real: 2,5× os ciclos do tracing no HTTP `dart:io` e 1,7× no cru (eram 3× e 2,2×); próximos passos na seção de 01/11 | em rodízio: agentes de desempenho um por vez (fila: LSP prioridade → AOT → ARC) |
 | LSP: edição de corpo no Windows (fases de CPU do residente: *heap* e caminhos), inclinação ≤ 0 da sessão longa, recarga no lugar casando os elementos por nome, ordem dos arquivos conhecidos do `workspace/symbol`, consultas de projeto ainda no servidor | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
-| CI (`CI` e `Heavy`) vermelho desde 31/10 | 03/11: todas as falhas conhecidas corrigidas no `main` e validadas no macOS (v30); falta confirmar no GitHub. Seção "fechamento do dia" abaixo |
+| CI (`CI` e `Heavy`) | 04/11: verdes em `526e87d9` pela primeira vez desde 31/10. Seção "fechamento do dia" abaixo |
 
 ## 03/11/2026: fechamento do dia — o que foi feito e o que falta
 
@@ -613,9 +613,39 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 
   A suíte `tests/language` inteira **não** foi repetida no wasm e no nativo depois das rodadas de hoje (última medição completa do wasm: rodada 2 de tamanho). Os testes do `Heavy` no Windows dependem do CI.
 
+### Madrugada de 04/11: CI verde e versão
+
+- **`CI`, `Heavy` e `No system toolchain` verdes em `526e87d9`.** Faltavam duas correções, nenhuma de regressão do compilador:
+  - o runtime wasm herdava o `lto=false` e as 16 unidades do job (758 KB em vez de 675 KB no hello; 759 KB reproduzidos aqui); agora o `cargo` interno ignora esses dois (`crates/emit_native/build.rs`);
+  - os testes ignorados do Windows pegavam `matches_a_corpus_of_the_vm`, que exige um corpus da VM.
+- **`v0.1.0-alpha.3` publicada e incompleta.** Depois de publicar, testei o pacote baixado: `aot`, `compile-native`, `run`, `pub`, `analyze` e `format` funcionam, mas o defeito é antigo e o `release.yml` só exercitava o AOT:
+  - `compile-wasm` não achava o runtime wasm nem um `lld` com esse nome;
+  - `compile-js`, `dev` e `serve` procuravam `dart_sdk.js` no caminho da máquina que compilou;
+  - `dartforge-lsp` e `dartforge-jsprod` não iam no pacote.
+
+  As notas da alpha.3 avisam disso. Corrigido em `7b6b1fbe`; validado com o pacote em ambiente limpo no macOS (o módulo wasm rodou no `dartforge-wasm-run`). O `release.yml` agora exercita esses compiladores e o LSP, e o `ci.yml` o wasm.
+- **CI mais barato** (`d0ffd294`): mudança só de `docs/` ou `*.md` não dispara o `CI`, e o job do Windows usa o mesmo perfil rápido do Linux e do macOS.
+
+### Por que o job do Windows levava 107 min
+
+Medido nos logs de `edeacf6c`. **Os testes em si não são mais lentos no Windows:** com os mesmos testes em release, `io_regression` leva 4,2 s contra 4,3 s, `memory_cli` 31,8 s contra 70,1 s e as provas de ARC 112 s contra 164 s. A exceção é o `reload_state`: 53 s com 5 testes contra 3,2 s com 7.
+
+| Gasto | Windows | Linux |
+|---|---|---|
+| Rodar a suíte em debug (normal 7,7 + ignorados 37,6) | 45 min | não roda este passo |
+| Recompilar antes de cada prova de ARC | 21,6 min | 3,8 min |
+| Compilar em debug (5,9 + 9,6) | 15,5 min | não compila |
+| Compilar em release | 14 min | 7,8 min |
+
+O ganho de `d0ffd294` ainda precisa ser medido, e os logs não separam quanto dos 130 s por prova vem do LTO e quanto do link com o LLVM.
+
+**Comparação com o CI do Dart SDK** (`tools/bots/test_matrix.json` e a branch `infra/config`, lidos em 04/11): não roda só `dart/language`, e testa bem mais que o nosso. São 50 builders automáticos antes de cada commit, 115 só sob pedido, cerca de 80 jobs depois do commit e 73 por noite. A espera é curta porque há filtro por caminho (`docs/x.md` dispara 4 builders, `tests/language/` 25, e só `runtime/vm/os_win.cc`, entre os caminhos que simulei, dispara Windows) e o passo principal de testes da VM usa de 16 a 20 máquinas. Mediana de 13,5 min por builder; `vm-win-release-x64-try`, 12,2 min. Nós fazemos push direto no `main`, então nosso CI equivale só à etapa depois do commit: o Windows continua rodando em todo push de código.
+
 ### A partir daqui
 
-- Push do `main`, CI e `Heavy` no GitHub e, com os dois verdes, a versão `v0.1.0-alpha.3`.
+- CI verde em `d0ffd294` e versão `v0.1.0-alpha.4` com o pacote completo.
+- Testes ignorados do Windows em debug (37,6 min): ver se dá para rodá-los em release, aproveitando a compilação que já existe; se não der, vão para o `Heavy`, que já roda toda noite.
+- Só mover as provas de ARC se o novo perfil não bastar.
 
 ### A fazer (próximos dias)
 
