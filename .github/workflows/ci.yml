@@ -22,7 +22,15 @@ name: CI
 on:
   push:
     branches: [main, 'ci/**']
+    # A change of documentation alone runs nothing here. The AI trailer job
+    # reads the whole history, so the next push of code still checks it.
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
   # To run on a work branch without opening a pull request.
   workflow_dispatch:
 permissions:
@@ -51,6 +59,12 @@ jobs:
     # Cold native-builder corpus runs exceeded 90 minutes while still making
     # progress. Keep the full suite and allow compilation plus both test passes.
     timeout-minutes: 180
+    # As in the native-unix job: ThinLTO with one codegen unit took 14 min for
+    # the compiler and ~130 s more for each ARC proof's generator (3 s on Linux).
+    # The published package keeps the workspace's profile (release.yml).
+    env:
+      CARGO_PROFILE_RELEASE_LTO: 'false'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: The performance meter preserves failures and samples
