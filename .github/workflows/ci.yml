@@ -647,3 +647,5 @@ jobs:
           env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/dartforge" aot main.dart prod --optimize
           [ "$(./prod x y)" = "$expected" ]
           [ "$(env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/dartforge" run main.dart x y)" = "$expected" ]
+          env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/dartforge" compile-wasm main.dart -o main.wasm
+          test -s main.wasm

@@ -8,6 +8,7 @@
 //! <root>/lib/dart-sdk/lib/…                the Dart SDK libraries (source)
 //! <root>/lib/native_sdk/…                  the native backend overlay
 //! <root>/lib/runtime/…                     the precompiled runtime (staticlib)
+//! <root>/lib/ddc/dart_sdk.js               the DDC runtime of development JavaScript
 //! <root>/lib/llvm/bin/…                    the LLVM linker (and Clang, without the embedded generator)
 //! <root>/lib/sysroot/<triple>/…            what linking needs from the system
 //! ```

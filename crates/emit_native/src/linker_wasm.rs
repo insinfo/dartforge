@@ -75,10 +75,13 @@ pub const EXCEPTION_TAG_OBJECT: &[u8] = &[
 
 /// LLD of the same LLVM as `clang`: the distribution's, otherwise the one next to
 /// `clang`, otherwise `lld` on `PATH`. The packages ship `lld` without the
-/// `wasm-ld` alias, so the flavor goes as an argument.
+/// `wasm-ld` alias, so the flavor goes as an argument; for the same reason any
+/// of its names serves, and a distribution carries only the host's.
 pub fn lld(clang: &Path) -> PathBuf {
-    if let Some(l) = dartforge_elements::distribution::llvm_tool("lld") {
-        return l;
+    for name in ["lld", "ld.lld", "ld64.lld", "lld-link"] {
+        if let Some(l) = dartforge_elements::distribution::llvm_tool(name) {
+            return l;
+        }
     }
     let alongside = clang.with_file_name(if cfg!(windows) { "lld.exe" } else { "lld" });
     if alongside.is_file() {

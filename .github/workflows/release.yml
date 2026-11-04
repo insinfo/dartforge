@@ -75,7 +75,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ env.TAG }}
+      # Runs the JavaScript of the clean-environment check.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
       - uses: ./.github/actions/dart
+        with:
+          generate-dart-sdk-js: 'true'
       - if: runner.os == 'Windows'
         uses: ./.github/actions/llvm-windows
         with:
@@ -86,8 +92,8 @@ jobs:
         uses: ./.github/actions/llvm-unix
       - name: Pinned Rust (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal
-      - name: Build dartforge (native, jit)
-        run: cargo build --locked --release -p dartforge-cli --features native,jit
+      - name: Build dartforge (native, jit), the language server and production JavaScript
+        run: cargo build --locked --release -p dartforge-cli --features native,jit -p dartforge-lsp -p dartforge-emit-js-production
       - name: Pack and check in a clean environment
         shell: bash
         env:
@@ -114,6 +120,21 @@ jobs:
             env -i PATH=/usr/bin:/bin HOME="$d/home" "$dist/bin/$exe" aot main.dart prod --optimize
             [ "$(./prod x y)" = "$expected" ]
           fi
+          # Every other compiler the release announces, from the distribution
+          # alone: a missing runtime or tool fails only here.
+          clean() {
+            if [ "$RUNNER_OS" = Windows ]; then "$@"; else env -i PATH=/usr/bin:/bin HOME="$d/home" "$@"; fi
+          }
+          suffix=; [ "$RUNNER_OS" = Windows ] && suffix=.exe
+          # Node does not hand the program its arguments.
+          js_expected=$'hi \n[1, 4, 9]'
+          clean "$dist/bin/$exe" compile-wasm main.dart -o main.wasm
+          test -s main.wasm
+          clean "$dist/bin/$exe" compile-js main.dart -o js
+          [ "$(node js/main.mjs | tr -d '\r')" = "$js_expected" ]
+          clean "$dist/bin/dartforge-jsprod$suffix" main.dart -o prod.js
+          [ "$(node prod.js | tr -d '\r')" = "$js_expected" ]
+          clean "$dist/bin/dartforge-lsp$suffix" --version
           # Resolve from the relocated SDK, never setup-dart's development tree.
           test -f "$dist/lib/dart-sdk/sdk_packages.yaml"
           test -f "$dist/lib/dart-sdk/pkg/_macros/pubspec.yaml"

@@ -7,8 +7,10 @@
 //! ```text
 //! bin/dartforge[.exe]            this executable (and the JIT's LLVM-C.dll on Windows)
 //! bin/dartforge-lsp[.exe]        the language server, when built next to this executable
+//! bin/dartforge-jsprod[.exe]     production JavaScript, when built next to this executable
 //! lib/dartforge-distribution.json
-//! lib/runtime/                   the two runtime staticlibs (emit_native's build.rs)
+//! lib/runtime/                   the runtime staticlibs (emit_native's build.rs)
+//! lib/ddc/dart_sdk.js            the DDC runtime, when it was generated
 //! lib/native_sdk/                the native backend overlay
 //! lib/dart-sdk/{lib,version}     the Dart SDK libraries
 //! lib/llvm/bin/                  lld (and Clang, if the build has no embedded generator)
@@ -41,31 +43,43 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
         &bin.join(exe.file_name().ok_or("executable without a name")?),
     )?;
 
-    // The language server, when it was built next to this executable
-    // (`cargo build --release -p dartforge-lsp`): in `bin/`, it finds the
-    // distribution's Dart SDK by itself.
-    let server = if cfg!(windows) {
-        "dartforge-lsp.exe"
-    } else {
-        "dartforge-lsp"
-    };
-    if let Some(sibling) = exe.parent().map(|d| d.join(server))
-        && sibling.is_file()
-    {
-        copy(&sibling, &bin.join(server))?;
+    // The language server and production JavaScript, when they were built next
+    // to this executable (`cargo build --release -p dartforge-lsp -p
+    // dartforge-emit-js-production`): in `bin/`, they find the distribution's
+    // Dart SDK by themselves.
+    for tool in ["dartforge-lsp", "dartforge-jsprod"] {
+        let tool = format!("{tool}{}", std::env::consts::EXE_SUFFIX);
+        match exe.parent().map(|d| d.join(&tool)) {
+            Some(sibling) if sibling.is_file() => copy(&sibling, &bin.join(&tool))?,
+            _ => eprintln!("warning: {tool} was not built and stays out of the distribution"),
+        }
     }
 
-    // The precompiled runtime (the three variants).
+    // The precompiled runtime (the variants of the host and WebAssembly's).
     for r in [
         dartforge_emit_native::cache::RuntimeCache::get_or_compile()?,
         dartforge_emit_native::cache::RuntimeCache::for_dll()?,
         dartforge_emit_native::cache::RuntimeCache::for_production()?,
+        dartforge_emit_native::cache::RuntimeCache::for_wasm()?,
     ] {
         copy(
             &r.lib_path,
             &lib.join("runtime")
                 .join(r.lib_path.file_name().ok_or("runtime without a name")?),
         )?;
+    }
+
+    // The DDC runtime that development JavaScript links; outside git, generated
+    // by `scripts/generate-dart-sdk.ps1`.
+    let dart_sdk_js = dartforge_emit_js::default_dart_sdk_js();
+    if dart_sdk_js.is_file() {
+        std::fs::create_dir_all(lib.join("ddc"))?;
+        copy(&dart_sdk_js, &lib.join("ddc").join("dart_sdk.js"))?;
+    } else {
+        eprintln!(
+            "warning: {} is missing: compile-js, dev and serve will not work from the distribution",
+            dart_sdk_js.display()
+        );
     }
 
     // The overlay and the Dart SDK.
