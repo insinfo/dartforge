@@ -639,6 +639,130 @@ fn workspace_symbols_include_nested_package_files() {
 }
 
 #[test]
+fn workspace_symbols_keep_dependency_resolution_in_its_referring_context() {
+    let mut p = Project::with_capabilities(
+        "nav-symbol-catalog-contexts",
+        json!({"workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}}}),
+    );
+    for (name, text) in [
+        ("version_one", "class CatalogNeedleVersionOne {}"),
+        ("version_two", "class CatalogNeedleVersionTwo {}"),
+        ("version_three", "class CatalogNeedleVersionThree {}"),
+        ("child_dependency", "class CatalogNeedleChildDependency {}"),
+        (
+            "bridge",
+            "import 'package:versioned/api.dart'; class CatalogNeedleBridge {}",
+        ),
+    ] {
+        p.write(&format!("../{name}/lib/api.dart"), text);
+    }
+    p.write("../version_one/lib/old.dart", "class CatalogNeedleOld {}");
+    let package = |name: &str, root: &str| {
+        json!({
+            "name": name, "rootUri": root, "packageUri": "lib/", "languageVersion": "3.6",
+        })
+    };
+    p.write(
+        ".dart_tool/package_config.json",
+        &json!({"configVersion": 2, "packages": [
+            package("projeto", "../"), package("versioned", "../../version_one/"),
+            package("bridge", "../../bridge/"),
+        ]})
+        .to_string(),
+    );
+    p.write("example/pubspec.yaml", "name: catalog_child\n");
+    let child_config = |version: &str| {
+        json!({"configVersion": 2, "packages": [
+            package("catalog_child", "../"), package("projeto", "../../"),
+            package("versioned", &format!("../../../{version}/")),
+            package("bridge", "../../../bridge/"),
+            package("child_dependency", "../../../child_dependency/"),
+        ]})
+        .to_string()
+    };
+    p.write(
+        "example/.dart_tool/package_config.json",
+        &child_config("version_two"),
+    );
+    p.write(
+        "example/lib/anchor.dart",
+        "import 'package:bridge/api.dart'; import 'package:bridge/adapter.dart'; import 'package:catalog_child/generated.dart';",
+    );
+    p.write(
+        "example/.dart_tool/build/generated/catalog_child/lib/generated.dart",
+        "class CatalogNeedleGenerated {}",
+    );
+    p.write(
+        "example/.dart_tool/build/generated/bridge/lib/adapter.dart",
+        "import 'api.dart'; class CatalogNeedleGeneratedBridge {}",
+    );
+    p.write("example/test/runner.dart", "import 'runner.template.dart';");
+    p.write(
+        "example/.dart_tool/build/generated/catalog_child/test/runner.template.dart",
+        "class CatalogNeedleGeneratedTest {}",
+    );
+    p.open(
+        "lib/anchor.dart",
+        "import 'package:bridge/api.dart'; void anchor() {}",
+    );
+    let symbols = |p: &mut Project, query: &str| {
+        p.request("workspace/symbol", json!({"query": query}))["result"].clone()
+    };
+    let versions = symbols(&mut p, "CatalogNeedleVersion");
+    assert_eq!(versions.as_array().unwrap().len(), 1, "{versions}");
+    assert_eq!(versions[0]["name"], "CatalogNeedleVersionTwo");
+    assert_eq!(
+        versions[0]["location"]["uri"],
+        url::Url::from_file_path(p.root.join("version_two/lib/api.dart"))
+            .unwrap()
+            .to_string()
+    );
+    assert_eq!(
+        symbols(&mut p, "CatalogNeedleChildDependency")
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let bridge = symbols(&mut p, "CatalogNeedleBridge");
+    assert_eq!(
+        bridge
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["CatalogNeedleBridge", "CatalogNeedleGeneratedBridge"]
+    );
+    assert_eq!(
+        symbols(&mut p, "CatalogNeedleGenerated")
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    // A URI that exists only in the parent's package version remains visible.
+    assert_eq!(
+        symbols(&mut p, "CatalogNeedleOld")
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(symbols(&mut p, "CatalogNeedleVersion"), versions);
+
+    p.write(
+        "example/.dart_tool/package_config.json",
+        &child_config("version_three"),
+    );
+    p.server.receive(json!({"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+        "params": {"changes": [{"uri": p.uri("example/.dart_tool/package_config.json"), "type": 2}]}}));
+    let versions = symbols(&mut p, "CatalogNeedleVersion");
+    assert_eq!(versions.as_array().unwrap().len(), 1, "{versions}");
+    assert_eq!(versions[0]["name"], "CatalogNeedleVersionThree");
+}
+
+#[test]
 fn workspace_symbols_preserve_discovery_order_through_file_events() {
     fn symbols(p: &mut Project, query: &str) -> Vec<Value> {
         p.request("workspace/symbol", json!({"query": query}))["result"]

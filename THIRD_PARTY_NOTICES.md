@@ -6,6 +6,13 @@ DartForge is MIT licensed. The abbreviated formatting of Iterable in
 Copyright (c) 2011, the Dart project authors. All rights reserved.
 The notice below is also preserved in the JS output that includes that runtime.
 
+The context iteration in `crates/lsp/src/workspace_symbols/context_order.rs`
+adapts the VM HashMap bucket rules from Dart SDK 3.6.2
+`sdk/lib/_internal/vm_shared/lib/collection_patch.dart` (Copyright (c) 2013,
+the Dart project authors) and the StringHasher rules from `runtime/vm/object.h`
+and `runtime/vm/hash.h` (Copyright (c) 2012 and 2018, the Dart project authors),
+under the same BSD license below.
+
 `corpus/diagnostics/` (the parity scoreboard of `crates/parity`) contains
 copies of `tests/language` and excerpts of `pkg/analyzer/test/src/diagnostics`
 from the Dart SDK, `pkg/expect` from the same SDK and the `lib/` of the `meta`

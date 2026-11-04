@@ -3,11 +3,14 @@
 // dart --packages=<config> trace_discovery.dart <project> <priority-file> <sdk> <output.json>
 // This is an auxiliary source-level trace, not a replacement for the LSP oracle.
 
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
 import 'package:analyzer/src/dart/analysis/analysis_context_collection.dart';
+import 'package:analyzer/src/dart/analysis/driver.dart';
+import 'package:analyzer/file_system/file_system.dart' show Folder;
 
 String normalized(String value) =>
     Uri.file(File(value).absolute.path).normalizePath().toFilePath();
@@ -38,7 +41,10 @@ Future<void> main(List<String> args) async {
     sdkPath: sdk,
   );
   try {
+    // ContextManager.driverMap is a HashMap, not the collection's context list.
+    final driverMap = HashMap<Folder, AnalysisDriver>();
     for (final context in collection.contexts) {
+      driverMap[context.contextRoot.root] = context.driver;
       for (final file in context.contextRoot.analyzedFiles()) {
         if (file.endsWith('.dart')) context.driver.addFile(file);
       }
@@ -59,7 +65,7 @@ Future<void> main(List<String> args) async {
         ];
     final before = known();
     await Future.wait(
-      collection.contexts.map((c) => c.driver.discoverAvailableFiles()),
+      driverMap.values.map((d) => d.discoverAvailableFiles()),
     );
     final after = known();
     await File(args[3]).writeAsString(jsonEncode({
@@ -71,6 +77,10 @@ Future<void> main(List<String> args) async {
       'contexts': [
         for (final c in collection.contexts) c.contextRoot.root.path
       ],
+      'driverMapOrder': [for (final root in driverMap.keys) root.path],
+      'driverMapHashes': {
+        for (final root in driverMap.keys) root.path: root.hashCode
+      },
       'added': collection.ownedFiles.addedFiles.keys.map((u) => '$u').toList(),
       'beforeDiscovery': before,
       'afterDiscovery': after,

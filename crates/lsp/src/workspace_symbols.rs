@@ -23,7 +23,7 @@
 //!
 //! The known files also have the `build_runner` outputs that the libraries
 //! import (`package:x/a.template.dart`, which only exists under
-//! `.dart_tool/build/generated`): the analyzer's `PackageBuildWorkspace`
+//! `.dart_tool/build/generated`): the analyzer's `PackageConfigWorkspace`
 //! resolves those URIs to the generated files, and each `FileState` it
 //! creates is a known file. They come in the order dependencies reach them
 //! from the added files, before the remaining available libraries.
@@ -39,6 +39,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
+
+mod context_order;
 
 /// The handler's result limit.
 pub(crate) const LIMIT: usize = 500;
@@ -327,14 +329,158 @@ struct SdkFiles {
     available: Vec<PathBuf>,
 }
 
+/// A driver's package catalog and generated workspace. Dependencies keep the
+/// referring driver, including when they are shared by multiple contexts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Context {
+    root: PathBuf,
+    packages: Vec<(String, PathBuf)>,
+    generated: Vec<(String, PathBuf, PathBuf)>,
+    generated_files: Vec<(PathBuf, PathBuf)>,
+}
+
+impl Context {
+    /// Loads the nearest package configuration, which can be inherited by a
+    /// context with no configuration of its own (for example a BUILD.gn root).
+    pub(crate) fn load(root: &Path) -> Self {
+        let config_root = root
+            .ancestors()
+            .find(|p| p.join(".dart_tool/package_config.json").is_file());
+        let locations = config_root
+            .map(crate::project::packages_in_analysis_order)
+            .unwrap_or_default();
+        let packages: Vec<_> = locations
+            .iter()
+            .map(|p| (p.name.clone(), p.lib.clone()))
+            .collect();
+        let generated = config_root
+            .into_iter()
+            .flat_map(|root| {
+                let output = root.join(".dart_tool/build/generated");
+                packages.iter().filter_map(move |(name, lib)| {
+                    let generated = output.join(name).join("lib");
+                    generated
+                        .is_dir()
+                        .then(|| (name.clone(), lib.clone(), generated))
+                })
+            })
+            .collect();
+        let generated_files = config_root
+            .into_iter()
+            .flat_map(|root| {
+                let output = root.join(".dart_tool/build/generated");
+                locations
+                    .iter()
+                    .filter(move |p| p.root.starts_with(root))
+                    .filter_map(move |p| {
+                        let generated = output.join(&p.name);
+                        generated.is_dir().then(|| (p.root.clone(), generated))
+                    })
+            })
+            .collect();
+        Self {
+            root: root.to_path_buf(),
+            packages,
+            generated,
+            generated_files,
+        }
+    }
+
+    /// SourceFactory.pathToUri: a package URI identifies a library across
+    /// different physical versions of the same package in different drivers.
+    fn identity(&self, path: &Path) -> FileIdentity {
+        for (name, _, output) in &self.generated {
+            if let Ok(relative) = path.strip_prefix(output) {
+                return FileIdentity::Package(name.clone(), relative.to_path_buf());
+            }
+        }
+        for (name, folder) in &self.packages {
+            let folder = dartforge_elements::generated::key_of(folder);
+            if let Ok(relative) = path.strip_prefix(folder.as_ref()) {
+                return FileIdentity::Package(name.clone(), relative.to_path_buf());
+            }
+        }
+        for (source, output) in &self.generated_files {
+            if let Ok(relative) = path.strip_prefix(output) {
+                return FileIdentity::File(source.join(relative));
+            }
+        }
+        FileIdentity::File(path.to_path_buf())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum FileIdentity {
+    File(PathBuf),
+    Package(String, PathBuf),
+}
+
+#[derive(Debug, Clone)]
+struct OwnedFile {
+    identity: FileIdentity,
+    path: PathBuf,
+}
+
+/// OwnedFiles: added URIs keep their first owner, known URIs their most recent
+/// owner. Replacing an owner preserves the URI's original insertion position.
+#[derive(Debug, Default)]
+struct Discovery {
+    files: Vec<OwnedFile>,
+    positions: HashMap<FileIdentity, usize>,
+    added_count: usize,
+    created: HashSet<(usize, PathBuf)>,
+}
+
+impl Discovery {
+    fn add(&mut self, path: &Path, context: usize, contexts: &[Context], added: bool) {
+        let path = dartforge_elements::generated::key(path);
+        if !self.created.insert((context, path.clone())) {
+            return;
+        }
+        let identity = contexts
+            .get(context)
+            .map_or_else(|| FileIdentity::File(path.clone()), |c| c.identity(&path));
+        if let Some(&position) = self.positions.get(&identity) {
+            if !added && position >= self.added_count {
+                self.files[position] = OwnedFile { identity, path };
+            }
+        } else {
+            self.positions.insert(identity.clone(), self.files.len());
+            self.files.push(OwnedFile { identity, path });
+            if added {
+                self.added_count += 1;
+            }
+        }
+    }
+
+    fn retain_live(&mut self, open: &HashMap<PathBuf, Fingerprint>) {
+        self.files
+            .retain(|f| open.contains_key(&f.path) || f.path.is_file());
+        self.created
+            .retain(|(_, p)| open.contains_key(p) || p.is_file());
+        self.positions.clear();
+        for (i, file) in self.files.iter().enumerate() {
+            self.positions.insert(file.identity.clone(), i);
+        }
+    }
+}
+
+fn context_for(path: &Path, contexts: &[Context]) -> usize {
+    contexts
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| path.starts_with(&c.root))
+        .max_by_key(|(_, c)| c.root.components().count())
+        .map_or(0, |(i, _)| i)
+}
+
 /// Inputs that can change library discovery, excluding edits to bodies and
 /// declaration ranges. Opening order follows AnalysisDriver.priorityFiles.
 #[derive(Debug, PartialEq, Eq)]
 struct DiscoveryInputs {
     added: Vec<PathBuf>,
     sdk: Option<PathBuf>,
-    packages: Vec<(String, PathBuf)>,
-    generated: Vec<(String, PathBuf, PathBuf)>,
+    contexts: Vec<Context>,
     priority: Vec<PathBuf>,
     open_dependencies: Vec<OpenDependencies>,
 }
@@ -370,7 +516,7 @@ pub(crate) struct Index {
     /// The `.dart` files of each package's `lib/`, as last listed.
     listed: HashMap<PathBuf, Vec<PathBuf>>,
     /// The last search's files, with what they were listed from.
-    paths: Option<(DiscoveryInputs, Vec<PathBuf>)>,
+    paths: Option<(DiscoveryInputs, Discovery)>,
 }
 
 /// Reads a file (open or from disk) with its fingerprint.
@@ -1075,8 +1221,8 @@ impl Index {
 
     /// `FindDeclarations.compute` + the handler's `_asSymbolInformation`.
     /// `added` are the project files; `priority`, the current documents in
-    /// opening order; `packages`, the packages' `lib/`s (in
-    /// `package_config.json` order); `open_texts`, the URI and text of the open
+    /// opening order; `contexts`, each driver's package catalog and generated
+    /// workspace; `open_texts`, the URI and text of the open
     /// documents by normalized path (`gerado::key`); `kinds`, the
     /// `SymbolKind`s the client accepts.
     #[allow(clippy::too_many_arguments)]
@@ -1086,8 +1232,7 @@ impl Index {
         added: &[PathBuf],
         priority: &[PathBuf],
         sdk: Option<&Path>,
-        packages: &[(String, PathBuf)],
-        generated: &[(String, PathBuf, PathBuf)],
+        contexts: &[Context],
         open_texts: &HashMap<PathBuf, (String, String)>,
         kinds: Option<&[u64]>,
         trust_disk: bool,
@@ -1140,62 +1285,82 @@ impl Index {
         let inputs = DiscoveryInputs {
             added: added.to_vec(),
             sdk: sdk.map(Path::to_path_buf),
-            packages: packages.to_vec(),
-            generated: generated.to_vec(),
+            contexts: contexts.to_vec(),
             priority: priority.to_vec(),
             open_dependencies,
         };
         if trust_disk
-            && let Some((last, paths)) = &self.paths
+            && let Some((last, discovery)) = &self.paths
             && *last == inputs
         {
-            let paths = paths.clone();
-            return self.find(query, &paths, read, open, &uri_of, kinds, trust_disk);
+            let files = discovery.files.clone();
+            return self.find(query, &files, read, open, &uri_of, kinds, trust_disk);
         }
-        let mut paths: Vec<PathBuf> = Vec::new();
-        let mut seen: HashSet<PathBuf> = HashSet::new();
-        for p in added {
-            include_path(p.clone(), &mut paths, &mut seen);
-        }
-        let sdk_files = sdk.map(|lib| self.sdk_files(lib));
-        if let Some(sdk) = &sdk_files {
-            for p in &sdk.bootstrap {
-                include_path(p.clone(), &mut paths, &mut seen);
+        // Each driver's FileState is created once. A later encounter in that
+        // driver must not steal a URI back from another driver.
+        let mut discovery = match self.paths.take() {
+            Some((last, mut previous))
+                if last.added == inputs.added
+                    && last.sdk == inputs.sdk
+                    && last.contexts == inputs.contexts =>
+            {
+                if !trust_disk {
+                    previous.retain_live(open);
+                }
+                previous
             }
-        }
-        // A later priority or import change adds known files; it does not
-        // reorder those already discovered in the same context and catalog.
-        if let Some((last, previous)) = &self.paths
-            && last.added == inputs.added
-            && last.sdk == inputs.sdk
-            && last.packages == inputs.packages
-            && last.generated == inputs.generated
-        {
-            for path in previous {
-                if open.contains_key(&dartforge_elements::generated::key(path)) || path.is_file() {
-                    include_path(path.clone(), &mut paths, &mut seen);
+            _ => {
+                let mut discovery = Discovery::default();
+                for p in added {
+                    discovery.add(p, context_for(p, contexts), contexts, true);
+                }
+                discovery
+            }
+        };
+        let sdk_files = sdk.map(|lib| self.sdk_files(lib));
+        for context in 0..contexts.len().max(1) {
+            if let Some(sdk) = &sdk_files {
+                for p in &sdk.bootstrap {
+                    discovery.add(p, context, contexts, false);
                 }
             }
         }
         // LibraryNode.computeDependencies materializes imports (including
         // implicit dart:core) before exports, then walks those dependencies.
         // The dart:core bootstrap above uses a different discovery entry point.
-        let mut pending: Vec<PathBuf> = added.iter().rev().cloned().collect();
-        pending.extend(priority.iter().rev().cloned());
+        let mut pending: Vec<_> = added
+            .iter()
+            .rev()
+            .map(|p| (context_for(p, contexts), p.clone()))
+            .collect();
+        pending.extend(
+            priority
+                .iter()
+                .rev()
+                .map(|p| (context_for(p, contexts), p.clone())),
+        );
         let mut visited = HashSet::new();
-        while let Some(path) = pending.pop() {
-            if !visited.insert(dartforge_elements::generated::key(&path)) {
+        let empty = Context::default();
+        while let Some((context, path)) = pending.pop() {
+            let path = dartforge_elements::generated::key(&path);
+            if !visited.insert((context, path.clone())) {
                 continue;
             }
             let Some(library) = self.library(&path, read, open, &uri_of, trust_disk) else {
                 continue;
             };
+            let catalog = contexts.get(context).unwrap_or(&empty);
             let mut next = Vec::new();
             for (unit, uri) in &library.imports {
-                if let Some(target) =
-                    dependency_target(unit, uri, sdk_files.as_deref(), packages, generated)
-                {
-                    include_path(target.clone(), &mut paths, &mut seen);
+                if let Some(target) = dependency_target(
+                    unit,
+                    uri,
+                    sdk_files.as_deref(),
+                    &catalog.packages,
+                    &catalog.generated,
+                    &catalog.generated_files,
+                ) {
+                    discovery.add(&target, context, contexts, false);
                     next.push(target);
                 }
             }
@@ -1203,63 +1368,82 @@ impl Index {
                 next.push(core.path.clone());
             }
             for (unit, uri) in &library.exports {
-                if let Some(target) =
-                    dependency_target(unit, uri, sdk_files.as_deref(), packages, generated)
-                {
-                    include_path(target.clone(), &mut paths, &mut seen);
+                if let Some(target) = dependency_target(
+                    unit,
+                    uri,
+                    sdk_files.as_deref(),
+                    &catalog.packages,
+                    &catalog.generated,
+                    &catalog.generated_files,
+                ) {
+                    discovery.add(&target, context, contexts, false);
                     next.push(target);
                 }
             }
-            pending.extend(next.into_iter().rev());
+            pending.extend(next.into_iter().rev().map(|p| (context, p)));
         }
-        if let Some(sdk) = &sdk_files {
-            for p in &sdk.available {
-                include_path(p.clone(), &mut paths, &mut seen);
-            }
+        let mut available_contexts = context_order::order(contexts);
+        if available_contexts.is_empty() {
+            available_contexts.push(0);
         }
-        for (_, folder) in packages {
-            let files = match self.listed.get(folder) {
-                Some(files) if trust_disk => files.clone(),
-                _ => {
-                    let mut files = Vec::new();
-                    discover(folder, &mut files);
-                    self.listed.insert(folder.clone(), files.clone());
-                    files
+        for context in available_contexts {
+            if let Some(sdk) = &sdk_files {
+                for p in &sdk.available {
+                    discovery.add(p, context, contexts, false);
                 }
-            };
-            for p in files {
-                include_path(p, &mut paths, &mut seen);
+            }
+            let catalog = contexts.get(context).unwrap_or(&empty);
+            for (_, folder) in &catalog.packages {
+                let files = match self.listed.get(folder) {
+                    Some(files) if trust_disk => files.clone(),
+                    _ => {
+                        let mut files = Vec::new();
+                        discover(folder, &mut files);
+                        self.listed.insert(folder.clone(), files.clone());
+                        files
+                    }
+                };
+                for p in files {
+                    discovery.add(&p, context, contexts, false);
+                }
             }
         }
         // Catalog replacement and deleted files must release old declaration
         // data, rather than retaining every package version seen in a session.
-        let retained: HashSet<_> = paths
+        let retained: HashSet<_> = discovery
+            .created
             .iter()
+            .map(|(_, p)| p)
             .chain(priority)
             .map(|p| dartforge_elements::generated::key(p))
             .collect();
         self.entries.retain(|p, _| retained.contains(p));
-        self.listed
-            .retain(|folder, _| packages.iter().any(|(_, p)| p == folder));
-        self.paths = Some((inputs, paths.clone()));
-        self.find(query, &paths, read, open, &uri_of, kinds, trust_disk)
+        self.listed.retain(|folder, _| {
+            contexts
+                .iter()
+                .flat_map(|c| &c.packages)
+                .any(|(_, p)| p == folder)
+        });
+        let files = discovery.files.clone();
+        self.paths = Some((inputs, discovery));
+        self.find(query, &files, read, open, &uri_of, kinds, trust_disk)
     }
 
-    /// The declarations of the libraries at `paths` that match `query`.
+    /// The declarations of the owned libraries that match `query`.
     #[allow(clippy::too_many_arguments)]
     fn find(
         &mut self,
         query: &str,
-        paths: &[PathBuf],
+        files: &[OwnedFile],
         read: &Reader<'_>,
         open: &HashMap<PathBuf, Fingerprint>,
         uri_of: &dyn Fn(&Path) -> String,
         kinds: Option<&[u64]>,
         trust_disk: bool,
     ) -> Vec<Value> {
-        let libraries: Vec<Arc<Library>> = paths
+        let libraries: Vec<Arc<Library>> = files
             .iter()
-            .filter_map(|c| self.library(c, read, open, uri_of, trust_disk))
+            .filter_map(|c| self.library(&c.path, read, open, uri_of, trust_disk))
             .collect();
         // The `typedef`s of every library, to expand aliases from another library
         // (the first one of each name).
@@ -1363,19 +1547,6 @@ fn symbol(
     v
 }
 
-/// Adds a known file once, preserving the discovery order.
-fn include_path(path: PathBuf, paths: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>) -> bool {
-    let path = match dartforge_elements::generated::key_of(&path) {
-        std::borrow::Cow::Borrowed(_) => path,
-        std::borrow::Cow::Owned(path) => path,
-    };
-    let new = seen.insert(path.clone());
-    if new {
-        paths.push(path);
-    }
-    new
-}
-
 /// Resolves a written dependency through the analyzer SDK and package map,
 /// including the generated package workspace used by build_runner.
 fn dependency_target(
@@ -1384,6 +1555,7 @@ fn dependency_target(
     sdk: Option<&SdkFiles>,
     packages: &[(String, PathBuf)],
     generated: &[(String, PathBuf, PathBuf)],
+    generated_files: &[(PathBuf, PathBuf)],
 ) -> Option<PathBuf> {
     if let Some(name) = uri.strip_prefix("dart:") {
         return sdk?.layout.library(name).map(|l| l.path.clone());
@@ -1391,9 +1563,32 @@ fn dependency_target(
     if let Some(rest) = uri.strip_prefix("package:") {
         let (name, relative) = rest.split_once('/')?;
         let (_, lib) = packages.iter().find(|(n, _)| n == name)?;
-        return generated_target(unit, uri, generated).or_else(|| Some(lib.join(relative)));
+        return generated_target(unit, uri, generated, generated_files)
+            .or_else(|| Some(lib.join(relative)));
     }
-    generated_target(unit, uri, generated).or_else(|| {
+    // A generated unit keeps its canonical source URI. Resolve relative
+    // directives from that source location before trying its generated
+    // counterpart; using the physical output directory can manufacture a
+    // missing FileState that shadows the real package source at the same URI.
+    let source_unit = if url::Url::parse(uri).is_err() {
+        generated
+            .iter()
+            .map(|(_, source, output)| (source, output))
+            .chain(
+                generated_files
+                    .iter()
+                    .map(|(source, output)| (source, output)),
+            )
+            .find_map(|(source, output)| {
+                unit.strip_prefix(output)
+                    .ok()
+                    .map(|relative| source.join(relative))
+            })
+    } else {
+        None
+    };
+    let unit = source_unit.as_deref().unwrap_or(unit);
+    generated_target(unit, uri, generated, generated_files).or_else(|| {
         url::Url::from_file_path(unit)
             .ok()?
             .join(uri)
@@ -1462,21 +1657,17 @@ fn read_libraries_dart(lib: &Path, layout: &dartforge_elements::sdk::SdkLayout) 
     output
 }
 
-/// The names and `lib/` directories (the `packageUri`) of the packages of
-/// `root`'s `.dart_tool/package_config.json`, in file order.
-pub(crate) fn package_folders(root: &Path) -> Vec<(String, PathBuf)> {
-    crate::project::packages_with_name(root)
-}
-
 /// The generated file `uri` (imported or exported by `unit`) points to, when
 /// it is a `build_runner` output: a `package:` URI of a package in
 /// `generated` (name, `lib/` folder, generated `lib/` folder) whose file is
 /// not in the package's `lib/` but is under the generated one, or a relative
-/// URI from a generated file to another one.
+/// URI from a source/generated file to another generated output. The
+/// `generated_files` mappings also cover non-lib outputs such as tests.
 fn generated_target(
     unit: &Path,
     uri: &str,
     generated: &[(String, PathBuf, PathBuf)],
+    generated_files: &[(PathBuf, PathBuf)],
 ) -> Option<PathBuf> {
     if let Some(rest) = uri.strip_prefix("package:") {
         let (name, path) = rest.split_once('/')?;
@@ -1493,23 +1684,41 @@ fn generated_target(
     // A relative URI: from a generated file, or from a package file to an
     // output next to it.
     let folder = unit.parent()?;
-    let target = dartforge_elements::generated::key(&folder.join(uri));
+    let target = url::Url::from_file_path(unit)
+        .ok()?
+        .join(uri)
+        .ok()?
+        .to_file_path()
+        .ok()?;
     if target.is_file() {
         return generated
             .iter()
-            .any(|(_, _, out)| target.starts_with(out))
+            .map(|(_, _, out)| out)
+            .chain(generated_files.iter().map(|(_, out)| out))
+            .any(|out| target.starts_with(out))
             .then_some(target);
     }
-    let (_, lib, out) = generated
+    generated
         .iter()
-        .find(|(_, lib, _)| folder.starts_with(lib))?;
-    let g = out.join(target.strip_prefix(lib).ok()?);
-    g.is_file().then_some(g)
+        .map(|(_, lib, out)| (lib, out))
+        .chain(generated_files.iter().map(|(source, out)| (source, out)))
+        .filter(|(source, _)| folder.starts_with(source))
+        .find_map(|(source, out)| {
+            let generated = out.join(target.strip_prefix(source).ok()?);
+            generated.is_file().then_some(generated)
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn catalog(packages: &[(String, PathBuf)]) -> [Context; 1] {
+        [Context {
+            packages: packages.to_vec(),
+            ..Context::default()
+        }]
+    }
 
     fn fixture(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
@@ -1558,8 +1767,7 @@ mod tests {
             &added,
             std::slice::from_ref(&a),
             None,
-            &packages,
-            &[],
+            &catalog(&packages),
             &HashMap::new(),
             None,
             false,
@@ -1587,8 +1795,7 @@ mod tests {
                 &added,
                 std::slice::from_ref(&b),
                 None,
-                &packages,
-                &[],
+                &catalog(&packages),
                 &HashMap::new(),
                 None,
                 true,
@@ -1616,8 +1823,7 @@ mod tests {
                 &added,
                 std::slice::from_ref(&b),
                 None,
-                &packages,
-                &[],
+                &catalog(&packages),
                 &open,
                 None,
                 true,
@@ -1631,8 +1837,7 @@ mod tests {
             &added,
             std::slice::from_ref(&b),
             None,
-            &packages,
-            &[],
+            &catalog(&packages),
             &open,
             None,
             true,
@@ -1667,8 +1872,7 @@ mod tests {
                 std::slice::from_ref(&entry),
                 &[],
                 None,
-                &[("dependency".to_string(), old.clone())],
-                &[],
+                &catalog(&[("dependency".to_string(), old.clone())]),
                 &HashMap::new(),
                 None,
                 false,
@@ -1687,8 +1891,7 @@ mod tests {
                 &[entry],
                 &[],
                 None,
-                &[("dependency".to_string(), new)],
-                &[],
+                &catalog(&[("dependency".to_string(), new)]),
                 &HashMap::new(),
                 None,
                 true,
@@ -1740,8 +1943,7 @@ mod tests {
                 &[],
                 &[],
                 Some(&root),
-                &[],
-                &[],
+                &catalog(&[]),
                 &HashMap::new(),
                 None,
                 trust_disk,
@@ -1795,8 +1997,7 @@ export 'dart:async'; class NeedleCore {}\n",
                 &[],
                 &[],
                 Some(&root),
-                &[],
-                &[],
+                &catalog(&[]),
                 &HashMap::new(),
                 None,
                 trust_disk,
@@ -1837,8 +2038,7 @@ export 'dart:async'; class NeedleCore {}\n",
             &[entry],
             &[],
             Some(&root),
-            &[("dependency".to_string(), package)],
-            &[],
+            &catalog(&[("dependency".to_string(), package)]),
             &HashMap::new(),
             None,
             false,

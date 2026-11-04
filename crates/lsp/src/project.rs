@@ -232,6 +232,16 @@ pub(crate) fn project_files(root: &Path) -> Vec<PathBuf> {
 /// Other project loads keep using the sorted [`project_files`] so that their
 /// element layout does not depend on directory enumeration order.
 pub(crate) fn symbol_files(root: &Path) -> Vec<PathBuf> {
+    symbol_context_files(root)
+        .into_iter()
+        .flat_map(|(_, files)| files)
+        .collect()
+}
+
+/// Analysis contexts and their files in discovery order. Each context keeps
+/// its own package configuration; a dependency is resolved by the referring
+/// context even when the dependency's path lies outside that context's root.
+pub(crate) fn symbol_context_files(root: &Path) -> Vec<(PathBuf, Vec<PathBuf>)> {
     fn contexts(dir: &Path, ancestors: &mut HashSet<PathBuf>, roots: &mut Vec<PathBuf>) {
         let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
         if !ancestors.insert(canonical.clone()) {
@@ -260,8 +270,9 @@ pub(crate) fn symbol_files(root: &Path) -> Vec<PathBuf> {
         ancestors: &mut HashSet<PathBuf>,
         boundaries: &HashSet<PathBuf>,
         output: &mut Vec<PathBuf>,
+        limit: usize,
     ) {
-        if output.len() >= MAX_FILES {
+        if output.len() >= limit {
             return;
         }
         let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
@@ -270,7 +281,7 @@ pub(crate) fn symbol_files(root: &Path) -> Vec<PathBuf> {
         }
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
-                if output.len() >= MAX_FILES {
+                if output.len() >= limit {
                     break;
                 }
                 let path = entry.path();
@@ -278,7 +289,7 @@ pub(crate) fn symbol_files(root: &Path) -> Vec<PathBuf> {
                 let name = name.to_string_lossy();
                 if path.is_dir() {
                     if !name.starts_with('.') && name != "build" && !boundaries.contains(&path) {
-                        visit(&path, ancestors, boundaries, output);
+                        visit(&path, ancestors, boundaries, output, limit);
                     }
                 } else if name.ends_with(".dart") {
                     output.push(path);
@@ -292,10 +303,20 @@ pub(crate) fn symbol_files(root: &Path) -> Vec<PathBuf> {
     contexts(root, &mut HashSet::new(), &mut roots);
     let boundaries: HashSet<_> = roots.iter().skip(1).cloned().collect();
     let mut output = Vec::new();
+    let mut remaining = MAX_FILES;
     for context in roots {
         // All files of a containing context precede its child contexts.
-        visit(&context, &mut HashSet::new(), &boundaries, &mut output);
-        if output.len() >= MAX_FILES {
+        let mut files = Vec::new();
+        visit(
+            &context,
+            &mut HashSet::new(),
+            &boundaries,
+            &mut files,
+            remaining,
+        );
+        remaining -= files.len();
+        output.push((context, files));
+        if remaining == 0 {
             break;
         }
     }
@@ -387,6 +408,31 @@ pub(crate) const KNOWN: &str = ".dartforge_known.dart";
 
 /// `(name, lib/ folder)` of the packages in `root`'s `package_config.json`.
 pub(crate) fn packages_with_name(root: &Path) -> Vec<(String, PathBuf)> {
+    package_locations(root)
+        .into_iter()
+        .map(|p| (p.name, p.lib))
+        .collect()
+}
+
+/// The analyzer's package-map iteration order. PackageConfig sorts by root
+/// URI when building its package tree; it does not preserve JSON array order.
+/// Other project loads keep their existing catalog order.
+pub(crate) fn packages_in_analysis_order(root: &Path) -> Vec<PackageLocation> {
+    let mut packages = package_locations(root);
+    packages.sort_by(|a, b| a.root_uri.cmp(&b.root_uri));
+    packages
+}
+
+/// A resolved package root and its source library directory. Non-lib generated
+/// outputs resolve relative to the root, which need not be the parent of lib.
+pub(crate) struct PackageLocation {
+    pub(crate) name: String,
+    pub(crate) root: PathBuf,
+    pub(crate) lib: PathBuf,
+    root_uri: String,
+}
+
+fn package_locations(root: &Path) -> Vec<PackageLocation> {
     let file = root.join(".dart_tool").join("package_config.json");
     let Ok(text) = std::fs::read_to_string(&file) else {
         return Vec::new();
@@ -428,8 +474,15 @@ pub(crate) fn packages_with_name(root: &Path) -> Vec<(String, PathBuf)> {
             .get("packageUri")
             .and_then(|v| v.as_str())
             .unwrap_or("lib/");
-        if let Some(lib) = resolve(package_uri, &package_root) {
-            output.push((name.to_string(), lib));
+        if let Some(lib) = resolve(package_uri, &package_root)
+            && let Ok(root_uri) = Url::from_directory_path(&package_root)
+        {
+            output.push(PackageLocation {
+                name: name.to_string(),
+                root: package_root,
+                lib,
+                root_uri: root_uri.to_string(),
+            });
         }
     }
     output

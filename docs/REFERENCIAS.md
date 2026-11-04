@@ -79,6 +79,14 @@ As dependências auxiliares desse rastreador foram resolvidas offline; ele expli
 descoberta de arquivos, mas o oráculo de paridade continua sendo o servidor do SDK
 binário 3.6.2. Código de revisões posteriores serve apenas como referência de arquitetura.
 
+Na mesma investigação, a enumeração de contextos foi conferida em
+`pkg/analysis_server/lib/src/context_manager.dart`, a propriedade de URIs em
+`pkg/analyzer/lib/src/dart/analysis/driver.dart` e a resolução de gerados em
+`pkg/analyzer/lib/src/workspace/pub.dart`. A reprodução do mapa usa as regras de
+`sdk/lib/_internal/vm_shared/lib/collection_patch.dart`, `runtime/vm/object.h` e
+`runtime/vm/hash.h` da mesma revisão. A adaptação tem atribuição e licença em
+`THIRD_PARTY_NOTICES.md`; seus vetores de hash/ordem foram capturados da VM 3.6.2.
+
 ## Snapshots
 
 manifest.json registra URLs e commits efetivamente baixados.

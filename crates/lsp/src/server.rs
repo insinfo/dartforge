@@ -336,8 +336,7 @@ pub struct Server<A = SyntacticAnalyzer> {
         Vec<std::path::PathBuf>,
         std::time::Instant,
         Vec<std::path::PathBuf>,
-        Vec<(String, std::path::PathBuf)>,
-        Vec<(String, std::path::PathBuf, std::path::PathBuf)>,
+        Vec<crate::workspace_symbols::Context>,
         Option<std::path::PathBuf>,
     )>,
     /// The watcher reported a change since the listing.
@@ -4459,9 +4458,13 @@ impl<A: Analyzer> Server<A> {
                 .as_ref()
                 .is_some_and(|l| l.0 == roots && l.1.elapsed() < crate::session::DISK_TRUST);
         if !trust_disk {
-            let discovered: Vec<std::path::PathBuf> = roots
+            let context_files: Vec<_> = roots
                 .iter()
-                .flat_map(|r| crate::project::symbol_files(r))
+                .flat_map(|r| crate::project::symbol_context_files(r))
+                .collect();
+            let discovered: Vec<std::path::PathBuf> = context_files
+                .iter()
+                .flat_map(|(_, files)| files.iter().cloned())
                 .collect();
             // OwnedFiles.addAdded retains surviving entries and appends new
             // ones. A fresh directory enumeration can put a new file first.
@@ -4482,36 +4485,24 @@ impl<A: Analyzer> Server<A> {
                     .cloned()
                     .collect();
             }
-            let packages: Vec<(String, std::path::PathBuf)> = roots
+            let mut seen = HashSet::new();
+            let contexts = context_files
                 .iter()
-                .flat_map(|r| crate::workspace_symbols::package_folders(r))
-                .collect();
-            // The packages' generated `lib/`s (`build_runner` outputs).
-            let generated: Vec<(String, std::path::PathBuf, std::path::PathBuf)> = roots
-                .iter()
-                .flat_map(|r| {
-                    let out = r.join(".dart_tool").join("build").join("generated");
-                    crate::project::packages_with_name(r)
-                        .into_iter()
-                        .map(move |(name, lib)| {
-                            let g = out.join(&name).join("lib");
-                            (name, dartforge_elements::generated::key(&lib), g)
-                        })
-                })
-                .filter(|(_, _, g)| g.is_dir())
+                .map(|(root, _)| root)
+                .filter(|root| seen.insert((*root).clone()))
+                .map(|root| crate::workspace_symbols::Context::load(root))
                 .collect();
             let sdk = dartforge_elements::sdk::SdkLayout::discover();
             self.symbol_listing = Some((
                 roots.clone(),
                 std::time::Instant::now(),
                 added,
-                packages,
-                generated,
+                contexts,
                 sdk,
             ));
             self.symbol_disk_dirty = false;
         }
-        let Some((_, _, added, packages, generated, sdk)) = &self.symbol_listing else {
+        let Some((_, _, added, contexts, sdk)) = &self.symbol_listing else {
             return Vec::new();
         };
         let mut added = added.clone();
@@ -4532,8 +4523,7 @@ impl<A: Analyzer> Server<A> {
             &added,
             &priority,
             sdk.as_deref(),
-            packages,
-            generated,
+            contexts,
             &open_texts,
             kinds.as_deref(),
             trust_disk,

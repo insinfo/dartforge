@@ -3296,13 +3296,121 @@ python3 crates/lsp/oracle/summary.py /tmp/symbol-warm.jsonl --method workspace/s
 ```
 
 Os quatro projetos pequenos mantiveram **32/32**, e as duas matrizes de ciclo de vida,
-**112/112 respostas completas**. A suíte atual do LSP terminou com **316 aprovados,
+**112/112 respostas completas**. A suíte dessa etapa terminou com **316 aprovados,
 zero falhas e zero ignorados**, incluindo doctests, em
 `/tmp/dartforge-symbol-discovery-verified-tests.log`. Clippy de todo o workspace e
 documentação com avisos negados passaram novamente (logs de mesmo prefixo,
 `verified-clippy.log` e `verified-doc.log`); a formatação passou. Esta rodada valida
 corretude e retenção nos testes citados; não repete CPU, latência ou memória nos projetos
 grandes, nem conclui a meta de desempenho da rodada 17.
+
+### Continuação: catálogos por contexto e gerados fora de `lib/`
+
+A enumeração anterior reconhecia os arquivos do `example`, mas a busca carregava apenas
+o catálogo da raiz aberta. Agora a listagem entrega os contextos e seus arquivos juntos;
+cada contexto conserva seu catálogo e seu diretório de gerados. O percurso de uma
+dependência compartilhada mantém o contexto de quem a importou, mesmo fora da raiz.
+Uma configuração herdada é procurada nos ancestrais quando o contexto não tem a sua.
+
+Três regras do SDK 3.6.2 foram conferidas na revisão já registrada:
+
+- `OwnedFiles` identifica arquivos pela URI canônica. Para uma URI adicionada, fica o
+  primeiro dono; para uma conhecida, fica o último, sem mudar a posição de inserção.
+  Duas versões físicas de `package:versioned/api.dart` não viram duas bibliotecas na
+  resposta. Um arquivo já criado no mesmo driver não recupera a propriedade ao ser
+  visitado novamente;
+- o catálogo do analyzer vem da árvore de `PackageConfig`, ordenada pelas URIs das
+  raízes, e não pela ordem do array JSON. Essa ordenação fica restrita ao catálogo
+  dos símbolos; as demais cargas mantêm sua ordem anterior;
+- `ContextManager.driverMap` é um `HashMap<Folder, AnalysisDriver>`. A enumeração dos
+  arquivos disponíveis percorre seus buckets, não a ordem de criação dos contextos.
+  O hash de `Folder` é o `String.hashCode` do caminho. O modelo em
+  `workspace_symbols/context_order.rs` usa os code units UTF-16 da VM, as colisões e
+  os crescimentos de tabela. Dois testes com 40 caminhos, incluindo pares substitutos,
+  comparam hashes e ordem capturados da VM 3.6.2. A adaptação e sua licença constam de
+  `THIRD_PARTY_NOTICES.md`.
+
+O rastreador do SDK também passou a usar esse `HashMap` na descoberta e a registrar os
+hashes dos contextos. No `limitless_ui`, a ordem de criação é pai/filho, mas a do mapa é
+`example`/pai: hashes **391129904** e **780281349**, respectivamente. Assim,
+`cli_pkg/src/last_changelog_section.dart` pertence ao filho, e
+`sass/src/parse/parser.dart` termina associado à versão **1.66.0** do pai, não à 1.101.2
+do filho. O rastreamento está em `/tmp/dartforge-symbol-catalog-limitless-source-trace.json`.
+É evidência auxiliar de descoberta; o oráculo binário continua sendo o critério de paridade.
+
+A conferência das URIs expôs duas falhas dos gerados. Um import relativo de uma biblioteca
+gerada deve partir de sua URI canônica, não do diretório físico do output. Caso contrário,
+`adapter.dart` importando `api.dart` podia criar um arquivo inexistente no output e ocultar
+o `api.dart` real do pacote na mesma URI. Além disso, `PackageConfigWorkspace` resolve
+gerados de `test/` e `web/`, não apenas de `lib/`. O catálogo agora conserva a raiz real
+do pacote separada de seu `packageUri`; os gerados fora de `lib/` usam a identidade da
+URI de arquivo original. Isso recuperou os templates de teste que faltavam no frontend.
+
+#### Oráculo de contextos e repetição dos projetos
+
+`crates/lsp/oracle/workspace_symbol_contexts.py` cria pai e filho com versões distintas
+de um pacote, uma dependência comum que importa esse pacote, dependência privativa do
+filho e gerados dentro/fora de `lib/`. As quatro fases são inicial, repetição, troca de
+versão no catálogo e uma troca que tenta fazer uma dependência substituir uma biblioteca
+explicitamente adicionada. São seis consultas por fase, comparando todo o JSON em ordem.
+O driver espera um intervalo de repouso de análise; nas trocas, também espera que a
+definição do import corresponda ao catálogo novo, evitando usar um status atrasado.
+Esse pedido de preparação é enviado aos dois servidores e faz parte da sequência do cenário.
+
+O cenário passou em **24/24**, em três execuções com diretórios temporários diferentes:
+**72/72 respostas completas iguais**. Os arquivos estão em
+`/tmp/dartforge-symbol-contexts-final-identical-{1,2,3}.jsonl`. Para repetir:
+
+```sh
+python3 crates/lsp/oracle/workspace_symbol_contexts.py /tmp/symbol-contexts.jsonl target/debug/dartforge-lsp
+python3 crates/lsp/oracle/summary.py /tmp/symbol-contexts.jsonl --method workspace/symbol
+```
+
+A nova dupla dos três projetos usou a mesma cópia corrigida do core, um documento aberto
+por projeto e um cache Dart novo por projeto, reutilizado na segunda execução. Os três
+manifestos de entrada conservaram os digests e as contagens da auditoria anterior, sem
+raízes ausentes. Resultado atual dessa dupla, sem filtrar divergências:
+
+| Projeto | Completa, cache Dart frio | Completa, primeira quente | Conjunto, frio | Conjunto, quente |
+|---|---:|---:|---:|---:|
+| `limitless_ui` | 3/8 | 7/8 | 5/8 | 7/8 |
+| core, cópia corrigida | 4/8 | 8/8 | 7/8 | 8/8 |
+| `new_sali/frontend` | 4/8 | 5/8 | 8/8 | 8/8 |
+| Total desta dupla | **11/24** | **20/24** | **20/24** | **23/24** |
+
+A dupla anterior, antes dessas correções, dava 8/24 e 17/24 respostas completas, com
+15/24 e 19/24 conjuntos. A repetição adicional do frontend, no mesmo cache quente,
+deu **8/8 respostas completas**. A resposta do DartForge permaneceu idêntica; o Dart
+mudou a ordem de `ctx`, `Ponto` e `join`. Não se deve substituir a coluna da primeira
+execução quente pelo melhor resultado. A ordem do mapa de drivers explica uma diferença
+entre as implementações, mas não isola a causa de toda a variação entre execuções do Dart.
+
+Os resultados dessa dupla estão em
+`/tmp/dartforge-symbol-catalog-final-{limitless,core,frontend}-{cold,warm}.jsonl`; a
+repetição adicional, em `/tmp/dartforge-symbol-catalog-final-frontend-repeat.jsonl`.
+Os manifestos são `/tmp/dartforge-catalog-final-{limitless,core,frontend}-inputs-{before,cold,warm}.json`
+e `/tmp/dartforge-catalog-final-frontend-inputs-repeat.json`. Todos mantiveram os mesmos
+digests; a repetição fria/quente também manteve idênticas as respostas do DartForge.
+
+**Pendências concretas:** `Ponto` no `limitless_ui` ainda não inclui o getter
+`LiNotificationOutletComponentNgFactory`, a variável `_LiNotificationOutletComponentNgFactory`
+e a função `createLiNotificationOutletComponentFactory()` do template de notification.
+O rastreador do SDK mostra esse arquivo conhecido antes da varredura de disponibilidade;
+é preciso conferir sua entrada no índice e as declarações extraídas. Continuam faltando
+as alternativas condicionais, a descoberta iniciada durante consultas e a paridade
+após edições nos projetos grandes. O modelo do mapa de drivers reconstrói os buckets
+para os contextos ativos; ainda falta preservar a capacidade histórica quando muitos
+contextos são removidos e reabertos depois de uma expansão. Os testes de crescimento
+conferem uma tabela criada do zero, não esse histórico.
+
+A suíte atual do LSP passou com **319 testes, zero falhas e zero ignorados**, incluindo
+doctests e o platô por protocolo. A regressão de navegação confere as versões escolhidas,
+a dependência privativa, gerados em teste e um import relativo do output para a fonte real.
+Mantidos **112/112** no ciclo de vida e **32/32** nos quatro projetos pequenos. Logs:
+`/tmp/dartforge-symbol-catalog-verified-{tests,clippy,doc}.log`; clippy de todo o workspace,
+formatação e documentação com avisos negados passaram. Os JSONL repetidos desses cenários
+anteriores têm o prefixo `/tmp/dartforge-symbol-catalog-final-`. As execuções servem à
+corretude; não são novas medições de CPU, latência ou memória nos projetos grandes.
 
 ## Capacidades
 
