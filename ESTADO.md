@@ -1,4 +1,4 @@
-# Estado do DartForge — 2026-10-31
+# Estado do DartForge — 2026-11-04
 
 ## Prioridade: LSP mais rápido e mais leve que o servidor oficial
 
@@ -507,7 +507,62 @@ a curva de memória dos dois servidores.
   - os corpos dos dependentes (~2 s de CPU × 110 ms no frontend);
   - o item 2 inteiro: o índice de referências (passo 5).
 
-## Painel: DartForge × Dart oficial (atualizado em 03/11/2026, fim do dia)
+## 04/11/2026: continuação depois da alpha.4
+
+**Base:** `main` em `522bdd32`; a alpha.4 publicada continua em `87cb092b`.
+As correções desta seção são posteriores ao pacote publicado.
+
+- **JS de produção: propriedades do Node preservadas pelo minificador.** O conjunto de
+  nomes reservados não incluía `exit`, `on`, `stderr` e `write`, usados pelo inicializador
+  e pelo verificador de poda. Quando o programa Dart declarava membros com esses nomes,
+  o minificador renomeava também os acessos ao Node. Além do `process.exit` registrado
+  no teste da alpha.4, a colisão com `on` impedia até o início do programa.
+  - Regressão reproduzida antes da correção: `-O1` funciona; `-O2` sai com código 1 e
+    `TypeError: process.P is not a function`.
+  - Corrigido em `crates/emit_js_production/src/properties.rs`. O teste
+    `uncaught_exceptions_keep_the_host_protocol` compila membros com os quatro nomes,
+    lança erros síncronos e assíncronos e verifica stdout, stderr completo e saída 255
+    em `-O1`, `-O2`, `-O3` e `-O4`: **8 execuções passaram**. Os **90 testes unitários**
+    do pacote passaram, incluindo os três que exigem Node. Um deles verifica que o
+    verificador de poda minificado escreve o nome no stderr e sai com código 97.
+- **CLI:** `dartforge --version` e `dartforge -V` agora imprimem a versão do pacote Cargo,
+  com o mesmo atalho do LSP.
+- **Distribuição:** `pack` inclui `dartforge-wasm-run` quando construído ao lado do CLI.
+  O `Release` passa a construir esse executor e a executar o módulo recém-compilado
+  pelo binário empacotado, comparando sua saída. Verifica também `--version` e a
+  exceção do JS minificado com colisões de nomes.
+- **Pacote local validado no macOS:** binários do perfil debug, com `native,jit`, LSP,
+  JS de produção e executor Wasm, preservados em `target/test-tools/`. O roteiro do
+  `Release`, adaptado apenas para empacotar esses binários, passou inteiro:
+  AOT normal/otimizado, `--version`, execução do Wasm pelo executor incluído, JS dev e
+  produção, exceção com saída 255, LSP e `_macros` pelo SDK empacotado. Os comandos do
+  pacote usaram `env -i` com `PATH=/usr/bin:/bin`; Node rodou o JS pelo caminho de
+  validação. Isso **não** é uma nova medição de desempenho ou tamanho do release.
+  `cargo clippy --locked --workspace --all-targets -- -D warnings` e `rustfmt` passaram.
+  As suítes completas com ignorados estão em andamento. Ainda não há resultado do
+  novo workflow nos três sistemas nem nova versão publicada.
+  O link estático local avisou que objetos do LLVM instalado têm versão mínima
+  macOS 27 acima do alvo 11; o pacote foi executado no sistema desta máquina,
+  sem validar compatibilidade com versões antigas do macOS. Para os testes,
+  a biblioteca compartilhada local foi conferida pela API como LLVM 22.1.8.
+- **Documentação Rust:** a geração completa revelou 24 avisos de links privados ou
+  sem resolução. Os privados agora aparecem como nomes de código, e os públicos foram
+  qualificados corretamente. A geração de todo o workspace, inclusive itens privados,
+  passou com `RUSTDOCFLAGS='-D warnings'` (zero avisos).
+- **Pré-requisitos:** o teste ignorado do gzip do Pub exige `DARTFORGE_GZIP_CORPUS`,
+  além dos SDKs e do compilador preservado. Requisito registrado no `CONTRIBUTING.md`;
+  nesta rodada, cinco entradas e seus `.gz` foram gerados pela VM 3.6.2 do macOS.
+- **CI, cobertura conferida no código:** o `Heavy` diário roda no Windows, mas não
+  executa a suíte de ignorados do workspace. Ele cobre corpora diferenciais e testes
+  nativos/JIT selecionados; os ignorados de `dartforge-build`, macros e gerador ngdart
+  continuam no `ci.yml`. Transferir o passo inteiro para o `Heavy` exigiria acrescentar
+  essa cobertura lá. Nenhum teste foi movido ou retirado nesta rodada.
+- **Limpeza anterior conferida:** os 13 *worktrees* antigos de agentes já foram removidos;
+  seus 13 branches locais continuam presentes. Os registros Windows `base`/`bissect` e
+  o *worktree* de validação `v21` continuam presentes. O `target/` apagado na sessão
+  anterior foi recriado pela validação desta rodada.
+
+## Painel: DartForge × Dart oficial (atualizado em 04/11/2026; medições de desempenho sem repetição)
 
 Resumo de cada ferramenta contra a oficial correspondente (SDK 3.6.2), com a medição mais
 recente e a data dela. "Não medido" significa que não existe número. A última coluna diz quem
@@ -535,7 +590,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | **`pub`** | solucionador **PubGrub** portado do Pub 3.6.2. `pub get` idêntico ao oficial em **51/51** projetos reais (lockfile byte a byte, `package_config.json`, saída e código), com e sem lockfile. `add`, `remove`, `upgrade`, `downgrade`, `deps` e `outdated` idênticos em 42 cenários (31/10). **`cache`** (`add`/`clean`/`list`/`preload`/`repair`) e **`global`** (`activate` hosted/Git/path, `deactivate`, `list`, `run`, *bin stubs*) em 02/11: 32 comandos de `cache` com transcrição e árvore do cache idênticas; 48 de `global` (dois roteiros) com transcrição, árvore e arquivos do cache idênticos; só a ordem das linhas `Built` pode variar, porque no Pub as compilações são paralelas. **`publish`/`lish`** em 02/11: 116 comandos diferenciais (uso, 25 pacotes montados para acionar cada validador, 12 pacotes reais do *pub cache*, envio contra servidor falso local com 10 modos de falha) com transcrição idêntica (fora a porta local que o próprio Pub muda a cada execução no relato de conexão recusada), 69 requisições ao servidor idênticas (inclusive o SHA-256 do arquivo enviado) e os 20 arquivos `.tar.gz` idênticos byte a byte; o gzip é um porte do zlib do Chromium da VM (o zlib clássico dá outros bytes) | `login` e o envio ao pub.dev sem token (OAuth2; `token`, `logout` e `uploader` idênticos em 31 comandos, 02/11); sugestões depois de falha de resolução; avisos de segurança no `outdated`; `--precompile`; SDKs Flutter e Fuchsia. No `global`, o DartForge guarda executáveis nativos onde o Pub guarda *snapshots*. Matriz em `docs/PUB-E-TEST.md` |
 | **`test`** | desde 02/11 roda o próprio runner do package:test (`Configuration`, `Runner`/`Loader` portados, `Engine` e todos os relatores) com as suítes compiladas pelo DartForge em volta do *bootstrap* nativo do test_core. `-r json` com o protocolo do package:test: fluxo de eventos idêntico ao do `dart test` (59 eventos, 4 suítes) fora `time` e quadros de pilha; `compact`, `github`, `failures-only`, `silent`, `--file-reporter` e `--fail-fast` iguais fora tempo e quadros | `line`/`column`/`url` do JSON saem nulos (o executável nativo ainda não tem quadros de pilha); `--coverage` recusado (fidelidade impossível sem o compilador da VM, análise em `docs/PUB-E-TEST.md`); só a plataforma `vm`; seleção por linha/coluna |
 | **JS produção** | corpus 277/277 (-O1/-O2), 260/260 (-O3), 256/256 (-O4) | — |
-| **Modos do runtime no wasm** | só tracing + pilha-sombra | ARC desligado no wasm32 (medido: mais lento e +6,8% de tamanho); `--exceptions tables` não implementado; mapas de raízes impossíveis (o wasm não expõe a pilha) |
+| **Modos do runtime no wasm** | tracing + pilha-sombra; `--exceptions tables` (`exnref`) é o padrão desde 31/10; `--exceptions check` disponível | ARC desligado no wasm32 (medido: mais lento e +6,8% de tamanho); mapas de raízes indisponíveis (o wasm não expõe a pilha) |
 
 ### Quem está trabalhando em cada lacuna (desde 31/10, 15h)
 
@@ -627,7 +682,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 - **Um clang qualquer tomava o lugar do gerador embutido** (`87cb092b`). O passo novo do `ci.yml` reprovou `7f0bfb76` no Linux e no macOS. O pacote não leva clang, a busca terminava no `PATH`, e `Generator::clang_if_any` aceitava qualquer versão para o bitcode de produção. O clang dos runners não conhece as opções de wasm do LLVM 22. Agora só vale um clang da linha do LLVM embutido (22.1).
   - **`env -i PATH=/usr/bin:/bin` não basta como ambiente limpo no macOS:** o Apple clang 21 desta máquina aceita essas opções, e a validação local de `7b6b1fbe` passou usando ele sem aviso. Para reproduzir, usei um `clang` falso no `PATH`, que responde `--version` como 18.1.3 e falha no resto.
 - **`v0.1.0-alpha.4` publicada** em `87cb092b` (pré-lançamento, 3 pacotes; o `Release` passou nos três sistemas). Pacote de macOS baixado do GitHub e testado com o clang falso no `PATH`: `aot`, `aot --optimize`, `run`, `compile-wasm` (hello de 667 KB; o módulo rodou no `dartforge-wasm-run`), `compile-js`, `dartforge-jsprod` no Node e `dartforge-lsp --version`.
-- **Achados ao testar o pacote, ainda sem correção:**
+- **Achados ao testar o pacote alpha.4** (correções posteriores na seção de 04/11):
   - `dartforge-wasm-run` não vai no pacote, então o módulo só roda no navegador;
   - `dartforge --version` responde `unknown command`;
   - no `dartforge-jsprod`, uma exceção não tratada imprime a mensagem, depois um dump de `TypeError` e sai com código 1 em vez de 255: o minificador renomeia `process.exit` para `process.L` (o texto vem de `crates/emit_js_production/src/bundle.rs`).
@@ -661,9 +716,9 @@ Dentro dos ignorados, um único binário de teste com 1 teste leva 621 s, e outr
 
 ### A partir daqui
 
-- Testes ignorados do Windows em debug (48,3 min), o maior gasto do job: ver se dá para rodá-los em release, aproveitando a compilação que já existe; se não der, vão para o `Heavy`, que já roda toda noite. Antes de mover, conferir se o `Heavy` cobre Windows.
+- Testes ignorados do Windows em debug (48,3 min), o maior gasto do job: medir em release, aproveitando a compilação que já existe. O `Heavy` roda no Windows diariamente, mas não cobre todos esses testes (conferência de 04/11 acima); antes de transferir o passo, acrescentar e validar a cobertura que falta.
 - O perfil sem LTO no Windows economiza só cerca de 1 min: avaliar se vale mantê-lo.
-- Corrigir os três achados do pacote listados acima.
+- Validar o pacote com as correções dos três achados listados acima (seção de 04/11), antes de publicar outra versão.
 - A suíte `tests/language` inteira continua sem repetição no wasm e no nativo; o gerador usado pelos pacotes (embutido) também não foi medido nela.
 
 ### A fazer (próximos dias)
@@ -695,8 +750,8 @@ Dentro dos ignorados, um único binário de teste com 1 teste leva 621 s, e outr
   - `line`/`column`/`url` no JSON do `test`;
   - os 12 falsos positivos do `analyze` vindos do *parser* (`augment`).
 - **Limpeza:**
-  - 13 *worktrees* antigos de agentes de sessões passadas, a conferir antes de apagar;
-  - as branches `backup/*` quando o SSD for para uma porta direta.
+  - os 13 *worktrees* antigos foram removidos em 04/11; os branches locais foram preservados;
+  - `backup/main-local` remoto removido na sessão anterior; não há branches locais `backup/*` nesta conferência.
 
 ## 03/11/2026: wasm — rodada de tamanho 3: hello de 0,72 para 0,68 MB (0,57 MB com Binaryen); por que o V8 ficou mais lento com as tabelas vivas
 

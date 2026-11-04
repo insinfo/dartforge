@@ -66,6 +66,12 @@ support libraries need to be built; selecting a prefix for Cargo does not add
 runtime tools to the caller's PATH.
 The native macro executor tests use `DARTFORGE_NATIVE_COMPILER`; set it to the
 same preserved compiler when running the complete ignored-test suite.
+The Pub gzip oracle test also needs `DARTFORGE_GZIP_CORPUS`: a directory of
+input files, each accompanied by `<filename>.gz` produced by `gzip.encode`
+from `dart:io` on the host-compatible Dart 3.6.2 VM. Include at least one
+input; empty input, repetitive data and inputs spanning multiple DEFLATE
+blocks exercise different paths. The prerequisite checker does not validate
+this optional corpus; the complete `--include-ignored` commands require it.
 
 On macOS, standalone C-link tests also need a configured C SDK. When using an
 external LLVM Clang on PATH, set `SDKROOT` to an installed compatible macOS SDK

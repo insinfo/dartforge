@@ -8,6 +8,7 @@
 //! bin/dartforge[.exe]            this executable (and the JIT's LLVM-C.dll on Windows)
 //! bin/dartforge-lsp[.exe]        the language server, when built next to this executable
 //! bin/dartforge-jsprod[.exe]     production JavaScript, when built next to this executable
+//! bin/dartforge-wasm-run[.exe]   independent Wasm executor, when built next to this executable
 //! lib/dartforge-distribution.json
 //! lib/runtime/                   the runtime staticlibs (emit_native's build.rs)
 //! lib/ddc/dart_sdk.js            the DDC runtime, when it was generated
@@ -43,11 +44,9 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
         &bin.join(exe.file_name().ok_or("executable without a name")?),
     )?;
 
-    // The language server and production JavaScript, when they were built next
-    // to this executable (`cargo build --release -p dartforge-lsp -p
-    // dartforge-emit-js-production`): in `bin/`, they find the distribution's
-    // Dart SDK by themselves.
-    for tool in ["dartforge-lsp", "dartforge-jsprod"] {
+    // Companion tools built next to this executable: in `bin/`, the Dart
+    // compilers and language server discover the distribution's SDK.
+    for tool in ["dartforge-lsp", "dartforge-jsprod", "dartforge-wasm-run"] {
         let tool = format!("{tool}{}", std::env::consts::EXE_SUFFIX);
         match exe.parent().map(|d| d.join(&tool)) {
             Some(sibling) if sibling.is_file() => copy(&sibling, &bin.join(&tool))?,

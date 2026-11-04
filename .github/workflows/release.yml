@@ -5,7 +5,7 @@
 # SDK, MSVC/Windows SDK or Xcode (docs/NATIVO.md §1.2).
 #
 # Before publishing, each job checks the distribution in a clean environment:
-# it compiles and runs a program in development and production AOT.
+# it compiles and runs a program in development and production AOT, Wasm and JS.
 # A tag with a hyphen (v0.1.0-alpha.1) becomes a pre-release.
 name: Release
 on:
@@ -92,8 +92,8 @@ jobs:
         uses: ./.github/actions/llvm-unix
       - name: Pinned Rust (rust-toolchain.toml)
         run: rustup toolchain install 1.98.1 --profile minimal
-      - name: Build dartforge (native, jit), the language server and production JavaScript
-        run: cargo build --locked --release -p dartforge-cli --features native,jit -p dartforge-lsp -p dartforge-emit-js-production
+      - name: Build dartforge (native, jit), the language server, production JavaScript and Wasm executor
+        run: cargo build --locked --release -p dartforge-cli --features native,jit -p dartforge-lsp -p dartforge-emit-js-production -p dartforge-wasm-host
       - name: Pack and check in a clean environment
         shell: bash
         env:
@@ -126,14 +126,34 @@ jobs:
             if [ "$RUNNER_OS" = Windows ]; then "$@"; else env -i PATH=/usr/bin:/bin HOME="$d/home" "$@"; fi
           }
           suffix=; [ "$RUNNER_OS" = Windows ] && suffix=.exe
+          clean "$dist/bin/$exe" --version
           # Node does not hand the program its arguments.
           js_expected=$'hi \n[1, 4, 9]'
           clean "$dist/bin/$exe" compile-wasm main.dart -o main.wasm
           test -s main.wasm
+          [ "$(clean "$dist/bin/dartforge-wasm-run$suffix" main.wasm | tr -d '\r')" = "$js_expected" ]
           clean "$dist/bin/$exe" compile-js main.dart -o js
           [ "$(node js/main.mjs | tr -d '\r')" = "$js_expected" ]
           clean "$dist/bin/dartforge-jsprod$suffix" main.dart -o prod.js
           [ "$(node prod.js | tr -d '\r')" = "$js_expected" ]
+          # Host properties must keep their names even when Dart declares exit/on.
+          cat > uncaught.dart <<'EOF'
+          class HostNames {
+            int exit() => 1;
+            int on() => 2;
+          }
+          void main() {
+            final names = HostNames();
+            print([names.exit(), names.on()]);
+            throw 'release failure';
+          }
+          EOF
+          clean "$dist/bin/dartforge-jsprod$suffix" uncaught.dart -o uncaught.js
+          status=0
+          node uncaught.js >uncaught.stdout 2>uncaught.stderr || status=$?
+          [ "$status" = 255 ]
+          [ "$(tr -d '\r' < uncaught.stdout)" = '[1, 2]' ]
+          [ "$(tr -d '\r' < uncaught.stderr)" = $'Unhandled exception:\nError: release failure' ]
           clean "$dist/bin/dartforge-lsp$suffix" --version
           # Resolve from the relocated SDK, never setup-dart's development tree.
           test -f "$dist/lib/dart-sdk/sdk_packages.yaml"

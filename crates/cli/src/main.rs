@@ -12,6 +12,10 @@ mod pub_get;
 mod test_runner;
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
+    if args.len() == 1 && (args[0] == "--version" || args[0] == "-V") {
+        println!("dartforge {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     #[cfg(feature = "native")]
     let args = {
         let mut args = args;
@@ -23,7 +27,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.is_empty() || args[0] == "--help" {
         println!(
-            "DartForge - Dart to JavaScript compiler\nUsage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--interval <ms>] [--once]
+            "DartForge - Dart to JavaScript compiler\nUsage: dartforge --version\n       dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <cfg>] [--timings]\n       dartforge dev <input.dart> -o <dir> [--packages <cfg>] [--sdk <lib>] [--interval <ms>] [--once]
        dartforge serve <input.dart> -o <dir> [--web <dir>] [--port N] [--packages <cfg>]\n       dartforge build [<input.dart>] [--root <dir>] [--plan] [--compare] [--release] [--strict] [--workers N] [--write-cache <dir>] [--dart <exe>] [--state]\n       dartforge aot|abi-info ...  (build with --features native)
        dartforge compile-wasm <input.dart> -o <module.wasm>  (WebAssembly, build with --features native)
        dartforge run|reload <input.dart> ...  (build with --features jit)

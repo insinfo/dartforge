@@ -16,8 +16,8 @@ use dartforge_intern::Interner;
 use dartforge_types::table::Type;
 use std::collections::HashSet;
 
-/// Names of the JavaScript (and browser) protocol that the engine calls
-/// implicitly on any object.
+/// JavaScript protocol names and host properties used by the engine,
+/// emitted code or bootstrap, which must survive property minification.
 const JS_PROTOCOL: &[&str] = &[
     "toString",
     "valueOf",
@@ -206,6 +206,12 @@ const JS_PROTOCOL: &[&str] = &[
     "fileName",
     "stackTraceLimit",
     "captureStackTrace",
+    // Node's bootstrap and pruning verifier call these host properties.
+    // A Dart member with the same name must not rename the host access.
+    "on",
+    "exit",
+    "stderr",
+    "write",
 ];
 
 /// What the minifier may rename and what it must keep.
@@ -526,5 +532,55 @@ fn cohabitation(a: &dartforge_emit_js::Analysis<'_>, n: &mut Names) {
             g.sort_unstable();
             n.groups.push(g);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    #[test]
+    #[ignore = "requires Node on PATH"]
+    fn pruning_verifier_keeps_node_stderr_and_exit() {
+        let names = Names {
+            renamable: ["exit", "on", "stderr", "write"]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            reserved: JS_PROTOCOL.iter().map(|s| s.to_string()).collect(),
+            ..Names::default()
+        };
+        let js = crate::bundle::assemble(
+            "",
+            &[],
+            "dart_podado('missing')",
+            crate::bundle::STUB_PREAMBLE,
+        );
+        let minified = crate::minify::minify_with_properties(&js, &names).unwrap();
+        let mut node = Command::new("node")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        node.stdin
+            .take()
+            .unwrap()
+            .write_all(minified.as_bytes())
+            .unwrap();
+        let run = node.wait_with_output().unwrap();
+        assert_eq!(
+            run.status.code(),
+            Some(97),
+            "{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        assert!(run.stdout.is_empty());
+        assert_eq!(
+            String::from_utf8_lossy(&run.stderr).replace("\r\n", "\n"),
+            "DARTFORGE-PODADO: missing\n"
+        );
     }
 }
