@@ -504,7 +504,7 @@ pub struct BodyInferrer<'a> {
 }
 
 /// Extensions accessible in a library (see
-/// [`BodyInferrer::accessible_extensions`], which caches this).
+/// `BodyInferrer::accessible_extensions`, which caches this).
 pub fn accessible_extensions_of(program: &Program, lib: LibraryId) -> Vec<ExtensionId> {
     let l = program.library(lib);
     let mut v: Vec<ExtensionId> = Vec::new();

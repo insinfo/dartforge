@@ -755,7 +755,7 @@ impl<'a> LlvmEmitter<'a> {
     /// Only for the production AOT of tracing memory on the shadow stack (with
     /// exceptions by check or by tables), outside WebAssembly; elsewhere the request
     /// is ignored. With tables, a call with a landing pad becomes an `invoke` of the
-    /// same `f$cx` ([`Self::make_invoke`]).
+    /// same `f$cx` (`Self::make_invoke`).
     pub fn with_context_parameter(mut self, yes: bool) -> Self {
         self.context_parameter = yes;
         self
@@ -1691,7 +1691,7 @@ impl<'a> LlvmEmitter<'a> {
                 b.instructions.iter().rev().find_map(|(vid, i, _)| {
                     let v = vid.0;
                     if tab.is_some_and(|t| t.invocations.contains_key(vid)) {
-                        // The normal path of an `invoke` ([`Self::make_invoke`]).
+                        // The normal path of an `invoke` (`Self::make_invoke`).
                         Some((b.id.0, format!("inv{v}.fim")))
                     } else if (Self::inline_allocation(i).is_some()
                         || matches!(i, Instruction::CallRuntime { name, args, .. }

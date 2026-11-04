@@ -27,7 +27,7 @@
 //! With positional type variables (`Ctx::positional_type_variables`) the
 //! emitter writes no substitutions: the patched `evalTypeVariable` reads
 //! `|h.0` from the `|h` supertype entry, which stays because the recipe
-//! `|h.0` cites `|h` ([`class_names`] stops at the period).
+//! `|h.0` cites `|h` (`class_names` stops at the period).
 
 use std::collections::{HashMap, HashSet};
 

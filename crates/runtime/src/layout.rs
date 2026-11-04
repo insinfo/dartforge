@@ -449,10 +449,10 @@ pub mod thread_tables {
 /// the runtime, which fills both. An all-zero entry never matches: `a` is a
 /// value key (never 0) or a class id (positive).
 ///
-/// * `is`: `a` the value key, `b` `T`, kind [`IS`], answer 0 or 1;
+/// * `is`: `a` the value key, `b` `T`, kind [`rti_memo::IS`], answer 0 or 1;
 /// * `P<i>`: `a` the key of `this`, `b` the model, kind the class (≥ 0), answer
 ///   the type;
-/// * the stored type: `a` the class id, `b` the requested type, kind [`SET`],
+/// * the stored type: `a` the class id, `b` the requested type, kind [`rti_memo::SET`],
 ///   answer the header metadata.
 pub mod rti_memo {
     /// Sets (a power of two).

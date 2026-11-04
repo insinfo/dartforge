@@ -215,7 +215,7 @@ pub struct Roots {
     pub tearoffs: Vec<FunctionElementId>,
     /// The interceptors of JavaScript's own errors (`Error`, `TypeError`,
     /// `RangeError` tags): instantiated once a JavaScript exception can
-    /// reach Dart code ([`Engine::open_js_errors`]).
+    /// reach Dart code (`Engine::open_js_errors`).
     pub js_error_classes: Vec<ClassId>,
 }
 
@@ -1263,7 +1263,7 @@ pub(crate) struct Engine<'a> {
     held_polyfill: Option<FunctionElementId>,
     /// A record type or a record literal reached the world.
     records_seen: bool,
-    /// [`Engine::open_js_errors`] happened.
+    /// `Engine::open_js_errors` happened.
     js_errors_open: bool,
     /// [`Roots::js_error_classes`] waiting for it.
     held_js_errors: Vec<ClassId>,

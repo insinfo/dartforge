@@ -82,7 +82,7 @@ pub struct FnEmitter<'m, 'a> {
     /// The next [`Self::emit_method_call`] calls a member through an implicit
     /// `this` (`m(arg)`): the identifier.
     pub implicit_this_call: Option<ExprId>,
-    /// The out-of-scope type parameters whose bounds [`Self::recipe`] is
+    /// The out-of-scope type parameters whose bounds `Self::recipe` is
     /// expanding (an F-bound must not recurse forever).
     pub expanding_bounds: std::cell::RefCell<Vec<u32>>,
     /// Generic constructor tear-offs made through a type alias, by their
@@ -136,7 +136,7 @@ pub struct FnEmitter<'m, 'a> {
     pub in_const: bool,
     /// The initializer of a lazy static or top-level variable, outside any
     /// closure: it runs once, so its constants need no per-site slot
-    /// ([`crate::const_slots`]).
+    /// (`crate::const_slots`).
     pub evaluated_once: bool,
     /// Arguments of a JS interop call: functions go through
     /// `dart.assertInterop` (except a direct `allowInterop(...)`).

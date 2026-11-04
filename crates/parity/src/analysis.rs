@@ -48,7 +48,7 @@ pub struct Engine {
 /// only the units whose text changed are analyzed again.
 ///
 /// It also keeps the last analysis's loaded program with its scopes and its
-/// outline types ([`World`]). When the next analysis is of the same batch and
+/// outline types (`World`). When the next analysis is of the same batch and
 /// only bodies of the batch's files changed (the same API signature, nothing
 /// else in memory or on disk), those units are swapped in place
 /// (`dartforge_elements::incremental::swap_unit`) and the analysis starts
@@ -70,7 +70,7 @@ pub struct Resident {
     /// The program and outline of the previous analysis, while it can serve
     /// the next one.
     world: Option<World>,
-    /// Analyses that started from the kept [`World`] (tests and measurement).
+    /// Analyses that started from the kept `World` (tests and measurement).
     pub reused_worlds: usize,
     /// Analyses that loaded over the kept world's frozen prefix (tests and
     /// measurement).
@@ -79,7 +79,7 @@ pub struct Resident {
     pub kept_libraries: usize,
     /// The files of the package the batches belong to ([`Resident::set_context`]):
     /// the program of every analysis imports them all, so that the batches of
-    /// one package share one program and the [`World`] serves them all.
+    /// one package share one program and the `World` serves them all.
     context: Vec<PathBuf>,
     /// The list as given to the last [`Resident::set_context`].
     context_given: Vec<PathBuf>,
@@ -422,7 +422,7 @@ impl Resident {
     /// The caller knows that no file the resident read changed on the disk
     /// since the last analysis (the LSP: no watcher notification): the next
     /// analysis skips the disk scan, one `stat` per kept unit, unless the
-    /// last scan is older than [`DISK_SCAN_EVERY`].
+    /// last scan is older than `DISK_SCAN_EVERY`.
     pub fn disk_unchanged(&mut self) {
         self.skip_disk_scan = true;
         self.disk_known.clear();
@@ -431,7 +431,7 @@ impl Resident {
     /// The caller knows which files changed on the disk since the last
     /// analysis (the LSP: the watcher's notifications, `files`): the next
     /// analysis takes them as the scan's result instead of a `stat` per kept
-    /// unit, unless the last scan is older than [`DISK_SCAN_EVERY`].
+    /// unit, unless the last scan is older than `DISK_SCAN_EVERY`.
     pub fn disk_changed_only(&mut self, files: Vec<PathBuf>) {
         self.skip_disk_scan = true;
         self.disk_known = files;
@@ -454,7 +454,7 @@ impl Resident {
         self.units.len() + self.world.as_ref().map_or(0, |w| w.program.units.len())
     }
 
-    /// The kept [`World`] for an analysis of the batch `files` (canonical)
+    /// The kept `World` for an analysis of the batch `files` (canonical)
     /// with `texts` whose entry imports `imports`, with the batch's changed
     /// bodies swapped in; `None` when it cannot serve (its units then go back
     /// to the unit cache, and the analysis loads as usual).
@@ -1274,7 +1274,7 @@ impl Resident {
     }
 }
 
-/// Gives the analysis's [`World`] back to the [`Resident`] when the analysis
+/// Gives the analysis's `World` back to the [`Resident`] when the analysis
 /// ends, on every path (completed or cancelled): the next analysis may start
 /// from it.
 struct Reclaim<'a> {

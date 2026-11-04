@@ -2175,8 +2175,8 @@ struct IndexRequest {
 }
 
 /// The reference index child process ([`REFERENCE_INDEX_ARGUMENT`]): reads an
-/// [`IndexRequest`] from `stdin`, builds and writes the encoded index
-/// ([`crate::reference_index::ReferenceIndex::encode`]) to `stdout`. Its
+/// `IndexRequest` from `stdin`, builds and writes the encoded index
+/// (`crate::reference_index::ReferenceIndex::encode`) to `stdout`. Its
 /// program (the wide load) never stays in the server's memory.
 pub fn reference_index_child() -> i32 {
     use std::io::{Read, Write};

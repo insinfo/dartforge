@@ -380,7 +380,7 @@ impl<'a> Visit<'a> for LoadTimeCopies<'_> {
 /// field lists alone, -6.8 KB gzip). Nothing reads them while the libraries
 /// load (the signatures are lazy, the late accessors serve instances,
 /// created from `main` on), except the load-time copies of
-/// [`LoadTimeCopies`], whose classes keep their statements in place.
+/// `LoadTimeCopies`, whose classes keep their statements in place.
 /// `DARTFORGE_JSPROD_GROUP_METADATA=0` turns it off.
 ///
 /// # Errors
@@ -624,7 +624,7 @@ fn extension_batch(
 
 /// Source texts of the classes a runtime call copies at load: the
 /// arguments of `applyMixin` and `registerExtension` and the classes with a
-/// `[dart.mixinOn]` (as [`LoadTimeCopies`], without the extension calls).
+/// `[dart.mixinOn]` (as `LoadTimeCopies`, without the extension calls).
 struct CopiedClasses<'s> {
     source: &'s str,
     classes: Vec<&'s str>,

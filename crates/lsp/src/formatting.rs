@@ -12,7 +12,7 @@
 //! Formatting cannot be interrupted halfway, and pathological inputs (an
 //! argument list with thousands of arguments) take seconds, as they do in
 //! `dart format`. So the server runs each formatting on its own thread
-//! ([`start`]): when it does not finish within a short budget the request is
+//! (`start`): when it does not finish within a short budget the request is
 //! answered later, while other messages keep being dispatched, and a
 //! `$/cancelRequest` answers it at once (the result is discarded).
 
@@ -48,7 +48,7 @@ impl Background {
     }
 }
 
-/// What [`start`] gives back.
+/// What `start` gives back.
 #[derive(Debug)]
 pub(crate) enum Outcome {
     /// The [`edits`] (`None` when the computation panicked).

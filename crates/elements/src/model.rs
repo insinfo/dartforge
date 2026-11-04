@@ -113,18 +113,18 @@ pub struct Program {
     /// With a frozen prefix: for each library after it, where its group (the
     /// libraries that import each other, transitively) starts. The groups
     /// come in dependency order, so the libraries before a group's start do
-    /// not depend on it ([`crate::frozen::lay_out`]).
+    /// not depend on it (`crate::frozen::lay_out`).
     pub groups: Vec<u32>,
     /// The files (by [`crate::generated::key`]) that changed for the load
     /// being laid out: their libraries, and the libraries that depend on
-    /// them, go after the others ([`crate::frozen::lay_out`]), so that the
+    /// them, go after the others (`crate::frozen::lay_out`), so that the
     /// next load over the program, which cuts at the first library whose
     /// text changed, reloads only them when the same files change again.
     pub layout_last: Vec<std::path::PathBuf>,
     /// Files (by [`crate::generated::key`]) whose API changed recently and
     /// that other libraries depend on: their groups go after everything
     /// else, even after the libraries that depend on them
-    /// ([`crate::frozen::lay_out`]). The next API change of one of them then
+    /// (`crate::frozen::lay_out`). The next API change of one of them then
     /// cuts at it alone, and the libraries before the cut that depend on it
     /// keep their elements when its elements keep their ids (the LSP
     /// resident's reload in place).

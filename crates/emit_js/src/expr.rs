@@ -229,7 +229,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         common.or_else(own)
     }
 
-    /// [`Ctx::lookup_member`] seen from the current library: a private name
+    /// [`crate::ctx::Ctx::lookup_member`] seen from the current library: a private name
     /// is only that library's (`c._f` does not find another library's `_f`
     /// declared in a subclass).
     pub fn lookup_member_here(&self, recv_ty: &Ty, name: &str, setter: bool) -> Option<Member> {

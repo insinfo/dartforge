@@ -602,10 +602,10 @@ pub struct ArcHeapState {
     /// reused: a stale entry names an object of a page that stays mapped, which the
     /// cycle round treats as one more seed (safe: trial deletion frees only garbage)
     /// or drops; only a dead candidate of a large region, whose memory goes back to
-    /// the system, waits for the buffer ([`Self::take_dead_candidates`]).
+    /// the system, waits for the buffer (`Self::take_dead_candidates`).
     pub in_object: Option<unsafe fn(Ref) -> *mut u64>,
     /// The dead candidates the last candidate pass found
-    /// ([`Self::take_dead_candidates`]): their cells can be reused now.
+    /// (`Self::take_dead_candidates`): their cells can be reused now.
     dead_candidates: Vec<Ref>,
     /// The buffers of the cycle rounds, kept between rounds.
     scratch: CycleScratch,
@@ -1035,7 +1035,7 @@ impl ArcHeapState {
 
     /// The candidate pass without a cycle round: the dead candidates of the
     /// in-object word leave the buffer (their cells go to
-    /// [`Self::take_dead_candidates`]); the live ones stay.
+    /// `Self::take_dead_candidates`); the live ones stay.
     pub(crate) fn purge_dead_candidates(&mut self) {
         if self.in_object.is_none() {
             return;

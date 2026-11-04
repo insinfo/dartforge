@@ -207,7 +207,7 @@ const BINARYEN_FEATURES: &[&str] = &[
 /// Binaryen's `wasm-opt` for production modules: `DARTFORGE_WASM_OPT` (its
 /// path; `0` turns the step off), otherwise `wasm-opt` on `PATH`, otherwise
 /// the one of the Dart SDK of the `dart` on `PATH` (`bin/utils/wasm-opt`,
-/// dart2wasm's) — when it is at least [`BINARYEN_MIN_VERSION`]. `None`: the
+/// dart2wasm's) — when it is at least `BINARYEN_MIN_VERSION`. `None`: the
 /// module stays as LLVM left it.
 pub fn binaryen() -> Option<PathBuf> {
     if let Some(v) = std::env::var_os("DARTFORGE_WASM_OPT") {

@@ -1406,7 +1406,7 @@ const ARITHMETIC_FIRST: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV
 const ARITHMETIC_NEXT: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$0123456789";
 
 /// A character code `i` → its position in [`ARITHMETIC_NEXT`] (a JS
-/// expression; [`arithmetic_position`] is the same in Rust).
+/// expression; `arithmetic_position` is the same in Rust).
 const ARITHMETIC_POSITION: &str =
     "i > 96 ? i - 97 : i == 95 ? 52 : i > 64 ? i - 39 : i == 36 ? 53 : i + 6";
 

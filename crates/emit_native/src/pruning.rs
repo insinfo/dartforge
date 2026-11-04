@@ -423,7 +423,7 @@ pub struct Summary {
     /// function, or the constant of the text in the IR): where the native signatures
     /// that the program may ask of the runtime come from (§3.14). Any other
     /// constant text of the IR that cites classes (`C<id>`) is here too, as only
-    /// those citations ([`class_citation_text`]): the classes the RTI table
+    /// those citations (`class_citation_text`): the classes the RTI table
     /// keeps for the live code (`prune_rti_table`).
     pub recipes: Vec<(u32, String)>,
     /// Calls on a declared SDK `this`: (calling definition, selector, receiver cone).
