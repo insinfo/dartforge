@@ -39,6 +39,120 @@ const METADATA_OPTION: &str = "--dartforge-library-metadata";
 /// The internal option the host uses to compile a suite through the cache.
 const COMPILE_OPTION: &str = "--dartforge-compile-suite";
 
+/// Value options from test_core's command-line parser. Their values must not
+/// be mistaken for DartForge flags or unsupported native modes.
+const PACKAGE_VALUE_OPTIONS: &[(&str, Option<u8>)] = &[
+    ("--name", Some(b'n')),
+    ("--plain-name", Some(b'N')),
+    ("--tags", Some(b't')),
+    ("--tag", None),
+    ("--exclude-tags", Some(b'x')),
+    ("--exclude-tag", None),
+    ("--platform", Some(b'p')),
+    ("--compiler", Some(b'c')),
+    ("--preset", Some(b'P')),
+    ("--concurrency", Some(b'j')),
+    ("--total-shards", None),
+    ("--shard-index", None),
+    ("--pub-serve", None),
+    ("--timeout", None),
+    ("--coverage", None),
+    ("--test-randomize-ordering-seed", None),
+    ("--reporter", Some(b'r')),
+    ("--file-reporter", None),
+    ("--configuration", None),
+    ("--dart2js-args", None),
+    ("--precompiled", None),
+];
+
+#[derive(Default)]
+struct PackageArgument<'a> {
+    value_option: Option<&'static str>,
+    inline_value: Option<&'a str>,
+    help: bool,
+}
+
+/// Reads argument boundaries only; package:test still parses and validates
+/// its options. Short clusters stop at the first option that takes a value.
+fn package_argument(text: &str) -> PackageArgument<'_> {
+    let mut result = PackageArgument::default();
+    if text.starts_with("--") {
+        let (name, value) = text
+            .split_once('=')
+            .map_or((text, None), |(n, v)| (n, Some(v)));
+        result.value_option = PACKAGE_VALUE_OPTIONS
+            .iter()
+            .find_map(|&(n, _)| (n == name).then_some(n));
+        result.inline_value = value;
+        result.help = text == "--help";
+    } else if text.starts_with('-') {
+        for (at, byte) in text.bytes().enumerate().skip(1) {
+            if byte == b'h' {
+                result.help = true;
+            }
+            if let Some(name) = PACKAGE_VALUE_OPTIONS
+                .iter()
+                .find_map(|&(n, a)| (a == Some(byte)).then_some(n))
+            {
+                result.value_option = Some(name);
+                result.inline_value = (at + 1 < text.len()).then(|| &text[at + 1..]);
+                break;
+            }
+        }
+    }
+    result
+}
+
+/// Native limitations that can be diagnosed without loading a package or
+/// compiling its test host. Configuration-file restrictions stay in the host.
+fn unsupported_native_option(name: &str, value: &str) -> Option<String> {
+    match name {
+        "--platform" => {
+            let mut others = Vec::new();
+            for platform in value.split(',').map(str::trim).filter(|p| *p != "vm") {
+                if !others.contains(&platform) {
+                    others.push(platform);
+                }
+            }
+            (!others.is_empty()).then(|| {
+                format!(
+                    "the native runner only runs the vm platform; {} {} not supported",
+                    others.join(", "),
+                    if others.len() == 1 { "is" } else { "are" }
+                )
+            })
+        }
+        "--coverage" => Some("coverage collection is not supported by the native runner".into()),
+        "--compiler" => value
+            .split(',')
+            .any(|c| c.rsplit(':').next().is_none_or(|c| c.trim() != "exe"))
+            .then(|| "the native runner compiles suites as native executables; only the exe compiler can be selected".into()),
+        _ => None,
+    }
+}
+
+/// Line/column selection in package:test's URI query syntax or a numeric
+/// path suffix, excluding a bare Windows drive-relative path such as `C:12`.
+fn has_line_selection(path: &str) -> bool {
+    let path = path.split('#').next().unwrap_or("");
+    let path = if let Some((path, query)) = path.split_once('?') {
+        if url::form_urlencoded::parse(query.as_bytes())
+            .any(|(key, _)| matches!(key.as_ref(), "line" | "col"))
+        {
+            return true;
+        }
+        path
+    } else {
+        path
+    };
+    let Some((prefix, line)) = path.rsplit_once(':') else {
+        return false;
+    };
+    !line.is_empty()
+        && line.bytes().all(|c| c.is_ascii_digit())
+        && !(cfg!(windows) && prefix.len() == 1 && prefix.as_bytes()[0].is_ascii_alphabetic())
+}
+
 #[derive(Debug)]
 struct Options {
     /// Arguments for package:test's own command-line parser.
@@ -61,6 +175,8 @@ impl Options {
             help: false,
         };
         let mut it = args.iter();
+        let mut refusal = None;
+        let mut version = false;
         while let Some(arg) = it.next() {
             let text = arg.to_str().ok_or("test: options must be valid UTF-8")?;
             let mut value = |name: &str| -> Result<String, String> {
@@ -84,20 +200,46 @@ impl Options {
                 "--" => {
                     options.forwarded.push(text.to_owned());
                     for rest in it.by_ref() {
-                        options.forwarded.push(
-                            rest.to_str()
-                                .ok_or("test: paths must be valid UTF-8")?
-                                .to_owned(),
-                        );
+                        let rest = rest.to_str().ok_or("test: paths must be valid UTF-8")?;
+                        if has_line_selection(rest) {
+                            refusal.get_or_insert_with(|| "line and column test selection is not supported by the native runner".to_string());
+                        }
+                        options.forwarded.push(rest.to_owned());
                     }
                 }
                 _ => {
-                    if text == "--help" || text == "-h" {
-                        options.help = true;
-                    }
+                    let package = package_argument(text);
+                    options.help |= package.help;
+                    version |= text == "--version";
                     options.forwarded.push(text.to_owned());
+                    if let Some(name) = package.value_option {
+                        let argument = match package.inline_value {
+                            Some(v) => v.to_owned(),
+                            None => value(name)?,
+                        };
+                        if let Some(message) = unsupported_native_option(name, &argument) {
+                            refusal.get_or_insert(message);
+                        }
+                        if package.inline_value.is_none() {
+                            options.forwarded.push(argument);
+                        }
+                    } else if matches!(text, "--pause-after-load" | "--debug") {
+                        refusal.get_or_insert_with(|| "debugging (--pause-after-load, --debug) is not supported by the native runner".to_string());
+                    } else if text == "--watch" || text.starts_with("--watch=") {
+                        refusal.get_or_insert_with(|| {
+                            "watch mode is not supported by the native runner".to_string()
+                        });
+                    } else if !text.starts_with('-') && has_line_selection(text) {
+                        refusal.get_or_insert_with(|| "line and column test selection is not supported by the native runner".to_string());
+                    }
                 }
             }
+        }
+        if !options.help
+            && !version
+            && let Some(message) = refusal
+        {
+            return Err(format!("test: {message}"));
         }
         Ok(options)
     }
@@ -584,6 +726,31 @@ mod tests {
             assert!(Options::parse(&args(&values)).is_err(), "{values:?}");
         }
         assert!(Options::parse(&args(&["-h"])).unwrap().help);
+    }
+
+    #[test]
+    fn package_option_values_are_not_interpreted_as_modes_or_dartforge_flags() {
+        for values in [
+            vec!["--plain-name", "--debug"],
+            vec!["--name", "--coverage"],
+            vec!["--plain-name", "--sdk"],
+            vec!["--name=--platform"],
+            vec!["-n--coverage"],
+            vec!["-N", "--help"],
+            vec!["--plain-name", "test/a.dart:5"],
+            vec!["--plain-name", "test/a.dart?line=5"],
+            vec!["test/a.dart?full-name=foo:5"],
+            vec!["test/a.dart?name=foo#col=2"],
+            vec!["--", "--debug", "--coverage"],
+        ] {
+            let options = Options::parse(&args(&values)).unwrap();
+            assert_eq!(options.forwarded, values);
+            assert!(!options.help);
+            assert!(options.sdk.is_none());
+        }
+        assert!(Options::parse(&args(&["-hpchrome"])).unwrap().help);
+        assert!(Options::parse(&args(&["--version", "--debug"])).is_ok());
+        assert!(Options::parse(&args(&["-pvm", "-cvm:exe"])).is_ok());
     }
 
     #[test]

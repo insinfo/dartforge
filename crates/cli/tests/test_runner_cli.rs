@@ -25,26 +25,51 @@ fn compiler() -> Command {
 
 #[test]
 fn unsupported_runner_modes_are_refused_before_compiling() {
+    let directory = std::env::temp_dir().join(format!(
+        "dartforge-test-refusals-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir(&directory).unwrap();
     for (args, message) in [
         (
             vec!["--platform", "chrome"],
             "only runs the vm platform; chrome",
         ),
         (vec!["-p", "vm,node"], "only runs the vm platform; node"),
-        (vec!["--coverage=out"], "coverage collection"),
-        (vec!["--pause-after-load"], "debugging"),
-        (vec!["--fail-fast"], "--fail-fast"),
-        (vec!["--watch"], "watch mode"),
         (
-            vec!["--reporter", "github"],
-            "--reporter must be expanded or json",
+            vec!["--platform=firefox"],
+            "only runs the vm platform; firefox",
         ),
+        (vec!["-pvm,chrome"], "only runs the vm platform; chrome"),
+        (vec!["--coverage=out"], "coverage collection"),
+        (vec!["--coverage", "out"], "coverage collection"),
+        (vec!["--pause-after-load"], "debugging"),
+        (vec!["--debug"], "debugging"),
+        (vec!["--watch"], "watch mode"),
+        (vec!["--compiler=kernel"], "only the exe compiler"),
+        (vec!["-cvm:kernel"], "only the exe compiler"),
+        (vec!["test/a.dart:5:2"], "line and column"),
+        (vec!["--", "test/a.dart:5"], "line and column"),
+        (vec!["test/a.dart?line=5&col=2"], "line and column"),
+        (vec!["--", "test/a.dart?%6cine=5"], "line and column"),
+        (vec!["test/a.dart?col=2"], "line and column"),
     ] {
-        let output = cli().arg("test").args(&args).output().unwrap();
+        let output = cli()
+            .arg("test")
+            .args(&args)
+            .current_dir(&directory)
+            .output()
+            .unwrap();
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(64), "{args:?}: {stderr}");
         assert!(stderr.contains(message), "{args:?}: {stderr}");
     }
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 fn copy_tree(from: &Path, to: &Path) {
@@ -62,7 +87,7 @@ fn copy_tree(from: &Path, to: &Path) {
 
 /// `(suite, test) -> outcomes` from a JSON event stream; load failures are
 /// keyed as `loading`, and skipped tests count as `skipped`.
-fn outcomes(stdout: &[u8], official: bool) -> BTreeMap<(String, String), Vec<String>> {
+fn outcomes(stdout: &[u8]) -> BTreeMap<(String, String), Vec<String>> {
     let mut tests = BTreeMap::new();
     let mut suites = BTreeMap::new();
     let mut result: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
@@ -71,49 +96,34 @@ fn outcomes(stdout: &[u8], official: bool) -> BTreeMap<(String, String), Vec<Str
             continue;
         };
         let kind = event["type"].as_str().unwrap_or("");
-        if official {
-            match kind {
-                "suite" => {
-                    suites.insert(
-                        event["suite"]["id"].clone().to_string(),
-                        event["suite"]["path"].as_str().unwrap().to_owned(),
-                    );
-                }
-                "testStart" => {
-                    tests.insert(event["test"]["id"].to_string(), event["test"].clone());
-                }
-                "testDone" => {
-                    let test = &tests[&event["testID"].to_string()];
-                    let mut name = test["name"].as_str().unwrap().to_owned();
-                    if event["hidden"] == true && event["result"] == "success" {
-                        continue;
-                    }
-                    if name.starts_with("loading ") {
-                        name = "loading".into();
-                    }
-                    let outcome = if event["skipped"] == true {
-                        "skipped".to_owned()
-                    } else {
-                        event["result"].as_str().unwrap().to_owned()
-                    };
-                    let suite = suites[&test["suiteID"].to_string()].clone();
-                    result.entry((suite, name)).or_default().push(outcome);
-                }
-                _ => {}
+        match kind {
+            "suite" => {
+                suites.insert(
+                    event["suite"]["id"].clone().to_string(),
+                    event["suite"]["path"].as_str().unwrap().to_owned(),
+                );
             }
-        } else {
-            let suite = event["suite"].as_str().unwrap_or("").to_owned();
-            match kind {
-                "testDone" => result
-                    .entry((suite, event["name"].as_str().unwrap().to_owned()))
-                    .or_default()
-                    .push(event["result"].as_str().unwrap().to_owned()),
-                "loadError" => result
-                    .entry((suite, "loading".into()))
-                    .or_default()
-                    .push("error".into()),
-                _ => {}
+            "testStart" => {
+                tests.insert(event["test"]["id"].to_string(), event["test"].clone());
             }
+            "testDone" => {
+                let test = &tests[&event["testID"].to_string()];
+                let mut name = test["name"].as_str().unwrap().to_owned();
+                if event["hidden"] == true && event["result"] == "success" {
+                    continue;
+                }
+                if name.starts_with("loading ") {
+                    name = "loading".into();
+                }
+                let outcome = if event["skipped"] == true {
+                    "skipped".to_owned()
+                } else {
+                    event["result"].as_str().unwrap().to_owned()
+                };
+                let suite = suites[&test["suiteID"].to_string()].clone();
+                result.entry((suite, name)).or_default().push(outcome);
+            }
+            _ => {}
         }
     }
     result
@@ -153,6 +163,15 @@ fn configuration_and_annotations_match_dart_test() {
         vec!["--total-shards", "2", "--shard-index", "1", "--no-retry"],
         vec!["test/missing_check.dart", "test/ignored_test.dart"],
         vec!["-t", "nothing-tagged"],
+        vec![
+            "test/tagged_check.dart",
+            "--fail-fast",
+            "--no-retry",
+            "--concurrency",
+            "1",
+            "--name",
+            "flaky passes on retry|^plain$",
+        ],
     ] {
         let official = Command::new(&dart)
             .args(["test", "-r", "json"])
@@ -173,12 +192,66 @@ fn configuration_and_annotations_match_dart_test() {
             "{args:?}: {}",
             String::from_utf8_lossy(&native.stderr)
         );
+        let expected = outcomes(&official.stdout);
+        if args.is_empty() {
+            assert!(
+                !expected.is_empty(),
+                "the fixture must execute actual tests"
+            );
+        }
+        if args.contains(&"--fail-fast") {
+            assert!(expected.keys().any(|(_, n)| n == "flaky passes on retry"));
+            assert!(!expected.keys().any(|(_, n)| n == "plain"));
+        }
         assert_eq!(
-            outcomes(&native.stdout, false),
-            outcomes(&official.stdout, true),
+            outcomes(&native.stdout),
+            expected,
             "{args:?}: {}",
             String::from_utf8_lossy(&native.stderr)
         );
     }
+    // GitHub is a supported reporter. A passing test has no variable timing
+    // or stack output, so its whole transcript can be compared directly.
+    let reporter_args = [
+        "test",
+        "--reporter",
+        "github",
+        "test/tagged_check.dart",
+        "--plain-name",
+        "plain",
+        "--no-retry",
+    ];
+    let official = Command::new(&dart)
+        .args(reporter_args)
+        .current_dir(&package)
+        .output()
+        .unwrap();
+    let native = compiler()
+        .args(reporter_args)
+        .arg("--sdk")
+        .arg(sdk.join("lib"))
+        .current_dir(&package)
+        .output()
+        .unwrap();
+    assert!(
+        official.status.success(),
+        "{}",
+        String::from_utf8_lossy(&official.stderr)
+    );
+    assert!(
+        native.status.success(),
+        "{}",
+        String::from_utf8_lossy(&native.stderr)
+    );
+    let expected = String::from_utf8(official.stdout)
+        .unwrap()
+        .replace("\r\n", "\n");
+    assert!(expected.contains("1 test passed."), "{expected}");
+    assert_eq!(
+        String::from_utf8(native.stdout)
+            .unwrap()
+            .replace("\r\n", "\n"),
+        expected
+    );
     let _ = std::fs::remove_dir_all(&package);
 }

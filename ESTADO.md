@@ -560,8 +560,9 @@ As correções desta seção são posteriores ao pacote publicado.
   `cargo clippy --locked --workspace --all-targets -- -D warnings` e `rustfmt` passaram.
   A suíte do workspace terminou com cinco alvos reprovados, repetidos com sucesso após
   corrigir o ambiente e a concorrência do oráculo DDC (detalhes abaixo). A suíte do CLI
-  com `native,jit` terminou com 114 testes aprovados e dois reprovados em `test_runner_cli`,
-  ainda a corrigir. Ainda não há resultado do
+  com `native,jit` revelou dois testes reprovados em `test_runner_cli`, agora corrigidos;
+  a nova execução integral passou com **117 testes, zero falhas e zero ignorados**.
+  Ainda não há resultado do
   novo workflow nos três sistemas nem nova versão publicada.
   O link estático local avisou que objetos do LLVM instalado têm versão mínima
   macOS 27 acima do alvo 11; o pacote foi executado no sistema desta máquina,
@@ -600,19 +601,31 @@ As correções desta seção são posteriores ao pacote publicado.
 - **Gates atuais:** `rustfmt`, clippy do workspace com `-D warnings` e documentação de
   todo o workspace com `RUSTDOCFLAGS='-D warnings'` passaram depois das alterações.
   A execução completa anterior não é registrada como verde: os cinco alvos foram
-  repetidos separadamente com sucesso, e ainda falta uma execução integral no ambiente
-  corrigido.
-- **CLI `native,jit`, pendência concreta:** os 114 demais testes passaram, incluindo
-  geração de fontes, I/O, recarga e orçamentos de tamanho. Os dois do runner falharam:
-  - `--platform chrome` fora de um pacote retorna erro de dependências e saída 1,
-    antes da recusa de modo com saída 64 que o teste exige; falta restaurar a recusa
-    antecipada dos modos não suportados;
-  - o comparador de resultados nativos ainda lê o antigo JSON próprio, mas o runner
-    agora emite os eventos de `package:test`, e o teste quebra ao procurar `name` no
-    local antigo. A matriz de recusas também ainda chama `--fail-fast` e o relator
-    `github` de não suportados, apesar do suporte implementado em 02/11.
-  O log está em `/tmp/dartforge-cli-native-tests.log`. Corrigir o contrato de entrada e
-  atualizar o teste ao protocolo atual antes de considerar essa suíte validada.
+  repetidos separadamente com sucesso; uma nova execução integral no ambiente corrigido
+  foi iniciada, com log em `/tmp/dartforge-workspace-recheck.log`. O CLI com `native,jit`
+  já foi repetido integralmente: **117 testes passaram, zero falhas, zero ignorados**, em
+  16 executáveis de teste; log em `/tmp/dartforge-cli-native-recheck.log` (saída 0).
+- **CLI `native,jit`, correção do runner:** na primeira execução, os 114 demais testes
+  passaram, incluindo geração de fontes, I/O, recarga e orçamentos de tamanho. Os dois
+  do runner foram corrigidos:
+  - opções explícitas de plataformas/compiladores não suportados, cobertura, depuração,
+    watch e seleção por linha/coluna são recusadas com saída 64 antes da busca de
+    dependências ou compilação, mesmo fora de um pacote. A leitura preserva os limites
+    dos argumentos do `package:test`: valores de filtros que parecem opções não viram
+    modos, e `--` continua separando os caminhos;
+  - os dois runners agora são comparados pelo mesmo protocolo JSON de `package:test`,
+    preservando resultado por suíte/teste, tentativas e testes pulados. O leitor antigo
+    esperava o JSON próprio que deixou de existir em 02/11;
+  - `--fail-fast` e o relator `github` saíram das recusas desatualizadas e ganharam
+    casos positivos contra o oficial. Os **dois testes de integração passaram**:
+    **oito cenários JSON**, incluindo interrupção após a primeira falha, e a saída
+    completa do relator `github` em uma execução aprovada. Depois do ajuste final dos
+    limites de URI, passaram novamente os **68 testes unitários**, incluindo o corpus
+    gzip, e a matriz de recusas no binário atualizado.
+  A seleção URI (`?line=5&col=2`, inclusive chaves escapadas) também é recusada cedo;
+  filtros como `?full-name=foo:5` continuam sendo filtros. A nova execução integral do
+  CLI passou. Logs da falha original e da repetição: `/tmp/dartforge-cli-native-tests.log`
+  e `/tmp/dartforge-runner-differential.log`.
 - **CI, cobertura conferida no código:** o `Heavy` diário roda no Windows, mas não
   executa a suíte de ignorados do workspace. Ele cobre corpora diferenciais e testes
   nativos/JIT selecionados; os ignorados de `dartforge-build`, macros e gerador ngdart
@@ -777,8 +790,8 @@ Dentro dos ignorados, um único binário de teste com 1 teste leva 621 s, e outr
 
 ### A partir daqui
 
-- Fechar os dois testes de `test_runner_cli` com `native,jit` e repetir os gates no
-  ambiente completo; detalhes e falhas observadas na continuação de 04/11 acima.
+- Concluir a repetição integral dos gates no ambiente completo, após corrigir os dois
+  testes de `test_runner_cli`; detalhes e evidências na continuação de 04/11 acima.
 - Testes ignorados do Windows em debug (48,3 min), o maior gasto do job: medir em release, aproveitando a compilação que já existe. O `Heavy` roda no Windows diariamente, mas não cobre todos esses testes (conferência de 04/11 acima); antes de transferir o passo, acrescentar e validar a cobertura que falta.
 - O perfil sem LTO no Windows economiza só cerca de 1 min: avaliar se vale mantê-lo.
 - Validar o pacote com as correções dos três achados listados acima (seção de 04/11), antes de publicar outra versão.

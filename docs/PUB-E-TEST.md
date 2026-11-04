@@ -184,10 +184,10 @@ Evidências: `bench/results/2026-11-02-pub-publish/README.md`.
 | `--timeout`, `--ignore-timeouts`, `--run-skipped`, `--no-retry`, `-P/--preset`, `--test-randomize-ordering-seed` | suportado | |
 | `dart_test.yaml` e anotações (`@TestOn`, `@Timeout`, `@Skip`, `@OnPlatform`, `@Tags`, `@Retry`) | suportado | |
 | `--help`, `--version` | suportado | o uso do package:test; o DartForge acrescenta as opções dele depois |
-| seleção por linha/coluna (`path:linha:coluna`) | ausente | recusado: depende dos quadros de pilha da declaração |
+| seleção por linha/coluna (`path?line=5&col=2`; também `path:5:2`) | ausente | recusada antes da compilação: depende dos quadros de pilha da declaração |
 | `--coverage` | ausente | recusado; ver a análise abaixo |
 | `--pause-after-load`, `--debug` | ausente | recusados (não há serviço de VM) |
-| watch | ausente | não é opção do package:test 1.25 (erro de uso do próprio `Configuration`) |
+| `--watch` | ausente | não é opção do package:test 1.25; recusada antes da compilação |
 
 Opções próprias do DartForge: `--sdk <lib>`, `--packages <config>`,
 `--process-timeout <s>` (mata o executável de uma suíte depois de N segundos; sem limite
