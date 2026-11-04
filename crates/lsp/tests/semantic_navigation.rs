@@ -573,6 +573,145 @@ fn workspace_symbols_include_closed_project_files() {
     assert_eq!(in_project(&r), vec!["CarregadorRemoto"]);
 }
 
+#[test]
+fn workspace_symbols_preserve_discovery_order_through_file_events() {
+    fn symbols(p: &mut Project, query: &str) -> Vec<Value> {
+        p.request("workspace/symbol", json!({"query": query}))["result"]
+            .as_array()
+            .unwrap()
+            .clone()
+    }
+    fn watched(p: &mut Project, relative: &str, kind: u32) {
+        p.server.receive(
+            json!({"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+            "params": {"changes": [{"uri": p.uri(relative), "type": kind}]}}),
+        );
+        p.server.pump();
+    }
+
+    let mut p = Project::with_capabilities(
+        "nav-symbol-events",
+        json!({"workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}}}),
+    );
+    let declarations = |prefix: &str| {
+        (0..300)
+            .map(|i| format!("class SessionMember{prefix}{i:03} {{}}\n"))
+            .collect::<String>()
+    };
+    let a_text = declarations("A");
+    let b_text = declarations("B");
+    p.write("lib/a.dart", &a_text);
+    p.write("lib/b.dart", &b_text);
+    let before = symbols(&mut p, "SessionMember");
+    assert_eq!(before.len(), 500);
+    let a = symbols(&mut p, "SessionMemberA");
+    let b = symbols(&mut p, "SessionMemberB");
+    assert_eq!((a.len(), b.len()), (300, 300));
+
+    p.write("lib/created.dart", "class SessionMemberCreated {}\n");
+    watched(&mut p, "lib/created.dart", 1);
+    assert_eq!(symbols(&mut p, "SessionMember"), before);
+    let created = symbols(&mut p, "SessionMemberCreated");
+    assert_eq!(created.len(), 1);
+
+    let (first_path, first_text, first, other) =
+        if before[0]["location"]["uri"] == p.uri("lib/a.dart") {
+            ("lib/a.dart", &a_text, a, b)
+        } else {
+            ("lib/b.dart", &b_text, b, a)
+        };
+    std::fs::remove_file(p.path(first_path)).unwrap();
+    watched(&mut p, first_path, 3);
+    p.write(first_path, first_text);
+    watched(&mut p, first_path, 1);
+    // No query occurred between removal and recreation: the old file has
+    // nonetheless left its original position and follows the new file.
+    let mut expected = other;
+    expected.extend(created);
+    let remaining = before.len() - expected.len();
+    expected.extend(first.into_iter().take(remaining));
+    assert_eq!(symbols(&mut p, "SessionMember"), expected);
+}
+
+#[test]
+fn workspace_symbols_only_analyze_projects_with_open_files_when_requested() {
+    let mut p = Project::new("nav-symbol-open-projects");
+    p.write("lib/closed.dart", "class SessionOnlyOpenClosed {}\n");
+    assert!(
+        !p.request("workspace/symbol", json!({"query": "SessionOnlyOpen"}))["result"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    p.restart(json!({"initializationOptions": {"onlyAnalyzeProjectsWithOpenFiles": true}}));
+    assert_eq!(
+        p.request("workspace/symbol", json!({"query": "SessionOnlyOpen"}))["result"],
+        json!([])
+    );
+    // Folder notifications retain configuration scopes, without pinning an
+    // analysis context when only open documents should create contexts.
+    p.server.receive(
+        json!({"jsonrpc": "2.0", "method": "workspace/didChangeWorkspaceFolders",
+        "params": {"event": {"added": [{"uri": p.uri(""), "name": "project"}], "removed": []}}}),
+    );
+    p.server.pump();
+    assert_eq!(
+        p.request("workspace/symbol", json!({"query": "String"}))["result"],
+        json!([])
+    );
+    p.open("lib/open.dart", "class SessionOnlyOpenEditor {}\n");
+    let active =
+        p.request("workspace/symbol", json!({"query": "SessionOnlyOpen"}))["result"].clone();
+    assert_eq!(active.as_array().unwrap().len(), 2);
+    p.server
+        .receive(json!({"jsonrpc": "2.0", "method": "textDocument/didClose",
+        "params": {"textDocument": {"uri": p.uri("lib/open.dart")}}}));
+    p.server.pump();
+    for query in ["SessionOnlyOpen", "String"] {
+        assert_eq!(
+            p.request("workspace/symbol", json!({"query": query}))["result"],
+            json!([])
+        );
+    }
+    p.open("lib/open.dart", "class SessionOnlyOpenEditor {}\n");
+    assert_eq!(
+        p.request("workspace/symbol", json!({"query": "SessionOnlyOpen"}))["result"],
+        active
+    );
+}
+
+#[test]
+fn color_presentations_keep_the_open_projects_analysis_context() {
+    let mut p = Project::new("nav-open-project-colors");
+    let sdk_lib = p.root.join("sdk/lib");
+    let catalog = sdk_lib.join("libraries.json");
+    let mut libraries: Value =
+        serde_json::from_str(&std::fs::read_to_string(&catalog).unwrap()).unwrap();
+    libraries["dartdevc"]["libraries"]["ui"] = json!({"uri": "ui/ui.dart", "patches": []});
+    std::fs::write(catalog, serde_json::to_vec(&libraries).unwrap()).unwrap();
+    std::fs::create_dir_all(sdk_lib.join("ui")).unwrap();
+    std::fs::write(
+        sdk_lib.join("ui/ui.dart"),
+        "library dart.ui;\nclass Color { const Color(int value); }\n",
+    )
+    .unwrap();
+    p.restart(json!({}));
+    let text = "import 'dart:ui';\nconst color = Color(0xff336699);\n";
+    p.open("lib/color.dart", text);
+    let (line, character) = location(text, "Color(", 0);
+    let params = json!({"textDocument": {"uri": p.uri("lib/color.dart")},
+            "color": {"alpha": 1.0, "red": 0.2, "green": 0.4, "blue": 0.6},
+            "range": {"start": start(line, character), "end": start(line, character + 17)}});
+    let before = p.request("textDocument/colorPresentation", params.clone())["result"].clone();
+    assert_eq!(before.as_array().unwrap().len(), 4, "{before}");
+    assert_eq!(before[0]["label"], "Color.fromARGB(255, 51, 102, 153)");
+    p.restart(json!({"initializationOptions": {"onlyAnalyzeProjectsWithOpenFiles": true}}));
+    assert_eq!(
+        p.request("textDocument/colorPresentation", params)["result"],
+        before
+    );
+}
+
 /// On a case-insensitive file system (macOS, Windows), the editor may send
 /// the URI with a different case than the disk's: the document's unit is
 /// still found (the canonical path in every load). Where case matters, the

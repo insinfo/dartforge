@@ -232,6 +232,9 @@ pub struct Server<A = SyntacticAnalyzer> {
     /// Workspace roots announced in `initialize` (`rootUri`, `workspaceFolders`),
     /// for `workspace/symbol` to scan the disk.
     roots: Vec<std::path::PathBuf>,
+    /// `onlyAnalyzeProjectsWithOpenFiles`: workspace folders are configuration
+    /// scopes, while analysis contexts follow the open documents' projects.
+    only_analyze_open_projects: bool,
     /// `_filesWithClientDiagnostics`: the URIs whose diagnostics in the client
     /// are not empty.
     with_client_diagnostics: std::collections::HashSet<String>,
@@ -461,6 +464,7 @@ impl<A: Analyzer> Server<A> {
             not_imported: HashMap::new(),
             documentation_markdown: false,
             roots: Vec::new(),
+            only_analyze_open_projects: false,
             with_client_diagnostics: std::collections::HashSet::new(),
             hierarchy_origin: None,
             typed: None,
@@ -877,6 +881,28 @@ impl<A: Analyzer> Server<A> {
         }
     }
 
+    /// The contexts available to root-scoped requests. With open-project
+    /// analysis, closing a document must not remove its context while another
+    /// document of the same package remains open.
+    fn analysis_roots(&self) -> std::borrow::Cow<'_, [std::path::PathBuf]> {
+        if !self.only_analyze_open_projects {
+            return std::borrow::Cow::Borrowed(&self.roots);
+        }
+        let mut roots = Vec::new();
+        for uri in self.documents.uris() {
+            if let Some(path) = url::Url::parse(uri)
+                .ok()
+                .and_then(|u| u.to_file_path().ok())
+            {
+                let root = crate::project::project_root(&path);
+                if root.join("pubspec.yaml").is_file() && !roots.contains(&root) {
+                    roots.push(root);
+                }
+            }
+        }
+        std::borrow::Cow::Owned(roots)
+    }
+
     /// Requests the typed analysis of the current text of `uri`.
     fn request_typed(&mut self, uri: &str) {
         self.ensure_typed();
@@ -1291,6 +1317,10 @@ impl<A: Analyzer> Server<A> {
                         t.closed(uri);
                     }
                 }
+                if self.only_analyze_open_projects && self.documents.uris().next().is_none() {
+                    self.symbol_listing = None;
+                    self.symbol_index = Default::default();
+                }
                 if self.pulled_diagnostics {
                     return None;
                 }
@@ -1300,7 +1330,7 @@ impl<A: Analyzer> Server<A> {
                 let inside = url::Url::parse(uri)
                     .ok()
                     .and_then(|u| u.to_file_path().ok())
-                    .is_some_and(|c| self.roots.iter().any(|r| c.starts_with(r)));
+                    .is_some_and(|c| self.analysis_roots().iter().any(|r| c.starts_with(r)));
                 if inside && self.typed.is_some() {
                     return None;
                 }
@@ -1339,6 +1369,7 @@ impl<A: Analyzer> Server<A> {
                     }
                     if let Some(p) = file_path_of(&f["uri"])
                         && p.is_dir()
+                        && !self.only_analyze_open_projects
                         && !self.roots.contains(&p)
                     {
                         self.roots.push(p);
@@ -1355,7 +1386,7 @@ impl<A: Analyzer> Server<A> {
             "workspace/didChangeWatchedFiles" => {
                 crate::memory::trace("server handle watched");
                 // The file watcher (§3.3): what changed on disk.
-                let paths: Vec<std::path::PathBuf> = message
+                let changes: Vec<(std::path::PathBuf, u64)> = message
                     .pointer("/params/changes")
                     .and_then(Value::as_array)
                     .into_iter()
@@ -1366,8 +1397,13 @@ impl<A: Analyzer> Server<A> {
                             .and_then(|u| url::Url::parse(u).ok())
                             .filter(|u| u.scheme() == "file")
                             .and_then(|u| u.to_file_path().ok())
+                            .map(|p| (p, m.get("type").and_then(Value::as_u64).unwrap_or(2)))
                     })
                     .collect();
+                if let Some((roots, _, added, ..)) = &mut self.symbol_listing {
+                    update_symbol_file_order(roots, added, &changes);
+                }
+                let paths: Vec<_> = changes.into_iter().map(|(p, _)| p).collect();
                 let mut analysis = false;
                 if let Some(t) = &self.typed {
                     for path in &paths {
@@ -1581,7 +1617,15 @@ impl<A: Analyzer> Server<A> {
                         .pointer("/params/initializationOptions/renameFilesWithClasses")
                         .and_then(Value::as_str)
                         == Some("always");
-                self.roots = initialize_roots(message.get("params"));
+                self.only_analyze_open_projects = message
+                    .pointer("/params/initializationOptions/onlyAnalyzeProjectsWithOpenFiles")
+                    .and_then(Value::as_bool)
+                    == Some(true);
+                self.roots = if self.only_analyze_open_projects {
+                    Vec::new()
+                } else {
+                    initialize_roots(message.get("params"))
+                };
                 self.completion_calls = message
                     .pointer("/params/capabilities/textDocument/completion/completionItem/snippetSupport")
                     .and_then(Value::as_bool)
@@ -2707,7 +2751,7 @@ impl<A: Analyzer> Server<A> {
                 let inside = url::Url::parse(&uri)
                     .ok()
                     .and_then(|u| u.to_file_path().ok())
-                    .is_some_and(|c| self.roots.iter().any(|r| c.starts_with(r)));
+                    .is_some_and(|c| self.analysis_roots().iter().any(|r| c.starts_with(r)));
                 if !uri.ends_with(".dart") || !inside || self.excluded(&uri) {
                     return response(&id, json!([]));
                 }
@@ -3135,7 +3179,7 @@ impl<A: Analyzer> Server<A> {
         let in_workspace = url::Url::parse(uri)
             .ok()
             .and_then(|u| u.to_file_path().ok())
-            .is_some_and(|c| self.roots.iter().any(|r| c.starts_with(r)));
+            .is_some_and(|c| self.analysis_roots().iter().any(|r| c.starts_with(r)));
         match &self.hierarchy_origin {
             Some(origin) if !in_workspace => origin.clone(),
             _ => uri.to_string(),
@@ -3894,7 +3938,7 @@ impl<A: Analyzer> Server<A> {
             .filter_map(|(u, _)| url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok()))
             .collect();
         let mut seen: HashSet<std::path::PathBuf> = HashSet::new();
-        for root in &self.roots {
+        for root in self.analysis_roots().iter() {
             for file in dartforge_parity::corpus::dart_files(root) {
                 if open.contains(&file) || !seen.insert(file.clone()) {
                     continue;
@@ -4325,6 +4369,11 @@ impl<A: Analyzer> Server<A> {
                 loose.push(file);
             }
         }
+        if roots.is_empty() && loose.is_empty() {
+            self.symbol_listing = None;
+            self.symbol_index = Default::default();
+            return Vec::new();
+        }
         // `addedFiles`: the files of the analyzed roots; the known ones: the SDK
         // and the `lib/` of the packages of each root.
         // A client that watches the files reports their changes: the listing
@@ -4337,10 +4386,25 @@ impl<A: Analyzer> Server<A> {
                 .as_ref()
                 .is_some_and(|l| l.0 == roots && l.1.elapsed() < crate::session::DISK_TRUST);
         if !trust_disk {
-            let added: Vec<std::path::PathBuf> = roots
+            let discovered: Vec<std::path::PathBuf> = roots
                 .iter()
                 .flat_map(|r| crate::project::symbol_files(r))
                 .collect();
+            // OwnedFiles.addAdded retains surviving entries and appends new
+            // ones. A fresh directory enumeration can put a new file first.
+            let available: HashSet<_> = discovered.iter().collect();
+            let mut added = self
+                .symbol_listing
+                .as_ref()
+                .map(|l| l.2.clone())
+                .unwrap_or_default();
+            added.retain(|p| available.contains(p));
+            let mut seen: HashSet<_> = added.iter().cloned().collect();
+            for path in discovered {
+                if seen.insert(path.clone()) {
+                    added.push(path);
+                }
+            }
             let packages: Vec<(String, std::path::PathBuf)> = roots
                 .iter()
                 .flat_map(|r| crate::workspace_symbols::package_folders(r))
@@ -4587,8 +4651,6 @@ impl<A: Analyzer> Server<A> {
     }
 }
 
-/// Workspace roots in `initialize`: `workspaceFolders`, else `rootUri`, else
-/// `rootPath`; only existing directories.
 /// The line starts (`LineInfo.lineStarts`) of `text` in UTF-16 units: after
 /// `\n`, `\r\n` and a lone `\r`.
 fn utf16_starts(text: &str) -> Vec<usize> {
@@ -4626,6 +4688,53 @@ fn is_project_configuration(path: &std::path::Path) -> bool {
     })
 }
 
+/// Preserves OwnedFiles insertion order across watcher batches, including
+/// deletion followed by recreation without an intervening symbol request.
+/// File events use hash lookups; directory removal also removes descendants.
+fn update_symbol_file_order(
+    roots: &[std::path::PathBuf],
+    added: &mut Vec<std::path::PathBuf>,
+    changes: &[(std::path::PathBuf, u64)],
+) {
+    if !changes.iter().any(|(_, kind)| matches!(kind, 1 | 3)) {
+        return;
+    }
+    let mut ordered: Vec<_> = std::mem::take(added).into_iter().map(Some).collect();
+    let mut positions: HashMap<_, _> = ordered
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| p.as_ref().map(|p| (p.clone(), i)))
+        .collect();
+    for (path, kind) in changes {
+        if *kind == 3 {
+            if let Some(at) = positions.remove(path) {
+                ordered[at] = None;
+            } else {
+                let descendants: Vec<_> = positions
+                    .keys()
+                    .filter(|p| p.starts_with(path))
+                    .cloned()
+                    .collect();
+                for child in descendants {
+                    if let Some(at) = positions.remove(&child) {
+                        ordered[at] = None;
+                    }
+                }
+            }
+        } else if *kind == 1
+            && path.extension().is_some_and(|e| e == "dart")
+            && roots.iter().any(|r| path.starts_with(r))
+            && !positions.contains_key(path)
+        {
+            positions.insert(path.clone(), ordered.len());
+            ordered.push(Some(path.clone()));
+        }
+    }
+    *added = ordered.into_iter().flatten().collect();
+}
+
+/// Workspace roots in `initialize`: `workspaceFolders`, else `rootUri`, else
+/// `rootPath`; only existing directories.
 fn initialize_roots(params: Option<&Value>) -> Vec<std::path::PathBuf> {
     let Some(params) = params else {
         return Vec::new();
