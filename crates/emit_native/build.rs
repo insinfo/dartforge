@@ -321,7 +321,9 @@ const WASM_RUSTFLAGS: &str =
 /// `rust-toolchain.toml` installs the target.
 fn precompile_wasm_runtime(workspace: &Path, exit: &Path, sources: &[PathBuf], skip: bool) {
     let mut h = blake3::Hasher::new();
-    h.update(b"dartforge-runtime-wasm\0");
+    // "release-profile": a cached archive from before the cargo below ignored
+    // the host build's profile overrides has the same sources and another name.
+    h.update(b"dartforge-runtime-wasm-release-profile\0");
     h.update(WASM_TARGET.as_bytes());
     h.update(b"\0");
     h.update(WASM_RUSTFLAGS.as_bytes());
@@ -365,12 +367,17 @@ fn precompile_wasm_runtime(workspace: &Path, exit: &Path, sources: &[PathBuf], s
     if std::env::var_os("CARGO_NET_OFFLINE").is_some() {
         cmd.arg("--offline");
     }
+    // A faster profile for the compiler's own build must not reach the modules
+    // it will write: without LTO and with 16 codegen units a hello world's
+    // module grows from 675 to 758 KB.
     for v in [
         "RUSTC_WORKSPACE_WRAPPER",
         "CARGO_TARGET_DIR",
         "CARGO_BUILD_TARGET_DIR",
         "CARGO_BUILD_TARGET",
         "RUSTFLAGS",
+        "CARGO_PROFILE_RELEASE_LTO",
+        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS",
     ] {
         cmd.env_remove(v);
     }

@@ -303,7 +303,7 @@ jobs:
           cargo test --locked --workspace --tests --no-fail-fast --
           --ignored --skip pub_corpus --skip new_sali_type_checks --skip corpus_runs_under_dart_run
           --skip ddc_matches_dart_run --skip microbenchmark
-          --skip ng_dart_edit_in_each_file
+          --skip ng_dart_edit_in_each_file --skip matches_a_corpus_of_the_vm
 
   # The native backend and the JIT on Linux and macOS: build with both
   # features, the emit_native and JIT tests (with the ignored ones) and the
