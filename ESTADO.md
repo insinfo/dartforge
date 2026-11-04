@@ -554,7 +554,7 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
 | AOT nativo: tempo de compilação de programa grande (11,6× a CPU do `dart compile exe`) e tamanho (1,37×); próximo: mapa de campo, `$c`/`$g`/`$tc`, `$async` | em rodízio: agentes de desempenho um por vez desde 01/11 (ordem LSP → ARC → AOT); seção de 31/10 abaixo |
 | ARC real: 2,5× os ciclos do tracing no HTTP `dart:io` e 1,7× no cru (eram 3× e 2,2×); próximos passos na seção de 01/11 | em rodízio: agentes de desempenho um por vez (fila: LSP prioridade → AOT → ARC) |
 | LSP: edição de corpo no Windows (fases de CPU do residente: *heap* e caminhos), inclinação ≤ 0 da sessão longa, recarga no lugar casando os elementos por nome, ordem dos arquivos conhecidos do `workspace/symbol`, consultas de projeto ainda no servidor | **prioridade** (seção no topo): agente LSP, primeiro da fila de desempenho |
-| CI (`CI` e `Heavy`) | 04/11: verdes em `526e87d9` pela primeira vez desde 31/10. Seção "fechamento do dia" abaixo |
+| CI (`CI` e `Heavy`) | 04/11: `CI` verde em `87cb092b` e `v0.1.0-alpha.4` publicada. Falta baixar os 105 min do Windows (seção "fechamento do dia" abaixo) |
 
 ## 03/11/2026: fechamento do dia — o que foi feito e o que falta
 
@@ -623,8 +623,15 @@ está trabalhando na lacuna. Os detalhes estão nas seções datadas abaixo e no
   - `compile-js`, `dev` e `serve` procuravam `dart_sdk.js` no caminho da máquina que compilou;
   - `dartforge-lsp` e `dartforge-jsprod` não iam no pacote.
 
-  As notas da alpha.3 avisam disso. Corrigido em `7b6b1fbe`; validado com o pacote em ambiente limpo no macOS (o módulo wasm rodou no `dartforge-wasm-run`). O `release.yml` agora exercita esses compiladores e o LSP, e o `ci.yml` o wasm.
-- **CI mais barato** (`d0ffd294`): mudança só de `docs/` ou `*.md` não dispara o `CI`, e o job do Windows usa o mesmo perfil rápido do Linux e do macOS.
+  As notas da alpha.3 avisam disso e apontam para a alpha.4. Corrigido em `7b6b1fbe`. O `release.yml` agora exercita esses compiladores e o LSP, e o `ci.yml` o wasm.
+- **Um clang qualquer tomava o lugar do gerador embutido** (`87cb092b`). O passo novo do `ci.yml` reprovou `7f0bfb76` no Linux e no macOS. O pacote não leva clang, a busca terminava no `PATH`, e `Generator::clang_if_any` aceitava qualquer versão para o bitcode de produção. O clang dos runners não conhece as opções de wasm do LLVM 22. Agora só vale um clang da linha do LLVM embutido (22.1).
+  - **`env -i PATH=/usr/bin:/bin` não basta como ambiente limpo no macOS:** o Apple clang 21 desta máquina aceita essas opções, e a validação local de `7b6b1fbe` passou usando ele sem aviso. Para reproduzir, usei um `clang` falso no `PATH`, que responde `--version` como 18.1.3 e falha no resto.
+- **`v0.1.0-alpha.4` publicada** em `87cb092b` (pré-lançamento, 3 pacotes; o `Release` passou nos três sistemas). Pacote de macOS baixado do GitHub e testado com o clang falso no `PATH`: `aot`, `aot --optimize`, `run`, `compile-wasm` (hello de 667 KB; o módulo rodou no `dartforge-wasm-run`), `compile-js`, `dartforge-jsprod` no Node e `dartforge-lsp --version`.
+- **Achados ao testar o pacote, ainda sem correção:**
+  - `dartforge-wasm-run` não vai no pacote, então o módulo só roda no navegador;
+  - `dartforge --version` responde `unknown command`;
+  - no `dartforge-jsprod`, uma exceção não tratada imprime a mensagem, depois um dump de `TypeError` e sai com código 1 em vez de 255: o minificador renomeia `process.exit` para `process.L` (o texto vem de `crates/emit_js_production/src/bundle.rs`).
+- **CI mais barato** (`d0ffd294`): mudança só de `docs/` ou `*.md` não dispara o `CI`, e o job do Windows usa o mesmo perfil rápido do Linux e do macOS. Esta segunda parte **quase não ajudou**: ver abaixo.
 
 ### Por que o job do Windows levava 107 min
 
@@ -637,15 +644,27 @@ Medido nos logs de `edeacf6c`. **Os testes em si não são mais lentos no Window
 | Compilar em debug (5,9 + 9,6) | 15,5 min | não compila |
 | Compilar em release | 14 min | 7,8 min |
 
-O ganho de `d0ffd294` ainda precisa ser medido, e os logs não separam quanto dos 130 s por prova vem do LTO e quanto do link com o LLVM.
+**Medido depois de `d0ffd294`, com cache (`87cb092b`): 105 min.** Tirar o LTO e usar 16 unidades levou a compilação em release de 14 para 12,9 min e quase nada mudou no resto. O run anterior, de 106 min, não serve de comparação: mudar as variáveis `CARGO_*` invalidou o cache. Os passos agora são:
+
+| Passo do Windows | min |
+|---|---|
+| Testes ignorados em debug | 48,3 |
+| Suíte normal em debug (compilação incluída) | 21,7 |
+| Recarga JIT pelo CLI (compilação em release incluída) | 12,9 |
+| Contratos do SDK | 6,2 |
+| Getters e setters | 4,8 |
+| Campos tipados | 3,1 |
+
+Dentro dos ignorados, um único binário de teste com 1 teste leva 621 s, e outros levam 487, 293 e 243 s.
 
 **Comparação com o CI do Dart SDK** (`tools/bots/test_matrix.json` e a branch `infra/config`, lidos em 04/11): não roda só `dart/language`, e testa bem mais que o nosso. São 50 builders automáticos antes de cada commit, 115 só sob pedido, cerca de 80 jobs depois do commit e 73 por noite. A espera é curta porque há filtro por caminho (`docs/x.md` dispara 4 builders, `tests/language/` 25, e só `runtime/vm/os_win.cc`, entre os caminhos que simulei, dispara Windows) e o passo principal de testes da VM usa de 16 a 20 máquinas. Mediana de 13,5 min por builder; `vm-win-release-x64-try`, 12,2 min. Nós fazemos push direto no `main`, então nosso CI equivale só à etapa depois do commit: o Windows continua rodando em todo push de código.
 
 ### A partir daqui
 
-- CI verde em `d0ffd294` e versão `v0.1.0-alpha.4` com o pacote completo.
-- Testes ignorados do Windows em debug (37,6 min): ver se dá para rodá-los em release, aproveitando a compilação que já existe; se não der, vão para o `Heavy`, que já roda toda noite.
-- Só mover as provas de ARC se o novo perfil não bastar.
+- Testes ignorados do Windows em debug (48,3 min), o maior gasto do job: ver se dá para rodá-los em release, aproveitando a compilação que já existe; se não der, vão para o `Heavy`, que já roda toda noite. Antes de mover, conferir se o `Heavy` cobre Windows.
+- O perfil sem LTO no Windows economiza só cerca de 1 min: avaliar se vale mantê-lo.
+- Corrigir os três achados do pacote listados acima.
+- A suíte `tests/language` inteira continua sem repetição no wasm e no nativo; o gerador usado pelos pacotes (embutido) também não foi medido nela.
 
 ### A fazer (próximos dias)
 
