@@ -4,7 +4,8 @@
 #
 # Usage: python oracle.py <output.jsonl> <dartforge-binary> [project ...]
 # (environment variables: ORACLE_DART, ORACLE_SDK_LIB, ORACLE_PER_FILE,
-# ORACLE_SNIPPETS, ORACLE_METHODS, ORACLE_OPEN_FILES, ORACLE_DART_CACHE)
+# ORACLE_SNIPPETS, ORACLE_METHODS, ORACLE_OPEN_FILES, ORACLE_DART_CACHE,
+# ORACLE_READINESS=legacy|settled)
 # The summary (parity table) comes out of `summary.py`.
 import json, os, re, subprocess, sys, threading, time, queue, urllib.parse, pathlib
 
@@ -19,6 +20,9 @@ PER_FILE = int(os.environ.get("ORACLE_PER_FILE", "12"))
 OPEN_FILES = int(os.environ.get("ORACLE_OPEN_FILES", "0"))
 # Optional isolated reference cache for cold/warm reproducibility checks.
 DART_CACHE = os.environ.get("ORACLE_DART_CACHE")
+# Keep the original client sequence available. Settled runs explicitly resolve
+# open documents and wait until both peers report a stable idle interval.
+READINESS = os.environ.get("ORACLE_READINESS", "legacy")
 # Only these methods (comma separated, without `textDocument/`); empty: all.
 METHODS = {m.strip() for m in os.environ.get("ORACLE_METHODS", "").split(",") if m.strip()}
 
@@ -28,8 +32,9 @@ def requested(method):
 
 
 class Lsp:
-    def __init__(self, name, cmd, env=None):
+    def __init__(self, name, cmd, env=None, observer=None):
         self.name = name
+        self.observer = observer
         self.p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, env=env)
         self.next_id = 0
@@ -37,6 +42,7 @@ class Lsp:
         self.cv = threading.Condition()
         self.diagnostics = {}
         self.analyzing = None
+        self.analysis_starts = 0
         self.analysis_completions = 0
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -55,6 +61,8 @@ class Lsp:
                 headers[k.lower()] = v.strip()
             body = f.read(int(headers["content-length"]))
             m = json.loads(body)
+            if self.observer is not None:
+                self.observer("received", m)
             if "method" in m and "id" in m:
                 # Request from the server to the client.
                 r = None
@@ -65,7 +73,9 @@ class Lsp:
                 if m["method"] == "$/analyzerStatus":
                     with self.cv:
                         self.analyzing = m["params"]["isAnalyzing"]
-                        if not self.analyzing:
+                        if self.analyzing:
+                            self.analysis_starts += 1
+                        else:
                             self.analysis_completions += 1
                         self.cv.notify_all()
                 elif m["method"] == "textDocument/publishDiagnostics":
@@ -78,6 +88,8 @@ class Lsp:
                     self.cv.notify_all()
 
     def _send(self, m):
+        if self.observer is not None:
+            self.observer("sent", m)
         b = json.dumps(m).encode()
         self.p.stdin.write(b"Content-Length: %d\r\n\r\n" % len(b) + b)
         self.p.stdin.flush()
@@ -86,11 +98,14 @@ class Lsp:
         self.next_id += 1
         i = self.next_id
         t0 = time.perf_counter()
+        deadline = t0 + limit
         self._send({"jsonrpc": "2.0", "id": i, "method": method, "params": params})
         with self.cv:
             while i not in self.responses:
-                if not self.cv.wait(timeout=limit):
-                    return {"error": "timed out"}, limit * 1000
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    return {"error": "timed out"}, (time.perf_counter() - t0) * 1000
+                self.cv.wait(timeout=remaining)
             r = self.responses.pop(i)
         ms = (time.perf_counter() - t0) * 1000
         if "error" in r:
@@ -103,8 +118,9 @@ class Lsp:
     def wait_analysis(self, previous=0, limit=90, quiet=0.2):
         """Wait for a new completed analysis and a quiet interval, not diagnostics.
 
-        A clean file may never produce publishDiagnostics. Completion status
-        also avoids using stale results while watched files are still pending.
+        A clean file may never produce publishDiagnostics. This status wait
+        alone does not prove initial root setup has finished. For a settled
+        initial session, use settle_initial_analysis instead.
         """
         deadline = time.monotonic() + limit
         with self.cv:
@@ -116,6 +132,9 @@ class Lsp:
                     completed = self.analysis_completions
                     quiet_until = time.monotonic() + quiet
                     while not self.analyzing and self.analysis_completions == completed:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            return False
                         quiet_remaining = quiet_until - time.monotonic()
                         if quiet_remaining <= 0:
                             return True
@@ -130,6 +149,82 @@ class Lsp:
             self.p.wait(timeout=10)
         except Exception:
             self.p.kill()
+            self.p.wait(timeout=10)
+
+
+def analysis_states(servers):
+    """Snapshot each peer's observed status and transition counters."""
+    states = {}
+    for server in servers:
+        with server.cv:
+            states[server.name] = {"starts": server.analysis_starts,
+                                   "completions": server.analysis_completions,
+                                   "analyzing": server.analyzing}
+    return states
+
+
+def wait_all_idle(servers, limit=90, quiet=1.0):
+    """Observe a shared idle interval, including transitions between polls.
+
+    Unknown status is not idle. Starts/completions detect a short busy cycle
+    even when it begins and ends between observations. One absolute deadline
+    bounds both the busy wait and the quiet interval.
+    """
+    if not servers:
+        raise ValueError("at least one server is required")
+    deadline = time.monotonic() + limit
+    stable_since = None
+    previous = None
+    while True:
+        now = time.monotonic()
+        remaining = deadline - now
+        if remaining <= 0:
+            return False
+        states = analysis_states(servers)
+        if all(state["analyzing"] is False for state in states.values()):
+            if stable_since is None or states != previous:
+                stable_since = now
+            if now - stable_since >= quiet:
+                return True
+        else:
+            stable_since = None
+        previous = states
+        time.sleep(min(0.05, remaining))
+
+
+def settle_initial_analysis(servers, files, limit=90, quiet=1.0):
+    """Resolve the open documents in both peers, then observe them both idle.
+
+    Readiness probes are preparation, not feature samples. Return protocol
+    metadata separately so they do not inflate the parity denominator.
+    """
+    deadline = time.monotonic() + limit
+    probes = []
+    for file in files:
+        params = {"textDocument": {"uri": file.as_uri()}}
+        while True:
+            replies = {}
+            for server in servers:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("initial document resolution timed out")
+                replies[server.name], _ = server.request("textDocument/documentSymbol", params, limit=remaining)
+            if all(reply is None or isinstance(reply, list) for reply in replies.values()):
+                probes.append({"uri": file.as_uri(), "results": {
+                    name: {"type": type(reply).__name__, "count": len(reply) if isinstance(reply, list) else None}
+                    for name, reply in replies.items()}})
+                break
+            for name, reply in replies.items():
+                if reply is None or isinstance(reply, list):
+                    continue
+                error = reply.get("error") if isinstance(reply, dict) else None
+                if not isinstance(error, dict) or error.get("code") != -32007:
+                    raise RuntimeError(f"{name}: initial document resolution failed: {reply}")
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+    remaining = deadline - time.monotonic()
+    if not wait_all_idle(servers, limit=max(0, remaining), quiet=quiet):
+        raise TimeoutError("servers did not reach a shared initial idle interval")
+    return {"documents": probes, "states": analysis_states(servers), "quietSeconds": quiet}
 
 
 def norm_uri(u):
@@ -240,6 +335,8 @@ def sample(items, k):
 
 
 def main():
+    if READINESS not in ("legacy", "settled"):
+        raise ValueError("ORACLE_READINESS must be legacy or settled")
     output_path = sys.argv[1]
     binary = sys.argv[2]
     projects = sys.argv[3:]
@@ -267,6 +364,7 @@ def main():
                 out.write(json.dumps({"project": root.name, "server": s.name, "method": "initialize",
                                       "rootUri": root_uri, "openFiles": [p.as_uri() for p in files],
                                       "sdkLib": SDK_LIB, "referenceCache": DART_CACHE,
+                                      "readinessMode": READINESS,
                                       "result": r}) + "\n")
                 s.notify("initialized", {})
             texts = {}
@@ -285,6 +383,16 @@ def main():
                     s.close()
                 raise RuntimeError(f"initial analysis did not finish: {root}")
             time.sleep(1.0)
+            if READINESS == "settled":
+                try:
+                    readiness = settle_initial_analysis(servers, files)
+                except Exception:
+                    for s in servers:
+                        s.close()
+                    raise
+                out.write(json.dumps({"project": root.name, "method": "oracle/initialReadiness",
+                                      "mode": READINESS, **readiness}) + "\n")
+                out.flush()
             for a in files:
                 t = texts[a]
                 uri = a.as_uri()

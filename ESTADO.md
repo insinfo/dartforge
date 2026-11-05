@@ -178,7 +178,24 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   e 24/24 conjuntos**, com respostas idênticas nos dois servidores entre elas. As
   respostas do DartForge também são idênticas às da etapa anterior, e os manifestos
   permaneceram iguais, sem raízes ausentes. Detalhes e reprodução em `docs/LSP.md`.
-- **Regressões:** **329 testes do LSP passaram em 05/11**, incluindo doctests, o platô de
+- **Preparação das sessões do oráculo (05/11):** os rastros mostraram que a espera
+  antiga pelo status do Dart, seguida de um segundo, iniciava as buscas com o
+  DartForge ainda analisando nas nove sessões auditadas dos modos `legacy`, `cycle`
+  e `resolved`. Acrescentado `ORACLE_READINESS=settled`: resolve os mesmos documentos
+  abertos nos dois servidores e observa ambos ociosos durante um segundo. O padrão
+  continua `legacy`; a preparação adicional tem metadados próprios e não conta como
+  amostra de paridade. Nesse protocolo distinto, os três projetos grandes deram
+  **24/24 respostas completas**, e três sessões rastreadas do frontend deram **8/8
+  cada**. No protocolo antigo, as três sessões do frontend deram **4/8, 8/8 e 8/8**;
+  as respostas do DartForge foram idênticas nas 12 sessões dos quatro modos. Fontes
+  e configurações ficaram iguais, mas o conteúdo interno do cache Dart não foi
+  congelado: não há prova de que só a espera explique a variação. Os **21/24**
+  anteriores continuam reprovados. Nenhum código do servidor mudou nesta etapa.
+  Corrigidos também os prazos do cliente: notificações não reiniciam o timeout dos
+  pedidos, e a espera pelo intervalo ocioso respeita o prazo total. Passaram
+  **11 testes Python** sem SDK; os controles mantiveram **32/32** nos projetos
+  pequenos e **16/16** na fonte sombreada sem watcher. Detalhes em `docs/LSP.md`.
+- **Regressões do servidor:** **329 testes do LSP passaram em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
   raízes numa regressão nova, duas regressões de descoberta e listas de resposta e
   quatro de URIs, normalização e fontes sombreadas.

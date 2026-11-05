@@ -3820,6 +3820,95 @@ ampliar a cobertura de nomes com escapes literais. A checagem de ida e volta tem
 custo na abertura do índice, ainda sem medição; esta etapa não repete latência,
 CPU ou memória dos projetos grandes.
 
+### Continuação: preparação explícita e rastros de status do oráculo (05/11)
+
+A espera inicial antiga observa uma conclusão de análise do Dart e aguarda mais
+um segundo. Isso não estabelece que os dois servidores terminaram o trabalho
+inicial. A auditoria `workspace_symbol_readiness.py` abre o mesmo primeiro arquivo
+de `lib/` ou `bin/` que `ORACLE_OPEN_FILES=1`, conserva as oito consultas e as
+respostas brutas, e registra o protocolo em um arquivo `.trace.json` separado.
+O rastro contém métodos, identificadores, status e contagens, sem texto fonte nem
+corpos completos das respostas. O processo falha se qualquer lista completa,
+incluindo ordem, campos e duplicatas, diferir.
+
+Foram executadas três sessões do frontend por modo, sequencialmente, com o mesmo
+SDK 3.6.2, binário e diretório de cache Dart. Cada modo acrescenta uma preparação
+distinta; os resultados não são intercambiáveis:
+
+| Modo | Preparação antes das consultas | Respostas completas iguais nas três sessões |
+| --- | --- | --- |
+| `legacy` | espera antiga por status e um segundo | 4/8, 8/8, 8/8 |
+| `cycle` | exige também um novo ciclo ocupado/ocioso do Dart | 8/8, 8/8, 8/8 |
+| `resolved` | ciclo, depois `documentSymbol` do documento aberto nos dois servidores | 8/8, 8/8, 8/8 |
+| `settled` | espera antiga, `documentSymbol` nos dois e intervalo ocioso conjunto | 8/8, 8/8, 8/8 |
+
+Nas nove sessões dos três primeiros modos, o DartForge ainda reportava análise
+em andamento imediatamente antes das buscas. Na primeira sessão `legacy`, o
+Dart tinha anunciado apenas um ciclo ocupado/ocioso, de cerca de 2,5 ms; voltou a
+analisar durante a primeira busca. Nas demais oito, já havia anunciado dois
+ciclos. Nas três sessões `settled`, ambos reportavam ociosidade antes das buscas,
+após cerca de 5,6–5,7 s desde o início do cliente. Novos ciclos durante as buscas
+continuam possíveis pela resolução sob demanda; o intervalo observado não é uma
+garantia de que nunca haverá trabalho futuro.
+
+As respostas do DartForge foram idênticas nas 12 sessões. Na primeira `legacy`,
+`Scanner`, `ctx`, `Ponto` e `join` diferiram na ordem; os multiconjuntos de itens
+completos eram iguais nas oito consultas. Isso ajuda a localizar a diferença,
+mas não muda a reprovação da lista ordenada. Fontes e configurações ficaram
+iguais; o conteúdo interno do cache Dart foi reutilizado sem congelamento.
+Portanto, a auditoria não atribui a variação apenas à espera inicial. As três
+diferenças das matrizes anteriores de **21/24** permanecem registradas.
+
+O oráculo geral agora aceita `ORACLE_READINESS=legacy|settled`, mantendo `legacy`
+como padrão. `settled` envia os mesmos pedidos `textDocument/documentSymbol`
+para cada documento aberto aos dois servidores, repetindo apenas o erro
+transitório `FileNotAnalyzed` (-32007). Depois exige que ambos tenham informado
+ociosidade por um segundo, com contadores para detectar ciclos entre as
+observações. Status desconhecido não vale como ocioso. Um prazo absoluto limita
+a resolução e o intervalo conjunto. A linha `oracle/initialReadiness` guarda as contagens e os
+estados separadamente; `summary.py` não a inclui nas amostras das funcionalidades.
+O modo é registrado também nas linhas de inicialização. Nenhuma resposta de
+símbolos é normalizada, ordenada ou filtrada pelo novo modo.
+
+No oráculo geral, essa preparação deu **8/8 em cada projeto grande (24/24)**,
+com ambos ociosos nos metadados. Os controles pelo protocolo antigo deram
+**32/32** nos quatro projetos pequenos e **16/16** na fonte sombreada sem watcher.
+Os manifestos posteriores conservam os 9.761, 6.640 e 10.894 arquivos e os mesmos
+digests da etapa anterior, sem raízes ausentes. Nenhum código Rust foi alterado;
+esses resultados validam o protocolo novo, sem fechar a paridade no protocolo
+antigo nem substituir a dupla fria ainda pendente.
+
+Também foram corrigidos dois problemas do cliente compartilhado: notificações
+sem resposta não reiniciam mais o timeout de um pedido, e o intervalo ocioso da
+espera antiga não ultrapassa o prazo total. O encerramento aguarda a saída do
+processo após o fallback com `kill`. **11 testes Python** passaram sem SDK, com
+relógio simulado para os prazos e transições; incluem erros inesperados não
+ocultados, sondas iguais nos dois servidores, preservação dos quadros JSON-RPC e
+exclusão dos metadados da contagem de amostras. Os **329 testes Rust** e os gates
+do workspace registrados acima são da etapa anterior, no commit `38edff4f`;
+não foram repetidos para esta alteração exclusiva do oráculo e documentação.
+
+Reprodução, com `ORACLE_DART`, `ORACLE_SDK_LIB` e `ORACLE_DART_CACHE` configurados:
+
+```sh
+python3 crates/lsp/oracle/workspace_symbol_readiness.py \
+  /tmp/readiness-legacy.jsonl target/debug/dartforge-lsp /caminho/projeto --mode legacy
+python3 crates/lsp/oracle/workspace_symbol_readiness.py \
+  /tmp/readiness-settled.jsonl target/debug/dartforge-lsp /caminho/projeto --mode settled
+ORACLE_READINESS=settled ORACLE_METHODS=symbol ORACLE_OPEN_FILES=1 \
+  python3 crates/lsp/oracle/oracle.py /tmp/readiness-main.jsonl \
+  target/debug/dartforge-lsp /caminho/projeto
+python3 -m unittest discover -s crates/lsp/oracle -p 'test_*.py' -v
+```
+
+Evidências: `/tmp/dartforge-readiness-{legacy,cycle,resolved,settled}-{1,2,3}.jsonl`,
+com os rastros de mesmo nome terminados em `.trace.json`;
+`/tmp/dartforge-readiness-main-{limitless,core,frontend}.jsonl`;
+`/tmp/dartforge-readiness-{legacy-small,shared-protocol}.jsonl`;
+`/tmp/dartforge-readiness-main-inputs.log` e
+`/tmp/dartforge-readiness-unit.log`. Estes ensaios não medem desempenho: ainda
+faltam latência, CPU e memória em condições equivalentes e sem concorrência.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da
