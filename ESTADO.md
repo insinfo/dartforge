@@ -133,7 +133,18 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   e a transição entre insertion sort e quicksort. Isso fecha esses cenários com
   várias pastas; a repetição com cache Dart isolado e frio também manteve **18/18**.
   Os demais históricos de sessão continuam sujeitos ao oráculo.
-- **Projetos grandes, última comparação de 04/11:** a nova dupla deu **9/24 respostas completas no
+- **Condicionais e descoberta durante a busca (05/11):** o índice registra as URIs de
+  todas as alternativas de import/export, mas percorre primeiro a primária: o servidor
+  de análise 3.6.2 não declara variáveis condicionais, nem `dart.library.*`. Ausência
+  não equivale a `false` nem a string vazia. A busca resolve as bibliotecas da lista
+  capturada, incluindo as que não combinam com o nome; arquivos descobertos nesse
+  trabalho só entram na próxima resposta. Cada arquivo mantém seu contexto de origem.
+  O oráculo novo passou de **4/16 para 16/16**, repetido com cache quente e frio:
+  **48/48** após o ajuste, com respostas da referência idênticas antes/depois.
+  Inclui alternativas fora dos catálogos, dependências dessas alternativas, edição
+  sem salvar, reversão e fechamento. Depois de estabilizar, buscas confiáveis com
+  as mesmas diretivas não percorrem novamente o grafo.
+- **Projetos grandes, comparação de 04/11:** a dupla deu **9/24 respostas completas no
   cache Dart frio e 24/24 no quente**, com **20/24 e 24/24 conjuntos**, respectivamente.
   Os três projetos deram **8/8 no quente**, incluindo os 373 resultados de `Ponto` no
   `limitless_ui`; outra execução com os mesmos caches manteve **24/24**, sem mudar as
@@ -142,19 +153,24 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   Os manifestos de entrada continuaram iguais e sem raízes ausentes. O core usa a cópia com os 64
   caminhos Windows corrigidos, mantendo versões e fontes. Os 24/24 quentes não fecham
   a paridade no frio, a descoberta condicional, edições nos projetos grandes nem
-  todos os históricos de expansão/remoção de contextos. Essa matriz grande ainda não
-  foi repetida após a correção de 05/11. Detalhes e reprodução em `docs/LSP.md`.
-- **Regressões:** **323 testes do LSP passaram em 05/11**, incluindo doctests, o platô de
+  todos os históricos de expansão/remoção de contextos.
+  **Repetição quente em 05/11:** **21/24 respostas completas e 24/24 conjuntos**:
+  `limitless_ui` e core 8/8, frontend 5/8. As 24 respostas do DartForge continuam
+  idênticas às da execução quente anterior; o Dart mudou a ordem de `ctx`, `Ponto`
+  e `join` no frontend. Repeti-lo no mesmo cache deu 8/8, outra vez mudando só o Dart.
+  Fontes e metadados ficaram estáveis, sem raízes ausentes. No core, o digest textual
+  do manifesto mudou por `/tmp` versus `/private/tmp`; os arquivos canônicos, conteúdos,
+  tamanhos e datas coincidem. As três falhas da primeira repetição são conservadas;
+  o novo 8/8 não fecha a paridade entre sessões. Não houve nova dupla fria nos projetos
+  grandes. Detalhes e reprodução em `docs/LSP.md`.
+- **Regressões:** **325 testes do LSP passaram em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
-  raízes numa regressão nova. Clippy do workspace sem
-  avisos, formatação e documentação estrita passaram. Em 04/11, o oráculo de dois
-  contextos passou em **24/24 com watcher do cliente e 24/24 sem ele**,
-  repetidos duas vezes: **96/96**. Sem watcher, eram 15/24 antes de preservar a colisão
-  da URI; o teste unitário também falhava na segunda consulta. Mantidos **112/112** no
-  ciclo de vida e **32/32** nos quatro projetos pequenos. Em 05/11, repetidos **112/112**
-  no ciclo de vida e **24/24** nos dois contextos com watcher. Depois da correção da
-  ordem de criação, repetidos **112/112** no ciclo de vida e **24/24 com e 24/24 sem
-  watcher** nos dois contextos.
+  raízes numa regressão nova, mais duas regressões de descoberta e listas de resposta.
+  Clippy do workspace sem avisos, formatação e documentação estrita passaram.
+  Após as condicionais, mantidos **112/112** no ciclo de vida, **24/24 com e 24/24 sem
+  watcher** nos dois contextos, **18/18** na capacidade e **32/32** nos quatro projetos
+  pequenos. Sem watcher, eram 15/24 antes de preservar a colisão da URI; a matriz
+  corrigida já havia passado duas vezes nos dois modos em 04/11 (**96/96**).
 - **Desempenho ainda sem repetição:** capturar a ordem inicial exige enumerar os arquivos
   ao criar a coleção; reconstruí-la reenumera as raízes e descarta o índice sintático.
   Contextos existentes não são reenumerados por edições de corpo; o custo de abertura

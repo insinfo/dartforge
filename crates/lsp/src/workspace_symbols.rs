@@ -316,10 +316,20 @@ struct Library {
     units: Vec<Unit>,
     types: LocalTypes,
     /// The URIs its units import, with the unit's file.
-    imports: Vec<(PathBuf, String)>,
+    imports: Vec<Dependency>,
     /// Exports are separate from imports: bootstrap and cycle discovery
     /// materialize their lazy lists in different orders.
-    exports: Vec<(PathBuf, String)>,
+    exports: Vec<Dependency>,
+}
+
+/// FileState builds every configurable URI, even when only the primary is
+/// selected. The analysis server declares no conditional variables, including
+/// dart.library.*: absent variables match neither false nor the empty string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Dependency {
+    unit: PathBuf,
+    primary: Option<String>,
+    alternatives: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -421,6 +431,7 @@ enum FileIdentity {
 
 #[derive(Debug, Clone)]
 struct OwnedFile {
+    context: usize,
     identity: FileIdentity,
     path: PathBuf,
 }
@@ -433,6 +444,10 @@ struct Discovery {
     positions: HashMap<FileIdentity, usize>,
     added_count: usize,
     created: HashSet<(usize, PathBuf)>,
+    /// Query resolution can add files after the response snapshot. Once a
+    /// trusted snapshot resolves without new FileStates, repeated queries
+    /// need no further graph traversal until the inputs change.
+    snapshot_resolved: bool,
 }
 
 impl Discovery {
@@ -446,11 +461,19 @@ impl Discovery {
             .map_or_else(|| FileIdentity::File(path.clone()), |c| c.identity(&path));
         if let Some(&position) = self.positions.get(&identity) {
             if !added && position >= self.added_count {
-                self.files[position] = OwnedFile { identity, path };
+                self.files[position] = OwnedFile {
+                    context,
+                    identity,
+                    path,
+                };
             }
         } else {
             self.positions.insert(identity.clone(), self.files.len());
-            self.files.push(OwnedFile { identity, path });
+            self.files.push(OwnedFile {
+                context,
+                identity,
+                path,
+            });
             if added {
                 self.added_count += 1;
             }
@@ -504,8 +527,8 @@ struct DiscoveryInputs {
 #[derive(Debug, PartialEq, Eq)]
 struct OpenDependencies {
     path: PathBuf,
-    imports: Vec<(PathBuf, String)>,
-    exports: Vec<(PathBuf, String)>,
+    imports: Vec<Dependency>,
+    exports: Vec<Dependency>,
 }
 
 /// The fingerprint of a read file: its size and date on disk, or the open
@@ -537,6 +560,17 @@ pub(crate) struct Index {
 
 /// Reads a file (open or from disk) with its fingerprint.
 type Reader<'a> = dyn Fn(&Path) -> Option<(String, Fingerprint)> + 'a;
+
+/// Inputs shared by pre-query analysis and snapshot resolution. Each external
+/// file keeps its referring catalog rather than choosing one from its path.
+struct DiscoveryContext<'a> {
+    catalogs: &'a [Context],
+    sdk: Option<&'a SdkFiles>,
+    read: &'a Reader<'a>,
+    open: &'a HashMap<PathBuf, Fingerprint>,
+    uri_of: &'a dyn Fn(&Path) -> String,
+    trust_disk: bool,
+}
 
 /// The fingerprint of a file on disk, without reading it.
 fn disk_fingerprint(path: &Path) -> Option<Fingerprint> {
@@ -1127,14 +1161,27 @@ fn index(
         let uri = uri_of(&file);
         units.push(Unit { uri, declarations });
         for d in &analyzed.unit.directives {
-            let (uri, output) = match &d.kind {
-                DirectiveKind::Import { uri, .. } => (uri, &mut imports),
-                DirectiveKind::Export { uri, .. } => (uri, &mut exports),
+            let (uri, configurations, output) = match &d.kind {
+                DirectiveKind::Import {
+                    uri,
+                    configurations,
+                    ..
+                } => (uri, configurations, &mut imports),
+                DirectiveKind::Export {
+                    uri,
+                    configurations,
+                    ..
+                } => (uri, configurations, &mut exports),
                 _ => continue,
             };
-            if let Some(u) = dartforge_elements::load::string_lit_value(uri) {
-                output.push((file.clone(), u.to_string()));
-            }
+            output.push(Dependency {
+                unit: file.clone(),
+                primary: dartforge_elements::load::string_lit_value(uri),
+                alternatives: configurations
+                    .iter()
+                    .filter_map(|c| dartforge_elements::load::string_lit_value(&c.uri))
+                    .collect(),
+            });
         }
         for p in parts(&analyzed.unit, &file).into_iter().rev() {
             pending.push(p);
@@ -1209,16 +1256,34 @@ impl Index {
                 // exports are created before imports, regardless of source order.
                 for exports in [true, false] {
                     for directive in &parsed.unit.directives {
-                        let uri = match &directive.kind {
-                            DirectiveKind::Export { uri, .. } if exports => uri,
-                            DirectiveKind::Import { uri, .. } if !exports => uri,
+                        let (uri, configurations) = match &directive.kind {
+                            DirectiveKind::Export {
+                                uri,
+                                configurations,
+                                ..
+                            } if exports => (uri, configurations),
+                            DirectiveKind::Import {
+                                uri,
+                                configurations,
+                                ..
+                            } if !exports => (uri, configurations),
                             _ => continue,
                         };
-                        if let Some(uri) = dartforge_elements::load::string_lit_value(uri)
-                            && let Some(name) = uri.strip_prefix("dart:")
-                            && let Some(library) = layout.library(name)
+                        for uri in std::iter::once(uri).chain(configurations.iter().map(|c| &c.uri))
                         {
-                            list.push(dartforge_elements::generated::key(&library.path));
+                            if let Some(uri) = dartforge_elements::load::string_lit_value(uri) {
+                                let target = if let Some(name) = uri.strip_prefix("dart:") {
+                                    layout.library(name).map(|l| l.path.clone())
+                                } else {
+                                    url::Url::from_file_path(&core.path)
+                                        .ok()
+                                        .and_then(|u| u.join(&uri).ok())
+                                        .and_then(|u| u.to_file_path().ok())
+                                };
+                                if let Some(path) = target {
+                                    list.push(dartforge_elements::generated::key(&path));
+                                }
+                            }
                         }
                     }
                 }
@@ -1305,12 +1370,18 @@ impl Index {
             priority: priority.to_vec(),
             open_dependencies,
         };
-        if trust_disk
-            && let Some((last, discovery)) = &self.paths
-            && *last == inputs
-        {
-            let files = discovery.files.clone();
-            return self.find(query, &files, read, open, &uri_of, kinds, trust_disk);
+        let sdk_files = sdk.map(|lib| self.sdk_files(lib));
+        let environment = DiscoveryContext {
+            catalogs: contexts,
+            sdk: sdk_files.as_deref(),
+            read,
+            open,
+            uri_of: &uri_of,
+            trust_disk,
+        };
+        if trust_disk && self.paths.as_ref().is_some_and(|(last, _)| *last == inputs) {
+            let (_, discovery) = self.paths.take().unwrap();
+            return self.query_snapshot(query, inputs, discovery, kinds, &environment);
         }
         // Each driver's FileState is created once. A later encounter in that
         // driver must not steal a URI back from another driver.
@@ -1333,7 +1404,7 @@ impl Index {
                 discovery
             }
         };
-        let sdk_files = sdk.map(|lib| self.sdk_files(lib));
+        discovery.snapshot_resolved = false;
         for context in 0..contexts.len().max(1) {
             if let Some(sdk) = &sdk_files {
                 for p in &sdk.bootstrap {
@@ -1355,49 +1426,8 @@ impl Index {
                 .rev()
                 .map(|p| (context_for(p, contexts), p.clone())),
         );
-        let mut visited = HashSet::new();
+        self.discover_graph(&mut discovery, pending, &environment);
         let empty = Context::default();
-        while let Some((context, path)) = pending.pop() {
-            let path = dartforge_elements::generated::key(&path);
-            if !visited.insert((context, path.clone())) {
-                continue;
-            }
-            let Some(library) = self.library(&path, read, open, &uri_of, trust_disk) else {
-                continue;
-            };
-            let catalog = contexts.get(context).unwrap_or(&empty);
-            let mut next = Vec::new();
-            for (unit, uri) in &library.imports {
-                if let Some(target) = dependency_target(
-                    unit,
-                    uri,
-                    sdk_files.as_deref(),
-                    &catalog.packages,
-                    &catalog.generated,
-                    &catalog.generated_files,
-                ) {
-                    discovery.add(&target, context, contexts, false);
-                    next.push(target);
-                }
-            }
-            if let Some(core) = sdk_files.as_ref().and_then(|s| s.layout.library("core")) {
-                next.push(core.path.clone());
-            }
-            for (unit, uri) in &library.exports {
-                if let Some(target) = dependency_target(
-                    unit,
-                    uri,
-                    sdk_files.as_deref(),
-                    &catalog.packages,
-                    &catalog.generated,
-                    &catalog.generated_files,
-                ) {
-                    discovery.add(&target, context, contexts, false);
-                    next.push(target);
-                }
-            }
-            pending.extend(next.into_iter().rev().map(|p| (context, p)));
-        }
         let mut available_contexts = context_order::order(contexts);
         if available_contexts.is_empty() {
             available_contexts.push(0);
@@ -1440,9 +1470,103 @@ impl Index {
                 .flat_map(|c| &c.packages)
                 .any(|(_, p)| p == folder)
         });
+        self.query_snapshot(query, inputs, discovery, kinds, &environment)
+    }
+
+    /// FindDeclarations snapshots OwnedFiles before getLibraryByUri resolves
+    /// each entry. Files discovered by that resolution join the next query,
+    /// even when the current query's name filter matches no declarations.
+    fn query_snapshot(
+        &mut self,
+        query: &str,
+        inputs: DiscoveryInputs,
+        mut discovery: Discovery,
+        kinds: Option<&[u64]>,
+        environment: &DiscoveryContext<'_>,
+    ) -> Vec<Value> {
         let files = discovery.files.clone();
+        if !discovery.snapshot_resolved {
+            let created = discovery.created.len();
+            let pending = files
+                .iter()
+                .rev()
+                .map(|f| (f.context, f.path.clone()))
+                .collect();
+            self.discover_graph(&mut discovery, pending, environment);
+            discovery.snapshot_resolved = discovery.created.len() == created;
+        }
         self.paths = Some((inputs, discovery));
-        self.find(query, &files, read, open, &uri_of, kinds, trust_disk)
+        self.find(
+            query,
+            &files,
+            environment.read,
+            environment.open,
+            environment.uri_of,
+            kinds,
+            environment.trust_disk,
+        )
+    }
+
+    /// Materialize all directive URIs, but recurse only through the primary
+    /// selected in the analysis server's empty declared-variable environment.
+    /// Imports and exports have separate lazy lists and discovery order.
+    fn discover_graph(
+        &mut self,
+        discovery: &mut Discovery,
+        mut pending: Vec<(usize, PathBuf)>,
+        environment: &DiscoveryContext<'_>,
+    ) {
+        let mut visited = HashSet::new();
+        let empty = Context::default();
+        while let Some((context, path)) = pending.pop() {
+            let path = dartforge_elements::generated::key(&path);
+            if !visited.insert((context, path.clone())) {
+                continue;
+            }
+            let Some(library) = self.library(
+                &path,
+                environment.read,
+                environment.open,
+                environment.uri_of,
+                environment.trust_disk,
+            ) else {
+                continue;
+            };
+            let catalog = environment.catalogs.get(context).unwrap_or(&empty);
+            let mut next = Vec::new();
+            for (exports, dependencies) in [(false, &library.imports), (true, &library.exports)] {
+                // The synthetic core import comes after explicit imports,
+                // before the export list is materialized.
+                if exports
+                    && let Some(core) = environment.sdk.and_then(|s| s.layout.library("core"))
+                {
+                    next.push(core.path.clone());
+                }
+                for dependency in dependencies {
+                    for (i, uri) in dependency
+                        .primary
+                        .iter()
+                        .chain(&dependency.alternatives)
+                        .enumerate()
+                    {
+                        if let Some(target) = dependency_target(
+                            &dependency.unit,
+                            uri,
+                            environment.sdk,
+                            &catalog.packages,
+                            &catalog.generated,
+                            &catalog.generated_files,
+                        ) {
+                            discovery.add(&target, context, environment.catalogs, false);
+                            if i == 0 && dependency.primary.is_some() {
+                                next.push(target);
+                            }
+                        }
+                    }
+                }
+            }
+            pending.extend(next.into_iter().rev().map(|p| (context, p)));
+        }
     }
 
     /// The declarations of the owned libraries that match `query`.
@@ -1754,6 +1878,104 @@ mod tests {
             .iter()
             .filter_map(|s| s["name"].as_str().map(str::to_owned))
             .collect()
+    }
+
+    #[test]
+    fn conditional_uris_and_query_discovery_keep_separate_snapshots() {
+        let root = fixture("conditional-snapshots");
+        for (file, source) in [
+            (
+                "entry.dart",
+                "import 'base.dart' if (dart.library.io) 'io.dart' if (dart.library.io == 'false') 'false.dart' if (custom.setting == '') 'empty.dart'; export 'export.dart' if (dart.library.html) 'html.dart'; class ProbeEntry {}",
+            ),
+            ("base.dart", "import 'base_leaf.dart'; class ProbeBase {}"),
+            ("io.dart", "import 'io_leaf.dart'; class ProbeIo {}"),
+            ("false.dart", "class ProbeFalse {}"),
+            ("empty.dart", "class ProbeEmpty {}"),
+            (
+                "export.dart",
+                "import 'export_leaf.dart'; class ProbeExport {}",
+            ),
+            ("html.dart", "import 'html_leaf.dart'; class ProbeHtml {}"),
+            ("base_leaf.dart", "class ProbeBaseLeaf {}"),
+            ("io_leaf.dart", "class ProbeIoLeaf {}"),
+            ("export_leaf.dart", "class ProbeExportLeaf {}"),
+            ("html_leaf.dart", "class ProbeHtmlLeaf {}"),
+        ] {
+            std::fs::write(root.join(file), source).unwrap();
+        }
+        let added = [root.join("entry.dart")];
+        let contexts = [Context {
+            root: root.clone(),
+            ..Context::default()
+        }];
+        let open = HashMap::new();
+        let mut index = Index::default();
+        let first =
+            symbol_names(index.search("Probe", &added, &[], None, &contexts, &open, None, false));
+        assert_eq!(
+            first,
+            [
+                "ProbeEntry",
+                "ProbeBase",
+                "ProbeIo",
+                "ProbeFalse",
+                "ProbeEmpty",
+                "ProbeExport",
+                "ProbeHtml",
+                "ProbeBaseLeaf",
+                "ProbeExportLeaf"
+            ]
+        );
+        assert!(!index.paths.as_ref().unwrap().1.snapshot_resolved);
+        let second = index.search("Probe", &added, &[], None, &contexts, &open, None, true);
+        let names = symbol_names(second.clone());
+        assert_eq!(&names[..first.len()], first);
+        assert_eq!(&names[first.len()..], ["ProbeIoLeaf", "ProbeHtmlLeaf"]);
+        assert!(index.paths.as_ref().unwrap().1.snapshot_resolved);
+        assert_eq!(
+            index.search("Probe", &added, &[], None, &contexts, &open, None, true),
+            second
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unmatched_query_still_resolves_available_libraries() {
+        let root = fixture("query-resolution");
+        let package = root.join("package");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(
+            package.join("available.dart"),
+            format!(
+                "import '{}'; class ProbeAvailable {{}}",
+                url::Url::from_file_path(root.join("outside.dart")).unwrap()
+            ),
+        )
+        .unwrap();
+        std::fs::write(root.join("outside.dart"), "class ProbeOutside {}").unwrap();
+        let contexts = catalog(&[("dependency".into(), package)]);
+        let open = HashMap::new();
+        let mut index = Index::default();
+        assert!(
+            index
+                .search(
+                    "NoSuchSymbol",
+                    &[],
+                    &[],
+                    None,
+                    &contexts,
+                    &open,
+                    None,
+                    false
+                )
+                .is_empty()
+        );
+        assert_eq!(
+            symbol_names(index.search("Probe", &[], &[], None, &contexts, &open, None, true)),
+            ["ProbeAvailable", "ProbeOutside"]
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

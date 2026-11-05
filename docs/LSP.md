@@ -3637,6 +3637,90 @@ Ainda faltam reconstruções não observadas por eventos, dependências condicio
 descoberta iniciada durante consultas, edições e a nova repetição nos projetos grandes.
 Não há nova medição de desempenho nesta etapa.
 
+### Continuação de 05/11: alternativas condicionais e arquivos descobertos pela consulta
+
+O oráculo `workspace_symbol_conditionals.py` mantém os arquivos alternativos fora
+do workspace e dos catálogos de pacotes. Cada alternativa importa outro arquivo
+externo. A primeira busca captura as alternativas e os dependentes das primárias;
+resolver as alternativas durante essa busca descobre seus dependentes, que só
+aparecem na próxima resposta. O roteiro repete consultas, troca uma URI condicional
+sem salvar, reverte a edição e fecha o último documento. Todas as comparações usam
+a resposta JSON completa, na ordem original.
+
+| Roteiro de 16 consultas | Respostas completas iguais |
+|---|---:|
+| Antes | 4/16 |
+| Depois | 16/16 |
+| Repetição com o mesmo cache e os mesmos caminhos | 16/16 |
+| Cache Dart isolado e frio, nos mesmos caminhos | 16/16 |
+
+As quatro respostas corretas anteriores eram as do contexto fechado. A referência
+permaneceu idêntica antes/depois e nas repetições; o DartForge depois também manteve
+suas respostas nas três execuções. As contagens da primeira fase mostram a fronteira
+da lista: 11 símbolos na primeira busca, 8 dependentes na consulta seguinte e 17
+símbolos nas duas buscas gerais posteriores. A edição sem salvar acrescenta uma
+alternativa à história conhecida; reverter a diretiva não esquece arquivos válidos
+já descobertos, como no SDK.
+
+Conferido no SDK 3.6.2, commit `b0cc5495e0f5e8ae150825a5352e708cb49e65ff`:
+
+- `FileState._buildConfigurableDirectiveUris` cria a primária e todas as alternativas,
+  mas seleciona só a primeira condição cujo valor declarado coincida;
+- a coleção criada por `ContextManager` não recebe variáveis declaradas. Portanto
+  nem `dart.library.io`, nem uma comparação com `false` ou string vazia, selecionam
+  uma alternativa só porque o SDK contém essa biblioteca;
+- `FindDeclarations.compute` captura `OwnedFiles` antes de resolver cada biblioteca,
+  e `_FindDeclarations` resolve antes de aplicar o filtro do nome. Novas URIs entram
+  no estado da próxima busca, inclusive se a busca atual não encontrou símbolos.
+
+O índice agora guarda as alternativas e o contexto dono de cada arquivo. A
+descoberta anterior à consulta percorre as primárias; a resolução da lista capturada
+conserva os arquivos novos para a próxima consulta. Uma lista confiável que já
+resolveu sem criar estados novos não precisa repetir essa passagem pelo grafo.
+O bootstrap do SDK também materializa as alternativas, mantendo exports antes de
+imports. As duas regressões novas verificam a ordem completa das duas listas, a
+diferença entre variável ausente e falsa e a descoberta numa consulta sem resultados.
+
+```sh
+python3 crates/lsp/oracle/workspace_symbol_conditionals.py /tmp/symbol-conditionals.jsonl target/debug/dartforge-lsp --fixture /tmp/symbol-conditionals-fixture
+python3 crates/lsp/oracle/summary.py /tmp/symbol-conditionals.jsonl --method workspace/symbol
+```
+
+O diretório persistente deve estar vazio ou ter o marcador próprio do oráculo;
+reutilizá-lo permite manter iguais as URIs dos arquivos externos. Os resultados
+estão em `/tmp/dartforge-symbol-conditional-{before,after,repeat,cold}.jsonl`.
+Passaram **325 testes do LSP, zero falhas e zero ignorados**, incluindo doctests e
+platô de memória. Mantidos **112/112** no ciclo de vida, **48/48** nos dois contextos
+com e sem watcher, **18/18** na capacidade e **32/32** nos projetos pequenos.
+Clippy de todo o workspace, formatação e documentação estrita passaram; logs em
+`/tmp/dartforge-symbol-conditional-{tests,clippy,doc}.log`.
+
+**Nova matriz grande, cache quente:** `limitless_ui` 8/8, core 8/8 e frontend 5/8:
+**21/24 respostas completas**, com **24/24 conjuntos de nomes/URIs**. As 24 respostas
+do DartForge são idênticas às da matriz quente anterior. As três diferenças vieram
+do Dart, que mudou a ordem de `ctx`, `Ponto` e `join` no frontend. Uma nova execução
+do frontend, com o mesmo cache, deu 8/8; só as respostas do Dart mudaram outra vez.
+As falhas da primeira execução continuam registradas e não são substituídas pelo
+8/8. Não há paridade estável entre sessões comprovada por esse resultado.
+
+Os manifestos têm 9.761, 6.640 e 10.894 arquivos e nenhuma raiz ausente; ficaram
+iguais antes/depois e também na repetição do frontend. Limitless e frontend mantêm
+os digests da rodada anterior. O core foi chamado desta vez por `/private/tmp`,
+em vez de `/tmp`: o digest dos caminhos textuais mudou de `aab688b0487d…` para
+`8d5e65d4ab65…`, mas comparar os caminhos canônicos mostra os mesmos arquivos,
+conteúdos, tamanhos e datas. Isso compara entradas; as respostas LSP continuam
+comparadas sem normalizar URIs ou reordenar itens.
+
+Evidência: `/tmp/dartforge-symbol-conditional-large-{limitless,core,frontend}.jsonl`,
+`/tmp/dartforge-symbol-conditional-large-frontend-repeat.jsonl` e os manifestos
+`/tmp/dartforge-symbol-conditional-large-{limitless,core,frontend}-inputs-{before,after}.json`;
+o manifesto da repetição tem sufixo `-frontend-inputs-repeat.json`. A dupla fria dos
+projetos grandes não foi repetida nesta etapa. Permanecem a variação de descoberta
+entre sessões, reconstruções sem eventos observados, edições nos projetos grandes
+e a verificação de URIs relativas que tentam sair da raiz de um `package:`. Essas
+verificações vêm antes de repetir CPU, latência e memória; as execuções atuais são
+de corretude, com ferramentas de verificação concorrentes em parte da rodada.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da
