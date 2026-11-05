@@ -5,10 +5,21 @@
 //! THIRD_PARTY_NOTICES.md.
 
 use super::{Context, SdkFiles};
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// Context loading normalizes roots once. General-purpose callers can still
+/// supply roots containing dot segments or Windows verbatim prefixes.
+pub(super) fn catalog_path(path: &Path, normalized: bool) -> Cow<'_, Path> {
+    if normalized {
+        Cow::Borrowed(path)
+    } else {
+        dartforge_elements::generated::key_of(path)
+    }
+}
 
 /// Canonical bases depend on the referring context, not on target existence.
 /// Keep them for one query only; every target still checks generated outputs.
@@ -35,12 +46,21 @@ impl RelativeBases {
             |reference| {
                 let mut values = self.values.borrow_mut();
                 let base = values.entry((context, unit.clone())).or_insert_with(|| {
-                    RelativeBase::new(
-                        unit,
-                        &catalog.packages,
-                        &catalog.generated,
-                        &catalog.generated_files,
-                    )
+                    if catalog.normalized_paths {
+                        RelativeBase::new::<true>(
+                            unit,
+                            &catalog.packages,
+                            &catalog.generated,
+                            &catalog.generated_files,
+                        )
+                    } else {
+                        RelativeBase::new::<false>(
+                            unit,
+                            &catalog.packages,
+                            &catalog.generated,
+                            &catalog.generated_files,
+                        )
+                    }
                 });
                 base.target(
                     reference,
@@ -59,7 +79,7 @@ enum RelativeBase {
 }
 
 impl RelativeBase {
-    fn new(
+    fn new<const NORMALIZED: bool>(
         unit: &Path,
         packages: &[(String, PathBuf)],
         generated: &[(String, PathBuf, PathBuf)],
@@ -74,14 +94,19 @@ impl RelativeBase {
                     .map(|(source, output)| (source, output)),
             )
             .find_map(|(source, output)| {
-                let output = dartforge_elements::generated::key_of(output);
-                unit.strip_prefix(output.as_ref())
-                    .ok()
-                    .map(|relative| source.join(relative))
+                let output = catalog_path(output, NORMALIZED);
+                unit.strip_prefix(output.as_ref()).ok().map(|relative| {
+                    let source = source.join(relative);
+                    if NORMALIZED {
+                        source
+                    } else {
+                        dartforge_elements::generated::key(&source)
+                    }
+                })
             });
         let source_unit = source_unit.as_deref().unwrap_or(unit);
         for (name, lib) in packages {
-            let lib = dartforge_elements::generated::key_of(lib);
+            let lib = catalog_path(lib, NORMALIZED);
             if let Ok(relative) = source_unit.strip_prefix(lib.as_ref()) {
                 return Self::Package {
                     name: name.clone(),
@@ -130,7 +155,7 @@ pub(super) fn dependency_target(
         generated,
         generated_files,
         |reference| {
-            RelativeBase::new(unit, packages, generated, generated_files).target(
+            RelativeBase::new::<false>(unit, packages, generated, generated_files).target(
                 reference,
                 packages,
                 generated,
@@ -338,6 +363,60 @@ mod tests {
     use super::*;
 
     #[test]
+    fn loaded_catalogs_match_general_resolution_of_unnormalized_roots() {
+        let root = super::super::tests::fixture("normalized-catalog");
+        let lib = root.join("lib");
+        let output = root.join(".dart_tool/build/generated/p/lib");
+        for folder in [&lib, &output] {
+            std::fs::create_dir_all(folder.join("src")).unwrap();
+            std::fs::write(folder.join("target.dart"), "class Target {}").unwrap();
+        }
+        std::fs::write(
+            root.join(".dart_tool/package_config.json"),
+            serde_json::json!({"configVersion": 2, "packages": [{
+                "name": "p", "rootUri": "../", "packageUri": "lib/./", "languageVersion": "3.6"
+            }]})
+            .to_string(),
+        )
+        .unwrap();
+        let loaded = Context::load(&root);
+        assert!(loaded.normalized_paths);
+        let raw = Context {
+            packages: vec![("p".into(), lib.join("../lib"))],
+            generated: vec![("p".into(), lib.join("../lib"), output.join("../lib"))],
+            generated_files: vec![(root.clone(), root.join(".dart_tool/build/generated/p"))],
+            ..Context::default()
+        };
+        let bases = RelativeBases::default();
+        let file_uri = url::Url::from_file_path(lib.join("target.dart")).unwrap();
+        for unit in [lib.join("src/entry.dart"), output.join("src/entry.dart")] {
+            assert_eq!(
+                loaded.identity(&unit),
+                super::super::FileIdentity::Package("p".into(), PathBuf::from("src/entry.dart"))
+            );
+            let unit = Arc::new(unit);
+            for reference in [
+                "../target.dart",
+                "../../target.dart",
+                "package:p/%74arget.dart?query",
+                "../target.dart#fragment",
+                file_uri.as_str(),
+            ] {
+                let normalize = |p: PathBuf| dartforge_elements::generated::key(&p);
+                assert_eq!(
+                    bases
+                        .target(0, &unit, reference, None, &loaded)
+                        .map(normalize),
+                    bases.target(1, &unit, reference, None, &raw).map(normalize),
+                    "{}: {reference}",
+                    unit.display()
+                );
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn shared_physical_units_keep_the_base_of_each_referring_context() {
         let root = super::super::tests::fixture("relative-base-contexts");
         let outer = root.join("lib");
@@ -379,29 +458,32 @@ mod tests {
         let unit = Arc::new(output.join("src/entry.dart"));
         let source = lib.join("target.dart");
         let built = output.join("target.dart");
-        let catalog = Context {
+        let mut catalog = Context {
             packages: vec![("p".into(), lib.clone())],
             generated: vec![("p".into(), lib.clone(), output.clone())],
             generated_files: vec![(lib, output)],
             ..Context::default()
         };
-        let bases = RelativeBases::default();
-        let target = || bases.target(0, &unit, "../target.dart", None, &catalog);
-        assert_eq!(target(), Some(source.clone()));
-        std::fs::write(&built, "class Built {}").unwrap();
-        assert_eq!(target(), Some(built.clone()));
-        std::fs::write(&source, "class Source {}").unwrap();
-        assert_eq!(target(), Some(source.clone()));
-        // File URIs keep their different precedence, even for this same unit.
-        let uri = url::Url::from_file_path(&source).unwrap();
-        assert_eq!(
-            bases.target(0, &unit, uri.as_str(), None, &catalog),
-            Some(built.clone())
-        );
-        std::fs::remove_file(&source).unwrap();
-        assert_eq!(target(), Some(built.clone()));
-        std::fs::remove_file(&built).unwrap();
-        assert_eq!(target(), Some(source));
+        for normalized in [false, true] {
+            catalog.normalized_paths = normalized;
+            let bases = RelativeBases::default();
+            let target = || bases.target(0, &unit, "../target.dart", None, &catalog);
+            assert_eq!(target(), Some(source.clone()));
+            std::fs::write(&built, "class Built {}").unwrap();
+            assert_eq!(target(), Some(built.clone()));
+            std::fs::write(&source, "class Source {}").unwrap();
+            assert_eq!(target(), Some(source.clone()));
+            // File URIs keep their different precedence, even for this same unit.
+            let uri = url::Url::from_file_path(&source).unwrap();
+            assert_eq!(
+                bases.target(0, &unit, uri.as_str(), None, &catalog),
+                Some(built.clone())
+            );
+            std::fs::remove_file(&source).unwrap();
+            assert_eq!(target(), Some(built.clone()));
+            std::fs::remove_file(&built).unwrap();
+            assert_eq!(target(), Some(source.clone()));
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 

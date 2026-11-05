@@ -308,7 +308,30 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   passada do legado com caches aquecidos deu **24/24 nas duas versões**; não
   apaga as reprovações anteriores nem substitui a dupla fria/quente isolada.
   Os detalhes, CPU, memória e artefatos estão em `docs/LSP.md`.
-- **Regressões do servidor:** **335 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
+- **Raízes do catálogo normalizadas uma vez (05/11):** a criação das bases
+  relativas e a identificação de package URIs reutilizam as raízes já
+  normalizadas pelo carregamento do contexto. Os mapeamentos de gerados também
+  passam por essa normalização; catálogos avulsos mantêm o resolvedor geral.
+  Uma regressão nova compara os dois caminhos com raízes contendo `..`, unidades
+  fonte/geradas, escapes, fragmentos e URI de arquivo. Ela também corrigiu a
+  passagem do gerado para uma raiz fonte não normalizada no caminho geral.
+  A criação/remoção de fonte e gerado foi verificada nos dois modos de resolução.
+  Mantidos os 60 vetores da VM e **378/378** controles completos com o Dart.
+  Passaram **336 testes do LSP**, os 11 testes Python, clippy do workspace,
+  documentação estrita e formatação. Nas **54 sessões revezadas**, cada matriz
+  manteve **216/216 respostas completas iguais em cada comparação**. Sem watcher,
+  as medianas quentes caíram de **164,1 para 153,0 ms**, de **64,6 para 61,6 ms**
+  e de **206,4 para 189,7 ms**: cerca de **5–8%** em latência e CPU, ainda acima
+  do Dart. A primeira busca melhorou cerca de **1–3%**, mas continua perdendo.
+  Com watcher, as buscas quentes ficaram próximas do baseline, sem ganho geral;
+  o `limitless_ui` subiu 0,1 ms. O footprint final aumentou em quatro das seis
+  células, com **+2,0 / +1,0 MiB** no frontend. Manifestos idênticos antes/depois,
+  sem raízes ausentes. Repetida no novo binário a dupla com caches Dart isolados
+  e inicialmente vazios: **72/72 no frio e 72/72 no quente**, com os arrays de
+  cada servidor idênticos entre estados. São 12 sessões adicionais com preparação
+  explícita, separadas das tabelas de desempenho e das reprovações do legado.
+  Detalhes e medições em `docs/LSP.md`.
+- **Regressões do servidor:** **336 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
   raízes numa regressão nova, duas regressões de descoberta e listas de resposta e
   quatro de URIs, normalização e fontes sombreadas, além das duas novas de criação

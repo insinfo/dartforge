@@ -4630,6 +4630,133 @@ está em `/tmp/dartforge-symbol-traversal-profile.txt`. A revalidação no disco
 e a normalização/comparação de caminhos continuam sendo custos relevantes;
 seus tempos também foram excluídos das tabelas.
 
+### Continuação: reutilizar as raízes normalizadas do catálogo (05/11)
+
+O perfil posterior ainda mostrou `RelativeBase::new` verificando, a cada
+comparação de prefixo, se as raízes do catálogo já eram chaves lexicais. Mesmo
+sem alocar um caminho novo, essa verificação percorria seus bytes e validava
+UTF-8 repetidamente. As raízes dos pacotes já eram normalizadas ao carregar o
+contexto. O carregamento agora também normaliza as raízes dos mapeamentos de
+gerados e registra essa garantia no contexto.
+
+A criação das bases relativas e a identificação de package URIs passam a
+reutilizar diretamente essas raízes carregadas. A comparação de prefixos e a
+ordem do catálogo continuam iguais. Catálogos avulsos, incluindo o resolvedor
+geral, conservam a normalização: a marca só é definida pelo carregamento depois
+de normalizar os mapeamentos. Não há tabela adicional por arquivo nem cache de
+alvos de URI; a existência da fonte e dos gerados continua sendo consultada.
+
+Uma regressão nova compara o catálogo carregado com raízes avulsas contendo
+`..`, partindo tanto da unidade fonte quanto de sua contraparte gerada. Inclui
+imports relativos, travessia até a raiz do package, escapes, fragmentos e URI de
+arquivo. Ela também expôs uma lacuna no caminho geral: depois de mapear um
+gerado para uma raiz fonte não normalizada, a unidade fonte precisava ser
+normalizada antes de procurar seu package. Essa passagem foi corrigida.
+A regressão que cria e remove fonte/gerado foi ampliada para os dois caminhos,
+mantendo os 60 vetores de URI da VM 3.6.2 e o isolamento das bases por contexto.
+
+Passaram **336 testes do LSP, zero falhas e zero ignorados**, **11 testes Python**,
+clippy do workspace sem avisos, documentação estrita e formatação. Os controles
+mantiveram **378/378 respostas completas iguais ao Dart**: 270 anteriores,
+54 de aliases e 54 de parts, com e sem watcher. O workspace inteiro e a suíte
+nativa não foram repetidos nesta etapa do LSP. Logs em
+`/tmp/dartforge-symbol-roots-{unit,tests,python,clippy,doc,controls}.log`;
+respostas em `/tmp/dartforge-symbol-roots-control-*.jsonl`,
+`/tmp/dartforge-symbol-roots-aliases{,-unwatched}.jsonl` e
+`/tmp/dartforge-symbol-roots-parts{,-unwatched}.jsonl`.
+
+O baseline é `0a2daac6`, preservado em `/tmp/dartforge-symbol-roots-before`,
+SHA-256 iniciado em `d939fe10a0b4`; o novo binário está em
+`/tmp/dartforge-symbol-roots-after`, SHA-256
+`05ab494ee0b1db810fb175f8b07eb44a4bd1858f537204fefd24cc09cd18f559`.
+O ensaio preliminar do frontend sem watcher manteve **24/24 respostas completas
+iguais antes/depois**: primeira busca **1.413,8 → 1.362,6 ms**, mediana quente
+**206,3 → 186,3 ms**, CPU quente **205,7 → 185,8 ms**, footprint final **580,4 →
+583,8 MiB**. Foi uma sessão por versão, sem Dart pareado; seus tempos ficam fora
+das matrizes revezadas. Artefatos em
+`/tmp/dartforge-symbol-roots-quick-{before,after}.jsonl`.
+
+As **54 sessões revezadas** repetiram os três projetos, SDK 3.6.2, caches,
+documento de preparação e dez segundos adicionais de ociosidade. Compilações,
+testes e demais controles terminaram antes das medições. Cada matriz, com ou
+sem watcher, manteve **216/216 respostas completas iguais em cada comparação**
+antes/depois, antes/Dart e depois/Dart. Manifestos idênticos antes/depois, com
+9.761, 6.640 e 10.894 arquivos e nenhuma raiz ausente.
+
+**Buscas quentes**, medianas de 48 pedidos por célula, latência / CPU da árvore
+em ms:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 164,1 / 163,5 | 153,0 / 152,6 | 16,8 / 21,8 |
+| Sem watcher | core | 64,6 / 64,3 | 61,6 / 61,1 | 12,8 / 13,1 |
+| Sem watcher | frontend | 206,4 / 206,0 | 189,7 / 189,0 | 19,5 / 26,6 |
+| Com watcher | `limitless_ui` | 11,8 / 11,4 | 11,9 / 11,5 | 16,2 / 18,0 |
+| Com watcher | core | 9,2 / 8,8 | 9,1 / 8,6 | 12,8 / 13,2 |
+| Com watcher | frontend | 12,8 / 12,3 | 12,8 / 12,3 | 19,4 / 23,1 |
+
+Sem watcher, a latência caiu cerca de **7%, 5% e 8%**, e a CPU cerca de
+**7%, 5% e 8%**. Ainda perde do Dart. Com watcher, as buscas quentes ficaram
+próximas do baseline: o `limitless_ui` subiu 0,1 ms de latência e CPU, sem
+ganho geral nesse modo. Os três continuam menores que o Dart nesse protocolo.
+
+**Primeira busca**, medianas de três sessões, nas mesmas unidades:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 1.163,9 / 1.163,1 | 1.130,1 / 1.129,3 | 710,6 / 956,0 |
+| Sem watcher | core | 758,0 / 757,2 | 750,4 / 749,6 | 522,0 / 773,1 |
+| Sem watcher | frontend | 1.392,5 / 1.391,6 | 1.363,6 / 1.362,7 | 568,5 / 738,5 |
+| Com watcher | `limitless_ui` | 1.146,4 / 1.137,5 | 1.110,3 / 1.109,4 | 717,3 / 973,9 |
+| Com watcher | core | 750,9 / 749,9 | 741,1 / 740,3 | 536,2 / 758,7 |
+| Com watcher | frontend | 1.393,4 / 1.392,5 | 1.383,7 / 1.382,8 | 604,7 / 732,1 |
+
+A primeira busca melhorou cerca de **1–3%** de latência nos dois modos,
+mas continua mais lenta que a do Dart. Não é o ganho de aproximadamente 4%
+do ensaio preliminar do frontend em uma única sessão.
+
+**Footprint final**, medianas em MiB:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 134,5 | 134,3 | 673,4 |
+| Sem watcher | core | 123,2 | 123,1 | 505,9 |
+| Sem watcher | frontend | 581,4 | 583,4 | 705,3 |
+| Com watcher | `limitless_ui` | 133,7 | 133,9 | 676,5 |
+| Com watcher | core | 122,7 | 123,3 | 504,3 |
+| Com watcher | frontend | 581,9 | 582,9 | 720,5 |
+
+O frontend subiu **2,0 / 1,0 MiB**. A marca de raízes normalizadas não introduz
+cache por arquivo, mas isso não demonstra redução de memória do servidor:
+as amostras finais aumentaram em quatro das seis células. Não são pico
+simultâneo da árvore nem prova do platô com ondas de gerados. Resultados em
+`/tmp/dartforge-symbol-roots-{matrix,watched-matrix}-{limitless,core,frontend}-{before,after,dart}-{0,1,2}.jsonl`,
+resumos `/tmp/dartforge-symbol-roots-{summary,watched-summary}.log` e manifestos
+`/tmp/dartforge-symbol-roots-{limitless,core,frontend}-inputs-{before,after}.json`.
+
+Depois das medições, a dupla com **caches Dart isolados e inicialmente vazios**
+foi repetida no novo binário: **72/72 respostas completas iguais no frio e
+72/72 no quente**. Os arrays de cada servidor também foram idênticos entre
+os dois estados. Foram 12 sessões adicionais, sem watcher, com o mesmo documento
+de preparação e os dez segundos extras de ociosidade. Seus tempos não entram
+nas tabelas acima; os estados se referem ao cache Dart em disco, não ao cache
+do sistema operacional.
+
+Cada projeto começou com um diretório de cache novo e vazio; o harness verificou
+que ele continuava vazio depois da primeira sessão DartForge e antes de iniciar
+o Dart. Após o Dart, os diretórios tinham 13.609 / 10.547 / 16.911 arquivos;
+após a sessão quente, 13.610 / 10.548 / 16.912. Caches preservados em
+`target/scratch-symbol-roots-caches/`, inventário em
+`/tmp/dartforge-symbol-roots-cache-manifest.json`, respostas em
+`/tmp/dartforge-symbol-roots-cache-{limitless,core,frontend}-{cold,warm}-{after,dart}.jsonl`
+e log em `/tmp/dartforge-symbol-roots-caches.log`. Os manifestos de entrada
+também permaneceram iguais após essas sessões, em
+`/tmp/dartforge-symbol-roots-{limitless,core,frontend}-inputs-after-caches.json`.
+
+Essa dupla usa preparação explícita e não transforma as reprovações anteriores
+do protocolo legado em aprovações. As edições nos projetos grandes, a primeira
+busca e a sessão longa continuam exigindo trabalho.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da

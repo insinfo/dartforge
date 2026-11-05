@@ -353,6 +353,9 @@ pub(crate) struct Context {
     packages: Vec<(String, PathBuf)>,
     generated: Vec<(String, PathBuf, PathBuf)>,
     generated_files: Vec<(PathBuf, PathBuf)>,
+    /// Loaded package and generated mapping roots are already lexical keys.
+    /// Standalone catalogs keep the general resolver's normalization.
+    normalized_paths: bool,
 }
 
 impl Context {
@@ -408,9 +411,13 @@ impl Context {
                 let output = root.join(".dart_tool/build/generated");
                 packages.iter().filter_map(move |(name, lib)| {
                     let generated = output.join(name).join("lib");
-                    generated
-                        .is_dir()
-                        .then(|| (name.clone(), lib.clone(), generated))
+                    generated.is_dir().then(|| {
+                        (
+                            name.clone(),
+                            lib.clone(),
+                            dartforge_elements::generated::key(&generated),
+                        )
+                    })
                 })
             })
             .collect();
@@ -423,9 +430,12 @@ impl Context {
                     .filter(move |p| p.root.starts_with(root))
                     .filter_map(move |p| {
                         let generated = output.join(&p.name);
-                        generated
-                            .is_dir()
-                            .then(|| (dartforge_elements::generated::key(&p.root), generated))
+                        generated.is_dir().then(|| {
+                            (
+                                dartforge_elements::generated::key(&p.root),
+                                dartforge_elements::generated::key(&generated),
+                            )
+                        })
                     })
             })
             .collect();
@@ -435,6 +445,7 @@ impl Context {
             packages,
             generated,
             generated_files,
+            normalized_paths: true,
         }
     }
 
@@ -447,7 +458,7 @@ impl Context {
             }
         }
         for (name, folder) in &self.packages {
-            let folder = dartforge_elements::generated::key_of(folder);
+            let folder = uri_resolution::catalog_path(folder, self.normalized_paths);
             if let Ok(relative) = path.strip_prefix(folder.as_ref()) {
                 return FileIdentity::Package(name.clone(), relative.to_path_buf());
             }
