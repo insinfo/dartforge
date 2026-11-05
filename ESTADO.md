@@ -287,6 +287,27 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   **177,3 para 180,3 ms**. A alteração final mantém somente a correção de ordem,
   o oráculo e sua regressão; não reivindica os ganhos do experimento. Detalhes e
   artefatos em `docs/LSP.md`.
+- **Travessia de diretivas por pedido (05/11):** a descoberta e a resolução da
+  lista de bibliotecas agora compartilham as unidades já processadas, com chave
+  contexto + caminho. Isso evita materializar as mesmas diretivas duas vezes,
+  sem guardar esse trabalho entre pedidos nem confundir dois drivers que usam
+  o mesmo arquivo. A regressão de condicionais foi ampliada: uma edição de
+  ramificação não selecionada atualiza a declaração na busca atual e acrescenta
+  sua nova dependência somente na seguinte. Passaram os **335 testes do LSP**,
+  os 11 testes Python, clippy, documentação estrita e formatação. Mantidos
+  **378/378** comparativos completos: 270 controles anteriores, 54 de aliases e
+  54 de parts nos dois modos de watcher. Nas **54 sessões revezadas**, cada
+  matriz manteve **216/216 respostas completas iguais em cada comparação**.
+  Sem watcher, as medianas quentes caíram de **184,5 para 166,5 ms**, de **72,7
+  para 65,1 ms** e de **241,6 para 209,0 ms**: cerca de **10–14%** em latência e
+  CPU, ainda acima do Dart. Com watcher, ficaram em **11,6 / 8,8 / 12,8 ms**,
+  sem ganho geral; o frontend subiu 0,1 ms. O footprint final também não ganhou
+  de forma geral: o frontend subiu **0,4 / 0,8 MiB**, e os outros projetos
+  caíram até 1,6 MiB. A primeira busca melhorou pouco e continua mais lenta que
+  o Dart. Manifestos idênticos antes/depois, sem raízes ausentes. Uma nova
+  passada do legado com caches aquecidos deu **24/24 nas duas versões**; não
+  apaga as reprovações anteriores nem substitui a dupla fria/quente isolada.
+  Os detalhes, CPU, memória e artefatos estão em `docs/LSP.md`.
 - **Regressões do servidor:** **335 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
   raízes numa regressão nova, duas regressões de descoberta e listas de resposta e

@@ -35,6 +35,7 @@ use dartforge_frontend::ast::{
 use dartforge_frontend::comments::Comments;
 use dartforge_intern::Interner;
 use serde_json::{Value, json};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -612,6 +613,9 @@ struct DiscoveryContext<'a> {
     uri_of: &'a dyn Fn(&Path) -> String,
     trust_disk: bool,
     relative_bases: uri_resolution::RelativeBases,
+    /// Pre-query analysis and snapshot resolution share completed directive
+    /// materialization, separately for each referring context and this query.
+    resolved: RefCell<HashSet<(usize, PathBuf)>>,
 }
 
 /// The fingerprint of a file on disk, without reading it.
@@ -1427,6 +1431,7 @@ impl Index {
             uri_of: &uri_of,
             trust_disk,
             relative_bases: Default::default(),
+            resolved: Default::default(),
         };
         // The files in `OwnedFiles` order (added ones, then the known ones that
         // were not added), kept while the disk is trusted and the inputs are the
@@ -1602,7 +1607,7 @@ impl Index {
         mut pending: Vec<(usize, PathBuf)>,
         environment: &DiscoveryContext<'_>,
     ) {
-        let mut visited = HashSet::new();
+        let mut visited = environment.resolved.borrow_mut();
         let empty = Context::default();
         while let Some((context, path)) = pending.pop() {
             let path = dartforge_elements::generated::key(&path);
@@ -2133,6 +2138,23 @@ mod tests {
             index.search("Probe", &added, &[], None, &contexts, &open, None, true),
             second
         );
+        // A later request must materialize these directives again. The edited
+        // nonselected branch is resolved after the response snapshot, so its
+        // new dependency participates only in the following response.
+        std::fs::write(
+            root.join("io.dart"),
+            "import 'late.dart'; class ProbeIoChanged {}",
+        )
+        .unwrap();
+        std::fs::write(root.join("late.dart"), "class ProbeLate {}").unwrap();
+        let changed =
+            symbol_names(index.search("Probe", &added, &[], None, &contexts, &open, None, false));
+        assert!(changed.iter().any(|n| n == "ProbeIoChanged"));
+        assert!(!changed.iter().any(|n| n == "ProbeLate"));
+        let following =
+            symbol_names(index.search("Probe", &added, &[], None, &contexts, &open, None, true));
+        assert_eq!(&following[..changed.len()], changed);
+        assert_eq!(&following[changed.len()..], ["ProbeLate"]);
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -4501,6 +4501,135 @@ resumos `/tmp/dartforge-symbol-alias-{summary,watched-summary}.log` e manifestos
 O protocolo legado, suas reprovações anteriores, a dupla fria/quente e as edições
 nos projetos grandes continuam exigindo validação própria.
 
+### Continuação: compartilhar a travessia de diretivas dentro do pedido (05/11)
+
+Um perfil novo das consultas sem watcher mostrou trabalho repetido entre a
+descoberta anterior à resposta e a resolução da lista de bibliotecas conhecida.
+Cada chamada de `discover_graph` criava seu próprio conjunto de unidades
+visitadas. Mesmo com os metadados sintáticos reutilizados, as duas travessias
+materializavam de novo as diretivas das unidades em comum: resolviam URIs,
+verificavam alvos gerados e tentavam inserir FileStates já criados.
+
+No SDK 3.6.2, `FileKind` conserva as listas `_libraryImports` e
+`_libraryExports` depois de materializá-las
+(`pkg/analyzer/lib/src/dart/analysis/file_state.dart`). Aqui o compartilhamento
+fica limitado ao pedido, preservando a revalidação do próximo pedido quando o
+cliente não fornece eventos do disco.
+
+O conjunto de unidades processadas agora pertence ao ambiente de um pedido.
+As duas travessias o compartilham, com chave **contexto + caminho normalizado**.
+Um arquivo compartilhado por dois drivers continua sendo processado nos dois
+contextos. O conjunto sai ao terminar o pedido; não é um cache residente e
+não permite confiar no estado do disco entre pedidos. A resolução de cada
+diretiva ainda passa pela seleção de fonte/gerado, sem guardar alvos por URI.
+
+A lista de resposta continua sendo capturada antes da resolução das bibliotecas
+conhecidas: dependências descobertas nessa etapa entram na próxima resposta.
+A regressão de condicionais foi ampliada para editar uma ramificação não
+selecionada depois de consultas estáveis. Ela verifica a declaração editada na
+resposta atual e a nova dependência somente na seguinte, incluindo a passagem
+de uma consulta sem confiança no disco para outra com confiança. Isso também
+confere que o conjunto de trabalho não sobrevive ao pedido anterior.
+
+Passaram **335 testes do LSP, zero falhas e zero ignorados**, **11 testes
+Python**, clippy do workspace sem avisos, documentação estrita e formatação.
+Os controles mantiveram **378/378 respostas completas iguais ao Dart 3.6.2**:
+270 anteriores, 27 com e 27 sem watcher nos aliases e outros 27 + 27 nos parts.
+O workspace inteiro e a suíte nativa não foram repetidos nesta etapa do LSP.
+Logs em `/tmp/dartforge-symbol-traversal-{tests,python,clippy,doc,controls}.log`;
+respostas em `/tmp/dartforge-symbol-traversal-control-*.jsonl`,
+`/tmp/dartforge-symbol-traversal-aliases{,-unwatched}.jsonl` e
+`/tmp/dartforge-symbol-traversal-parts{,-unwatched}.jsonl`.
+
+O baseline é `d3d28dc7`, preservado em `/tmp/dartforge-symbol-traversal-before`,
+SHA-256 iniciado em `05a27776f12e`; o novo binário está em
+`/tmp/dartforge-symbol-traversal-after`, SHA-256
+`d939fe10a0b480fcb0fc085857228dda946e2fc2e0d19f8cd84b644f03012c89`.
+O ensaio preliminar do frontend sem watcher manteve **24/24 respostas completas
+iguais antes/depois**: mediana quente **241,1 → 210,5 ms**, CPU **240,5 → 210,0 ms**,
+footprint final **585,8 → 580,9 MiB**. Foi uma sessão por versão, sem Dart pareado;
+esses números não entram nas matrizes revezadas. Artefatos em
+`/tmp/dartforge-symbol-traversal-quick-{before,after}.jsonl`.
+
+O perfil inicial está em `/tmp/dartforge-symbol-path-profile.txt`. O segundo,
+`/tmp/dartforge-symbol-hot-profile.txt`, fez três buscas de preparação antes de
+amostrar oito segundos das buscas quentes. Seus tempos são diagnósticos e não
+entram nas comparações de desempenho.
+
+As **54 sessões revezadas** mantiveram os projetos, SDK 3.6.2, caches,
+documento de preparação e dez segundos adicionais de ociosidade da etapa
+anterior. Compilações e testes terminaram antes das medições. Cada matriz
+completa, com ou sem watcher, manteve **216/216 respostas completas iguais em
+cada comparação** antes/depois, antes/Dart e depois/Dart. Os manifestos foram
+idênticos antes/depois: 9.761 arquivos no `limitless_ui`, 6.640 no core e
+10.894 no frontend, sem raízes ausentes.
+
+**Buscas quentes**, medianas de 48 pedidos por célula, latência / CPU da
+árvore em ms:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 184,5 / 183,8 | 166,5 / 166,1 | 17,0 / 21,1 |
+| Sem watcher | core | 72,7 / 72,1 | 65,1 / 64,6 | 12,8 / 12,9 |
+| Sem watcher | frontend | 241,6 / 241,2 | 209,0 / 208,6 | 18,6 / 26,3 |
+| Com watcher | `limitless_ui` | 11,7 / 11,2 | 11,6 / 11,2 | 16,1 / 17,9 |
+| Com watcher | core | 9,4 / 8,9 | 8,8 / 8,4 | 12,6 / 13,2 |
+| Com watcher | frontend | 12,7 / 12,2 | 12,8 / 12,3 | 18,1 / 22,6 |
+
+Sem watcher, a latência caiu cerca de **10%, 10% e 14%** e a CPU cerca de
+**10%, 10% e 14%**. Ainda perde do Dart nesse modo. Com watcher, o snapshot
+estável já evita o grafo: não houve ganho geral. O core caiu nesta série,
+mas o frontend subiu 0,1 ms de latência e CPU; os três continuam abaixo do
+Dart. Esses resultados não demonstram que todo ganho quente com watcher
+seja causado pela eliminação da travessia duplicada.
+
+**Primeira busca**, medianas de três sessões, nas mesmas unidades:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 1.171,4 / 1.170,5 | 1.165,3 / 1.164,5 | 719,0 / 976,7 |
+| Sem watcher | core | 766,1 / 765,2 | 764,5 / 763,6 | 519,8 / 773,2 |
+| Sem watcher | frontend | 1.453,3 / 1.452,3 | 1.426,1 / 1.425,2 | 571,4 / 738,2 |
+| Com watcher | `limitless_ui` | 1.155,1 / 1.154,3 | 1.149,5 / 1.148,6 | 717,0 / 966,9 |
+| Com watcher | core | 773,9 / 773,1 | 760,1 / 759,2 | 514,9 / 761,8 |
+| Com watcher | frontend | 1.429,6 / 1.428,6 | 1.403,3 / 1.393,8 | 560,7 / 730,6 |
+
+A primeira busca melhorou pouco, cerca de 0–2% de latência, e continua
+mais lenta que o Dart. A construção inicial do índice não é eliminada pelo
+compartilhamento do trabalho entre as duas fases.
+
+**Footprint final**, medianas em MiB:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 135,2 | 134,3 | 671,1 |
+| Sem watcher | core | 123,4 | 123,0 | 511,2 |
+| Sem watcher | frontend | 580,6 | 581,0 | 710,8 |
+| Com watcher | `limitless_ui` | 134,5 | 133,9 | 678,5 |
+| Com watcher | core | 124,1 | 122,5 | 499,1 |
+| Com watcher | frontend | 580,1 | 580,9 | 710,4 |
+
+Não houve redução geral de memória: o frontend subiu 0,4 / 0,8 MiB; os
+outros dois projetos caíram até 1,6 MiB. São amostras finais de sessões
+curtas, sem pico simultâneo da árvore ou prova de platô com ondas de gerados.
+Resultados em
+`/tmp/dartforge-symbol-traversal-{matrix,watched-matrix}-{limitless,core,frontend}-{before,after,dart}-{0,1,2}.jsonl`,
+resumos `/tmp/dartforge-symbol-traversal-{summary,watched-summary}.log` e manifestos
+`/tmp/dartforge-symbol-traversal-{limitless,core,frontend}-inputs-{before,after}.json`.
+
+Após as matrizes, uma nova passada do protocolo **legado com caches aquecidos**
+deu **24/24 no baseline e 24/24 no novo binário** nos projetos grandes, com
+respostas do próprio Dart idênticas antes/depois. Essa passada não apaga os
+21/24 aquecidos ou os 9/24 frios anteriores e não demonstra estabilidade com
+caches inicialmente vazios. Resultados em
+`/tmp/dartforge-symbol-traversal-legacy-{limitless,core,frontend}-{before,after}.jsonl`.
+A dupla fria/quente com caches isolados e as edições nos projetos grandes
+continuam exigindo validação própria.
+O perfil posterior, feito depois das medições com três buscas de preparação,
+está em `/tmp/dartforge-symbol-traversal-profile.txt`. A revalidação no disco
+e a normalização/comparação de caminhos continuam sendo custos relevantes;
+seus tempos também foram excluídos das tabelas.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da
