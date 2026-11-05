@@ -4,8 +4,114 @@
 //! (Copyright 2012, the Dart project authors). BSD license and attribution:
 //! THIRD_PARTY_NOTICES.md.
 
-use super::SdkFiles;
+use super::{Context, SdkFiles};
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+/// Canonical bases depend on the referring context, not on target existence.
+/// Keep them for one query only; every target still checks generated outputs.
+#[derive(Default)]
+pub(super) struct RelativeBases {
+    values: RefCell<HashMap<(usize, Arc<PathBuf>), RelativeBase>>,
+}
+
+impl RelativeBases {
+    pub(super) fn target(
+        &self,
+        context: usize,
+        unit: &Arc<PathBuf>,
+        uri: &str,
+        sdk: Option<&SdkFiles>,
+        catalog: &Context,
+    ) -> Option<PathBuf> {
+        resolve_reference(
+            uri,
+            sdk,
+            &catalog.packages,
+            &catalog.generated,
+            &catalog.generated_files,
+            |reference| {
+                let mut values = self.values.borrow_mut();
+                let base = values.entry((context, unit.clone())).or_insert_with(|| {
+                    RelativeBase::new(
+                        unit,
+                        &catalog.packages,
+                        &catalog.generated,
+                        &catalog.generated_files,
+                    )
+                });
+                base.target(
+                    reference,
+                    &catalog.packages,
+                    &catalog.generated,
+                    &catalog.generated_files,
+                )
+            },
+        )
+    }
+}
+
+enum RelativeBase {
+    Package { name: String, path: String },
+    File(Option<url::Url>),
+}
+
+impl RelativeBase {
+    fn new(
+        unit: &Path,
+        packages: &[(String, PathBuf)],
+        generated: &[(String, PathBuf, PathBuf)],
+        generated_files: &[(PathBuf, PathBuf)],
+    ) -> Self {
+        let source_unit = generated
+            .iter()
+            .map(|(_, source, output)| (source, output))
+            .chain(
+                generated_files
+                    .iter()
+                    .map(|(source, output)| (source, output)),
+            )
+            .find_map(|(source, output)| {
+                let output = dartforge_elements::generated::key_of(output);
+                unit.strip_prefix(output.as_ref())
+                    .ok()
+                    .map(|relative| source.join(relative))
+            });
+        let source_unit = source_unit.as_deref().unwrap_or(unit);
+        for (name, lib) in packages {
+            let lib = dartforge_elements::generated::key_of(lib);
+            if let Ok(relative) = source_unit.strip_prefix(lib.as_ref()) {
+                return Self::Package {
+                    name: name.clone(),
+                    path: package_base(relative),
+                };
+            }
+        }
+        Self::File(url::Url::from_file_path(source_unit).ok())
+    }
+
+    fn target(
+        &self,
+        reference: &str,
+        packages: &[(String, PathBuf)],
+        generated: &[(String, PathBuf, PathBuf)],
+        generated_files: &[(PathBuf, PathBuf)],
+    ) -> Option<PathBuf> {
+        match self {
+            Self::Package { name, path } => package_target(
+                &relative_package_path(name, path, reference),
+                packages,
+                generated,
+            ),
+            Self::File(base) => {
+                let target = base.as_ref()?.join(reference).ok()?.to_file_path().ok()?;
+                Some(file_target(&target, generated_files))
+            }
+        }
+    }
+}
 
 /// Resolve relative imports from their canonical package URI. Package roots
 /// clamp relative parent traversal; ordinary file URIs retain filesystem roots.
@@ -16,6 +122,31 @@ pub(super) fn dependency_target(
     packages: &[(String, PathBuf)],
     generated: &[(String, PathBuf, PathBuf)],
     generated_files: &[(PathBuf, PathBuf)],
+) -> Option<PathBuf> {
+    resolve_reference(
+        uri,
+        sdk,
+        packages,
+        generated,
+        generated_files,
+        |reference| {
+            RelativeBase::new(unit, packages, generated, generated_files).target(
+                reference,
+                packages,
+                generated,
+                generated_files,
+            )
+        },
+    )
+}
+
+fn resolve_reference(
+    uri: &str,
+    sdk: Option<&SdkFiles>,
+    packages: &[(String, PathBuf)],
+    generated: &[(String, PathBuf, PathBuf)],
+    generated_files: &[(PathBuf, PathBuf)],
+    relative: impl FnOnce(&str) -> Option<PathBuf>,
 ) -> Option<PathBuf> {
     let (reference, fragment) = uri.split_once('#').unwrap_or((uri, ""));
     // Dart Uri.isAbsolute excludes a nonempty fragment. SourceFactory rejects
@@ -34,52 +165,27 @@ pub(super) fn dependency_target(
             _ => None,
         };
     }
-    let source_unit = generated
-        .iter()
-        .map(|(_, source, output)| (source, output))
-        .chain(
-            generated_files
-                .iter()
-                .map(|(source, output)| (source, output)),
-        )
-        .find_map(|(source, output)| {
-            let output = dartforge_elements::generated::key_of(output);
-            unit.strip_prefix(output.as_ref())
-                .ok()
-                .map(|relative| source.join(relative))
-        });
-    let source_unit = source_unit.as_deref().unwrap_or(unit);
-    for (name, lib) in packages {
-        let lib = dartforge_elements::generated::key_of(lib);
-        if let Ok(relative) = source_unit.strip_prefix(lib.as_ref()) {
-            let path = relative_package_path(name, relative, reference);
-            return package_target(&path, packages, generated);
-        }
-    }
-    let target = url::Url::from_file_path(source_unit)
-        .ok()?
-        .join(reference)
-        .ok()?
-        .to_file_path()
-        .ok()?;
-    Some(file_target(&target, generated_files))
+    relative(reference)
 }
 
-/// Merge below the package name before RFC dot-segment removal. This is
-/// Uri.resolveUri's package branch, independent of physical source paths.
-fn relative_package_path(name: &str, relative: &Path, reference: &str) -> String {
-    if reference.starts_with("//") {
-        return absolute_path(reference);
-    }
-    let base = normalized_path(&format!(
+fn package_base(relative: &Path) -> String {
+    normalized_path(&format!(
         "/{}",
         relative
             .to_string_lossy()
             .replace(std::path::MAIN_SEPARATOR, "/")
-    ));
+    ))
+}
+
+/// Merge below the package name before RFC dot-segment removal. This is
+/// Uri.resolveUri's package branch, independent of physical source paths.
+fn relative_package_path(name: &str, base: &str, reference: &str) -> String {
+    if reference.starts_with("//") {
+        return absolute_path(reference);
+    }
     let reference = normalized_path(reference.split('?').next().unwrap_or_default());
     let merged = if reference.is_empty() {
-        base
+        base.to_owned()
     } else if reference.starts_with('/') {
         reference
     } else {
@@ -232,6 +338,74 @@ mod tests {
     use super::*;
 
     #[test]
+    fn shared_physical_units_keep_the_base_of_each_referring_context() {
+        let root = super::super::tests::fixture("relative-base-contexts");
+        let outer = root.join("lib");
+        let inner = outer.join("nested");
+        let unit = Arc::new(inner.join("entry.dart"));
+        let contexts = [
+            Context {
+                packages: vec![("p".into(), outer.clone())],
+                ..Context::default()
+            },
+            Context {
+                packages: vec![("p".into(), inner.clone())],
+                ..Context::default()
+            },
+        ];
+        let bases = RelativeBases::default();
+        for context in [0, 1, 0, 1] {
+            let catalog = &contexts[context];
+            let lib = if context == 0 { &outer } else { &inner };
+            assert_eq!(
+                bases.target(context, &unit, "../target.dart", None, catalog),
+                Some(lib.join("target.dart"))
+            );
+            assert_eq!(
+                bases.target(context, &unit, "./next.dart", None, catalog),
+                Some(inner.join("next.dart"))
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cached_bases_do_not_freeze_generated_target_selection() {
+        let root = super::super::tests::fixture("relative-base-generated");
+        let lib = root.join("lib");
+        let output = root.join("output");
+        std::fs::create_dir_all(lib.join("src")).unwrap();
+        std::fs::create_dir_all(output.join("src")).unwrap();
+        let unit = Arc::new(output.join("src/entry.dart"));
+        let source = lib.join("target.dart");
+        let built = output.join("target.dart");
+        let catalog = Context {
+            packages: vec![("p".into(), lib.clone())],
+            generated: vec![("p".into(), lib.clone(), output.clone())],
+            generated_files: vec![(lib, output)],
+            ..Context::default()
+        };
+        let bases = RelativeBases::default();
+        let target = || bases.target(0, &unit, "../target.dart", None, &catalog);
+        assert_eq!(target(), Some(source.clone()));
+        std::fs::write(&built, "class Built {}").unwrap();
+        assert_eq!(target(), Some(built.clone()));
+        std::fs::write(&source, "class Source {}").unwrap();
+        assert_eq!(target(), Some(source.clone()));
+        // File URIs keep their different precedence, even for this same unit.
+        let uri = url::Url::from_file_path(&source).unwrap();
+        assert_eq!(
+            bases.target(0, &unit, uri.as_str(), None, &catalog),
+            Some(built.clone())
+        );
+        std::fs::remove_file(&source).unwrap();
+        assert_eq!(target(), Some(built.clone()));
+        std::fs::remove_file(&built).unwrap();
+        assert_eq!(target(), Some(source));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn package_paths_match_sixty_vectors_from_the_floor_vm() {
         let reference: serde_json::Value =
             serde_json::from_str(include_str!("../../tests/data/package_uri_paths.json")).unwrap();
@@ -242,7 +416,11 @@ mod tests {
             let actual = if case["kind"] == "absolute" {
                 absolute_path(uri)
             } else {
-                relative_package_path("p", Path::new(case["base"].as_str().unwrap()), uri)
+                relative_package_path(
+                    "p",
+                    &package_base(Path::new(case["base"].as_str().unwrap())),
+                    uri,
+                )
             };
             assert_eq!(actual, case["expected"].as_str().unwrap(), "{case}");
         }

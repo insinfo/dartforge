@@ -173,8 +173,8 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   Fontes e metadados ficaram estáveis, sem raízes ausentes. No core, o digest textual
   do manifesto mudou por `/tmp` versus `/private/tmp`; os arquivos canônicos, conteúdos,
   tamanhos e datas coincidem. As três falhas da primeira repetição são conservadas;
-  o novo 8/8 não fecha a paridade entre sessões. Não houve nova dupla fria nos projetos
-  grandes. **Após as URIs, duas matrizes quentes mantiveram 21/24 respostas completas
+  o novo 8/8 não fecha a paridade entre sessões. Até essa etapa não houve nova dupla
+  fria nos projetos grandes. **Após as URIs, duas matrizes quentes mantiveram 21/24 respostas completas
   e 24/24 conjuntos**, com respostas idênticas nos dois servidores entre elas. As
   respostas do DartForge também são idênticas às da etapa anterior, e os manifestos
   permaneceram iguais, sem raízes ausentes. Detalhes e reprodução em `docs/LSP.md`.
@@ -233,11 +233,32 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   melhorou de forma consistente (core com watcher: 124,3 → 125,7 MiB); a primeira
   busca continua mais lenta que o Dart. O perfil posterior ainda aponta custo
   na resolução de imports e comparação de caminhos. Detalhes em `docs/LSP.md`.
-- **Regressões do servidor:** **331 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
+- **Bases relativas e caminhos compartilhados (05/11):** cada unidade agora
+  compartilha seu caminho entre imports e exports. Sua base canônica é calculada
+  uma vez por contexto e busca, mantendo a escolha de fonte/gerado revalidada no
+  disco. A tabela é descartada após o pedido. Duas regressões novas verificam
+  contextos diferentes para o mesmo arquivo e mudanças dos alvos gerados durante
+  a reutilização da base. Mantidos os 60 vetores de URI da VM, **270/270** controles
+  completos e **27/27 com e 27/27 sem watcher** nos parts.
+  Nas **54 sessões revezadas**, cada matriz manteve **216/216 respostas completas
+  iguais em cada comparação**. Sem watcher, as medianas quentes caíram de **353,9
+  para 180,6 ms**, de **142,1 para 72,4 ms** e de **580,1 para 239,4 ms**:
+  cerca de **49%, 49% e 59%** em latência e CPU. O footprint final caiu cerca de
+  **1,7–2,5 MiB**. Com watcher, não houve ganho quente: o core subiu de **8,9 para
+  9,4 ms** (CPU 8,5 → 9,0 ms), regressão pequena ainda aberta; os três continuam
+  abaixo do Dart nesse modo. A primeira busca melhorou, mas continua perdendo nos
+  comparativos revezados. Os manifestos permaneceram iguais, sem raízes ausentes.
+  Uma nova dupla com caches Dart isolados e inicialmente vazios deu **72/72 no
+  frio e 72/72 no quente**, com respostas de cada servidor idênticas entre estados.
+  A preparação tem dez segundos adicionais de ociosidade: não fecha as falhas do
+  protocolo legado, que precisa de nova rodada na árvore atual. Detalhes, CPU,
+  memória e artefatos em `docs/LSP.md`.
+- **Regressões do servidor:** **333 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
   raízes numa regressão nova, duas regressões de descoberta e listas de resposta e
   quatro de URIs, normalização e fontes sombreadas, além das duas novas de criação
   de part e retorno do contador de validação ao início após seu limite.
+  As duas regressões das bases relativas foram acrescentadas na continuação.
   Clippy do workspace sem avisos, formatação e documentação estrita passaram.
   Após as URIs, mantidos **112/112** no ciclo de vida, **24/24 com e 24/24 sem
   watcher** nos dois contextos, **18/18** na capacidade, **16/16** nas condicionais e
@@ -255,7 +276,8 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   e reconstrução nos projetos grandes ainda precisa ser medido, incluindo a nova
   checagem de ida e volta das URIs na adição dos arquivos. As buscas sem watcher
   agora têm a medição isolada acima. Faltam a paridade após edições nesses projetos
-  e com dependências condicionais, desempenho nessas mudanças e a sessão longa.
+  e com dependências condicionais, desempenho nessas mudanças, a primeira busca,
+  reduzir a regressão quente do core com watcher e a sessão longa.
 - Detalhes e critérios em `docs/LSP.md`, seção de 04/11 e continuação de 05/11. Os problemas de desempenho e de
   memória da décima sétima rodada abaixo continuam abertos.
 

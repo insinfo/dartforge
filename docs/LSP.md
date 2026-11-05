@@ -4152,6 +4152,125 @@ e conferindo suas chaves normalizadas. Esse percurso e as enumerações do disco
 continuam sendo alvos para as buscas sem watcher. Perfil em
 `/tmp/dartforge-symbol-validation-profile.txt`; seu JSONL tem `profiled: true`.
 
+### Continuação: caminhos compartilhados e bases relativas por busca (05/11)
+
+O perfil da etapa anterior mostrava a mesma unidade comparando seu caminho
+com os diretórios de pacotes a cada import relativo. `RelativeBases` agora
+calcula essa base uma vez por unidade e contexto dentro da busca. A chave
+inclui o contexto: o mesmo arquivo físico pode ter uma URI de pacote diferente
+em outro catálogo. A base é o caminho canônico do pacote ou a URL de arquivo;
+não inclui a escolha final entre fonte e gerado. Essa escolha continua
+conferindo a existência dos candidatos em cada resolução, inclusive a
+precedência distinta de `file:` e `package:`. As URIs absolutas e os fragmentos
+continuam passando pela mesma validação antes de usar qualquer base relativa.
+
+Cada unidade também compartilha seu `Arc<PathBuf>` entre imports e exports,
+em vez de copiar o caminho completo em cada diretiva e nas cópias de
+`OpenDependencies`. A comparação dos caminhos continua por valor; a identidade
+do ponteiro não decide ordem nem invalidação. Unidades sem imports ou exports
+não criam essa alocação. A tabela de bases é local ao pedido e é descartada ao
+terminar a busca; não retém catálogos, versões ou históricos de sessões antigas.
+
+Duas regressões novas verificam o mesmo arquivo sob raízes de pacotes diferentes
+e a criação/remoção de fonte e gerado sem trocar a base. Esta última repete a
+resolução com a mesma tabela e exige que o alvo mude com o disco, incluindo
+`file:` preferindo o gerado quando `package:` prefere a fonte. Os 60 vetores
+da VM Dart 3.6.2 para caminhos de URIs foram mantidos.
+
+Passaram **333 testes do LSP, zero falhas e zero ignorados**, os **11 testes
+Python**, formatação, clippy do workspace sem avisos e documentação estrita.
+Os controles completos mantiveram **270/270** e o cenário de parts deu
+**27/27 com e 27/27 sem watcher**. Logs em
+`/tmp/dartforge-symbol-bases-{tests,python,clippy,doc,controls}.log` e respostas
+em `/tmp/dartforge-symbol-bases-control-*.jsonl` e
+`/tmp/dartforge-symbol-bases-{parts,parts-unwatched}.jsonl`.
+
+O baseline desta comparação é `8c509e11`, preservado em
+`/tmp/dartforge-symbol-bases-before` (SHA-256 iniciado em `930d86309eaf`);
+o novo binário é `/tmp/dartforge-symbol-bases-after`, SHA-256
+`1600d9ebf850cac903de9ddadd59a921a86ceb01d610e478637ba6ee28e16f70`.
+Ambos usam o mesmo `release`, SDK 3.6.2, arquivos e capacidades do cliente.
+Foram 54 sessões sequenciais, três por servidor/projeto em cada modo, alternando
+antes/depois/Dart, depois/Dart/antes e Dart/antes/depois. Compilações, testes e
+perfis não concorreram com as medições. A preparação e as oito consultas são
+as do driver de desempenho, incluindo dez segundos adicionais de ociosidade.
+
+**Sem watcher**, as medianas quentes (48 pedidos por célula, latência / CPU da
+árvore em ms) foram:
+
+| Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | ---: | ---: | ---: |
+| `limitless_ui` | 353,9 / 353,3 | 180,6 / 180,2 | 16,0 / 20,4 |
+| core | 142,1 / 141,5 | 72,4 / 71,9 | 12,6 / 13,3 |
+| frontend | 580,1 / 579,5 | 239,4 / 238,9 | 18,7 / 25,5 |
+
+A queda foi de aproximadamente **49%, 49% e 59%** em latência e CPU. Os três
+ainda perdem do Dart nesse protocolo. A primeira busca também melhorou, mas
+permaneceu mais lenta; os valores abaixo são medianas de três sessões:
+
+| Projeto | Primeira busca: antes / depois / Dart (ms) | Footprint final: antes / depois / Dart (MiB) |
+| --- | ---: | ---: |
+| `limitless_ui` | 1.478 / 1.300 / 713 | 138,0 / 135,5 / 674,6 |
+| core | 922 / 846 / 518 | 126,3 / 123,8 / 499,8 |
+| frontend | 1.963 / 1.612 / 566 | 586,2 / 584,5 / 711,0 |
+
+**Com watcher**, as medianas quentes foram:
+
+| Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | ---: | ---: | ---: |
+| `limitless_ui` | 11,7 / 11,2 | 11,8 / 11,3 | 15,8 / 17,6 |
+| core | 8,9 / 8,5 | 9,4 / 9,0 | 12,6 / 12,8 |
+| frontend | 12,6 / 12,0 | 12,8 / 12,3 | 18,4 / 23,0 |
+
+Não houve ganho quente nesse modo. O core subiu cerca de 0,5 ms em latência e
+CPU; essa regressão pequena continua aberta, mesmo com o novo binário ainda
+abaixo do Dart. Os demais aumentos foram de 0,1–0,3 ms. A etapa não satisfaz
+o critério de melhorar todos os cenários. Primeira busca e memória final:
+
+| Projeto | Primeira busca: antes / depois / Dart (ms) | Footprint final: antes / depois / Dart (MiB) |
+| --- | ---: | ---: |
+| `limitless_ui` | 1.484 / 1.306 / 707 | 137,4 / 134,9 / 673,4 |
+| core | 921 / 851 / 514 | 125,2 / 123,2 / 505,3 |
+| frontend | 1.936 / 1.595 / 558 | 585,0 / 583,2 / 710,7 |
+
+O footprint final caiu cerca de 1,7–2,5 MiB nas duas matrizes. Esse resultado
+curto não mede o pico simultâneo da árvore nem substitui a sessão longa com
+ondas de gerados. A primeira busca permanece mais lenta que a referência nos
+comparativos revezados.
+
+Cada matriz deu **216/216 respostas completas iguais em cada comparação**
+antes/depois, antes/Dart e depois/Dart. Os manifestos anteriores e posteriores
+ficaram idênticos aos da etapa anterior: 9.761, 6.640 e 10.894 arquivos, sem
+raízes ausentes. Artefatos em
+`/tmp/dartforge-symbol-bases-{matrix,watched-matrix}-{limitless,core,frontend}-{before,after,dart}-{0,1,2}.jsonl`,
+resumos `/tmp/dartforge-symbol-bases-{summary,watched-summary}.log` e manifestos
+`/tmp/dartforge-symbol-bases-{limitless,core,frontend}-inputs-{before,after}.json`.
+
+**Cache Dart frio/quente, protocolo estabilizado:** depois das matrizes,
+outras 12 sessões usaram um diretório inicialmente vazio para cada projeto.
+Primeiro rodou o Dart no cache vazio e depois o DartForge; na repetição, a
+ordem foi DartForge/Dart, reutilizando o mesmo cache. Cada processo DartForge
+começou sem índice, pois esse índice não é persistido. Os diretórios passaram
+de zero para 13.609, 10.547 e 16.911 arquivos após o primeiro ciclo; a repetição
+acrescentou um arquivo em cada um, confirmando que o cache não era fictício.
+Os manifestos desses diretórios são `/tmp/dartforge-symbol-bases-cache-*.json`.
+
+Foram **72/72 respostas completas no frio e 72/72 no quente**, 24 por projeto
+em cada estado. As respostas de cada servidor ficaram idênticas entre os dois
+estados. Isso amplia a cobertura desse protocolo com dez segundos adicionais
+de ociosidade; não altera os resultados legados de 9/24 no frio ou 21/24 nas
+matrizes quentes. O protocolo legado ainda precisa de nova rodada na árvore
+atual. Estes pares novos não entram nas medianas de desempenho das matrizes
+revezadas. Respostas em
+`/tmp/dartforge-symbol-bases-state-{limitless,core,frontend}-{cold,warm}-{dart,dartforge}.jsonl`
+e log `/tmp/dartforge-symbol-bases-cold-warm.log`.
+
+Um perfil separado posterior às medições, com `profiled: true`, ainda mostra
+consultas de metadados e enumerações de diretórios no percurso sem watcher.
+O custo da primeira busca e a regressão quente com watcher continuam exigindo
+trabalho. Perfil em `/tmp/dartforge-symbol-bases-profile.txt`; seus tempos não
+foram usados nas tabelas.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da

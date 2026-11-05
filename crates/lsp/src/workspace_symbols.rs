@@ -329,7 +329,7 @@ struct Library {
 /// dart.library.*: absent variables match neither false nor the empty string.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Dependency {
-    unit: PathBuf,
+    unit: Arc<PathBuf>,
     primary: Option<String>,
     alternatives: Vec<String>,
 }
@@ -611,6 +611,7 @@ struct DiscoveryContext<'a> {
     open: &'a HashMap<PathBuf, Fingerprint>,
     uri_of: &'a dyn Fn(&Path) -> String,
     trust_disk: bool,
+    relative_bases: uri_resolution::RelativeBases,
 }
 
 /// The fingerprint of a file on disk, without reading it.
@@ -1204,6 +1205,7 @@ fn index(
         let declarations = collector.output;
         let uri = uri_of(&file);
         units.push(Unit { uri, declarations });
+        let mut unit_path = None;
         for d in &analyzed.unit.directives {
             let (uri, configurations, output) = match &d.kind {
                 DirectiveKind::Import {
@@ -1219,7 +1221,9 @@ fn index(
                 _ => continue,
             };
             output.push(Dependency {
-                unit: file.clone(),
+                unit: unit_path
+                    .get_or_insert_with(|| Arc::new(file.clone()))
+                    .clone(),
                 primary: dartforge_elements::load::string_lit_value(uri),
                 alternatives: configurations
                     .iter()
@@ -1402,6 +1406,7 @@ impl Index {
             open,
             uri_of: &uri_of,
             trust_disk,
+            relative_bases: Default::default(),
         };
         // The files in `OwnedFiles` order (added ones, then the known ones that
         // were not added), kept while the disk is trusted and the inputs are the
@@ -1604,13 +1609,12 @@ impl Index {
                         .chain(&dependency.alternatives)
                         .enumerate()
                     {
-                        if let Some(target) = dependency_target(
+                        if let Some(target) = environment.relative_bases.target(
+                            context,
                             &dependency.unit,
                             uri,
                             environment.sdk,
-                            &catalog.packages,
-                            &catalog.generated,
-                            &catalog.generated_files,
+                            catalog,
                         ) {
                             discovery.add(&target, context, environment.catalogs, false);
                             if i == 0 && dependency.primary.is_some() {
