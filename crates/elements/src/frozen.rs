@@ -25,6 +25,72 @@ pub struct Checkpoint {
 /// are loaded, its elements are not).
 pub type Frozen<'a> = &'a dyn Fn(&Program, LibraryId) -> bool;
 
+/// The previous suffix layout, reusable only with the same library graph.
+/// A repair must not lose stable element IDs merely because the hot-library
+/// preference changed which of two otherwise unchanged libraries comes first.
+pub(crate) struct ReloadLayout {
+    libraries: Vec<LibraryLayout>,
+}
+
+struct LibraryLayout {
+    uri: String,
+    edges: Vec<(bool, String)>,
+    group_start: usize,
+}
+
+impl ReloadLayout {
+    pub(crate) fn capture(program: &Program, from: &Checkpoint) -> Option<Self> {
+        let libraries = program
+            .libraries
+            .iter()
+            .enumerate()
+            .skip(from.libraries)
+            .map(|(id, lib)| {
+                Some(LibraryLayout {
+                    uri: lib.uri.clone(),
+                    edges: Self::edges(program, id)?,
+                    group_start: program.group_start(LibraryId(id as u32)),
+                })
+            })
+            .collect::<Option<_>>()?;
+        Some(Self { libraries })
+    }
+
+    fn edges(program: &Program, id: usize) -> Option<Vec<(bool, String)>> {
+        let lib = &program.libraries[id];
+        lib.imports
+            .iter()
+            .map(|i| (false, i.library))
+            .chain(lib.exports.iter().map(|e| (true, e.library)))
+            .map(|(export, id)| Some((export, program.libraries.get(id.0 as usize)?.uri.clone())))
+            .collect()
+    }
+
+    fn order(&self, program: &Program, from: &Checkpoint) -> Option<(Vec<usize>, Vec<usize>)> {
+        let current: std::collections::HashMap<&str, usize> = program
+            .libraries
+            .iter()
+            .enumerate()
+            .skip(from.libraries)
+            .map(|(id, l)| (l.uri.as_str(), id))
+            .collect();
+        if current.len() != self.libraries.len() {
+            return None;
+        }
+        let mut order = Vec::with_capacity(current.len());
+        let mut starts = Vec::with_capacity(current.len());
+        for previous in &self.libraries {
+            let &id = current.get(previous.uri.as_str())?;
+            if Self::edges(program, id)?.as_slice() != previous.edges.as_slice() {
+                return None;
+            }
+            order.push(id);
+            starts.push(previous.group_start.checked_sub(from.libraries)?);
+        }
+        Some((order, starts))
+    }
+}
+
 impl Program {
     /// The checkpoint after the first `libraries` libraries, when their units
     /// and elements are the first of each arena; `None` otherwise.
@@ -74,9 +140,16 @@ impl Program {
                 at.variables,
             ];
             let covered = std::array::from_fn(|i| x.covered[i].min(c[i]));
-            x.truncate(at.units, at.libraries, covered);
+            x.truncate(at.units, at.libraries, covered, &self.element_order);
             *slot = Some(x);
         }
+        self.element_order.truncate([
+            at.classes,
+            at.extensions,
+            at.typedefs,
+            at.functions,
+            at.variables,
+        ]);
         self.times = Default::default();
         self.groups.truncate(at.libraries);
     }
@@ -104,6 +177,24 @@ pub(crate) fn lay_out(
     program: &mut Program,
     from: &Checkpoint,
     frozen: Option<Frozen<'_>>,
+) -> usize {
+    lay_out_with(program, from, frozen, None)
+}
+
+/// A repair restores the prior suffix order when the graph is unchanged.
+pub(crate) fn lay_out_reloaded(
+    program: &mut Program,
+    from: &Checkpoint,
+    previous: Option<&ReloadLayout>,
+) -> usize {
+    lay_out_with(program, from, None, previous)
+}
+
+fn lay_out_with(
+    program: &mut Program,
+    from: &Checkpoint,
+    frozen: Option<Frozen<'_>>,
+    previous: Option<&ReloadLayout>,
 ) -> usize {
     assert!(
         program.classes.len() == from.classes
@@ -137,9 +228,14 @@ pub(crate) fn lay_out(
     let frozen_end = keep.iter().filter(|k| **k).count();
     // The others, in dependency order (Tarjan's components come out after
     // everything they reach): a library after all it imports or exports.
-    let rest: Vec<usize> = (first..n).filter(|&l| !keep[l]).collect();
-    let (rest, starts) = dependency_order(program, &rest);
-    let (rest, starts) = prefer_order(program, &rest, &starts);
+    let (rest, starts) = match previous.and_then(|p| p.order(program, from)) {
+        Some(order) => order,
+        None => {
+            let rest: Vec<usize> = (first..n).filter(|&l| !keep[l]).collect();
+            let (rest, starts) = dependency_order(program, &rest);
+            prefer_order(program, &rest, &starts)
+        }
+    };
     let order: Vec<usize> = (0..n).filter(|&l| keep[l]).chain(rest).collect();
     let mut library_map = vec![LibraryId(0); n];
     for (new, &old) in order.iter().enumerate() {
@@ -480,6 +576,7 @@ fn dependency_order(program: &Program, libraries: &[usize]) -> (Vec<usize>, Vec<
 
 #[cfg(test)]
 mod tests {
+    use super::ReloadLayout;
     use crate::model::{Element, Namespace, Program};
     use dartforge_intern::Interner;
     use std::path::{Path, PathBuf};
@@ -604,6 +701,103 @@ mod tests {
             })
         };
         crate::load::load_lenient_frozen(entry, &sdk, None, names, None, None, None, &frozen).0
+    }
+
+    #[test]
+    fn repair_keeps_library_layout_only_for_the_same_graph() {
+        let root = std::env::temp_dir().join(format!("df-reload-layout-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("pkg")).unwrap();
+        std::fs::create_dir_all(root.join("ext")).unwrap();
+        let root = crate::config::canonicalize(&root).unwrap();
+        let a = root.join("pkg/a.dart");
+        let b = root.join("pkg/b.dart");
+        let c = root.join("pkg/c.dart");
+        std::fs::write(
+            &a,
+            "import 'b.dart'; import 'c.dart'; class A extends B {}\n",
+        )
+        .unwrap();
+        std::fs::write(&b, "class B {}\n").unwrap();
+        std::fs::write(&c, "class C {}\n").unwrap();
+        let mut names = Interner::new();
+        let mut first = frozen_load(&a, &root.join("ext"), &mut names);
+        let at = first.frozen.unwrap();
+        let uris = |p: &Program| {
+            p.libraries
+                .iter()
+                .map(|l| l.uri.clone())
+                .collect::<Vec<_>>()
+        };
+        let original = uris(&first);
+        let classes = |p: &Program| p.classes.iter().map(|c| c.name).collect::<Vec<_>>();
+        let original_classes = classes(&first);
+        first.layout_hot.push(b.clone());
+        let sdk = crate::sdk::SdkLayout::default();
+        let (kept, _, accepted) = crate::load::load_lenient_onto_reordered(
+            first,
+            at,
+            &a,
+            &[],
+            &sdk,
+            None,
+            &mut names,
+            None,
+            None,
+            Some(&mut |_| Some(Default::default())),
+        );
+        assert!(accepted);
+        assert_eq!(uris(&kept), original);
+        assert_eq!(classes(&kept), original_classes);
+        // Without a declaration repair, the normal hot-library preference
+        // still moves B last. Preserving layout is specific to repair loads.
+        let (ordinary, _) =
+            crate::load::load_lenient_onto(kept, at, &a, &[], &sdk, None, &mut names, None, None);
+        assert_ne!(uris(&ordinary), original);
+        assert!(ordinary.libraries.last().unwrap().uri.ends_with("/b.dart"));
+        let previous = ReloadLayout::capture(&ordinary, &at).unwrap();
+        std::fs::write(&c, "import 'b.dart'; class C extends B {}\n").unwrap();
+        let (changed, _, accepted) = crate::load::load_lenient_onto_reordered(
+            ordinary,
+            at,
+            &a,
+            &[],
+            &sdk,
+            None,
+            &mut names,
+            None,
+            None,
+            Some(&mut |_| Some(Default::default())),
+        );
+        assert!(accepted);
+        assert!(previous.order(&changed, &at).is_none());
+        let fresh = frozen_load(&a, &root.join("ext"), &mut names);
+        assert_eq!(dump(&changed, &names), dump(&fresh, &names));
+        let previous = ReloadLayout::capture(&changed, &at).unwrap();
+        std::fs::write(root.join("pkg/d.dart"), "class D {}\n").unwrap();
+        std::fs::write(
+            &a,
+            "import 'b.dart'; import 'c.dart'; import 'd.dart'; class A extends B {}\n",
+        )
+        .unwrap();
+        let (added, _, _) = crate::load::load_lenient_onto_reordered(
+            changed,
+            at,
+            &a,
+            &[],
+            &sdk,
+            None,
+            &mut names,
+            None,
+            None,
+            Some(&mut |_| Some(Default::default())),
+        );
+        assert!(previous.order(&added, &at).is_none());
+        assert_eq!(
+            dump(&added, &names),
+            dump(&frozen_load(&a, &root.join("ext"), &mut names), &names)
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// After an API change in the package, the load over the frozen prefix

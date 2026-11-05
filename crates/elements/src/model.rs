@@ -13,7 +13,7 @@ use dartforge_diagnostics::Span;
 use dartforge_frontend::LibraryFeatures;
 use dartforge_frontend::ast::{self, Ast, CompilationUnit, DeclId, FunctionId, MemberId};
 use dartforge_intern::SymbolId;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 macro_rules! id {
@@ -83,6 +83,9 @@ pub struct Program {
     pub typedefs: Vec<TypedefElement>,
     pub functions: Vec<FunctionElement>,
     pub variables: Vec<VariableElement>,
+    /// Declaration traversal positions, independently of stable arena IDs.
+    /// A permutation records its mapping here; truncation removes retired ranges.
+    pub element_order: crate::ElementOrder,
     /// The `dart:core` library, implicitly imported by all.
     pub core: Option<LibraryId>,
     /// The library of the program's entry point (the one declaring `main`),
@@ -132,8 +135,8 @@ pub struct Program {
 }
 
 /// The program's elements grouped by unit and by library, each list in
-/// increasing id order (a walk over a list visits the elements in the same
-/// order as a filtered walk over the whole arena).
+/// declaration creation order. Without an arena permutation this is increasing
+/// ID order; stable IDs restored by a reload need not follow source order.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ElementIndex {
     /// The functions whose node ([`FunctionRef`]) is in each unit.
@@ -163,6 +166,11 @@ impl ElementIndex {
     /// as an index built from nothing.
     pub(crate) fn extend(&mut self, program: &Program) {
         let [classes, extensions, typedefs, functions, variables] = self.covered;
+        let mut class_libraries = HashSet::new();
+        let mut function_libraries = HashSet::new();
+        let mut function_units = HashSet::new();
+        let mut variable_libraries = HashSet::new();
+        let mut variable_units = HashSet::new();
         self.unit_functions
             .resize_with(program.units.len(), Vec::new);
         self.unit_variables
@@ -184,10 +192,13 @@ impl ElementIndex {
                 m.entry(e.decl.decl).or_insert(ExtensionId(i as u32));
             }
         }
-        // The first element of each node, like a `position` over the arena.
+        // The first element of each node in declaration creation order.
         for (i, c) in program.classes.iter().enumerate().skip(classes) {
             if let Some(l) = self.library_classes.get_mut(c.library.0 as usize) {
                 l.push(ClassId(i as u32));
+                if program.element_order.position(0, i as u32) != i as u32 {
+                    class_libraries.insert(c.library);
+                }
             }
             if let Some(d) = c.decl
                 && let Some(m) = self.unit_classes.get_mut(d.unit.0 as usize)
@@ -204,6 +215,9 @@ impl ElementIndex {
             let id = FunctionElementId(i as u32);
             if let Some(l) = self.library_functions.get_mut(f.library.0 as usize) {
                 l.push(id);
+                if program.element_order.position(3, id.0) != id.0 {
+                    function_libraries.insert(f.library);
+                }
             }
             let unit = match f.node {
                 FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => unit,
@@ -211,18 +225,47 @@ impl ElementIndex {
             };
             if let Some(l) = self.unit_functions.get_mut(unit.0 as usize) {
                 l.push(id);
+                if program.element_order.position(3, id.0) != id.0 {
+                    function_units.insert(unit);
+                }
             }
         }
         for (i, v) in program.variables.iter().enumerate().skip(variables) {
             let id = VariableId(i as u32);
             if let Some(l) = self.library_variables.get_mut(v.library.0 as usize) {
                 l.push(id);
+                if program.element_order.position(4, id.0) != id.0 {
+                    variable_libraries.insert(v.library);
+                }
             }
             if let Some(unit) = v.node.unit()
                 && let Some(l) = self.unit_variables.get_mut(unit.0 as usize)
             {
                 l.push(id);
+                if program.element_order.position(4, id.0) != id.0 {
+                    variable_units.insert(unit);
+                }
             }
+        }
+        for library in class_libraries {
+            self.library_classes[library.0 as usize]
+                .sort_by_key(|id| program.element_order.position(0, id.0));
+        }
+        for library in function_libraries {
+            self.library_functions[library.0 as usize]
+                .sort_by_key(|id| program.element_order.position(3, id.0));
+        }
+        for unit in function_units {
+            self.unit_functions[unit.0 as usize]
+                .sort_by_key(|id| program.element_order.position(3, id.0));
+        }
+        for library in variable_libraries {
+            self.library_variables[library.0 as usize]
+                .sort_by_key(|id| program.element_order.position(4, id.0));
+        }
+        for unit in variable_units {
+            self.unit_variables[unit.0 as usize]
+                .sort_by_key(|id| program.element_order.position(4, id.0));
         }
         self.covered = [
             program.classes.len(),
@@ -235,8 +278,17 @@ impl ElementIndex {
 
     /// Keeps only the lists of the first `units` units and `libraries`
     /// libraries, and in them the elements before `covered`.
-    pub(crate) fn truncate(&mut self, units: usize, libraries: usize, covered: [usize; 5]) {
+    pub(crate) fn truncate(
+        &mut self,
+        units: usize,
+        libraries: usize,
+        covered: [usize; 5],
+        order: &crate::ElementOrder,
+    ) {
         let [classes, extensions, typedefs, functions, variables] = covered;
+        let first_function = order.first_retired_position(3, functions);
+        let first_variable = order.first_retired_position(4, variables);
+        let first_class = order.first_retired_position(0, classes);
         self.unit_functions.truncate(units);
         self.unit_variables.truncate(units);
         self.unit_classes.truncate(units);
@@ -245,15 +297,17 @@ impl ElementIndex {
         self.library_functions.truncate(libraries);
         self.library_variables.truncate(libraries);
         self.library_classes.truncate(libraries);
-        // A checkpoint keeps the elements of the libraries before it, and no
-        // others; an element of a later library in a kept unit's list (none
-        // is expected) goes too.
+        // Lists follow creation order rather than numeric IDs. Inspect their
+        // last creation position against the earliest possibly retired one;
+        // untouched prefix lists then need no scan, even after a permutation.
         for l in self
             .unit_functions
             .iter_mut()
             .chain(&mut self.library_functions)
         {
-            if l.last().is_some_and(|f| f.0 as usize >= functions) {
+            if l.last()
+                .is_some_and(|id| order.position(3, id.0) as usize >= first_function)
+            {
                 l.retain(|f| (f.0 as usize) < functions);
             }
         }
@@ -262,12 +316,16 @@ impl ElementIndex {
             .iter_mut()
             .chain(&mut self.library_variables)
         {
-            if l.last().is_some_and(|v| v.0 as usize >= variables) {
+            if l.last()
+                .is_some_and(|id| order.position(4, id.0) as usize >= first_variable)
+            {
                 l.retain(|v| (v.0 as usize) < variables);
             }
         }
         for l in &mut self.library_classes {
-            if l.last().is_some_and(|c| c.0 as usize >= classes) {
+            if l.last()
+                .is_some_and(|id| order.position(0, id.0) as usize >= first_class)
+            {
                 l.retain(|c| (c.0 as usize) < classes);
             }
         }
@@ -281,6 +339,44 @@ impl ElementIndex {
             m.retain(|_, e| (e.0 as usize) < extensions);
         }
         self.covered = covered;
+    }
+}
+
+#[cfg(test)]
+mod order_tests {
+    use super::*;
+
+    #[test]
+    fn index_truncation_removes_retired_ids_inside_creation_ordered_lists() {
+        let mut order = crate::ElementOrder::default();
+        for arena in [0, 3, 4] {
+            order.permute(arena, 0, &[1, 2, 0]);
+        }
+        let functions = vec![
+            FunctionElementId(1),
+            FunctionElementId(2),
+            FunctionElementId(0),
+        ];
+        let variables = vec![VariableId(1), VariableId(2), VariableId(0)];
+        let mut index = ElementIndex {
+            unit_functions: vec![functions.clone()],
+            library_functions: vec![functions],
+            unit_variables: vec![variables.clone()],
+            library_variables: vec![variables],
+            library_classes: vec![vec![ClassId(1), ClassId(2), ClassId(0)]],
+            covered: [3, 0, 0, 3, 3],
+            ..ElementIndex::default()
+        };
+        // The last ID is below the cut while an earlier ID must be removed.
+        index.truncate(1, 1, [2, 0, 0, 2, 2], &order);
+        assert_eq!(
+            index.unit_functions,
+            [vec![FunctionElementId(1), FunctionElementId(0)]]
+        );
+        assert_eq!(index.library_functions, index.unit_functions);
+        assert_eq!(index.unit_variables, [vec![VariableId(1), VariableId(0)]]);
+        assert_eq!(index.library_variables, index.unit_variables);
+        assert_eq!(index.library_classes, [vec![ClassId(1), ClassId(0)]]);
     }
 }
 
@@ -716,7 +812,7 @@ impl Program {
     }
 
     /// The element of the function (or method) declared by node `function`
-    /// of unit `unit`: the first one, in id order.
+    /// of unit `unit`: the first one in declaration creation order.
     pub fn function_of_node(
         &self,
         unit: UnitId,

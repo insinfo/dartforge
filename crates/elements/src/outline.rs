@@ -123,6 +123,32 @@ fn resolve_homonyms(lib: &mut Library, candidates: &[(SymbolId, bool, Species, E
     }
 }
 
+/// Kept namespaces that a declaration repair must rebuild alongside the new
+/// libraries, before resolving any fresh supertype.
+///
+/// ```
+/// let repair = dartforge_elements::outline::OutlineRepair::default();
+/// assert!(repair.exporters.is_empty());
+/// assert!(repair.importers.is_empty());
+/// ```
+#[derive(Debug, Default)]
+pub struct OutlineRepair {
+    /// Kept libraries whose exported namespaces and lexical scopes changed.
+    pub exporters: Vec<LibraryId>,
+    /// Other kept libraries whose lexical scopes changed.
+    pub importers: Vec<LibraryId>,
+}
+
+/// Declaration-boundary callback. `None` refuses the partial outline; a repair
+/// joins the kept namespaces to those of the new libraries.
+///
+/// ```
+/// use dartforge_elements::{OutlineRepair, OutlineRepairHook, Program};
+/// let mut repair = |_: &mut Program| Some(OutlineRepair::default());
+/// let _: OutlineRepairHook<'_> = &mut repair;
+/// ```
+pub type OutlineRepairHook<'a> = &'a mut dyn FnMut(&mut Program) -> Option<OutlineRepair>;
+
 /// Builds the program's complete outline: declarations, members, namespaces
 /// and supertypes.
 pub fn build_outline(
@@ -141,6 +167,18 @@ pub fn build_outline_from(
     interner: &mut Interner,
     diagnostics: &mut Vec<Diagnostic>,
     from: &Checkpoint,
+) {
+    build_outline_from_reordered(program, interner, diagnostics, from, None);
+}
+
+/// Builds declarations first, then allows their IDs to be restored before
+/// any new scope or supertype can mix fresh references with kept ones.
+pub(crate) fn build_outline_from_reordered(
+    program: &mut Program,
+    interner: &mut Interner,
+    diagnostics: &mut Vec<Diagnostic>,
+    from: &Checkpoint,
+    reorder: Option<OutlineRepairHook<'_>>,
 ) {
     let empty_sym = interner.intern("");
     let mut t_phase = std::time::Instant::now();
@@ -591,12 +629,29 @@ pub fn build_outline_from(
         program.classes_macro.append(&mut classes_macro);
     }
 
+    let repair = match reorder {
+        Some(reorder) => {
+            let Some(repair) = reorder(program) else {
+                return;
+            };
+            repair
+        }
+        None => OutlineRepair::default(),
+    };
+
     // -----------------------------------------------------------------------
     // Phase 2: building Library::exported (with a fixpoint for reexports)
     program.times.outline_declarations += t_phase.elapsed();
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
-    let libraries: Vec<usize> = (from.libraries..program.libraries.len()).collect();
+    let mut libraries: Vec<usize> = (from.libraries..program.libraries.len()).collect();
+    for id in repair.exporters {
+        let id = id.0 as usize;
+        program.libraries[id].exported.clear();
+        libraries.push(id);
+    }
+    libraries.sort_unstable();
+    libraries.dedup();
     build_exported(program, interner, &libraries);
 
     // -----------------------------------------------------------------------
@@ -604,6 +659,9 @@ pub fn build_outline_from(
     program.times.outline_reexports += t_phase.elapsed();
     t_phase = std::time::Instant::now();
     // -----------------------------------------------------------------------
+    libraries.extend(repair.importers.into_iter().map(|id| id.0 as usize));
+    libraries.sort_unstable();
+    libraries.dedup();
     for lib_idx in libraries {
         build_scope(program, lib_idx);
     }

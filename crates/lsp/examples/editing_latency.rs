@@ -5,7 +5,7 @@
 //! `cargo run --release -p dartforge-lsp --example editing_latency -- \
 //!   (--server target/release/dartforge-lsp | --dart <sdk>/bin/dart) \
 //!   --root <package> --file <lib/a.dart> [--private <lib/b.dart>] \
-//!   [--api <lib/c.dart>] [--edits 20] [--burst 40] [--interval-ms 60] \
+//!   [--api <lib/c.dart>] [--api-offset <byte>] [--api-queries] [--edits 20] [--burst 40] [--interval-ms 60] \
 //!   [--reps 5] [--positions 8] [--json <out.json>]`
 //!
 //! The server is the real binary over stdio, so DartForge's typed analysis runs
@@ -28,6 +28,9 @@
 //!    declaration with a type error added to `--api` (exported API edit, the
 //!    file a barrel exports): the time until the publication of that file
 //!    carries a diagnostic on the new line, and the time until settled;
+//!    `--api-offset` chooses its UTF-8 insertion byte and retains the full
+//!    diagnostics after each edit and undo in `api_edit_diagnostics`;
+//!    `--api-queries` also captures complete query responses outside the timer;
 //! 5. queries at `--positions` identifiers of `--file` (hover, completion,
 //!    definition, references, prepareRename, codeAction, implementation and
 //!    `workspace/symbol` of the identifier): each once right after
@@ -78,6 +81,10 @@ struct Options {
     file: PathBuf,
     private: Option<PathBuf>,
     api: Option<PathBuf>,
+    /// Insert the public API probe at this UTF-8 byte boundary, rather than
+    /// appending it. Ordinary measurements also retain each edit/undo's diagnostics.
+    api_offset: Option<usize>,
+    api_queries: bool,
     edits: usize,
     burst: usize,
     interval: Duration,
@@ -108,6 +115,8 @@ fn options() -> Options {
     let mut file = None;
     let mut private = None;
     let mut api = None;
+    let mut api_offset = None;
+    let mut api_queries = false;
     let mut edits = 20;
     let mut burst = 40;
     let mut interval = 60;
@@ -140,6 +149,8 @@ fn options() -> Options {
             "--file" => file = Some(PathBuf::from(value())),
             "--private" => private = Some(PathBuf::from(value())),
             "--api" => api = Some(PathBuf::from(value())),
+            "--api-offset" => api_offset = Some(value().parse().expect("--api-offset")),
+            "--api-queries" => api_queries = true,
             "--edits" => edits = value().parse().expect("--edits"),
             "--burst" => burst = value().parse().expect("--burst"),
             "--interval-ms" => interval = value().parse().expect("--interval-ms"),
@@ -155,6 +166,18 @@ fn options() -> Options {
         }
     }
     let root = std::fs::canonicalize(root.expect("--root")).expect("root exists");
+    assert!(
+        api_offset.is_none() || api.is_some(),
+        "--api-offset requires --api"
+    );
+    assert!(
+        !api_queries || api_offset.is_some(),
+        "--api-queries requires --api-offset"
+    );
+    assert!(
+        !api_queries || long.is_none(),
+        "--api-queries cannot be combined with --long"
+    );
     let file = root.join(file.expect("--file"));
     Options {
         command: command.unwrap_or_else(|| {
@@ -167,6 +190,8 @@ fn options() -> Options {
         file,
         private: private.map(|a| root.join(a)),
         api: api.map(|a| root.join(a)),
+        api_offset,
+        api_queries,
         root,
         edits,
         burst,
@@ -1059,7 +1084,13 @@ fn long_session(o: &Options, c: &mut Client, doc: &mut Document, rounds: usize) 
         if round % 5 == 0
             && let Some(a) = api.as_mut()
         {
-            let at = a.text.rfind('}').map_or(a.text.len(), |i| i + 1);
+            let at = o
+                .api_offset
+                .unwrap_or_else(|| a.text.rfind('}').map_or(a.text.len(), |i| i + 1));
+            assert!(
+                a.text.is_char_boundary(at),
+                "--api-offset must be a UTF-8 byte boundary in --api"
+            );
             let declaration = format!("\nint dfLongSessionApi{round}() => '{round}';\n");
             c.saw_start = false;
             let cpu0 = cpu_of_all(pid);
@@ -1223,8 +1254,51 @@ fn resident_memory(o: &Options, c: &mut Client) {
     }
 }
 
-/// Inserts `declaration` at `at` of `doc` `reps` times, measuring the time to
-/// the diagnostic on its first line and to settled, and removes it each time.
+/// Complete API responses captured after the timed edit boundary.
+fn capture_api_state(
+    c: &mut Client,
+    doc: &Document,
+    phase: &str,
+    iteration: usize,
+    queries: bool,
+) -> Value {
+    let mut requests = BTreeMap::new();
+    if queries {
+        let mut record = |method, params| {
+            let (response, _) = c.request(method, params);
+            let result = match response.get("error") {
+                Some(error) => json!({"error": error}),
+                None => response["result"].clone(),
+            };
+            requests.insert(method.to_string(), result);
+        };
+        record(
+            "textDocument/documentSymbol",
+            json!({"textDocument": {"uri": doc.uri}}),
+        );
+        record("workspace/symbol", json!({"query": "dfApiProbe"}));
+        if let Some(offset) = doc.text.find("dfApiProbe") {
+            let (line, character) = position(&doc.text, offset);
+            record(
+                "textDocument/hover",
+                json!({"textDocument": {"uri": doc.uri}, "position": {"line": line, "character": character}}),
+            );
+            record(
+                "textDocument/references",
+                json!({"textDocument": {"uri": doc.uri}, "position": {"line": line, "character": character}, "context": {"includeDeclaration": true}}),
+            );
+        }
+    }
+    json!({"phase": phase, "iteration": iteration, "diagnostics": c.diagnostics, "requests": requests})
+}
+
+struct ApiCaptures<'a> {
+    records: &'a mut Vec<Value>,
+    queries: bool,
+}
+
+/// Measures edits; optional correctness captures run after the timed boundary.
+#[allow(clippy::too_many_arguments)]
 fn diagnostic_edits(
     c: &mut Client,
     results: &mut BTreeMap<String, Value>,
@@ -1233,13 +1307,14 @@ fn diagnostic_edits(
     declaration: &str,
     label: &str,
     reps: usize,
+    mut captures: Option<ApiCaptures<'_>>,
 ) {
     let mut published = Vec::new();
     let mut settled = Vec::new();
     let mut cpu = Vec::new();
     let mut missing = 0;
     let mut republished = Vec::new();
-    for _ in 0..reps {
+    for iteration in 0..reps {
         c.published.clear();
         let before = cpu_of_all(c.pid);
         let t = Instant::now();
@@ -1260,8 +1335,26 @@ fn diagnostic_edits(
         ));
         let others = c.published.iter().filter(|u| **u != doc.uri).count();
         republished.push(others);
+        if let Some(captures) = captures.as_mut() {
+            captures.records.push(capture_api_state(
+                c,
+                doc,
+                "edited",
+                iteration,
+                captures.queries,
+            ));
+        }
         doc.remove(c, at, at + declaration.len());
         c.settle_after(Instant::now());
+        if let Some(captures) = captures.as_mut() {
+            captures.records.push(capture_api_state(
+                c,
+                doc,
+                "undo",
+                iteration,
+                captures.queries,
+            ));
+        }
     }
     summary(
         results,
@@ -1460,8 +1553,10 @@ fn main() {
         "    int.parse(0);\n",
         "body edit",
         o.reps,
+        None,
     );
     let mut docs = vec![main_doc];
+    let mut api_edit_diagnostics = Vec::new();
     for (path, declaration, label) in [
         (
             &o.private,
@@ -1481,8 +1576,29 @@ fn main() {
             }
         };
         let doc = &mut docs[index];
-        let end = doc.text.len();
-        diagnostic_edits(&mut c, &mut results, doc, end, declaration, label, o.reps);
+        let public_api = label == "exported API edit";
+        let at = if public_api {
+            o.api_offset.unwrap_or(doc.text.len())
+        } else {
+            doc.text.len()
+        };
+        assert!(
+            doc.text.is_char_boundary(at),
+            "--api-offset must be a UTF-8 byte boundary in --api"
+        );
+        diagnostic_edits(
+            &mut c,
+            &mut results,
+            doc,
+            at,
+            declaration,
+            label,
+            o.reps,
+            (public_api && o.api_offset.is_some()).then_some(ApiCaptures {
+                records: &mut api_edit_diagnostics,
+                queries: o.api_queries,
+            }),
+        );
     }
     let mut main_doc = docs.swap_remove(0);
     // 5. Queries at identifiers of the file.
@@ -1644,6 +1760,9 @@ fn main() {
             "memory": memory,
             "total_s": total.as_secs_f64(),
             "diagnostics": c.diagnostics,
+            "api_insertion_byte": o.api_offset,
+            "api_query_captures": o.api_queries,
+            "api_edit_diagnostics": api_edit_diagnostics,
         });
         std::fs::write(path, serde_json::to_vec_pretty(&out).expect("json")).expect("write --json");
     }

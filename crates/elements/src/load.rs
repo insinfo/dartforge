@@ -181,7 +181,12 @@ enum Layout<'a> {
     FrozenFirst(crate::frozen::Frozen<'a>),
     /// Over a program cut at its frozen prefix: the prefix's libraries are not
     /// read again, and the outline is built only after it.
-    Onto(Box<Program>, crate::frozen::Checkpoint),
+    Onto(
+        Box<Program>,
+        crate::frozen::Checkpoint,
+        Option<outline::OutlineRepairHook<'a>>,
+        Option<crate::frozen::ReloadLayout>,
+    ),
 }
 
 /// Like [`load_lenient_generated`], laying the libraries `frozen` accepts (the
@@ -235,7 +240,7 @@ pub fn load_lenient_frozen(
 /// depend on a reloaded one are not walked again).
 #[allow(clippy::too_many_arguments)]
 pub fn load_lenient_onto(
-    mut base: Program,
+    base: Program,
     at: crate::frozen::Checkpoint,
     entry: &Path,
     also: &[&Path],
@@ -245,10 +250,85 @@ pub fn load_lenient_onto(
     units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
     generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
 ) -> (Program, Vec<Diagnostic>) {
+    let (program, diagnostics, _) = load_lenient_onto_reordered(
+        base,
+        at,
+        entry,
+        also,
+        sdk,
+        package_config_path,
+        interner,
+        units,
+        generated_sources,
+        None,
+    );
+    (program, diagnostics)
+}
+
+/// Like [`load_lenient_onto`], with a declaration-order repair before the
+/// new namespaces and supertypes are resolved. `reorder` may permute the new
+/// element arenas and repair their declaration references; it must preserve
+/// the prefix before `at`, every arena's length and each library's membership.
+/// The kept scopes already contain stable IDs and must not be remapped.
+/// The returned repair adds their affected namespaces to the new libraries'
+/// export fixpoint and scope construction.
+///
+/// # Errors
+///
+/// If `reorder` returns `None`, the third result is `false`: the returned
+/// program has declarations only after `at`. The caller must discard that
+/// suffix or reload from an earlier checkpoint before using the program.
+///
+/// # Panics
+///
+/// When `base` has no frozen prefix.
+///
+/// ```
+/// use dartforge_elements::{load_lenient_frozen, load_lenient_onto_reordered, SdkLayout};
+/// let dir = std::env::temp_dir().join(format!("df-reorder-{}", std::process::id()));
+/// std::fs::create_dir_all(&dir).unwrap();
+/// let entry = dir.join("a.dart");
+/// std::fs::write(&entry, "class A {}\n").unwrap();
+/// let mut names = dartforge_intern::Interner::new();
+/// let sdk = SdkLayout::default();
+/// let (base, _) = load_lenient_frozen(&entry, &sdk, None, &mut names, None, None, None, &|_, _| false);
+/// let at = base.frozen.unwrap();
+/// let mut declarations = 0;
+/// let (_, _, accepted) = load_lenient_onto_reordered(base, at, &entry, &[], &sdk, None, &mut names, None, None,
+///     Some(&mut |program| { declarations = program.classes.len(); Some(Default::default()) }));
+/// assert!(accepted);
+/// assert_eq!(declarations, 1);
+/// # std::fs::remove_dir_all(dir).ok();
+/// ```
+#[allow(clippy::too_many_arguments)]
+pub fn load_lenient_onto_reordered(
+    mut base: Program,
+    at: crate::frozen::Checkpoint,
+    entry: &Path,
+    also: &[&Path],
+    sdk: &SdkLayout,
+    package_config_path: Option<&Path>,
+    interner: &mut Interner,
+    units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
+    generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
+    mut reorder: Option<outline::OutlineRepairHook<'_>>,
+) -> (Program, Vec<Diagnostic>, bool) {
     assert!(base.frozen.is_some(), "a program with a frozen prefix");
+    let previous = reorder
+        .as_ref()
+        .and_then(|_| crate::frozen::ReloadLayout::capture(&base, &at));
     base.truncate(&at);
     let entries: Vec<&Path> = std::iter::once(entry).chain(also.iter().copied()).collect();
-    load_lenient_(
+    let mut accepted = true;
+    let mut guarded = |program: &mut Program| {
+        let repair = match reorder.as_mut() {
+            Some(reorder) => reorder(program),
+            None => Some(outline::OutlineRepair::default()),
+        };
+        accepted = repair.is_some();
+        repair
+    };
+    let (program, diagnostics) = load_lenient_(
         &entries,
         sdk,
         package_config_path,
@@ -258,8 +338,9 @@ pub fn load_lenient_onto(
         generated_sources,
         None,
         None,
-        Layout::Onto(Box::new(base), at),
-    )
+        Layout::Onto(Box::new(base), at, Some(&mut guarded), previous),
+    );
+    (program, diagnostics, accepted)
 }
 
 /// Like [`load_lenient_entries`], reading the units whose path and source
@@ -415,10 +496,10 @@ fn load_lenient_(
     package_config.generated_sources = generated_sources;
     package_config.hidden = hidden;
 
-    let (mut program, frozen, onto) = match layout {
-        Layout::Plain => (Program::default(), None, None),
-        Layout::FrozenFirst(f) => (Program::default(), Some(f), None),
-        Layout::Onto(base, at) => (*base, None, Some(at)),
+    let (mut program, frozen, onto, reorder, previous) = match layout {
+        Layout::Plain => (Program::default(), None, None, None, None),
+        Layout::FrozenFirst(f) => (Program::default(), Some(f), None, None, None),
+        Layout::Onto(base, at, reorder, previous) => (*base, None, Some(at), reorder, previous),
     };
     let mut uri_to_library: HashMap<String, LibraryId> = program
         .libraries
@@ -991,8 +1072,14 @@ fn load_lenient_(
     // 6. Builds the outline and namespaces and resolves supertypes
     match (frozen, onto) {
         (_, Some(at)) => {
-            crate::frozen::lay_out(&mut program, &at, None);
-            outline::build_outline_from(&mut program, interner, &mut diagnostics, &at);
+            crate::frozen::lay_out_reloaded(&mut program, &at, previous.as_ref());
+            outline::build_outline_from_reordered(
+                &mut program,
+                interner,
+                &mut diagnostics,
+                &at,
+                reorder,
+            );
         }
         (Some(f), None) => {
             let libraries = crate::frozen::lay_out(&mut program, &Default::default(), Some(f));

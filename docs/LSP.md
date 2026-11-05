@@ -5101,6 +5101,762 @@ A dupla fria/quente, o protocolo legado, as edições nos projetos grandes e a
 sessão longa não foram repetidos; as reprovações e limitações anteriores
 continuam registradas separadamente.
 
+## Retorno à recarga incremental: slots por nome, em validação (05/11)
+
+A recarga no lugar reconhecia somente a lista posicional de elementos: uma
+declaração acrescentada no fim podia manter os dependentes; uma inserção no
+meio deslocava os IDs e exigia o corte de reserva. O protótipo em andamento
+casa classes, extensions, typedefs, funções e variáveis por espécie, dono e
+nome. Getter e setter implícitos têm papéis distintos, mesmo quando compartilham
+o nome e a espécie da função.
+
+O casamento inicial era limitado ao intervalo contíguo de cada biblioteca e
+não bastou no frontend real: a ordenação das bibliotecas deslocava uma classe;
+depois de conservar essa ordem, uma função nova ainda deslocava a biblioteca
+seguinte. Agora todas as bibliotecas estáveis reservam os slots sobreviventes
+antes de distribuir os restantes às novas declarações. Uma biblioteca pode
+ocupar slots descontínuos. A ordem anterior das bibliotecas é reaproveitada
+somente quando suas URIs e as arestas de imports/exports continuam iguais.
+Mudanças no grafo usam a ordenação normal por dependências.
+
+Nomes ambíguos, sobreviventes fora do sufixo novo e permutações que mudariam
+a ordem dos construtores recusam o reparo. Não há tombstones; parts também
+continuam no fallback. Slots descontínuos podem impedir um checkpoint antes
+de outra biblioteca: nesse caso, a próxima edição recarrega a partir do prefixo
+congelado. A identidade geral e o outline de tipos por biblioteca continuam abertos.
+
+**A ordem das fases foi corrigida durante a validação.** Restaurar IDs depois
+de resolver supertypes deixava bibliotecas novas vendo bindings antigos dos
+barrels mantidos. Uma regressão acrescenta `Added extends self.NewBase`, onde
+`self` é um barrel que reexporta a própria biblioteca. A primeira versão
+deixava a superclasse sem alvo; a corrigida encontra o ID de `NewBase` e publica
+os mesmos diagnósticos de uma análise do zero.
+
+Agora a criação das declarações precede o callback de reparo. Ele valida os
+slots e os nomes usados nas assinaturas dos dependentes, restabelece os imports
+e exports mantidos e devolve os exporters/importers afetados. Essas bibliotecas
+participam do mesmo fixpoint de exports e da construção de escopos das novas,
+antes da resolução de supertypes. A recusa interrompe o outline parcial antes
+dessas fases; o residente então recarrega pelo corte de reserva.
+
+Antes do reparo de dependências de aliases descrito abaixo, passaram **456 testes**
+nas suítes completas de `elements`, `parity` e LSP,
+incluindo ignorados e doctests, além de clippy de todos os alvos do workspace
+e documentação estrita. A regressão do residente cobre IDs estáveis, genéricos,
+acessores, aliases, alteração e reversão de assinatura, edição de corpo após a
+permutação, mudança de assinatura do construtor sem nome, ciclo com barrel e
+os fallbacks. Dois testes da arena verificam reservas entre bibliotecas e
+recusas; o teste de layout verifica grafo igual, aresta alterada e biblioteca nova.
+O teste de publicação do LSP ganhou
+sete passos de inserções/reversões e compara cada publicação com uma análise
+do zero, nos modos local e residente.
+
+Logs atuais: `/tmp/dartforge-named-slots-global-{focused,clippy2,doc}.log`.
+A falha real da superclasse nova está em
+`/tmp/dartforge-named-slots-new-export-before-final.log`; o caso corrigido,
+em `/tmp/dartforge-named-slots-new-export-after.log`. O arquivo
+`/tmp/dartforge-named-slots-alias-before.log` contém um teste aprovado de
+fallback, não uma reprovação de propagação de aliases.
+
+**A primeira execução ampla não é um gate verde.** O comando completo do
+workspace terminou com código 101 e dois alvos de doctests reprovados:
+`elements --doc` e `parity --doc`. As fontes foram alteradas durante a execução;
+o rustdoc encontrou as APIs novas, mas recebeu as bibliotecas antigas, com a
+assinatura anterior do callback. A repetição direcionada com a API atual passou.
+O log integral permanece em `/tmp/dartforge-named-slots-workspace.log`; será
+necessária uma execução ampla com a árvore estável. A repetição em
+`/tmp/dartforge-named-slots-stable-workspace.log` foi interrompida com código 143
+durante os builders nativos, após encontrar o erro de alias abaixo. Não é um
+gate aprovado. A nova execução está em `/tmp/dartforge-named-slots-alias-workspace.log`,
+precedida da construção de um CLI nativo preservado em
+`/tmp/dartforge-named-slots-native-current`, usado pelos dois seletores de compiler
+dos builders. Depois vêm CLI `native,jit`, clippy e documentação estrita.
+A suíte independente anterior do CLI passou em **117
+testes**, antes da ampliação para slots globais; não substitui essa repetição.
+
+**O projeto grande ainda não demonstrou o benefício.** O driver agora aceita
+`--api-offset` (byte UTF-8), também por projeto no `editing_compare.py`, e grava
+`api_edit_diagnostics` após cada edição e reversão. A opção `--api-queries`
+acrescenta as respostas completas de documentSymbol, workspace/symbol, hover
+e references após o limite cronometrado; fica desligada nas medições de edição.
+No frontend, a função pública
+com erro foi inserida no byte 114 de `documento_service.dart`, antes da classe,
+mantendo os arquivos no disco intactos. As quatro capturas completas foram
+iguais antes/depois e iguais ao Dart ao omitir somente o identificador `source`.
+Houve um diagnóstico em cada edição e nenhum após cada reversão; nenhuma
+publicação esperada faltou.
+
+São sessões de correção durante outros testes, excluídas das medições de
+desempenho. O rastro inicial mostrou o intervalo da arena de classes mudando
+de `8223/1` para `8224/1` e a biblioteca de `3122` para `3123`. Conservar a ordem
+resolveu esse deslocamento, mas ainda deixou funções da outra biblioteca
+deslocadas em um slot. O reparo global mantém os dependentes nas quatro recargas
+posteriores ao aquecimento. As seis capturas completas de diagnósticos e o
+estado final coincidiram com o baseline. A comparação ampliada de consultas
+terminou nos três projetos; não há ganho de API reivindicado para nenhum deles.
+
+O baseline é `e13d8e35`, em `/tmp/dartforge-named-slots-before`, SHA-256
+`010d09c8d2194f61e58f9be6980ac24fa4778761eacf970c455a2486867e8351`.
+O release com slots globais anterior ao reparo de aliases está em `/tmp/dartforge-named-slots-global-release`,
+SHA-256 `23251f0e5bbbce0e80064fa2a60a0bff6604054d982b4e0d3f1e13b4f4093b4b`;
+o driver, em `/tmp/dartforge-named-slots-final-driver`, SHA-256
+`864c36f6b100a9faf227955c2320434e639f1cd230108d06c53858d75e809fab`.
+Esse release manteve **450/450 controles completos de workspace/symbol**,
+incluindo aliases, parts e a variante com 320 arquivos extras nos dois modos
+de watcher. Logs e respostas em `/tmp/dartforge-named-slots-global-control-*`;
+o comando de todos os controles terminou com código zero.
+
+Na rodada ampliada, os três projetos mantiveram **18/18 respostas completas de
+consultas e 6/6 capturas de diagnósticos por projeto**, além do estado final,
+antes/depois. Os diagnósticos dos arquivos abertos coincidiram com o Dart,
+omitindo somente `source`. Os payloads de hover, references e workspace/symbol
+também coincidiram. A resposta completa de documentSymbol continua diferente:
+o Dart envia `deprecated: false`, ausente nas duas versões do DartForge. No
+limitless, o mapa completo de diagnósticos tem publicações distintas em
+subprojetos; no core e frontend, coincidiu integralmente. São falhas anteriores
+preservadas, não paridade geral aprovada. Nenhuma consulta devolveu erro e nenhum
+diagnóstico esperado faltou. As capturas estão
+em `/tmp/dartforge-named-slots-global-correctness/` e a comparação completa,
+em `/tmp/dartforge-named-slots-global-correctness-verification.json`.
+
+**Uma substituição do mesmo tamanho revelou uma dependência indireta esquecida.**
+Retirar uma classe não precisa reduzir a arena: outra classe pode ocupar seu
+slot. Com `typedef RetiredAlias = Retired` e um dependente que estende esse
+alias, a assinatura mantida não contém o nome `Retired`. O guard anterior
+aceitava a recarga e deixava o supertipo antigo apontando para a classe nova.
+Uma atribuição de `AliasUser()` a uma variável local `Replacement` perdia o
+diagnóstico `invalid_assignment`, presente na análise do zero. O ensaio externo
+reprovado está em `/tmp/dartforge-named-slots-alias-replacement2.log`; a regressão
+no repositório, em `/tmp/dartforge-named-slots-alias-replacement-red.log`.
+
+O reparo propaga os nomes alterados por aliases não SDK, incluindo os mantidos,
+e pelos cabeçalhos das classes recarregadas, até um fixpoint. Propaga também a
+mudança dos membros de uma classe para seus aliases e herdeiros, de modo que
+o mesmo guard de assinaturas possa reconhecer a dependência indireta. A
+regressão foi ampliada para duas camadas de alias e uma superclasse intermediária;
+verifica o diagnóstico completo antes de exigir a recarga pelo corte de reserva.
+Passaram a regressão e os **52 testes unitários de parity**, além de clippy.
+Logs: `/tmp/dartforge-named-slots-alias-{replacement-green,units,clippy}.log`.
+O mesmo ensaio externo originalmente reprovado também passou, em
+`/tmp/dartforge-named-slots-alias-replacement-fixed.log`.
+
+O novo release está em `/tmp/dartforge-named-slots-alias-release`, SHA-256
+`8980b29edae6ccd1a514a085b62a6f594d35519a8ea67cb3816da43bae608886`.
+Passaram novamente **450/450 controles completos**, em
+`/tmp/dartforge-named-slots-alias-control-*`. A repetição ampliada de consultas
+em `/tmp/dartforge-named-slots-alias-correctness/` manteve **54/54 payloads completos
+de consultas e 18/18 capturas de diagnósticos** antes/depois nos três projetos,
+além do estado final. Nenhum pedido devolveu erro ou diagnóstico esperado faltou.
+Os diagnósticos dos arquivos abertos coincidiram com o Dart, omitindo somente
+`source`; as diferenças anteriores de documentSymbol e dos subprojetos do
+limitless permaneceram. A comparação está em
+`/tmp/dartforge-named-slots-alias-correctness-verification.json`.
+Os três manifestos
+`/tmp/dartforge-named-slots-{limitless,core,frontend}-inputs-recheck.json` ficaram
+idênticos aos anteriores: 9.761 / 6.640 / 10.894 arquivos, sem raízes ausentes.
+A suíte ampla desta versão terminou com código zero: **3.443 testes do workspace
+e 117 do CLI native/jit**, sem ignorados. Passaram também 11 testes Python,
+formatação, clippy de todos os alvos do workspace e documentação estrita.
+Resultados em `/tmp/dartforge-named-slots-alias-{workspace,native,workspace-clippy,doc,python,fmt}.log`
+e contagens em `/tmp/dartforge-named-slots-alias-gate.json`.
+O snapshot de 1.962 fontes e dos três
+binários está em `/tmp/dartforge-named-slots-alias-source.json`; nenhuma fonte
+mudou durante os checks. Esse gate antecede o reparo de cabeçalho descrito abaixo.
+O teste completo de builders pelo executor nativo já passou nessa execução.
+Também passaram os três testes de `typed_incremental` no código atual, incluindo
+as publicações locais e do residente após as inserções e reversões;
+log em `/tmp/dartforge-named-slots-alias-publications.log`.
+Os rastros do release atual, sem consultas adicionais, confirmaram quatro
+recargas com dependentes preservados no frontend e quatro no core. No core,
+a carga ainda expande o conjunto de bibliotecas durante a sessão, e uma
+tentativa recusou os slots; não são quatro recargas consecutivas após aquecimento.
+O cenário do limitless não entrou no ramo de reparo: seus cortes voltaram ao
+prefixo congelado durante as edições de API. Nenhum diagnóstico esperado faltou.
+Artefatos em `/tmp/dartforge-named-slots-alias-trace-{limitless,core,frontend}.{json,log}`.
+São ensaios de mecanismo durante a suíte, excluídos da comparação de tempos;
+o benefício no limitless continua sem demonstração.
+
+Um ensaio externo adicional manteve os dependentes com uma variável de tipo
+inferido por uma função cujo retorno usa o alias alterado. Os diagnósticos
+continuaram iguais aos da análise do zero, sem uma recusa desnecessária;
+log em `/tmp/dartforge-named-slots-inferred-dependency.log`. Ele não acrescenta
+testes ao total da suíte do repositório.
+
+**A dívida de documentSymbol foi delimitada, ainda sem correção.** Um projeto
+pequeno, sem erros de análise no Dart, consulta os formatos plano e hierárquico,
+com e sem anúncio de suporte a tags: **0/4 respostas completas iguais**.
+No plano falta `deprecated`; no hierárquico faltam também `detail` de funções,
+há arrays `children` vazios em lugar de campos ausentes e diferenças de spans,
+inclusive junto a annotations. O Dart envia `deprecated` tanto falso como
+verdadeiro nos quatro modos. Uma classe depreciada não torna seus membros
+não anotados depreciados. O ensaio cobre campos, acessores, construtores,
+funções locais, aliases, constantes de enum e annotation prefixada.
+O controle com import exclusivamente prefixado deixa as annotations não
+qualificadas sem resolução: elas recebem falso, enquanto `@sdk.deprecated`
+recebe verdadeiro. Buscar apenas o texto do nome não reproduz essa resolução.
+Artefatos em `/tmp/dartforge-document-symbol-deprecation-probe.{py,jsonl,log}`
+e `/tmp/dartforge-document-symbol-deprecation-unresolved-before.{jsonl,log}`.
+Esses casos são uma reprovação funcional registrada, não parte dos 450 controles
+de workspace/symbol, nem uma mudança no código em validação.
+
+**Terceira regressão: bounds depois de uma annotation com mapa.** O recorte do
+cabeçalho usava a primeira `{`, que podia pertencer à annotation. Mudar
+`B<T extends num>` para `B<T extends String>` era então confundido com uma mudança
+só de membros. Uma função mantida, `String use(B value) => value.item`, conservava
+`B<num>`: publicava um erro de bound e um de retorno, enquanto a análise do zero
+não publicava nenhum. O primeiro ensaio, só de método herdado, manteve os mesmos
+diagnósticos; não foi tratado como falha. O caso de bound reprovou o ensaio externo
+e a regressão no repositório antes do reparo.
+
+O recorte agora usa o fim dos nós de tipo, parâmetros, representação e nome da
+declaração na AST. Não precisa procurar chaves nem reler os corpos. Um teste cobre
+seis formas, incluindo bounds com records, annotations com mapas e um construtor
+primário que possui uma parte `this` no corpo. Alterar o cabeçalho muda o descritor;
+alterar só o corpo o mantém. Passaram **54 testes unitários de parity e 338 do
+LSP**, clippy do workspace e documentação estrita na versão corrigida.
+Artefatos: `/tmp/dartforge-named-slots-{metadata-header,metadata-bound}.log`,
+`/tmp/dartforge-named-slots-header-{red,units,lsp,clippy,doc}.log`.
+O novo release está em `/tmp/dartforge-named-slots-header-release`, SHA-256
+`b9c037d0bb8b9943899b084f9d90ec71c3e762e3aeb7f20a826dda35aa899f95`.
+O snapshot atual está em `/tmp/dartforge-named-slots-header-source.json`; desde
+o gate completo anterior, só mudaram `analysis.rs` e `in_place.rs` em parity.
+Os 450 controles e as capturas dos três projetos foram repetidos no novo release:
+**450/450 respostas completas de símbolos, 54/54 respostas de consultas e 18/18
+capturas de diagnósticos antes/depois**, além do estado final. Não houve pedidos
+com erro ou diagnósticos esperados ausentes. As diferenças anteriores contra o
+Dart permaneceram registradas. Resultados em
+`/tmp/dartforge-named-slots-header-controls.log` e
+`/tmp/dartforge-named-slots-header-correctness/`, com comparação completa em
+`/tmp/dartforge-named-slots-header-verify.py`.
+A medição isolada veio antes da nova suíte ampla, para resolver eventuais
+regressões de desempenho antes de repetir os gates longos. Ainda não há commit
+desta etapa.
+
+**Primeira matriz isolada após o reparo de cabeçalho (05/11).** Foram 27 sessões:
+três projetos, três servidores e três rotações da ordem. O driver fez oito
+inserções/reversões da função pública por sessão nos mesmos offsets, sem
+`--api-queries`, com `--positions 0`, sem rastros e sem builds/testes concorrentes.
+Cada mediana de edição/CPU reúne 24 amostras por projeto e servidor; partida e
+memória são medianas de três sessões. As publicações dos arquivos abertos foram
+conferidas após cada edição e reversão, fora do limite cronometrado.
+As colunas de edição medem as inserções; as reversões têm capturas de correção,
+mas não uma coluna própria de latência ou CPU neste ensaio.
+
+| Projeto | Medida de edição de API (ms) | Antes | Depois | Dart 3.6.2 |
+|---|---|---:|---:|---:|
+| limitless | Primeiro diagnóstico | 25,1 | 25,0 | 32,6 |
+| limitless | Até estabilizar | 25,1 | 25,0 | 59,0 |
+| limitless | CPU da árvore | 25,4 | 25,3 | 65,4 |
+| core | Primeiro diagnóstico | 27,3 | 14,0 | 6,2 |
+| core | Até estabilizar | 27,3 | 14,0 | 24,5 |
+| core | CPU da árvore | 36,8 | 14,3 | 24,0 |
+| frontend | Primeiro diagnóstico | 171,4 | 23,0 | 20,2 |
+| frontend | Até estabilizar | 171,4 | 23,0 | 42,9 |
+| frontend | CPU da árvore | 281,9 | 23,1 | 47,7 |
+
+Até estabilizar, a queda foi de **48,8% no core e 86,6% no frontend**; a CPU caiu
+**61,1% e 91,8%**. O limitless não mostrou ganho consistente, como o rastro sem
+entrada no ramo de reparo já sugeria. As edições de corpo ficaram próximas do
+baseline. O primeiro diagnóstico ainda chega antes no Dart no core e frontend:
+ganhar no status final e na CPU não fecha essa lacuna.
+
+| Projeto | Footprint da árvore (MiB) | Antes | Depois | Dart |
+|---|---|---:|---:|---:|
+| limitless | Pico amostrado | 332,0 | 331,5 | 581,2 |
+| limitless | Em repouso ao final | 332,0 | 331,5 | 460,6 |
+| core | Pico amostrado | 294,2 | 292,3 | 497,9 |
+| core | Em repouso ao final | 292,1 | 292,3 | 488,1 |
+| frontend | Pico amostrado | 558,5 | 567,9 | 596,2 |
+| frontend | Em repouso ao final | 554,0 | 423,9 | 430,2 |
+
+Não há ganho uniforme de memória. O pico do frontend subiu na mediana, com faixas
+**555,9–566,1 antes e 555,6–569,0 MiB depois**; o pico de RSS foi de **568,8 para
+577,8 MiB**. O repouso do frontend variou de **419,4 a 557,5 MiB** depois, contra
+**551,1–555,8 antes e 427,7–515,2 no Dart**. No core, o repouso depois variou de
+291,0 a 296,4 MiB. A mediana menor do frontend não prova uma vitória estável em
+repouso. O footprint final é medido após dois segundos sem edições; os picos
+são amostrados a cada 25 ms e não são o máximo simultâneo exato. O ensaio não
+mede sessão longa, frio, primeira consulta ou Windows.
+
+As 27 sessões terminaram com código zero e mantiveram **144/144 capturas completas
+de diagnósticos antes/depois**, além de **9/9 estados finais**. Os arquivos abertos
+coincidiram com o Dart em **144/144 capturas**, omitindo somente `source`; os mapas
+completos do core e frontend também coincidiram. O mapa global do limitless
+continuou distinto nos subprojetos nas duas versões do DartForge. Os manifestos
+de entrada ficaram idênticos antes/depois, e nenhuma fonte do snapshot mudou.
+
+Artefatos em `/tmp/dartforge-named-slots-api-matrix/`, relatório
+`/tmp/dartforge-named-slots-api-matrix.log`, conferência completa
+`/tmp/dartforge-named-slots-api-verification.{json,log}` e manifestos
+`/tmp/dartforge-named-slots-{limitless,core,frontend}-matrix-inputs-{before,after}.json`.
+Os custos remanescentes e a variação de memória precisam ser investigados antes
+de fechar a etapa; a nova suíte ampla ainda não foi iniciada.
+
+**Perfis posteriores, fora da matriz.** Um primeiro cliente exploratório usou
+substituições completas e capacidades diferentes das do driver; seu perfil não
+foi usado para explicar os tempos da matriz. A amostragem foi repetida com o
+driver real, 40 repetições, mesmas capacidades e edições incrementais. Depois
+do ensaio de corpo, `sample` acompanhou o residente por dez segundos durante
+as edições de API. O driver e o amostrador terminaram com código zero.
+Entre os frames de trabalho aparecem reconstrução de namespaces, rehash das
+tabelas e `in_place::slots::Elements::capture`; há também muitas amostras de
+threads esperando, que não devem ser interpretadas como CPU da recarga.
+Arquivos em `/tmp/dartforge-named-slots-driver-profile{.log,.json,.sample.txt,.demangled.txt}`,
+`/tmp/dartforge-named-slots-driver-profile-control.log` e
+`/tmp/dartforge-named-slots-driver-profile-sample.log`.
+
+**Reutilização de tabelas de escopo avaliada e retirada.** O experimento
+reaproveitou as tabelas dos imports mantidos, limpando os bindings antigos e
+reduzindo a capacidade quando sobrava pelo menos metade. Uma nova regressão
+substitui e desfaz nomes importados, com e sem prefixo, comparando os diagnósticos
+com uma análise do zero. Ela passou antes do experimento e foi mantida depois
+da retirada. Passaram 55 testes unitários de parity, 338 do LSP, clippy e
+documentação estrita; os controles conservaram 450/450 respostas completas,
+e as consultas dos projetos mantiveram 54/54 respostas e 18/18 diagnósticos
+antes/depois.
+
+Na matriz isolada de 27 sessões contra a versão de cabeçalhos AST, as 144
+capturas de edição/reversão e os nove estados finais coincidiram antes/depois.
+No frontend, a mediana até estabilizar caiu de 22,85 para 21,15 ms e a CPU de
+22,95 para 21,30 ms. O pico de footprint não melhorou (564,3 → 564,8 MiB),
+e o repouso ficou maior nas três sessões experimentais: mediana de
+420,0 → 559,3 MiB. Esses resultados não provam a causa da retenção, mas
+não atendem à meta de memória. A reutilização foi retirada; o `outline.rs`
+voltou ao hash da versão AST medida. Não se reivindica seu ganho de CPU.
+Artefatos preservados em `/tmp/dartforge-named-slots-scope-matrix/`,
+`/tmp/dartforge-named-slots-scope-verification.{json,log}` e
+`/tmp/dartforge-scope-reuse-outline.rs`.
+
+**Chaves compactas avaliadas e retiradas.** O layout original no target ARM64 ocupa
+**32 bytes por chave e 40 por par `(id, chave)`**. A representação integrada
+no experimento usou tags de um byte para as espécies, preservando nome, dono e papel de
+acessores. Uma compilação dessas definições, com o `SymbolId` real,
+confirmou **16 e 20 bytes**, respectivamente. A redução da estrutura ainda
+não demonstra queda de RSS ou footprint do servidor. Fontes e resultado em
+`/tmp/dartforge-named-slots-compact-layout.{rs,log}`; o primeiro protótipo
+permanece em `/tmp/dartforge-named-slots-key-layout.{rs,log}`.
+Passaram 55 testes unitários de parity, 338 do LSP, clippy de todos os alvos e
+documentação estrita. O release compacto, SHA-256
+`60e98f089cce171c97fc6715266b40e14852b02b4610da08d1dc146ae6cf878b`,
+manteve 450/450 respostas completas nos 16 controles de símbolos contra o Dart.
+Logs em `/tmp/dartforge-named-slots-compact-{units,lsp,clippy,doc,controls}.log`.
+O snapshot `/tmp/dartforge-named-slots-compact-source.json` registra 1.962 fontes
+e os três binários preservados. As nove sessões de correção nos projetos reais
+mantiveram 54/54 respostas de consultas e 18/18 mapas completos de diagnósticos,
+além dos três estados finais, antes/depois. Não houve erro de pedido nem
+diagnóstico esperado ausente. Contra o Dart, as 18 capturas dos arquivos abertos
+coincidiram ao omitir somente `source`; permanecem as diferenças de documentSymbol
+e das publicações globais do limitless. Artefatos em
+`/tmp/dartforge-named-slots-compact-correctness/` e
+`/tmp/dartforge-named-slots-compact-correctness-verification.{json,log}`.
+A matriz isolada de 27 sessões terminou com 144/144 capturas completas de
+edição/reversão e nove estados finais iguais antes/depois. Os diagnósticos dos
+arquivos abertos também coincidiram nas 144 capturas contra o Dart, omitindo
+somente `source`; as diferenças globais do limitless foram preservadas.
+Nenhuma publicação esperada faltou. Os três manifestos antes/depois ficaram
+idênticos, com 9.761 / 6.640 / 10.894 arquivos e nenhuma raiz ausente.
+
+| Mediana da matriz compacta | Anterior AST | Chaves compactas | Dart |
+| --- | ---: | ---: | ---: |
+| limitless: API até estabilizar / CPU (ms) | 25,30 / 25,70 | 25,15 / 25,45 | 58,35 / 62,50 |
+| core: API até estabilizar / CPU (ms) | 14,10 / 14,50 | 14,70 / 15,00 | 24,60 / 24,05 |
+| frontend: API até estabilizar / CPU (ms) | 23,15 / 23,30 | 23,15 / 23,25 | 42,70 / 46,05 |
+| limitless: pico / repouso de footprint (MiB) | 332,53 / 332,53 | 330,74 / 330,74 | 606,02 / 505,31 |
+| core: pico / repouso de footprint (MiB) | 293,55 / 293,55 | 293,39 / 293,39 | 490,42 / 490,17 |
+| frontend: pico / repouso de footprint (MiB) | 556,81 / 425,22 | 565,35 / 424,63 | 591,83 / 435,11 |
+
+São 24 inserções por servidor/projeto, com reversões verificadas, três sessões
+por célula e as mesmas opções da matriz AST. Não houve ganho geral de memória:
+no frontend, as faixas do pico se sobrepõem (552,2–562,4 contra 550,6–569,0 MiB),
+mas a mediana subiu. O core ficou 4,3% mais lento até estabilizar e usou 3,4%
+mais CPU; por sessão, as medianas de API foram 14,15/14,50, 14,10/15,35 e
+14,10/14,00 ms (anterior/compacta). Uma repetição previamente definida de três
+rodadas somente no core usou os mesmos parâmetros, ambos os binários e o Dart,
+alternando a ordem. Ela manteve 48/48 capturas completas e três estados finais
+antes/depois, além dos diagnósticos contra o Dart. Até estabilizar, a mediana
+foi 14,15/14,25 ms, com CPU de 14,50/14,60 ms. Juntando as seis sessões por
+binário, ficaram 14,10/14,40 ms e 14,50/14,80 ms. A primeira piora de 4,3% não
+se repetiu nessa magnitude, mas tampouco houve benefício de tempo/CPU no core.
+A mediana de footprint caiu só cerca de 0,3 MiB na repetição, com faixas
+sobrepostas. Sem ganho geral no processo, a compactação foi retirada; o arquivo
+de slots voltou ao hash da versão AST antes do experimento seguinte. A redução
+do tamanho da chave não é apresentada como melhoria de memória do servidor.
+As duas matrizes e a fonte experimental foram preservadas, sem substituir os
+resultados originais: `/tmp/dartforge-named-slots-compact-core-repeat/`,
+`/tmp/dartforge-named-slots-compact-core-repeat-verification.{json,log}` e
+`/tmp/dartforge-named-slots-compact-slots.rs`.
+Artefatos em `/tmp/dartforge-named-slots-compact-matrix/`,
+`/tmp/dartforge-named-slots-compact-verification.{json,log}` e manifestos
+`/tmp/dartforge-named-slots-{limitless,core,frontend}-compact-inputs-{before,after}.json`.
+Ainda falta uma nova validação ampla. O problema do pico permanece aberto.
+
+**Captura restrita ao sufixo, em validação.** As três capturas de identidade
+(antes da carga, antes e depois da permutação) percorriam as arenas completas
+para cada biblioteca estável, incluindo o prefixo mantido que não pode conter
+seus elementos. Elas agora recebem o checkpoint já calculado pelo residente
+e começam no limite de cada arena. A enumeração antecede o salto para conservar
+os IDs absolutos; bibliotecas com slots descontínuos continuam filtradas por
+dono. Não há cache entre recargas nem mudança na representação das chaves.
+Passaram 55 testes unitários de parity, 338 do LSP, clippy de todos os alvos e
+documentação estrita, com logs em
+`/tmp/dartforge-named-slots-suffix-{units,lsp,clippy,doc}.log`. Os controles,
+no release SHA-256
+`fe0629108b1a9a7c8346de4925da390229737f2f912024c0f158142f83399857`,
+mantiveram 450/450 respostas completas iguais às do Dart nas 16 suítes.
+As nove sessões de consultas nos projetos reais mantiveram 54/54 respostas
+completas e 18/18 mapas de diagnósticos antes/depois, além dos três estados
+finais. Não houve pedidos com erro nem diagnósticos esperados ausentes.
+Os diagnósticos dos arquivos abertos coincidiram com o Dart ao omitir somente
+`source`; permanecem as diferenças de documentSymbol e das publicações globais
+do limitless. Artefatos em `/tmp/dartforge-named-slots-suffix-correctness/` e
+`/tmp/dartforge-named-slots-suffix-correctness-verification.{json,log}`.
+A matriz isolada de 27 sessões manteve 144/144 mapas completos de diagnósticos
+de edição/reversão e nove estados finais antes/depois, sem publicações esperadas
+ausentes. Os 144 mapas dos arquivos abertos também coincidiram com o Dart,
+omitindo somente `source`; as diferenças globais do limitless foram preservadas.
+Os três manifestos antes/depois ficaram idênticos, sem raízes ausentes.
+
+| Mediana da captura restrita ao sufixo | Anterior AST | Captura do sufixo | Dart |
+| --- | ---: | ---: | ---: |
+| limitless: API até diagnóstico / estabilizar / CPU (ms) | 25,05 / 25,05 / 25,45 | 25,15 / 25,15 / 25,55 | 33,00 / 58,50 / 64,00 |
+| core: API até diagnóstico / estabilizar / CPU (ms) | 14,20 / 14,20 / 14,55 | 13,95 / 13,95 / 14,35 | 6,05 / 24,70 / 23,70 |
+| frontend: API até diagnóstico / estabilizar / CPU (ms) | 23,00 / 23,00 / 23,15 | 22,20 / 22,20 / 22,35 | 20,40 / 42,95 / 47,20 |
+| limitless: pico / repouso de footprint (MiB) | 332,28 / 332,28 | 330,14 / 330,14 | 582,61 / 456,50 |
+| core: pico / repouso de footprint (MiB) | 292,94 / 292,94 | 292,31 / 292,31 | 498,47 / 497,25 |
+| frontend: pico / repouso de footprint (MiB) | 561,03 / 557,97 | 561,05 / 555,50 | 595,55 / 441,95 |
+
+São 24 inserções por servidor/projeto e três sessões por célula, com a mesma
+rotação, opções e ausência de consultas da matriz anterior. As reversões foram
+verificadas, sem coluna própria de tempo/CPU. No core, a latência de API caiu
+1,8% e a CPU 1,4%; no frontend, ambas caíram cerca de 3,5%. A mediana por sessão
+também caiu nas três rodadas desses dois projetos. No limitless, houve +0,1 ms
+em latência e CPU; não há ganho geral nos três projetos. As edições de corpo
+ficaram próximas do baseline: 35,40/35,50, 4,30/4,30 e 12,35/12,40 ms.
+
+A alteração foi mantida por eliminar a varredura de elementos que pertencem ao
+prefixo e pelo ganho pequeno e repetido no core/frontend, sem criar cache.
+Não se reivindica melhoria geral de memória: o pico do frontend ficou
+praticamente igual, com faixas de 558,0–562,3 contra 556,1–566,4 MiB. Seu repouso
+variou de 424,4–558,0 para 412,5–556,1 MiB, e a mediana atual continua maior que
+a do Dart. O primeiro diagnóstico também continua perdendo para o Dart no core
+e frontend. Sessões longas, Windows, parts e identidade geral permanecem abertos.
+
+Artefatos em `/tmp/dartforge-named-slots-suffix-matrix/`,
+`/tmp/dartforge-named-slots-suffix-verification.{json,log}` e manifestos
+`/tmp/dartforge-named-slots-{limitless,core,frontend}-suffix-inputs-{before,after}.json`.
+O snapshot de 1.962 fontes e três binários está em
+`/tmp/dartforge-named-slots-suffix-source.json`.
+
+**Nova validação ampla interrompida após uma regressão adicional.** Depois de
+encerrar a matriz, foi iniciado um gate sobre essas fontes estáveis. Ele constrói
+um CLI `native,jit` novo, preserva-o fora de `target/debug`, usa-o nos dois
+seletores dos builders, verifica os pré-requisitos e executa workspace e CLI
+com `--no-fail-fast -- --include-ignored`, seguidos de clippy, documentação
+estrita, testes Python e formatação. Os hashes das fontes, dos binários de
+medição e do compiler preservado são conferidos entre as etapas. Logs em
+`/tmp/dartforge-named-slots-suffix-full-gate.log` e
+`/tmp/dartforge-named-slots-suffix-full-gate-status.json`; este último só registra
+etapas terminadas. O CLI novo e os pré-requisitos passaram; o workspace foi
+interrompido com código 143 durante o executor nativo, antes de concluir.
+O motivo foi um teste externo adicional que encontrou mensagens de ciclo de
+herança diferentes entre o residente e uma análise do zero: inserir
+`Added extends B` antes de `B extends Added` produzia `Added, B` no residente
+e `B, Added` na análise nova. O reparo mantinha os dependentes, mas a travessia
+dos componentes usava a ordem dos IDs da arena, agora independente da fonte.
+O repro está em `/tmp/dartforge-named-slots-cycle-order.{rs,log}`; a compilação,
+em `/tmp/dartforge-named-slots-cycle-order-build.log`; os processos encerrados
+e o motivo foram registrados em
+`/tmp/dartforge-named-slots-suffix-full-gate-cancel.json`.
+Esse gate não é verde. A regressão no repositório primeiro reprovou, com o
+diagnóstico completo registrado em
+`/tmp/dartforge-named-slots-cycle-order-red.log`. Ela agora passa após inserções
+e reversões de ciclos de duas e três classes e também de funções e variáveis
+com erros. A comparação inclui a lista inteira de diagnósticos, códigos,
+argumentos, severidade e contextos, sem ordenar ou remover campos; o contador
+confirma que os dependentes continuam mantidos.
+
+**Ordem de declarações separada da identidade, em validação.** `ElementOrder`
+registra as posições de criação nas faixas permutadas, sem guardar ASTs antigas.
+Faixas de identidade são implícitas e a truncagem elimina o sufixo removido;
+o armazenamento depende das arenas atuais. Os índices de classes, funções e
+variáveis conservam essa ordem de travessia, mesmo após sua reconstrução, e a
+busca de componentes de herança usa o índice de classes. A truncagem das listas
+também deixou de presumir que o último ID seja o maior. Um teste de composição,
+truncagem e reversões repetidas verifica o ciclo de vida desse registro.
+Os testes direcionados passaram, incluindo os diagnósticos completos ampliados
+em `/tmp/dartforge-named-slots-order-expanded.log`. Os oráculos oficiais locais
+3.6.2 e 3.13.5 confirmaram suas respectivas mensagens de ciclo em
+`/tmp/dartforge-named-slots-order-oracle/{floor,modern}.stdout.json`; a versão
+moderna usa `B, Added`, independentemente dos IDs do residente.
+Passaram 619 testes nas suítes de elements, analysis, parity e LSP, sem falhas
+ou ignorados, além de clippy de todos os alvos e documentação estrita. O teste
+de diagnósticos completos foi então ampliado com edições de corpo, passou
+novamente e confirmou pelos contadores a reutilização da AST, sem nova carga.
+Logs em `/tmp/dartforge-named-slots-order-{focused,clippy,doc,body-path}.log`.
+Um teste externo de ciclo entre typedefs também manteve os diagnósticos inteiros
+da análise do zero, em `/tmp/dartforge-named-slots-alias-cycle-order.log`.
+O novo release, SHA-256
+`c71e0c1c9e1bfe08f56761f118f2b72795822b67e0469aaeeb6d0cd997601f5a`,
+manteve 450/450 respostas completas iguais às do Dart nos 16 controles de
+símbolos, com logs em `/tmp/dartforge-named-slots-order-controls.log`.
+As nove sessões de consultas dos projetos mantiveram 54/54 respostas completas
+e 18/18 mapas de diagnósticos antes/depois, além dos três estados finais, sem
+pedidos com erro nem publicações esperadas ausentes. Os 18 mapas dos arquivos
+abertos também coincidiram com o Dart ao omitir somente `source`; permanecem
+as diferenças conhecidas de documentSymbol e dos diagnósticos globais do limitless.
+Artefatos em `/tmp/dartforge-named-slots-order-correctness/` e
+`/tmp/dartforge-named-slots-order-correctness-verification.{json,log}`.
+A matriz isolada contra a versão anterior de captura do sufixo está em execução.
+O snapshot
+`/tmp/dartforge-named-slots-order-source.json` inclui 1.963 fontes, inclusive
+o módulo novo `order.rs`, e os três binários preservados. Os três manifestos
+de entrada continuam idênticos aos da matriz anterior, sem raízes ausentes.
+Os números de desempenho acima ainda pertencem à versão anterior a este
+reparo; o custo atual precisa ser medido antes da nova validação ampla.
+O gate amplo antigo de 3.443/117 testes continua restrito à versão anterior
+ao reparo AST.
+
+**Comparação LSP dos erros com os dois SDKs.** O ensaio
+`/tmp/dartforge-named-slots-order-diagnostics.py` abre os mesmos arquivos nos
+servidores anterior, corrigido e oficial, com SDK 3.6.2 nos três da primeira
+sessão e SDK 3.13.5 nos três da segunda. São 12 capturas por versão: aquecimento,
+ciclos de duas/três classes, inserções de funções/variáveis, edições de corpo e
+reversões. A comparação conserva a ordem e todos os campos dos diagnósticos
+dos dois arquivos abertos, omitindo somente `source`.
+
+| SDK da sessão | Anterior igual ao Dart | Ordem corrigida igual ao Dart |
+| --- | ---: | ---: |
+| 3.6.2 | 6/12 | 12/12 |
+| 3.13.5 | 6/12 | 12/12 |
+
+O controle negativo reproduziu também as listas de funções e variáveis fora
+de ordem, além das mensagens de ciclo. Os 24 resultados inteiros e os textos
+de cada edição ficaram em `/tmp/dartforge-named-slots-order-diagnostics/`;
+o resumo, em `summary.json`, e o log em
+`/tmp/dartforge-named-slots-order-diagnostics.log`.
+
+**Matriz isolada do registro de ordem concluída.** As 27 sessões conservaram
+144/144 mapas de edição/reversão e nove estados finais antes/depois. Os 144 mapas
+dos arquivos abertos também coincidiram com o Dart, omitindo somente `source`,
+sem publicações esperadas ausentes. Os três manifestos antes/depois ficaram
+idênticos e sem raízes ausentes. Os parâmetros e a rotação são os mesmos da
+matriz anterior: oito inserções por sessão, com reversões verificadas, três
+sessões por servidor/projeto e nenhuma consulta intercalada.
+
+| Mediana do registro de ordem | Captura do sufixo | Ordem corrigida | Dart |
+| --- | ---: | ---: | ---: |
+| limitless: API até diagnóstico / estabilizar / CPU (ms) | 25,10 / 25,10 / 25,45 | 24,80 / 24,80 / 25,15 | 33,30 / 58,20 / 65,10 |
+| core: API até diagnóstico / estabilizar / CPU (ms) | 14,30 / 14,30 / 14,60 | 14,10 / 14,10 / 14,45 | 6,20 / 23,85 / 24,60 |
+| frontend: API até diagnóstico / estabilizar / CPU (ms) | 22,45 / 22,45 / 22,60 | 22,65 / 22,65 / 22,75 | 21,05 / 42,45 / 47,40 |
+| limitless: pico / repouso de footprint (MiB) | 331,88 / 331,88 | 332,13 / 332,13 | 581,38 / 466,30 |
+| core: pico / repouso de footprint (MiB) | 291,24 / 286,94 | 293,89 / 293,13 | 501,53 / 497,63 |
+| frontend: pico / repouso de footprint (MiB) | 558,25 / 555,77 | 562,64 / 554,97 | 597,55 / 449,14 |
+
+A correção de diagnóstico é necessária, mas seu custo não fica escondido:
+no frontend, +0,20 ms até estabilizar e +0,15 ms de CPU; no core, o pico mediano
+subiu 2,66 MiB e o repouso 6,19 MiB. As faixas de pico do frontend se sobrepõem
+(557,7–558,7 contra 555,0–563,3 MiB), e o repouso segue variável. A edição de
+corpo ficou em 35,50/35,65, 4,40/4,40 e 12,40/12,35 ms, respectivamente.
+Não há ganho geral de memória nem vantagem no primeiro diagnóstico do core/frontend.
+Artefatos em `/tmp/dartforge-named-slots-order-matrix/`,
+`/tmp/dartforge-named-slots-order-verification.{json,log}` e
+`/tmp/dartforge-named-slots-{limitless,core,frontend}-order-inputs-{before,after}.json`.
+A fonte medida foi preservada em `/tmp/dartforge-named-slots-order-source.patch`.
+
+As sessões funcionais com `--api-queries` também expõem um custo aberto:
+no frontend, a sessão corrigida levou 131,3 s e amostrou pico total de footprint
+de 1.834,6 MiB e RSS de 1.918,6 MiB; o Dart levou 17,8 s, com 740,8 e 856,5 MiB.
+A versão anterior ficou próxima da corrigida (132,3 s e 1.828,6 MiB de footprint).
+É uma sessão por versão, em ordem fixa e com consultas de conteúdo intercaladas;
+esses valores não são as medianas da matriz isolada e não medem estabilidade
+de sessão longa. As consultas após API precisam de uma avaliação própria.
+
+A auditoria das nove sessões funcionais da versão de poda confirmou os 18
+pedidos esperados por sessão, sem respostas de erro; os JSONs não registram
+tempos individuais dessas consultas. Nessa execução, em ordem fixa e uma
+sessão por servidor/projeto, a versão atual levou 20,07 / 18,58 / 134,24 s
+no limitless/core/frontend, contra 17,11 / 14,98 / 17,89 s do Dart. Os picos
+totais amostrados foram 1.465,85 / 1.333,35 / 1.840,77 MiB, contra
+731,61 / 626,16 / 754,91 MiB. Esses totais incluem toda a sessão funcional,
+com espera inicial e edições; não isolam o custo de cada consulta nem são
+as medianas da matriz de edições sem consultas. A auditoria, incluindo hashes,
+está em `/tmp/dartforge-named-slots-prune-api-query-audit.json`.
+
+O próximo ensaio precisa registrar tempo e CPU por método depois da edição
+e da reversão. Um rascunho externo em
+`/tmp/dartforge-api-query-metrics.patch` acrescenta essas medidas ao lado das
+respostas completas, fora do intervalo cronometrado de edição; ainda não foi
+aplicado nem compilado. A revisão do cache confirmou que uma geração nova
+invalida os índices das consultas, mas não demonstrou que isso causa o custo
+total observado. Tampouco é seguro presumir que `referencedNames` depende
+só do texto: `Context::new` constrói a árvore usando a resolução dos corpos
+para distinguir construtores e prefixos. Qualquer reaproveitamento entre
+gerações precisa manter essa informação válida, além do texto e dos IDs.
+
+**Poda dos índices sem varrer o prefixo.** Para aceitar listas
+em ordem de criação, o primeiro reparo filtrava todos os IDs de todas as listas
+mantidas. Agora a ordem fornece um limite inferior para a posição de criação
+de qualquer ID retirado. Uma lista ordenada que termina antes desse limite
+pode ser mantida sem varredura. A ordem ainda completa é usada para filtrar
+os índices; só depois seu registro é truncado. A regressão inclui um ID alto
+no meio da lista cujo último ID já está abaixo do corte, caso que o antigo
+atalho por ID final não detectaria. Passaram 620 testes nas quatro suítes,
+sem falhas ou ignorados, além de clippy de todos os alvos e documentação estrita,
+com logs em `/tmp/dartforge-named-slots-prune-{focused,clippy,doc}.log`.
+O release de poda, SHA-256
+`ee403fe303eae14e731d5e158cd2c7b12be639cfc1aeea9ecd9cac39909ebbbd`,
+manteve 450/450 respostas completas nos controles de símbolos. As nove sessões
+de consultas também mantiveram 54/54 respostas completas e 18/18 mapas de
+diagnósticos antes/depois, além dos três estados finais, sem pedidos com erro
+nem publicações esperadas ausentes. Os diagnósticos dos arquivos abertos
+coincidiram com o Dart ao omitir somente `source`; permanecem as diferenças
+conhecidas de documentSymbol e das publicações globais do limitless.
+Artefatos em `/tmp/dartforge-named-slots-prune-correctness/` e
+`/tmp/dartforge-named-slots-prune-correctness-verification.{json,log}`.
+A matriz contra a versão com registro de ordem foi concluída; resultados abaixo. O
+snapshot de 1.963 fontes está em `/tmp/dartforge-named-slots-prune-source.json`;
+os manifestos anteriores dos três projetos continuam iguais aos da matriz
+anterior.
+
+**Resultado da poda e nova validação ampla.** A matriz de 27 sessões conservou
+144/144 mapas de edição/reversão e nove estados finais antes/depois, além dos
+144 mapas dos arquivos abertos contra o Dart ao omitir somente `source`.
+Não houve publicação esperada ausente, e os três manifestos antes/depois
+ficaram idênticos, sem raízes ausentes. A repetição LSP com os SDKs correspondentes
+também manteve 12/12 capturas completas em cada versão (3.6.2 e 3.13.5),
+com controle negativo de 6/12 em ambas na versão anterior ao registro de ordem.
+Os binários desse ensaio estão identificados por SHA-256 em
+`/tmp/dartforge-named-slots-prune-diagnostics/binaries.json`.
+
+| Mediana da poda dos índices | Registro de ordem | Poda por limite de criação | Dart |
+| --- | ---: | ---: | ---: |
+| limitless: API até diagnóstico / estabilizar / CPU (ms) | 25,05 / 25,05 / 25,40 | 25,50 / 25,50 / 25,90 | 33,35 / 59,95 / 66,30 |
+| core: API até diagnóstico / estabilizar / CPU (ms) | 14,25 / 14,25 / 14,60 | 14,50 / 14,50 / 14,85 | 6,35 / 24,65 / 25,15 |
+| frontend: API até diagnóstico / estabilizar / CPU (ms) | 22,60 / 22,60 / 22,75 | 22,45 / 22,45 / 22,60 | 20,30 / 42,95 / 46,10 |
+| limitless: pico / repouso de footprint (MiB) | 332,35 / 332,35 | 329,58 / 329,58 | 575,99 / 457,02 |
+| core: pico / repouso de footprint (MiB) | 293,56 / 292,64 | 292,36 / 289,38 | 494,69 / 490,33 |
+| frontend: pico / repouso de footprint (MiB) | 559,44 / 554,47 | 559,69 / 424,70 | 585,41 / 443,33 |
+
+O repouso mediano caiu nos três projetos; no frontend, as três sessões novas
+ficaram entre 422,0 e 427,8 MiB, enquanto as anteriores variaram entre 419,1 e
+559,4 MiB. Essa variação impede tratar a diferença das medianas como redução
+garantida em toda sessão. Seu pico ficou próximo do anterior, com faixas
+sobrepostas (554,5–560,1 contra 554,5–564,8 MiB).
+
+O custo de tempo/CPU também permanece explícito: no limitless, +0,45/+0,50 ms;
+no core, +0,25/+0,25 ms; no frontend, -0,15/-0,15 ms. A edição de corpo ficou
+em 35,70/35,60, 4,25/4,30 e 12,30/12,40 ms. Não há ganho uniforme de CPU e
+latência; o critério de superar o Dart em todos os custos continua aberto.
+A poda foi mantida para evitar a varredura do prefixo e pelos resultados de
+repouso, preservando a correção; os pequenos aumentos de CPU do core/limitless
+continuam como pendência. Os três projetos ainda ganham do Dart até estabilizar,
+mas o primeiro diagnóstico continua perdendo no core e frontend.
+
+Artefatos em `/tmp/dartforge-named-slots-prune-matrix/`,
+`/tmp/dartforge-named-slots-prune-verification.{json,log}`,
+`/tmp/dartforge-named-slots-prune-diagnostics/` e manifestos
+`/tmp/dartforge-named-slots-{limitless,core,frontend}-prune-inputs-{before,after}.json`.
+
+Depois de encerrar todos os ensaios, começou uma nova validação ampla com
+fontes estáveis. O script preserva um CLI `native,jit` novo em
+`/tmp/dartforge-named-slots-prune-final-native-current`, verifica os pré-requisitos
+e executa os dois comandos completos de testes, incluindo ignorados e
+`--no-fail-fast`, seguidos de clippy, documentação estrita, testes Python e fmt.
+Fontes, binários de medição e compiler preservado são conferidos por hash
+entre as etapas. Logs em `/tmp/dartforge-named-slots-prune-final-full-gate.log`
+e estado das etapas terminadas em
+`/tmp/dartforge-named-slots-prune-final-full-gate-status.json`.
+Essa execução terminou com todas as oito etapas aprovadas e fontes estáveis.
+Os gates anteriores interrompidos permanecem incompletos e o antigo verde
+de 3.443/117 continua restrito à sua versão de fontes.
+
+Na nova execução, o corpus completo de builders pelo executor nativo passou
+em 870,64 s, sem falhas ou ignorados, usando o CLI preservado desta versão.
+Não havia `DARTFORGE_CASES` nem troca de raiz do corpus no ambiente. Os quatro
+testes de transparência Angular também passaram (588,92 s no executável).
+Essas durações pertencem à validação funcional, separada das matrizes de
+desempenho do LSP.
+
+O workspace completo dessa mesma execução terminou com saída zero em
+3.292,65 s: **3.452 testes aprovados, zero falhas e zero ignorados em
+226 alvos**, incluindo doctests. A suíte do CLI com `native,jit` também
+terminou com saída zero: **117 testes em 16 alvos, sem falhas ou ignorados**,
+em 668,17 s. Passaram clippy do workspace com todos os alvos e `-D warnings`,
+documentação inclusive de itens privados com `RUSTDOCFLAGS=-D warnings`,
+os 11 testes Python do oráculo e fmt. A auditoria final confirmou **1.963
+fontes e quatro binários preservados sem alterações**; o gate inteiro levou
+4.022,51 s. SHA-256 do JSON final de estado:
+`1283640d7eba6820b9562604d598c290da215f49492fad3d8c7e5edbd7c72b4b`.
+Esse verde cobre a versão de poda medida acima. Não fecha as pendências de
+desempenho, memória, consultas após API, sessão longa ou Windows, nem apaga
+os resultados negativos das versões anteriores.
+
+**Auditoria adicional do medidor durante o gate.** Dois testes de CLI
+reproduziram uma falha anterior de `editing_compare.py`: um driver que sai
+com erro, ou sai com zero sem escrever JSON novo, podia deixar a ferramenta
+terminar com zero e reler o JSON de uma execução anterior. As duas reprovações
+estão em `/tmp/dartforge-editing-compare-baseline-red.log`.
+Os ensaios desta etapa tiveram verificação externa de completude e conteúdo;
+uma auditoria adicional conferiu também os códigos de saída do driver nos
+logs principais: 171 sessões das sete matrizes, incluindo a repetição do core,
+e nove sessões de correção da poda, todas com saída zero e identificadores
+únicos. As contagens e hashes dos logs estão em
+`/tmp/dartforge-named-slots-driver-exits-audit.json`.
+
+Uma correção isolada em `/tmp/dartforge-editing-compare-draft.py` produz um
+arquivo temporário exclusivo por execução, arquiva o JSON/log anterior ao
+repetir uma sessão, publica o novo JSON somente após validar a saída e devolve
+falha quando o driver falha ou não produz um resultado válido. Passaram seis
+testes de CLI com processos reais, sem SDK, em
+`/tmp/test_dartforge_editing_compare_draft.py`, com log em
+`/tmp/dartforge-editing-compare-draft-tests.log`. Essa versão ainda está fora
+do repositório: sua integração fica para depois do gate atual, preservando
+a janela de fontes estáveis da implementação Rust.
+
+A preparação da integração ampliou o rascunho em
+`/tmp/dartforge-editing-compare-portable/`, ainda fora do repositório.
+Nove testes agora chamam o fluxo principal e executam o driver de teste em
+processos reais pelo interpretador Python, sem shebang ou permissões de
+execução específicas do Unix. As leituras de carga e uptime são substituídas
+nos testes; isso não constitui execução nem validação do medidor no Windows.
+Dois casos adicionais primeiro reprovaram: falhar ao iniciar o driver
+interrompia as sessões restantes, e `--report-only` aceitava um conjunto
+incompleto com saída zero. O rascunho registra a falha de lançamento e
+continua os demais servidores; o relatório exige todas as rodadas dos
+servidores solicitados, conservando a seleção parcial explícita com `--only`.
+Os nove casos passaram após o reparo, incluindo o arquivamento dos resultados
+anteriores e a preservação de JSON inválido para inspeção. Evidências em
+`/tmp/dartforge-editing-compare-portable-{red,green}.log`.
+O `--report-only` do rascunho também foi executado sobre os dois conjuntos
+reais completos já coletados (nove sessões funcionais e 27 da matriz de
+edições). Os relatórios ficaram idênticos, byte a byte, aos da ferramenta
+atual, com saída zero e sem stderr; não foram iniciados servidores nem novas
+medições. Hashes e contagens em
+`/tmp/dartforge-editing-compare-real-reports.json`.
+
+Uma auditoria independente do limite de poda compilou o módulo atual de
+ordem, sem alterar o repositório, e enumerou 874 permutações, suas composições
+com uma permutação de ordem reversa e 4.796.368 combinações de subconjuntos/listas e cortes.
+Inclui IDs de identidade antes/depois da faixa permutada. Em todos os casos,
+uma lista preservada sem varredura não continha ID retirado pelo corte.
+Fonte e resultado em `/tmp/dartforge-order-pruning-exhaustive.{rs,log}`.
+Esses números contam combinações da auditoria, não testes adicionais do workspace.
+
+A versão anterior usada no primeiro ensaio está em `/tmp/dartforge-named-slots-after`,
+SHA-256 `f8be4deb146e85ac39c651e587afe2b2440061e2928b3546e47a2dbc8a6869bd`.
+Ela não contém o reparo global. O binário de debug com esse reparo está em
+`/tmp/dartforge-named-slots-global-debug` e não serve à comparação de tempos.
+Seu rastro está em `/tmp/dartforge-named-slots-global-trace.{json,log}`;
+a comparação ampliada, em `/tmp/dartforge-named-slots-requests-{before,after,dart}.{json,log}`.
+Artefatos anteriores em
+`/tmp/dartforge-named-slots-correctness/frontend.{before,after,dart}.0.{json,log}`,
+`/tmp/dartforge-named-slots-trace-{before,after}.{json,log}` e
+`/tmp/dartforge-named-slots-debug-trace{,2}.{json,log}`.
+Os caminhos e pontos de inserção dos três projetos foram registrados em
+`/tmp/dartforge-named-slots-projects.json`; os manifestos anteriores à medição
+conservam 9.761 / 6.640 / 10.894 arquivos e nenhuma raiz ausente.
+Esta etapa ainda está sem commit. A medição isolada acima não fecha a meta geral.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da

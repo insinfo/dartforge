@@ -8,30 +8,33 @@
 //! hold the ids of its elements. The reload keeps them when:
 //!
 //! - every reloaded library a kept one points to (a *stable* library) has
-//!   one unit and gets its elements back at the same ids: the element list
-//!   of its old text is a prefix of the new one's, or the other way round
-//!   (an appended or a removed last declaration, a changed signature);
+//!   one unit and gets its elements back at the same ids: named declarations
+//!   across the suffix reserve their old slots before new declarations take
+//!   any remaining slots. Ambiguous names or surviving IDs outside the new
+//!   suffix refuse the repair;
 //! - no signature of a kept dependent names what changed (a declaration
 //!   added, removed or with another signature; a class whose members changed
 //!   counts only for the classes that extend, implement or mix it in);
 //! - nothing that changed is used without its name (an operator, `call`…).
 //!
-//! [`plan`] decides it before the load, from the kept program alone, and
-//! [`settle`] checks it after, against what the load built; the caller cuts
+//! [`plan`] selects the kept prefix before the load, and [`prepare`] checks
+//! the new declarations before resolving scopes or supertypes; the caller cuts
 //! before every dependent otherwise ([`Plan::fallback`]). After the check,
 //! the dependents' imports and exports point to the stable libraries' new
-//! ids, and their scopes are built again when a stable library's names or
-//! id changed.
+//! ids. Their exporters and importers join the new libraries' namespace
+//! construction before any fresh supertype can see a stale kept binding.
 
 use dartforge_elements::frozen::Checkpoint;
 use dartforge_elements::incremental::{
     ApiDigest, api_digest, signature_words, text_words, word_hash,
 };
-use dartforge_elements::model::{LibraryId, Namespace, Program, UnitId};
+use dartforge_elements::model::{LibraryId, Program, UnitId};
+use dartforge_elements::outline::OutlineRepair;
 use dartforge_frontend::ast::{self, DeclKind};
-use dartforge_intern::Interner;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+
+mod slots;
 
 /// What a reload in place checks and repairs, planned before the load.
 pub(crate) struct Plan {
@@ -60,15 +63,12 @@ struct Stable {
     /// Its file (the load does not reach it through the kept libraries).
     path: Option<std::path::PathBuf>,
     id: LibraryId,
-    /// Per arena (classes, extensions, typedefs, functions, variables): where
-    /// its elements started, and a descriptor of each.
-    elements: [(usize, Vec<u64>); 5],
-    exported: Namespace,
+    slots: slots::Elements,
     /// The API of its old text, when its text changed.
     old_api: Option<(Arc<ApiDigest>, HashMap<String, u64>)>,
 }
 
-/// The signature words of the kept units (what [`settle`] compares the
+/// The signature words of the kept units (what [`prepare`] compares the
 /// changed names with), computed once per unit: a unit keeps its id, and its
 /// signatures, until a load cuts before it (a swap only changes bodies).
 #[derive(Default)]
@@ -112,94 +112,70 @@ impl Words {
     }
 }
 
-/// The text of each class-like declaration's header (from its start to its
-/// body's `{`: the name, the type parameters and the supertypes), by name.
+/// The text through each class-like declaration's last header node, by name.
+/// AST spans keep metadata maps, record types and primary parameter lists
+/// inside the header without mistaking their braces for the class body.
 fn class_headers(text: &str, a: &ast::Ast) -> Vec<(String, String)> {
+    let types_end =
+        |types: &[ast::TypeId]| types.iter().map(|t| a.ty(*t).span.end).max().unwrap_or(0);
+    let primary_end = |id: Option<ast::MemberId>| {
+        id.and_then(|id| match &a.member(id).kind {
+            ast::MemberKind::Constructor(c) => Some(
+                c.parameters
+                    .iter()
+                    .map(|p| p.span.end)
+                    .max()
+                    .unwrap_or(0)
+                    .max(c.name.map_or(c.class_name.span.end, |n| n.span.end)),
+            ),
+            _ => None,
+        })
+        .unwrap_or(0)
+    };
     let mut out = Vec::new();
     for decl in &a.decls {
-        let name = match &decl.kind {
-            DeclKind::Class(c) => &c.name,
-            DeclKind::Mixin(m) => &m.name,
-            DeclKind::Enum(e) => &e.name,
-            DeclKind::ExtensionType(x) => &x.name,
+        let (name, parameters, end) = match &decl.kind {
+            DeclKind::Class(c) => (
+                &c.name,
+                c.type_params.as_ref(),
+                types_end(c.extends.as_slice())
+                    .max(types_end(&c.with))
+                    .max(types_end(&c.implements))
+                    .max(primary_end(c.primary_constructor)),
+            ),
+            DeclKind::Mixin(m) => (
+                &m.name,
+                m.type_params.as_ref(),
+                types_end(&m.on).max(types_end(&m.implements)),
+            ),
+            DeclKind::Enum(e) => (
+                &e.name,
+                e.type_params.as_ref(),
+                types_end(&e.with)
+                    .max(types_end(&e.implements))
+                    .max(primary_end(e.primary_constructor)),
+            ),
+            DeclKind::ExtensionType(x) => (
+                &x.name,
+                x.type_params.as_ref(),
+                x.representation_span.end.max(types_end(&x.implements)),
+            ),
             DeclKind::Extension(x) => match &x.name {
-                Some(n) => n,
+                Some(name) => (name, x.type_params.as_ref(), a.ty(x.on).span.end),
                 None => continue,
             },
             _ => continue,
         };
-        let Some(body) = text.get(decl.span.start..decl.span.end) else {
+        let end = end
+            .max(name.span.end)
+            .max(parameters.iter().map(|p| p.span.end).max().unwrap_or(0));
+        let Some(header) = text.get(decl.span.start..end) else {
             continue;
         };
-        let header = body.split('{').next().unwrap_or(body);
         let name = text.get(name.span.start..name.span.end).unwrap_or("");
         out.push((name.to_string(), header.to_string()));
     }
     out
-}
-
-/// A descriptor of each element of `lib` in each arena, from where they
-/// start; `None` when a library's elements are not contiguous.
-fn elements_of(program: &Program, lib: LibraryId) -> Option<[(usize, Vec<u64>); 5]> {
-    use std::hash::{Hash, Hasher};
-    fn range<T>(items: &[T], of: impl Fn(&T) -> bool) -> Option<(usize, usize)> {
-        let first = items.iter().position(&of);
-        let Some(first) = first else {
-            return Some((items.len(), items.len()));
-        };
-        let len = items[first..].iter().take_while(|t| of(t)).count();
-        items[first + len..]
-            .iter()
-            .all(|t| !of(t))
-            .then_some((first, first + len))
-    }
-    fn digest(parts: impl Hash) -> u64 {
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        parts.hash(&mut h);
-        h.finish()
-    }
-    let c = range(&program.classes, |c| c.library == lib)?;
-    let e = range(&program.extensions, |e| e.library == lib)?;
-    let t = range(&program.typedefs, |t| t.library == lib)?;
-    let f = range(&program.functions, |f| f.library == lib)?;
-    let v = range(&program.variables, |v| v.library == lib)?;
-    Some([
-        (
-            c.0,
-            program.classes[c.0..c.1]
-                .iter()
-                .map(|x| digest((x.name, format!("{:?}", x.kind))))
-                .collect(),
-        ),
-        (
-            e.0,
-            program.extensions[e.0..e.1]
-                .iter()
-                .map(|x| digest(x.name))
-                .collect(),
-        ),
-        (
-            t.0,
-            program.typedefs[t.0..t.1]
-                .iter()
-                .map(|x| digest(x.name))
-                .collect(),
-        ),
-        (
-            f.0,
-            program.functions[f.0..f.1]
-                .iter()
-                .map(|x| digest((x.name, format!("{:?}", x.kind), x.class)))
-                .collect(),
-        ),
-        (
-            v.0,
-            program.variables[v.0..v.1]
-                .iter()
-                .map(|x| digest((x.name, x.class)))
-                .collect(),
-        ),
-    ])
 }
 
 /// The libraries each library imports or exports (`edges`), and, the other
@@ -218,11 +194,12 @@ fn targets(program: &Program, l: usize) -> impl Iterator<Item = (usize, bool)> +
 /// the reload cannot keep the dependents; cut at `start` instead.
 pub(crate) fn plan(
     program: &Program,
-    start: usize,
+    from: &Checkpoint,
     frozen: Checkpoint,
     changed: &HashSet<std::path::PathBuf>,
     key: &dyn Fn(&std::path::Path) -> std::path::PathBuf,
 ) -> Result<Option<Plan>, usize> {
+    let start = from.libraries;
     let n = program.libraries.len();
     let kept = frozen.libraries..start.min(n);
     // Kept libraries pointing past the cut.
@@ -257,6 +234,19 @@ pub(crate) fn plan(
     }
     if pointers.is_empty() {
         return Ok(None);
+    }
+    // Kept signatures can reach elements through reexports or a reloaded
+    // declaration's supertypes. Reserve the suffix dependencies as well.
+    let mut seen: HashSet<usize> = stable_ids.iter().copied().collect();
+    let mut next = 0;
+    while next < stable_ids.len() {
+        let library = stable_ids[next];
+        for (target, _) in targets(program, library) {
+            if target >= start && seen.insert(target) {
+                stable_ids.push(target);
+            }
+        }
+        next += 1;
     }
     // Everything kept that depends on what is reloaded, transitively.
     let mut by_target: HashMap<usize, Vec<(usize, bool)>> = HashMap::new();
@@ -319,9 +309,7 @@ pub(crate) fn plan(
         if lib.is_sdk || lib.units.len() != 1 {
             return Err(fallback);
         }
-        let Some(elements) = elements_of(program, LibraryId(s as u32)) else {
-            return Err(fallback);
-        };
+        let slots = slots::Elements::capture(program, LibraryId(s as u32), from);
         let unit = &program.units[lib.units[0].0 as usize];
         let old_api = match &unit.path {
             Some(p) if changed.contains(&key(p)) => {
@@ -340,8 +328,7 @@ pub(crate) fn plan(
             uri: lib.uri.clone(),
             path: unit.path.clone(),
             id: LibraryId(s as u32),
-            elements,
-            exported: lib.exported.clone(),
+            slots,
             old_api,
         });
     }
@@ -360,6 +347,35 @@ pub(crate) fn plan(
 }
 
 impl Plan {
+    /// Reserves the surviving slots of every reachable suffix library before
+    /// placing new declarations. A refusal leaves the fresh program unchanged;
+    /// the caller then reloads before the kept dependents.
+    pub(crate) fn reorder(&self, program: &mut Program, from: &Checkpoint) -> bool {
+        let mut slots = slots::Slots::new(program, from);
+        for stable in &self.stable {
+            let Some((id, _)) = program
+                .libraries
+                .iter()
+                .enumerate()
+                .skip(from.libraries)
+                .find(|(_, l)| l.uri == stable.uri)
+            else {
+                return false;
+            };
+            let now = slots::Elements::capture(program, LibraryId(id as u32), from);
+            if !slots.keep(&stable.slots, &now) {
+                if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
+                    eprintln!(
+                        "engine: named slot repair refused for {} (library {} -> {id})",
+                        stable.uri, stable.id.0
+                    );
+                }
+                return false;
+            }
+        }
+        slots.apply(program, from)
+    }
+
     /// The files of the reloaded libraries that kept ones point to: the load
     /// does not reach them through the kept libraries.
     pub(crate) fn files(&self) -> Vec<std::path::PathBuf> {
@@ -446,22 +462,81 @@ fn changed_names(
 }
 
 /// Says why a reload in place was refused (with `DARTFORGE_ENGINE_TIMES`).
-fn refused(why: &str) -> bool {
+fn refused(why: &str) {
     if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
         eprintln!("engine: reload in place refused: {why}");
     }
-    false
 }
 
-/// Checks a planned reload in place against what the load built, and
-/// repairs the kept dependents; `false` when they cannot be kept (the
-/// caller loads again from [`Plan::fallback`]).
-pub(crate) fn settle(
+/// A type alias or superclass header can keep its text while the declaration
+/// it names changes. Follow those names to a fixpoint before checking the
+/// kept signatures: otherwise an old supertype can point at a retired slot
+/// that a different class now occupies. Include kept non-SDK aliases too,
+/// since an inheritor may reach the fresh class through a kept alias chain.
+fn propagate_type_names(
+    program: &Program,
+    from: &Checkpoint,
+    names: &mut HashSet<u64>,
+    members_of: &mut HashSet<u64>,
+) -> Option<()> {
+    if names.is_empty() && members_of.is_empty() {
+        return Some(());
+    }
+    let mut dependencies = Vec::new();
+    for alias in &program.typedefs {
+        if program.libraries[alias.library.0 as usize].is_sdk {
+            continue;
+        }
+        let unit = program.units.get(alias.decl.unit.0 as usize)?;
+        let declaration = unit.ast.decl(alias.decl.decl);
+        let DeclKind::Typedef(alias) = &declaration.kind else {
+            return None;
+        };
+        let name = unit
+            .source
+            .get(alias.name.span.start..alias.name.span.end)?;
+        let text = unit
+            .source
+            .get(declaration.span.start..declaration.span.end)?;
+        dependencies.push((word_hash(name), text_words(text)));
+    }
+    for unit in &program.units[from.units..] {
+        dependencies.extend(
+            class_headers(&unit.source, &unit.ast)
+                .into_iter()
+                .map(|(name, header)| (word_hash(&name), text_words(&header))),
+        );
+    }
+    loop {
+        let before = names.len() + members_of.len();
+        for (name, words) in &dependencies {
+            if words.iter().any(|word| names.contains(word)) {
+                names.insert(*name);
+            }
+            if words.iter().any(|word| members_of.contains(word)) {
+                members_of.insert(*name);
+            }
+        }
+        if before == names.len() + members_of.len() {
+            return Some(());
+        }
+    }
+}
+
+/// Checks the new declarations before resolving their namespaces. Kept
+/// pointers are rebound only after every check succeeds; the returned scope
+/// repair joins the fresh libraries' export fixpoint. `None` aborts the
+/// partial outline so the caller can reload from [`Plan::fallback`].
+pub(crate) fn prepare(
     plan: &Plan,
     program: &mut Program,
-    interner: &Interner,
+    from: &Checkpoint,
     words: &mut Words,
-) -> bool {
+) -> Option<OutlineRepair> {
+    if !plan.reorder(program, from) {
+        refused("named slots cannot preserve the kept IDs");
+        return None;
+    }
     let by_uri: HashMap<&str, LibraryId> = program
         .libraries
         .iter()
@@ -471,28 +546,26 @@ pub(crate) fn settle(
         .collect();
     let mut names = HashSet::new();
     let mut members_of = HashSet::new();
-    let mut rescope = false;
     for s in &plan.stable {
         let Some(&id) = by_uri.get(s.uri.as_str()) else {
-            return refused("a stable library is gone");
+            refused("a stable library is gone");
+            return None;
         };
         let lib = &program.libraries[id.0 as usize];
         if lib.units.len() != 1 {
-            return refused("a stable library has parts now");
+            refused("a stable library has parts now");
+            return None;
         }
-        let Some(now) = elements_of(program, id) else {
-            return refused("its elements are not contiguous");
-        };
-        for ((old_start, old), (new_start, new)) in s.elements.iter().zip(&now) {
-            let common = old.len().min(new.len());
-            if (common > 0 && old_start != new_start) || old[..common] != new[..common] {
-                return refused("its elements moved");
-            }
+        let now = slots::Elements::capture(program, id, from);
+        if !s.slots.preserved(&now) {
+            refused("its surviving elements moved");
+            return None;
         }
         if let Some((old_api, old_headers)) = &s.old_api {
             let unit = &program.units[lib.units[0].0 as usize];
             let Some(new_api) = api_digest(&unit.source, &unit.ast, &unit.unit) else {
-                return refused("its new text has no API digest");
+                refused("its new text has no API digest");
+                return None;
             };
             let new_headers: HashMap<String, u64> = class_headers(&unit.source, &unit.ast)
                 .into_iter()
@@ -503,15 +576,16 @@ pub(crate) fn settle(
                     names.extend(n);
                     members_of.extend(m);
                 }
-                Err(()) => return refused("an implicit declaration or the directives changed"),
+                Err(()) => {
+                    refused("an implicit declaration or the directives changed");
+                    return None;
+                }
             }
         }
-        if id != s.id {
-            rescope = true;
-        }
-        if program.libraries[id.0 as usize].exported != s.exported {
-            rescope = true;
-        }
+    }
+    if propagate_type_names(program, from, &mut names, &mut members_of).is_none() {
+        refused("a type dependency has no source declaration");
+        return None;
     }
     let Some(pointed): Option<Vec<LibraryId>> = plan
         .pointers
@@ -519,7 +593,8 @@ pub(crate) fn settle(
         .map(|(_, _, _, uri)| by_uri.get(uri.as_str()).copied())
         .collect()
     else {
-        return refused("a pointer has no library");
+        refused("a pointer has no library");
+        return None;
     };
     drop(by_uri);
     // No kept dependent's signature names what changed.
@@ -527,14 +602,16 @@ pub(crate) fn settle(
         for &d in &plan.dependents {
             for &u in &program.libraries[d.0 as usize].units {
                 let Some(w) = words.of(program, u) else {
-                    return refused("a dependent has no API digest");
+                    refused("a dependent has no API digest");
+                    return None;
                 };
                 if names.iter().any(|n| w.signatures.binary_search(n).is_ok())
                     || members_of
                         .iter()
                         .any(|n| w.headers.binary_search(n).is_ok())
                 {
-                    return refused("a dependent names what changed");
+                    refused("a dependent names what changed");
+                    return None;
                 }
             }
         }
@@ -548,16 +625,11 @@ pub(crate) fn settle(
             lib.imports[*i].library = to;
         }
     }
-    if rescope {
-        dartforge_elements::outline::rebuild_scopes(
-            program,
-            interner,
-            &plan.exporters,
-            &plan.importers,
-        );
-    }
     words.settled += 1;
-    true
+    Some(OutlineRepair {
+        exporters: plan.exporters.clone(),
+        importers: plan.importers.clone(),
+    })
 }
 
 /// The files of `changed` (keys) whose library another library of `program`
@@ -595,4 +667,66 @@ pub(crate) fn depended_on(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod header_tests {
+    use super::class_headers;
+
+    fn headers(source: &str) -> Vec<(String, String)> {
+        let mut names = dartforge_intern::Interner::new();
+        let parsed = dartforge_frontend::parser::parse_with(
+            source,
+            &mut names,
+            dartforge_frontend::LibraryFeatures::current(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        class_headers(source, &parsed.ast)
+    }
+
+    #[test]
+    fn header_spans_include_nested_braces_and_exclude_bodies() {
+        for (source, old, new) in [
+            (
+                "@Note({'key': 1}) class C<T extends num> { int bodyOnly = 0; }",
+                "extends num",
+                "extends String",
+            ),
+            (
+                "class C<T extends ({int field})> { int bodyOnly = 0; }",
+                "int field",
+                "String field",
+            ),
+            (
+                "mixin C<T extends ({int field})> on Base<T> { int bodyOnly = 0; }",
+                "int field",
+                "String field",
+            ),
+            (
+                "enum C<T extends ({int field})> { value; static int bodyOnly = 0; }",
+                "int field",
+                "String field",
+            ),
+            (
+                "class C([Map<String, Object> options = const {'key': 1}]) { this { var bodyOnly = 0; } }",
+                "'key': 1",
+                "'key': 2",
+            ),
+            (
+                "extension type C(({int field}) value) { static int bodyOnly = 0; }",
+                "int field",
+                "String field",
+            ),
+        ] {
+            let before = headers(source);
+            assert_eq!(before.len(), 1, "{source}");
+            assert_ne!(before, headers(&source.replacen(old, new, 1)), "{source}");
+            assert_eq!(
+                before,
+                headers(&source.replace("bodyOnly = 0", "bodyOnly = 1")),
+                "{source}"
+            );
+            assert!(!before[0].1.contains("bodyOnly"), "{source}");
+        }
+    }
 }

@@ -1539,9 +1539,11 @@ fn component_3_13(l: &Reader<'_>, lib: LibraryId, target: ClassId) -> Option<Vec
         steps: 0,
         found: None,
     };
-    for (i, class) in l.program.classes.iter().enumerate() {
-        let id = ClassId(i as u32);
-        if class.library != lib || class.decl.is_none() || a.evaluated.contains(&id) {
+    // Arena slots can survive a reload even when declarations move. The
+    // component's diagnostic order follows creation order, independently of IDs.
+    for &id in &l.program.index().library_classes[lib.0 as usize] {
+        let class = l.program.class(id);
+        if class.decl.is_none() || a.evaluated.contains(&id) {
             continue;
         }
         // Each walk restarts the indices; the nodes of earlier walks are all

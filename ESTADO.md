@@ -4,24 +4,78 @@
 
 **Meta (decisão do proprietário, 01/11/2026):** o `dartforge-lsp` precisa ser melhor que
 o `dart language-server` em todos os pedidos: mais rápido, com menos CPU e menos memória,
-com a mesma resposta. Depois da décima sétima rodada, ganha no `new_sali/frontend` a memória em
-repouso de uma sessão com pedidos (as consultas de biblioteca saem do residente), os pedidos sem
-edição e quase todos depois de uma, e as três cargas da sessão longa no macOS. Perde a edição de
-corpo da sessão longa no Windows (76 × 60 ms), e `references` logo depois de uma edição não ganha
-de forma estável.
+com a mesma resposta. Nas medições da décima sétima rodada, o `new_sali/frontend` teve ganhos
+de memória em repouso numa sessão com pedidos (as consultas de biblioteca saem do residente),
+nos pedidos sem edição e quase todos depois de uma, e nas três cargas da sessão longa no macOS.
+Esses resultados pertencem àquela rodada; os ensaios atuais de API e memória estão no item 1.
+Continuam abertas a edição de corpo da sessão longa no Windows (76 × 60 ms) e a vantagem
+instável de `references` logo depois de uma edição.
 
-1. **Reanalisar só as bibliotecas afetadas por uma mudança de API.** No `new_sali/frontend`,
-   o diagnóstico do arquivo editado depois de uma mudança de API leva **1,3–1,4 s contra
-   84–89 ms do Dart**. Os dependentes levam de 7 a 22× o tempo do Dart.
-   - **Causa:** `ClassId`, `FunctionElementId` e os demais identificadores são índices
-     densos, renumerados a cada carga. Por isso nada do modelo de elementos e do de tipos
-     sobrevive a uma mudança de assinatura.
-   - **O que pede:**
-     - identidade estável de elementos em `crates/elements`;
-     - um `OutlineTypes` por biblioteca em `crates/types`;
-     - refazer só as bibliotecas cujo *outline* depende do que mudou.
-2. **Índice de referências resolvidas.** `references` dos tipos do SDK no frontend leva
-   **9,6 s × 344 ms**, com o mesmo resultado (cerca de 15 s de CPU por busca de `String`
+1. **Reanalisar só as bibliotecas afetadas por uma mudança de API.**
+   **Estado em 05/11: implementação validada na suíte completa.** A recarga
+   agora casa declarações por espécie, dono e nome, reservando os slots antigos
+   antes de distribuir os novos. Isso permite inserir declarações no meio do
+   arquivo e manter os dependentes. O reparo antecede escopos e supertypes;
+   namespaces mantidos também são reconstruídos quando afetados. Com o mesmo
+   grafo, a ordem anterior das bibliotecas é preservada. A ordem de criação
+   das declarações fica separada dos IDs, para manter os diagnósticos completos
+   na ordem correta após inserções, reversões e edições de corpo.
+
+   **Resultado medido atual:** matriz isolada de 27 sessões nos três projetos,
+   sem consultas intercaladas nas edições. Cada célula abaixo é **DartForge / Dart**.
+
+   | Projeto | Primeiro diagnóstico (ms) | Até estabilizar (ms) | CPU até estabilizar (ms) |
+   | --- | ---: | ---: | ---: |
+   | limitless | 25,50 / 33,35 | 25,50 / 59,95 | 25,90 / 66,30 |
+   | core | 14,50 / 6,35 | 14,50 / 24,65 | 14,85 / 25,15 |
+   | frontend | 22,45 / 20,30 | 22,45 / 42,95 | 22,60 / 46,10 |
+
+   O primeiro diagnóstico ainda perde do Dart no core e frontend. Na última
+   otimização, a poda dos índices, houve custo de +0,45 ms no limitless e
+   +0,25 ms no core, com +0,50/+0,25 ms de CPU; no frontend, -0,15 ms nas duas
+   medidas. O repouso mediano caiu nos três projetos (frontend 554,5 → 424,7 MiB),
+   mas varia entre sessões; não há ganho uniforme de latência, CPU e memória.
+   Em uma matriz anterior, o reparo principal reduziu o frontend de 171,4 para
+   23,0 ms e o core de 27,25 para 13,95 ms até o diagnóstico. São comparações
+   de versões distintas; os percentuais não devem ser compostos entre matrizes.
+
+   **Correção já verificada:** 620 testes direcionados, clippy do workspace e
+   documentação estrita passaram. O release atual manteve 450/450 controles
+   completos de símbolos, 54/54 respostas de consultas e 18/18 mapas completos
+   de diagnósticos antes/depois, além dos estados finais. A matriz de edições
+   conservou 144/144 mapas e nove estados finais. Nos arquivos abertos, os
+   diagnósticos coincidiram com o Dart, omitindo só `source`; o ensaio adicional
+   com SDKs correspondentes manteve 24/24 capturas completas (3.6.2 e 3.13.5).
+   Os manifestos de entrada ficaram idênticos, sem raízes ausentes. Continuam
+   as diferenças anteriores de `documentSymbol` e das publicações globais nos
+   subprojetos do limitless. Foram corrigidas regressões reais de namespaces,
+   aliases, bounds genéricos em cabeçalhos com chaves e ordem de erros em ciclos.
+
+   **Validação ampla concluída:** **3.452 testes do workspace em 226 alvos e
+   117 do CLI native/jit em 16 alvos**, sem falhas ou ignorados. Passaram
+   também clippy do workspace, documentação com avisos negados, os 11 testes
+   Python e fmt. O gate levou 4.022,51 s e confirmou 1.963 fontes e quatro
+   binários preservados sem alterações. O corpus de builders nativos passou
+   em 870,64 s e os quatro testes de transparência Angular em 588,92 s.
+   Execuções anteriores reprovadas/interrompidas e resultados negativos
+   permanecem registrados em `docs/LSP.md`. Reutilização de escopos e
+   compactação das chaves foram medidas e retiradas por custos de memória/CPU.
+
+   **Próximos passos e limites:** integrar a correção isolada do medidor
+   (nove testes com processos reais passaram).
+   Ela recusa resultados antigos após falha, continua as sessões após erro de
+   lançamento e acusa relatórios incompletos, mantendo a seleção parcial explícita.
+   As sessões funcionais com consultas após API continuam custosas: o frontend
+   levou 134,24 s e pico total de 1.840,77 MiB, contra 17,89 s e 754,91 MiB do Dart.
+   É uma sessão por servidor, separada da matriz acima; falta medir tempo e CPU
+   por consulta para localizar esse custo. Também seguem pendentes identidade
+   geral de elementos, parts, preservação de slots removidos e mudanças de assinatura,
+   `OutlineTypes` por biblioteca e reanálise apenas dos outlines dependentes.
+   Sessões longas e Windows precisam de nova rodada. Implementação, matrizes,
+   regressões e reprodução: `docs/LSP.md`.
+
+2. **Índice de referências resolvidas.** O ensaio que abriu este item registrou `references`
+   dos tipos do SDK no frontend em **9,6 s × 344 ms**, com o mesmo resultado (cerca de 15 s de CPU por busca de `String`
    ou `bool`), porque cada busca infere os corpos de todos os arquivos que citam o nome.
    - **O que pede:**
      - o verificador registrar o alvo de cada resolução, com uma identidade comum à de

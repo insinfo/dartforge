@@ -527,18 +527,13 @@ impl Resident {
                 self.hot.drain(..extra);
             }
             let in_place = std::env::var_os("DARTFORGE_IN_PLACE").is_none_or(|v| v != "0");
-            let (at, plan) = match crate::in_place::plan(
-                &world.program,
-                at.libraries,
-                frozen,
-                &changed_keys,
-                &key,
-            ) {
-                Ok(Some(plan)) if in_place => (at, Some(plan)),
-                Ok(Some(plan)) => (plan.fallback, None),
-                Ok(None) => (at, None),
-                Err(start) => (world.program.checkpoint_at(start).unwrap_or(frozen), None),
-            };
+            let (at, plan) =
+                match crate::in_place::plan(&world.program, &at, frozen, &changed_keys, &key) {
+                    Ok(Some(plan)) if in_place => (at, Some(plan)),
+                    Ok(Some(plan)) => (plan.fallback, None),
+                    Ok(None) => (at, None),
+                    Err(start) => (world.program.checkpoint_at(start).unwrap_or(frozen), None),
+                };
             if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
                 eprintln!(
                     "engine: load from library {}{}",
@@ -2148,24 +2143,34 @@ impl Engine {
                         let base = std::mem::take(&mut w.0.program);
                         let also = w.2.as_ref().map(|p| p.files()).unwrap_or_default();
                         let also: Vec<&Path> = also.iter().map(PathBuf::as_path).collect();
-                        let (mut p, mut d) = dartforge_elements::load::load_lenient_onto(
-                            base,
-                            w.1,
-                            &entry,
-                            &also,
-                            &self.sdk,
-                            packages,
-                            interner,
-                            units.as_deref_mut(),
-                            generation.clone(),
-                        );
+                        let plan = w.2.as_deref();
+                        let mut reorder = |program: &mut Program| match plan {
+                            Some(plan) => {
+                                crate::in_place::prepare(plan, program, &w.1, &mut w.0.words)
+                            }
+                            None => Some(Default::default()),
+                        };
+                        let (mut p, mut d, kept) =
+                            dartforge_elements::load::load_lenient_onto_reordered(
+                                base,
+                                w.1,
+                                &entry,
+                                &also,
+                                &self.sdk,
+                                packages,
+                                interner,
+                                units.as_deref_mut(),
+                                generation.clone(),
+                                plan.map(|_| {
+                                    &mut reorder
+                                        as dartforge_elements::outline::OutlineRepairHook<'_>
+                                }),
+                            );
                         // A reload in place keeps the kept libraries that
                         // depend on what it reloaded only if it gave them back
                         // the ids they hold; otherwise, the load again from
                         // before all of them.
                         if let Some(plan) = w.2.take() {
-                            let kept =
-                                crate::in_place::settle(&plan, &mut p, interner, &mut w.0.words);
                             if std::env::var_os("DARTFORGE_ENGINE_TIMES").is_some() {
                                 eprintln!(
                                     "engine: reload in place {}",
@@ -4727,7 +4732,7 @@ mod tests {
             // A signature that `d.dart`'s inferred variable names.
             "class B { int v = 0; }\nString fb() => '1';\n",
             original,
-            // A member added in the middle: the ids after it move.
+            // A member added in the middle: the surviving IDs are restored.
             "class B { int v = 0; int w = 1; }\nint fb() => 1;\n",
             original,
         ] {
@@ -4746,16 +4751,540 @@ mod tests {
         }
         // The first change lays `b.dart` out last; the undo and the next
         // appended declaration (and its undo) are reloaded in place; the
-        // signature that `d.dart` names is not, nor the member that moves
-        // the ids.
+        // signature that `d.dart` names is not. Inserting and removing a
+        // member in the middle now restores the surviving slots by name.
         assert_eq!(
             kept_in_place,
-            [false, true, true, true, false, false, false, false],
+            [false, true, true, true, false, false, true, true],
             "{kept_in_place:?}"
         );
         let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
         let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// Rebuilding a kept import scope must forget removed names, even when a
+    /// replacement declaration occupies the same element slot. Both unprefixed
+    /// imports and the namespace of a prefix must match a clean analysis.
+    #[test]
+    fn resident_replaces_names_in_kept_import_scopes() {
+        let directory = tempfile::tempdir().unwrap();
+        let base = directory.path();
+        std::fs::create_dir_all(base.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(base.join("pkg")).unwrap();
+        std::fs::write(
+            base.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(base.join("sdk/lib/core/core.dart"),
+            "class Object {} class bool {} class num {} class int extends num {} class String {} class Null {}").unwrap();
+        let root = base.join("pkg");
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        let barrel = root.join("barrel.dart");
+        let original = "int oldName() => 1;\n";
+        std::fs::write(&b, original).unwrap();
+        std::fs::write(&barrel, "export 'b.dart';\n").unwrap();
+        std::fs::write(
+            &a,
+            "import 'barrel.dart';\nimport 'barrel.dart' as p;\n\
+             int use() => oldName() + p.oldName();\n",
+        )
+        .unwrap();
+        let engine = Engine::new(&base.join("sdk/lib")).unwrap();
+        let mut resident = Resident::new();
+        let all = vec![a, b.clone(), barrel];
+        engine
+            .analyze_resident(&mut resident, &root, &all, None, &HashMap::new(), &|| false)
+            .unwrap();
+        let warm = format!("{original}int seed() => 0;\n");
+        engine
+            .analyze_resident(
+                &mut resident,
+                &root,
+                &all,
+                None,
+                &HashMap::from([(key(&b), warm.clone())]),
+                &|| false,
+            )
+            .unwrap();
+        let replaced = warm.replace("oldName", "newName");
+        for text in [&replaced, &warm, &replaced, &warm] {
+            let before = resident.world.as_ref().unwrap().words.settled;
+            let texts = HashMap::from([(key(&b), text.clone())]);
+            let incremental = engine
+                .analyze_resident(&mut resident, &root, &all, None, &texts, &|| false)
+                .unwrap();
+            let fresh = engine
+                .analyze_with(&root, &all, None, &texts, &|| false)
+                .unwrap();
+            for path in &all {
+                let diagnostics = |result: &AnalysisResult| {
+                    let mut ds: Vec<_> = result.files[&key(path)]
+                        .diags
+                        .iter()
+                        .map(|d| (d.span.start, d.span.end, d.message.clone()))
+                        .collect();
+                    ds.sort();
+                    ds
+                };
+                assert_eq!(diagnostics(&incremental), diagnostics(&fresh), "{path:?}");
+            }
+            assert!(
+                resident.world.as_ref().unwrap().words.settled > before,
+                "body-only users of a replaced name keep their outlines"
+            );
+        }
+        let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
+    }
+
+    /// Stable IDs must not change the declaration-order traversal of classes,
+    /// functions or variables, including complete cycle diagnostic arguments.
+    #[test]
+    fn resident_keeps_cycle_diagnostic_order_after_class_insertion() {
+        let directory = tempfile::tempdir().unwrap();
+        let base = directory.path();
+        std::fs::create_dir_all(base.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(base.join("pkg")).unwrap();
+        std::fs::write(
+            base.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(base.join("sdk/lib/core/core.dart"),
+            "class Object {} class bool {} class num {} class int extends num {} class String {} class Null {}").unwrap();
+        let root = base.join("pkg");
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        let barrel = root.join("barrel.dart");
+        let original = "class B {}\nclass C {}\nint existing = 0;\nint fb() => 1;\n";
+        std::fs::write(&b, original).unwrap();
+        std::fs::write(&barrel, "export 'b.dart';\n").unwrap();
+        std::fs::write(&a, "import 'barrel.dart';\nint read() => fb();\n").unwrap();
+        let engine = Engine::new(&base.join("sdk/lib")).unwrap();
+        let mut resident = Resident::new();
+        let all = vec![a, b.clone(), barrel];
+        engine
+            .analyze_resident(&mut resident, &root, &all, None, &HashMap::new(), &|| false)
+            .unwrap();
+        let warm = format!("{original}int seed() => 0;\n");
+        engine
+            .analyze_resident(
+                &mut resident,
+                &root,
+                &all,
+                None,
+                &HashMap::from([(key(&b), warm.clone())]),
+                &|| false,
+            )
+            .unwrap();
+        let pair = warm.replace(
+            "class B {}",
+            "class Added extends B {}\nclass B extends Added {}",
+        );
+        let triple = warm
+            .replace(
+                "class B {}",
+                "class Added extends B {}\nclass B implements C {}",
+            )
+            .replace("class C {}", "class C extends Added {}");
+        let functions = warm.replace(
+            "int fb() => 1;",
+            "int insertedFunction() => 'bad';\nint fb() => 'bad';",
+        );
+        let variables = warm.replace(
+            "int existing = 0;",
+            "int insertedVariable = 'bad';\nint existing = 'bad';",
+        );
+        let function_body = functions.replace("'bad'", "'changed'");
+        let cycle_body = pair.replace("=> 1", "=> 'bad'");
+        for (text, reloaded) in [
+            (&functions, true),
+            (&function_body, false),
+            (&warm, true),
+            (&variables, true),
+            (&warm, true),
+            (&pair, true),
+            (&cycle_body, false),
+            (&warm, true),
+            (&triple, true),
+            (&warm, true),
+        ] {
+            let before = resident.world.as_ref().unwrap().words.settled;
+            let loads_before = resident.world.as_ref().unwrap().onto_loads;
+            let texts = HashMap::from([(key(&b), text.clone())]);
+            let incremental = engine
+                .analyze_resident(&mut resident, &root, &all, None, &texts, &|| false)
+                .unwrap();
+            let fresh = engine
+                .analyze_with(&root, &all, None, &texts, &|| false)
+                .unwrap();
+            for path in &all {
+                assert_eq!(
+                    incremental.files[&key(path)].diags,
+                    fresh.files[&key(path)].diags,
+                    "{path:?}: {text}"
+                );
+            }
+            if reloaded {
+                assert!(
+                    resident.world.as_ref().unwrap().words.settled > before,
+                    "declaration insertions preserve the dependent outlines"
+                );
+            } else {
+                let world = resident.world.as_ref().unwrap();
+                assert_eq!(world.words.settled, before);
+                assert_eq!(
+                    world.onto_loads, loads_before,
+                    "a body edit keeps the AST reuse path"
+                );
+            }
+        }
+        let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
+    }
+
+    /// Metadata collections must not hide a changed generic bound from the
+    /// guard: kept raw types must be instantiated again with the new bound.
+    #[test]
+    fn resident_rechecks_bounds_after_metadata_maps() {
+        let directory = tempfile::tempdir().unwrap();
+        let base = directory.path();
+        std::fs::create_dir_all(base.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(base.join("pkg")).unwrap();
+        std::fs::write(
+            base.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(base.join("sdk/lib/core/core.dart"),
+            "class Object {} class bool {} class num {} class int extends num {} class String {} class Null {}").unwrap();
+        let root = base.join("pkg");
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        let barrel = root.join("barrel.dart");
+        let original = "class Note { const Note(Object item); }\n\
+            @Note({'key': 1})\nclass B<T extends num> { T get item => null as T; }\n";
+        std::fs::write(&b, original).unwrap();
+        std::fs::write(&barrel, "export 'b.dart';\n").unwrap();
+        std::fs::write(
+            &a,
+            "import 'barrel.dart';\nString use(B value) => value.item;\n",
+        )
+        .unwrap();
+        let engine = Engine::new(&base.join("sdk/lib")).unwrap();
+        let mut resident = Resident::new();
+        let all = vec![a.clone(), b.clone(), barrel];
+        engine
+            .analyze_resident(&mut resident, &root, &all, None, &HashMap::new(), &|| false)
+            .unwrap();
+        let warm = format!("{original}int seed() => 0;\n");
+        engine
+            .analyze_resident(
+                &mut resident,
+                &root,
+                &all,
+                None,
+                &HashMap::from([(key(&b), warm.clone())]),
+                &|| false,
+            )
+            .unwrap();
+        for text in [warm.replace("T extends num", "T extends String"), warm] {
+            let before = resident.world.as_ref().unwrap().words.settled;
+            let texts = HashMap::from([(key(&b), text)]);
+            let incremental = engine
+                .analyze_resident(&mut resident, &root, &all, None, &texts, &|| false)
+                .unwrap();
+            let fresh = engine
+                .analyze_with(&root, &all, None, &texts, &|| false)
+                .unwrap();
+            for path in &all {
+                let diagnostics = |result: &AnalysisResult| {
+                    let mut ds: Vec<_> = result.files[&key(path)]
+                        .diags
+                        .iter()
+                        .map(|d| (d.span.start, d.span.end, d.message.clone()))
+                        .collect();
+                    ds.sort();
+                    ds
+                };
+                assert_eq!(diagnostics(&incremental), diagnostics(&fresh), "{path:?}");
+            }
+            assert_eq!(
+                resident.world.as_ref().unwrap().words.settled,
+                before,
+                "a kept signature uses the changed bound"
+            );
+        }
+        let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
+    }
+
+    /// Declarations inserted and reordered in a hot library keep their slots,
+    /// including generic classes, aliases, extensions and implicit accessors.
+    /// A kept barrel reexports that same library back into it, so resolving a
+    /// fresh superclass through the barrel must see the restored class ID.
+    #[test]
+    fn resident_restores_named_slots_before_resolving_kept_exports() {
+        use dartforge_elements::model::{ClassId, Element};
+        let directory = tempfile::tempdir().unwrap();
+        let base = directory.path();
+        std::fs::create_dir_all(base.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(base.join("pkg")).unwrap();
+        std::fs::write(
+            base.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(base.join("sdk/lib/core/core.dart"),
+            "class Object {} class bool {} class num {} class int extends num {} class String {} class Null {}").unwrap();
+        let root = base.join("pkg");
+        let a = root.join("a.dart");
+        let b = root.join("b.dart");
+        let barrel = root.join("barrel.dart");
+        let original = "import 'barrel.dart' as self;\n\
+            class B<T> { int value = 0; B(); int method() => value; T echo(T item) => item; }\n\
+            class C extends self.B<int> { C() : super(); int method() => super.method(); }\n\
+            extension E on B<int> { int get extra => method(); }\n\
+            typedef Alias = B<int>;\n\
+            int f(B<int> b) => b.method();\n\
+            int top = 1;\nclass Retired {}\nclass RetiredBridge extends Retired {}\n\
+            typedef RetiredAlias = RetiredAliasBridge;\ntypedef RetiredAliasBridge = RetiredBridge;\n";
+        std::fs::write(&b, original).unwrap();
+        std::fs::write(&barrel, "export 'b.dart';\n").unwrap();
+        std::fs::write(
+            &a,
+            "import 'barrel.dart';\nAlias pass(B<int> b) => b;\n\
+             B<T> identity<T>(B<T> b) => b;\nint use() => f(C()) + top;\n\
+             int extensionUse(B<int> b) => b.extra;\nclass AliasUser extends RetiredAlias {}\n\
+             final makeModel = B<int>.new;\nB<int> buildModel() => makeModel(1);\n\
+             void assignAlias() { Replacement replacement = AliasUser(); }\n",
+        )
+        .unwrap();
+        let engine = Engine::new(&base.join("sdk/lib")).unwrap();
+        let mut resident = Resident::new();
+        let all = vec![a, b.clone(), barrel];
+        engine
+            .analyze_resident(&mut resident, &root, &all, None, &HashMap::new(), &|| false)
+            .unwrap();
+        // The first API edit lays the changed library after its dependents.
+        let warm = original.replacen("class Retired {}", "int seed() => 0;\nclass Retired {}", 1);
+        engine
+            .analyze_resident(
+                &mut resident,
+                &root,
+                &all,
+                None,
+                &HashMap::from([(key(&b), warm.clone())]),
+                &|| false,
+            )
+            .unwrap();
+        let ids = |resident: &Resident| {
+            let world = resident.world.as_ref().unwrap();
+            let p = &world.program;
+            let lib = p
+                .libraries
+                .iter()
+                .find(|l| l.uri.ends_with("/b.dart"))
+                .unwrap();
+            let symbol = |name| resident.interner.lookup(name).unwrap();
+            let class = |name| match lib.declared[&symbol(name)].getter.unwrap() {
+                Element::Class(id) => id,
+                other => panic!("expected a class, got {other:?}"),
+            };
+            let b = class("B");
+            let c = class("C");
+            assert_eq!(p.class(c).supertype_class, Some(b));
+            if resident
+                .interner
+                .lookup("Added")
+                .is_some_and(|name| lib.declared.contains_key(&name))
+            {
+                assert_eq!(
+                    p.class(class("Added")).supertype_class,
+                    Some(class("NewBase"))
+                );
+            }
+            let variable = p
+                .class(b)
+                .fields
+                .iter()
+                .copied()
+                .find(|v| p.variable(*v).name == symbol("value"))
+                .unwrap();
+            let field = p.variable(variable);
+            let top = match lib.declared[&symbol("top")].getter.unwrap() {
+                Element::Variable(id) => id,
+                other => panic!("expected a variable, got {other:?}"),
+            };
+            let mut result = vec![
+                b.0,
+                c.0,
+                variable.0,
+                field.getter.unwrap().0,
+                field.setter.unwrap().0,
+                top.0,
+                p.variable(top).getter.unwrap().0,
+                p.variable(top).setter.unwrap().0,
+                p.class(b).instance_members[&symbol("method")].0,
+            ];
+            for name in ["E", "Alias", "f", "seed"] {
+                result.push(match lib.declared[&symbol(name)].getter.unwrap() {
+                    Element::Extension(id) => id.0,
+                    Element::Typedef(id) => id.0,
+                    Element::Function(id) => id.0,
+                    other => panic!("unexpected element {other:?}"),
+                });
+            }
+            // Force the index to exist before the next reload, and verify its
+            // node-to-element associations after every permutation.
+            let index = p.index();
+            for (i, class) in p.classes.iter().enumerate() {
+                if let Some(decl) = class.decl {
+                    assert_eq!(
+                        index.unit_classes[decl.unit.0 as usize][&decl.decl],
+                        ClassId(i as u32)
+                    );
+                }
+            }
+            result
+        };
+        let previous = ids(&resident);
+        let diagnostics = |result: &AnalysisResult, path: &Path| {
+            let mut diagnostics: Vec<_> = result.files[&key(path)]
+                .diags
+                .iter()
+                .map(|d| (d.span.start, d.span.end, d.message.clone()))
+                .collect();
+            diagnostics.sort();
+            diagnostics
+        };
+        let expanded = warm
+            .replacen(
+                "class B",
+                "class Added<U> extends self.NewBase {}\nclass NewBase {}\nclass B",
+                1,
+            )
+            .replacen("int value", "int inserted = 2; int value", 1)
+            .replacen(
+                "extension E",
+                "extension AddedExtension on B<int> { int get another => 1; }\nextension E",
+                1,
+            )
+            .replacen(
+                "typedef Alias",
+                "typedef AddedAlias = String;\ntypedef Alias",
+                1,
+            )
+            .replacen("int f(", "int insertedFunction() => 2;\nint f(", 1)
+            .replacen("int top", "int insertedTop = 2;\nint top", 1);
+        let reordered = expanded.replacen("class Added<U> extends self.NewBase {}\n", "", 1)
+            + "class Added<U> extends self.NewBase {}\n";
+        let changed = reordered.replacen("int method() => value", "String method() => 'value'", 1);
+        let body = reordered.replacen("=> value;", "=> value + 1;", 1);
+        for (label, text, kept_in_place) in [
+            ("insertions", expanded, true),
+            ("class order", reordered.clone(), true),
+            ("signature", changed, true),
+            ("signature undo", reordered, true),
+            ("body after permutation", body.clone(), false),
+            (
+                "unnamed constructor signature",
+                body.replacen("B();", "B(int requested);", 1),
+                true,
+            ),
+            ("insertions undo", warm.clone(), true),
+        ] {
+            let before = resident.world.as_ref().unwrap().words.settled;
+            let texts = HashMap::from([(key(&b), text)]);
+            let incremental = engine
+                .analyze_resident(&mut resident, &root, &all, None, &texts, &|| false)
+                .unwrap();
+            assert_eq!(
+                ids(&resident),
+                previous,
+                "{label}: surviving element IDs changed"
+            );
+            assert_eq!(
+                resident.world.as_ref().unwrap().words.settled > before,
+                kept_in_place,
+                "{label}"
+            );
+            let fresh = engine
+                .analyze_with(&root, &all, None, &texts, &|| false)
+                .unwrap();
+            for path in &all {
+                assert_eq!(
+                    diagnostics(&incremental, path),
+                    diagnostics(&fresh, path),
+                    "{label}: {path:?}"
+                );
+            }
+        }
+        // These changes cannot preserve the positional arena contract: a
+        // duplicate name, constructor source order, or a deletion leaving a
+        // surviving slot outside the smaller range. They must fall back.
+        for (label, text) in [
+            (
+                "duplicate",
+                warm.replacen("int f(", "int f(B<int> other) => 0;\nint f(", 1),
+            ),
+            (
+                "constructor order",
+                warm.replacen("B();", "B.extra(); B();", 1),
+            ),
+            (
+                "removed middle slot",
+                warm.replacen("T echo(T item) => item;", "", 1),
+            ),
+            (
+                "aliased superclass members",
+                warm.replacen("class Retired {}", "class Retired { int added() => 1; }", 1),
+            ),
+            (
+                "replaced alias target",
+                warm.replacen("class Retired {}", "class Replacement {}", 1),
+            ),
+            (
+                "removed alias target",
+                warm.replacen("class Retired {}", "", 1),
+            ),
+        ] {
+            let before = resident.world.as_ref().unwrap().words.settled;
+            let texts = HashMap::from([(key(&b), text)]);
+            let incremental = engine
+                .analyze_resident(&mut resident, &root, &all, None, &texts, &|| false)
+                .unwrap();
+            let fresh = engine
+                .analyze_with(&root, &all, None, &texts, &|| false)
+                .unwrap();
+            for path in &all {
+                assert_eq!(
+                    diagnostics(&incremental, path),
+                    diagnostics(&fresh, path),
+                    "{label}: {path:?}"
+                );
+            }
+            assert_eq!(
+                resident.world.as_ref().unwrap().words.settled,
+                before,
+                "{label}: expected fallback"
+            );
+            engine
+                .analyze_resident(
+                    &mut resident,
+                    &root,
+                    &all,
+                    None,
+                    &HashMap::from([(key(&b), warm.clone())]),
+                    &|| false,
+                )
+                .unwrap();
+        }
+        let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
+        let _ = std::fs::remove_file(dartforge_elements::SdkCache::path(&sdk, "dartdevc"));
     }
 
     /// Batches of one file each, analyzed in turn as the LSP's resident does

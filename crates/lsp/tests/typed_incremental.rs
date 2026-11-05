@@ -296,6 +296,48 @@ fn edit_and_compare(name: &str, in_child: bool) {
             "int another() => 2;",
             "String another() => '2';",
         ),
+        (
+            "API edit with named slots: class inserted first",
+            "lib/model.dart",
+            "class Model",
+            "class InsertedModel {}\n\nclass Model",
+        ),
+        (
+            "API edit with named slots: field inserted first",
+            "lib/model.dart",
+            "  int value",
+            "  int insertedValue = 1;\n  int value",
+        ),
+        (
+            "API edit with named slots: function inserted in the middle",
+            "lib/model.dart",
+            "int total",
+            "String insertedFunction() => 1;\n\nint total",
+        ),
+        (
+            "body edit after restoring named slots",
+            "lib/model.dart",
+            "value * 3",
+            "value * 4",
+        ),
+        (
+            "API edit with named slots: inserted function removed",
+            "lib/model.dart",
+            "String insertedFunction() => 1;\n\n",
+            "",
+        ),
+        (
+            "API edit with named slots: inserted field removed",
+            "lib/model.dart",
+            "  int insertedValue = 1;\n",
+            "",
+        ),
+        (
+            "API edit with named slots: inserted class removed",
+            "lib/model.dart",
+            "class InsertedModel {}\n\n",
+            "",
+        ),
     ];
     for (step, (label, relative, from, to)) in steps.iter().enumerate() {
         let before = p.server.typed_analyzed_files();

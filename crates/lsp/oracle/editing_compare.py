@@ -8,7 +8,7 @@ diagnostics.
         --server before=<an older dartforge-lsp> \
         --dart <sdk>/bin/dart \
         --rounds 3 --out <dir> \
-        --project name=<n>,root=<root>,file=<lib/a.dart>,private=<lib/a.dart>,api=<lib/b.dart> \
+        --project name=<n>,root=<root>,file=<lib/a.dart>,private=<lib/a.dart>,api=<lib/b.dart>[,api-offset=<byte>] \
         [-- <options for the driver>]
 
 Every project runs `--rounds` times per server, the order of the servers
@@ -87,7 +87,7 @@ def run(args, server, project, round_):
     else:
         cmd += ["--server", dict(args.server)[server], "--label", server]
     cmd += ["--root", project["root"], "--file", project["file"], "--json", out]
-    for key in ("private", "api"):
+    for key in ("private", "api", "api-offset"):
         if key in project:
             cmd += [f"--{key}", project[key]]
     cmd += args.extra
