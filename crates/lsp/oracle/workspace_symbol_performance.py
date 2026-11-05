@@ -10,10 +10,11 @@ Preparation resolves the anchor and observes ten additional idle seconds.
 
 CPU includes the server, live descendants and waited-for children. Memory is
 physical footprint and RSS at request boundaries, not a simultaneous tree peak.
-No watcher is advertised. Complete symbol lists are retained for strict parity;
+No watcher is advertised unless --with-watcher is selected. Complete symbol lists are retained for strict parity;
 timing alone never establishes correctness. This probe requires macOS.
 """
 import argparse
+import copy
 import ctypes
 import json
 import os
@@ -74,6 +75,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("binary", help="server executable, or dart for the reference server")
 parser.add_argument("project", type=Path)
 parser.add_argument("output", type=Path)
+parser.add_argument("--with-watcher", action="store_true", help="advertise file watcher support to both servers")
 parser.add_argument("--profile", type=Path, help="diagnostic sample output; exclude this run from timing comparisons")
 args = parser.parse_args()
 binary, output = args.binary, args.output
@@ -90,7 +92,10 @@ else:
     command = [str(Path(binary).resolve()), '--stdio']
 server = Lsp('server', command, env=dict(os.environ, DARTFORGE_SDK_LIB=SDK_LIB))
 try:
-    init, _ = server.request('initialize', {'processId':os.getpid(),'rootUri':root.as_uri(), 'workspaceFolders':[{'uri':root.as_uri(),'name':root.name}], 'capabilities':CAPABILITIES,'initializationOptions':{'onlyAnalyzeProjectsWithOpenFiles':True}})
+    capabilities = copy.deepcopy(CAPABILITIES)
+    if args.with_watcher:
+        capabilities['workspace']['didChangeWatchedFiles'] = {'dynamicRegistration': True}
+    init, _ = server.request('initialize', {'processId':os.getpid(),'rootUri':root.as_uri(), 'workspaceFolders':[{'uri':root.as_uri(),'name':root.name}], 'capabilities':capabilities,'initializationOptions':{'onlyAnalyzeProjectsWithOpenFiles':True}})
     if not isinstance(init, dict) or 'capabilities' not in init:
         raise RuntimeError(f'initialize failed: {init}')
     server.notify('initialized', {})
@@ -103,7 +108,7 @@ try:
     if not wait_all_idle([server], limit=180, quiet=10):
         raise RuntimeError('additional idle interval timed out')
     with output.open('w', encoding='utf-8') as stream:
-        stream.write(json.dumps({'method':'initialize','binary':binary,'rootUri':root.as_uri(),'anchor':anchor.as_uri(),'readiness':readiness,'additionalQuietSeconds':10,'sdkLib':SDK_LIB,'referenceCache':DART_CACHE,'profiled':args.profile is not None,'resources':resources(server.p.pid)})+'\n')
+        stream.write(json.dumps({'method':'initialize','binary':binary,'rootUri':root.as_uri(),'anchor':anchor.as_uri(),'readiness':readiness,'additionalQuietSeconds':10,'sdkLib':SDK_LIB,'referenceCache':DART_CACHE,'profiled':args.profile is not None,'watchedFiles':args.with_watcher,'resources':resources(server.p.pid)})+'\n')
         profiler = None
         if args.profile:
             profiler = subprocess.Popen(['sample', str(server.p.pid), '8', '-file', str(args.profile)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

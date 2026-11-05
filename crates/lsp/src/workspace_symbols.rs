@@ -568,10 +568,11 @@ struct OpenDependencies {
     exports: Vec<Dependency>,
 }
 
-/// The fingerprint of a read file: its size and date on disk, or the open
-/// text (by size and a digest).
+/// An unavailable file, its size and date on disk, or the open text's size
+/// and digest. Absence must be tracked for generated parts too.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Fingerprint {
+    Missing,
     Disk(Option<SystemTime>, u64),
     Open(usize, u64),
 }
@@ -581,12 +582,15 @@ struct Entry {
     /// The library's file and its parts, with their fingerprints.
     files: Vec<(PathBuf, Fingerprint)>,
     library: Option<Arc<Library>>,
+    /// A library is checked once per search, even if discovery visits it again.
+    checked_at: u64,
 }
 
 /// The index: the libraries already read, by path.
 #[derive(Debug, Default)]
 pub(crate) struct Index {
     entries: HashMap<PathBuf, Entry>,
+    search_generation: u64,
     /// The SDK's bootstrap and discovery order, by `lib/`.
     sdk: Option<Arc<SdkFiles>>,
     /// The `.dart` files of each package's `lib/`, as last listed.
@@ -1168,8 +1172,11 @@ fn index(
             continue;
         }
         let Some((source, fingerprint)) = read_(&file) else {
+            // A generated part can appear without changing its owner's text.
+            // Its absence must participate in the owner's cache validation.
+            files.push((file, Fingerprint::Missing));
             if first {
-                return (vec![(file, Fingerprint::Disk(None, 0))], None);
+                return (files, None);
             }
             continue;
         };
@@ -1238,36 +1245,32 @@ fn index(
 
 impl Index {
     /// The library at `path`, from the cache when none of its files changed.
-    fn library(
-        &mut self,
-        path: &Path,
-        read: &Reader<'_>,
-        open: &HashMap<PathBuf, Fingerprint>,
-        uri_of: &dyn Fn(&Path) -> String,
-        trust_disk: bool,
-    ) -> Option<Arc<Library>> {
+    fn library(&mut self, path: &Path, environment: &DiscoveryContext<'_>) -> Option<Arc<Library>> {
         // With the disk trusted (the watcher reported nothing since a recent
         // comparison), a file that is not open is as it was indexed.
-        let current =
-            |p: &Path, i: &Fingerprint| match open.get(&dartforge_elements::generated::key(p)) {
-                Some(o) => Some(o.clone()),
-                None if trust_disk && matches!(i, Fingerprint::Disk(..)) => Some(i.clone()),
-                None => disk_fingerprint(p),
-            };
-        if let Some(e) = self.entries.get(path)
-            && e.files
-                .iter()
-                .all(|(p, i)| current(p, i).as_ref() == Some(i))
+        let current = |p: &Path, i: &Fingerprint| match environment
+            .open
+            .get(dartforge_elements::generated::key_of(p).as_ref())
         {
+            Some(o) => o.clone(),
+            None if environment.trust_disk && !matches!(i, Fingerprint::Open(..)) => i.clone(),
+            None => disk_fingerprint(p).unwrap_or(Fingerprint::Missing),
+        };
+        if let Some(e) = self.entries.get_mut(path)
+            && (e.checked_at == self.search_generation
+                || e.files.iter().all(|(p, i)| current(p, i) == *i))
+        {
+            e.checked_at = self.search_generation;
             return e.library.clone();
         }
-        let (files, library) = index(path, read, uri_of);
+        let (files, library) = index(path, environment.read, environment.uri_of);
         let library = library.map(Arc::new);
         self.entries.insert(
             path.to_path_buf(),
             Entry {
                 files,
                 library: library.clone(),
+                checked_at: self.search_generation,
             },
         );
         library
@@ -1341,7 +1344,7 @@ impl Index {
     /// `added` are the project files; `priority`, the current documents in
     /// opening order; `contexts`, each driver's package catalog and generated
     /// workspace; `open_texts`, the URI and text of the open
-    /// documents by normalized path (`gerado::key`); `kinds`, the
+    /// documents by normalized path (`generated::key`); `kinds`, the
     /// `SymbolKind`s the client accepts.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn search(
@@ -1355,6 +1358,17 @@ impl Index {
         kinds: Option<&[u64]>,
         trust_disk: bool,
     ) -> Vec<Value> {
+        // Each request checks the disk anew when it cannot be trusted. The
+        // marker only avoids repeated checks within that same request.
+        self.search_generation = match self.search_generation.checked_add(1) {
+            Some(next) => next,
+            None => {
+                for entry in self.entries.values_mut() {
+                    entry.checked_at = 0;
+                }
+                1
+            }
+        };
         // Open documents count through the editor's text (the overlay), with the
         // client's URI.
         let open: HashMap<PathBuf, Fingerprint> = open_texts
@@ -1362,8 +1376,8 @@ impl Index {
             .map(|(k, (_, t))| (k.clone(), text_fingerprint(t)))
             .collect();
         let read = |p: &Path| -> Option<(String, Fingerprint)> {
-            let k = dartforge_elements::generated::key(p);
-            if let (Some((_, t)), Some(i)) = (open_texts.get(&k), open.get(&k)) {
+            let k = dartforge_elements::generated::key_of(p);
+            if let (Some((_, t)), Some(i)) = (open_texts.get(k.as_ref()), open.get(k.as_ref())) {
                 return Some((t.clone(), i.clone()));
             }
             let i = disk_fingerprint(p)?;
@@ -1373,12 +1387,21 @@ impl Index {
         let read: &Reader<'_> = &read;
         let open = &open;
         let uri_of = |p: &Path| -> String {
-            match open_texts.get(&dartforge_elements::generated::key(p)) {
+            match open_texts.get(dartforge_elements::generated::key_of(p).as_ref()) {
                 Some((uri, _)) => uri.clone(),
                 None => url::Url::from_file_path(p)
                     .map(|u| u.to_string())
                     .unwrap_or_default(),
             }
+        };
+        let sdk_files = sdk.map(|lib| self.sdk_files(lib));
+        let environment = DiscoveryContext {
+            catalogs: contexts,
+            sdk: sdk_files.as_deref(),
+            read,
+            open,
+            uri_of: &uri_of,
+            trust_disk,
         };
         // The files in `OwnedFiles` order (added ones, then the known ones that
         // were not added), kept while the disk is trusted and the inputs are the
@@ -1386,7 +1409,7 @@ impl Index {
         let open_dependencies = priority
             .iter()
             .map(|p| {
-                let library = self.library(p, read, open, &uri_of, trust_disk);
+                let library = self.library(p, &environment);
                 OpenDependencies {
                     path: p.clone(),
                     imports: library
@@ -1406,15 +1429,6 @@ impl Index {
             contexts: contexts.to_vec(),
             priority: priority.to_vec(),
             open_dependencies,
-        };
-        let sdk_files = sdk.map(|lib| self.sdk_files(lib));
-        let environment = DiscoveryContext {
-            catalogs: contexts,
-            sdk: sdk_files.as_deref(),
-            read,
-            open,
-            uri_of: &uri_of,
-            trust_disk,
         };
         let empty_context = Context::default();
         let has_uri = |path: &Path, context: usize| {
@@ -1551,15 +1565,7 @@ impl Index {
             discovery.snapshot_resolved = discovery.created.len() == created;
         }
         self.paths = Some((inputs, discovery));
-        self.find(
-            query,
-            &files,
-            environment.read,
-            environment.open,
-            environment.uri_of,
-            kinds,
-            environment.trust_disk,
-        )
+        self.find(query, &files, kinds, environment)
     }
 
     /// Materialize all directive URIs, but recurse only through the primary
@@ -1578,13 +1584,7 @@ impl Index {
             if !visited.insert((context, path.clone())) {
                 continue;
             }
-            let Some(library) = self.library(
-                &path,
-                environment.read,
-                environment.open,
-                environment.uri_of,
-                environment.trust_disk,
-            ) else {
+            let Some(library) = self.library(&path, environment) else {
                 continue;
             };
             let catalog = environment.catalogs.get(context).unwrap_or(&empty);
@@ -1625,20 +1625,16 @@ impl Index {
     }
 
     /// The declarations of the owned libraries that match `query`.
-    #[allow(clippy::too_many_arguments)]
     fn find(
         &mut self,
         query: &str,
         files: &[OwnedFile],
-        read: &Reader<'_>,
-        open: &HashMap<PathBuf, Fingerprint>,
-        uri_of: &dyn Fn(&Path) -> String,
         kinds: Option<&[u64]>,
-        trust_disk: bool,
+        environment: &DiscoveryContext<'_>,
     ) -> Vec<Value> {
         let libraries: Vec<Arc<Library>> = files
             .iter()
-            .filter_map(|c| self.library(&c.path, read, open, uri_of, trust_disk))
+            .filter_map(|c| self.library(&c.path, environment))
             .collect();
         // The `typedef`s of every library, to expand aliases from another library
         // (the first one of each name).
@@ -1830,6 +1826,88 @@ mod tests {
             .iter()
             .filter_map(|s| s["name"].as_str().map(str::to_owned))
             .collect()
+    }
+
+    #[test]
+    fn a_missing_part_can_appear_without_editing_its_owner() {
+        let root = fixture("part-created");
+        let owner = root.join("owner.dart");
+        let part = root.join("generated.dart");
+        std::fs::write(&owner, "part 'generated.dart'; class PartProbeOwner {}").unwrap();
+        let contexts = [Context::default()];
+        let open = HashMap::new();
+        let mut index = Index::default();
+        assert_eq!(
+            symbol_names(index.search(
+                "PartProbe",
+                std::slice::from_ref(&owner),
+                &[],
+                None,
+                &contexts,
+                &open,
+                None,
+                false
+            )),
+            ["PartProbeOwner"]
+        );
+        std::fs::write(&part, "part of 'owner.dart'; class PartProbeCreated {}").unwrap();
+        let added = [owner, part];
+        let warm = index.search(
+            "PartProbe",
+            &added,
+            &[],
+            None,
+            &contexts,
+            &open,
+            None,
+            false,
+        );
+        let fresh = Index::default().search(
+            "PartProbe",
+            &added,
+            &[],
+            None,
+            &contexts,
+            &open,
+            None,
+            false,
+        );
+        assert_eq!(
+            symbol_names(fresh.clone()),
+            ["PartProbeOwner", "PartProbeCreated"]
+        );
+        assert_eq!(warm, fresh);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn validation_generation_wrap_still_observes_disk_edits() {
+        let root = fixture("validation-generation");
+        let file = root.join("entry.dart");
+        std::fs::write(&file, "class GenerationProbeOne {}").unwrap();
+        let contexts = [Context::default()];
+        let added = [file.clone()];
+        let open = HashMap::new();
+        let mut index = Index::default();
+        let search = |index: &mut Index| {
+            index.search(
+                "GenerationProbe",
+                &added,
+                &[],
+                None,
+                &contexts,
+                &open,
+                None,
+                false,
+            )
+        };
+        assert_eq!(symbol_names(search(&mut index)), ["GenerationProbeOne"]);
+        index.search_generation = u64::MAX;
+        std::fs::write(&file, "class GenerationProbeReplacement {}").unwrap();
+        let result = search(&mut index);
+        assert_eq!(symbol_names(result.clone()), ["GenerationProbeReplacement"]);
+        assert_eq!(result, search(&mut Index::default()));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

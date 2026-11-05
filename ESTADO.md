@@ -212,10 +212,32 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   esta mudança; no frontend, variou de 586,7 para 589,6 MiB (Dart 712,1 MiB), com
   faixas sobrepostas. Não é uma medição de estabilidade de sessão longa.
   Reprodução, CPU, primeira busca e memória em `docs/LSP.md`.
-- **Regressões do servidor:** **329 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
+- **Parts criados sem editar a biblioteca dona (05/11):** uma ausência não entrava
+  nos fingerprints da biblioteca. Depois de abrir em memória ou criar um `.g.dart`
+  antes inexistente, o índice aquecido podia continuar omitindo suas declarações.
+  Agora o índice registra também a ausência, de modo que abertura, fechamento,
+  criação, edição, remoção e recriação invalidam a biblioteca quando necessário.
+  O novo oráculo passou de **15/27 para 27/27 com watcher e sem watcher**, e repetiu
+  **27/27 com cache Dart frio**: **81/81 após a correção**, com as respostas Dart
+  idênticas nas cinco execuções. Dentro de cada pedido, as bibliotecas já validadas
+  são reutilizadas na descoberta e na coleta; o marcador é fixo por entrada e
+  muda a cada busca, sem acumular um histórico. A comparação de desempenho dessa
+  etapa fica separada da correção funcional: **54 sessões** revezaram os dois
+  binários e o Dart, com **216/216 respostas completas em cada comparação sem
+  watcher e outros 216/216 com watcher**, mantendo os manifestos idênticos.
+  Sem watcher, as medianas quentes caíram de **381,6 para 366,8 ms**, de **155,1
+  para 145,1 ms** e de **607,5 para 590,2 ms** nos três projetos, cerca de 3–6%
+  em latência e CPU; ainda perdem do Dart. Com watcher, ficaram próximas do
+  baseline em **12,2, 9,1 e 12,7 ms**, abaixo do Dart; a variação de +0,2 ms no
+  `limitless_ui` não demonstra ganho geral nesse modo. O footprint final não
+  melhorou de forma consistente (core com watcher: 124,3 → 125,7 MiB); a primeira
+  busca continua mais lenta que o Dart. O perfil posterior ainda aponta custo
+  na resolução de imports e comparação de caminhos. Detalhes em `docs/LSP.md`.
+- **Regressões do servidor:** **331 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
   raízes numa regressão nova, duas regressões de descoberta e listas de resposta e
-  quatro de URIs, normalização e fontes sombreadas.
+  quatro de URIs, normalização e fontes sombreadas, além das duas novas de criação
+  de part e retorno do contador de validação ao início após seu limite.
   Clippy do workspace sem avisos, formatação e documentação estrita passaram.
   Após as URIs, mantidos **112/112** no ciclo de vida, **24/24 com e 24/24 sem
   watcher** nos dois contextos, **18/18** na capacidade, **16/16** nas condicionais e
@@ -225,6 +247,8 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   Após normalizar os catálogos, passaram **270/270 controles completos**: 112 do
   ciclo de vida, 48 dos catálogos, 44 das URIs e sombras, 16 condicionais, 18 de
   capacidade e 32 dos projetos pequenos; os gates e os 11 testes Python passaram.
+  A mesma matriz de 270 controles passou após a validação por pedido e a correção
+  dos parts; os 81 casos novos ficam registrados separadamente acima.
 - **Desempenho ainda incompleto:** capturar a ordem inicial exige enumerar os arquivos
   ao criar a coleção; reconstruí-la reenumera as raízes e descarta o índice sintático.
   Contextos existentes não são reenumerados por edições de corpo; o custo de abertura

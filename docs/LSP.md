@@ -4006,6 +4006,152 @@ projetos pequenos pelo protocolo antigo (32). Arquivos em
 `/tmp/dartforge-symbol-perf-control-*.jsonl` e
 `/tmp/dartforge-symbol-perf-controls.log`.
 
+### Continuação: parts ausentes e validação por pedido (05/11)
+
+O índice só guardava os fingerprints dos arquivos que conseguia ler. Se uma
+biblioteca declarasse `part 'generated.g.dart'` antes de esse arquivo existir,
+a criação posterior do part não alterava nenhum fingerprint guardado. Uma busca
+aquecida continuava omitindo as declarações, mesmo quando uma análise do zero
+já as encontrava. A regressão unitária reproduziu a diferença antes da correção.
+
+`Fingerprint::Missing` agora registra também as tentativas de leitura sem
+arquivo disponível, inclusive os parts. A passagem de ausente para texto aberto
+ou arquivo em disco invalida a biblioteca; o fechamento do texto e a remoção do
+arquivo também entram na comparação. Arquivos existentes que não puderam ser
+lidos voltam a ser tentados nas buscas que revalidam o disco.
+
+O novo `workspace_symbol_parts.py` mantém o texto da biblioteca dona inalterado.
+As nove fases são: part ausente, repetição, abertura de um part ainda inexistente
+no disco, fechamento desse buffer, criação, edição, remoção, recriação e
+fechamento do último documento. Cada fase faz três consultas. Elas verificam
+classes, construtores nomeados, campos, métodos, contêineres e intervalos, sem
+reduzir as respostas a nomes nem normalizar as URIs.
+
+| Cenário | Antes (`cbc70021`) | Depois |
+| --- | ---: | ---: |
+| Com watcher | 15/27 | 27/27 |
+| Sem watcher | 15/27 | 27/27 |
+| Cache Dart frio, com watcher | não repetido antes | 27/27 |
+
+As respostas do Dart foram idênticas nas cinco execuções, e os três resultados
+finais do DartForge também coincidiram integralmente. As 12 falhas de cada
+baseline eram nas fases de abertura em memória, criação, edição e recriação.
+O cache frio acima é o dessa fixture pequena, não uma dupla fria dos projetos
+grandes.
+
+A validação da biblioteca também passou a ser compartilhada entre as etapas
+de uma mesma busca. Cada entrada guarda o número do pedido em que foi conferida;
+a próxima busca usa outro número e volta a verificar os fingerprints quando o
+disco não é confiável. O marcador tem tamanho fixo, sem coleção de caminhos por
+pedido nem histórico crescente. Ao atingir o limite do contador, os marcadores
+são zerados antes de reutilizar seu número inicial. Outra regressão força esse
+limite, edita o disco e exige a resposta completa de uma análise do zero.
+As consultas aos textos abertos também usam a chave normalizada emprestada,
+sem copiá-la apenas para procurar no mapa. Isso não muda o prazo de confiança
+do watcher nem dispensa a checagem dos overlays.
+
+Passaram **331 testes do LSP, zero falhas e zero ignorados**, os **11 testes
+Python**, formatação, clippy do workspace sem avisos e documentação estrita.
+Logs finais: `/tmp/dartforge-symbol-validation-counter-{tests,python,clippy,doc}.log`.
+O teste falhando antes está em `/tmp/dartforge-symbol-part-before-test.log`;
+as respostas estão em `/tmp/dartforge-symbol-parts-{before,before-unwatched,after,after-unwatched,after-cold}.jsonl`.
+O binário anterior preservado é `/tmp/dartforge-symbol-perf-after`, do commit
+`cbc70021`; o novo é `/tmp/dartforge-symbol-validation-counter`.
+
+```sh
+python3 crates/lsp/oracle/workspace_symbol_parts.py \
+  /tmp/parts.jsonl target/release/dartforge-lsp --fixture /tmp/parts-fixture
+python3 crates/lsp/oracle/workspace_symbol_parts.py \
+  /tmp/parts-unwatched.jsonl target/release/dartforge-lsp \
+  --fixture /tmp/parts-fixture --without-watcher
+```
+
+Configure `ORACLE_DART` e `ORACLE_SDK_LIB` para o SDK 3.6.2. A fixture deve estar
+vazia ou ter sido criada por esse oráculo; ele só reutiliza diretórios com seu
+marcador de propriedade. `ORACLE_DART_CACHE` permite isolar a repetição fria.
+O driver de desempenho agora aceita `--with-watcher` e registra `watchedFiles`
+na inicialização; sem a opção, conserva o protocolo anterior.
+
+**Desempenho sem watcher:** três sessões por servidor/projeto, nas mesmas
+condições da etapa anterior, alternaram o baseline `cbc70021`, o novo binário e
+o Dart. As 27 sessões deram **216/216 respostas completas iguais em cada uma
+das três comparações**. As medianas quentes abaixo usam 48 pedidos por célula;
+os valores são **latência / CPU da árvore, em ms**:
+
+| Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | ---: | ---: | ---: |
+| `limitless_ui` | 381,6 / 381,1 | 366,8 / 366,4 | 16,0 / 20,6 |
+| core | 155,1 / 154,6 | 145,1 / 144,7 | 12,8 / 13,2 |
+| frontend | 607,5 / 606,9 | 590,2 / 589,3 | 18,5 / 25,8 |
+
+A redução foi de aproximadamente **4%, 6% e 3%**, respectivamente. A melhora
+é pequena e os três projetos continuam perdendo do Dart nesse cenário. A
+primeira busca e o footprint final também foram registrados (medianas de três
+sessões, antes / depois / Dart):
+
+| Projeto | Primeira busca (ms) | Footprint final (MiB) |
+| --- | ---: | ---: |
+| `limitless_ui` | 1.548 / 1.525 / 727 | 137,5 / 138,4 / 666,1 |
+| core | 962 / 954 / 529 | 125,3 / 126,3 / 499,5 |
+| frontend | 2.003 / 1.985 / 581 | 585,0 / 585,8 / 709,6 |
+
+Não há ganho de memória nessa matriz: a mediana subiu cerca de 0,8–1,0 MiB,
+ainda abaixo do Dart. O marcador e os estados ausentes têm custo fixo por
+entrada; a ausência de histórico não prova, por si só, o platô no projeto real.
+As amostras finais continuam sendo de sessões curtas, sem ondas de gerados.
+Artefatos: `/tmp/dartforge-symbol-validation-matrix-{limitless,core,frontend}-{before,after,dart}-{0,1,2}.jsonl`
+e `/tmp/dartforge-symbol-validation-{matrix,summary}.log`. O novo binário tem
+SHA-256 `930d86309eaf81fcd093f056a3a4f604506dbe334a146302f7b4e5a2882666b7`.
+
+**Com watcher:** outras 27 sessões repetiram a rotação com `--with-watcher`,
+também dando **216/216 respostas completas iguais em cada comparação**. As
+medianas quentes (latência / CPU da árvore, ms) foram:
+
+| Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | ---: | ---: | ---: |
+| `limitless_ui` | 12,0 / 11,6 | 12,2 / 11,7 | 16,4 / 18,2 |
+| core | 9,4 / 8,9 | 9,1 / 8,7 | 12,8 / 13,0 |
+| frontend | 12,7 / 12,2 | 12,7 / 12,2 | 18,2 / 23,2 |
+
+As variações são pequenas e não demonstram ganho geral nesse modo: a latência
+mediana do `limitless_ui` subiu 0,2 ms, enquanto as medianas de suas sessões
+individuais tiveram faixas sobrepostas (11,88–12,19 antes; 11,67–12,58 depois).
+Os pedidos quentes continuam menores que o Dart em latência e CPU nos três
+projetos, comportamento que o baseline já tinha. A construção inicial continua
+mais lenta que a referência:
+
+| Projeto | Primeira busca: antes / depois / Dart (ms) | Footprint final: antes / depois / Dart (MiB) |
+| --- | ---: | ---: |
+| `limitless_ui` | 1.544 / 1.517 / 729 | 136,3 / 137,1 / 673,1 |
+| core | 951 / 950 / 528 | 124,3 / 125,7 / 506,0 |
+| frontend | 1.998 / 1.981 / 580 | 584,7 / 584,0 / 708,6 |
+
+Essa segunda matriz também não estabelece redução de memória: o core subiu
+1,4 MiB na mediana final. As duas capacidades do cliente ficam separadas nos
+resultados; os números quentes com watcher não substituem a revalidação sem
+watcher, a primeira busca ou a sessão longa. Nenhuma das matrizes substitui os
+resultados antigos de 21/24 nem fecha a dupla fria dos projetos grandes.
+As 54 sessões terminaram sem compilações, testes ou amostragem de perfil
+concorrentes. Seus manifestos anteriores/posteriores são idênticos aos da
+etapa anterior, com os mesmos 9.761, 6.640 e 10.894 arquivos e nenhuma raiz
+ausente.
+
+Após as medições, os **270/270 controles completos** foram repetidos:
+112 do ciclo de vida, 48 dos catálogos, 44 das URIs e sombras, 16 condicionais,
+18 de capacidade e 32 dos projetos pequenos. Somam-se aos **81/81** da nova
+fixture de parts, sem tratá-los como cobertura de todas as edições reais.
+Arquivos em `/tmp/dartforge-symbol-validation-control-*.jsonl` e
+`/tmp/dartforge-symbol-validation-controls.log`. A matriz com watcher está em
+`/tmp/dartforge-symbol-validation-watched-matrix-{limitless,core,frontend}-{before,after,dart}-{0,1,2}.jsonl`,
+com resumo `/tmp/dartforge-symbol-validation-watched-summary.log`;
+os manifestos são `/tmp/dartforge-symbol-validation-{limitless,core,frontend}-inputs-{before,after}.json`.
+
+Um novo perfil, coletado depois dos controles e excluído das medianas, ainda
+mostra a resolução dos imports comparando repetidamente prefixos de caminhos
+e conferindo suas chaves normalizadas. Esse percurso e as enumerações do disco
+continuam sendo alvos para as buscas sem watcher. Perfil em
+`/tmp/dartforge-symbol-validation-profile.txt`; seu JSONL tem `profiled: true`.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da
