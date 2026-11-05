@@ -61,14 +61,17 @@ instável de `references` logo depois de uma edição.
    permanecem registrados em `docs/LSP.md`. Reutilização de escopos e
    compactação das chaves foram medidas e retiradas por custos de memória/CPU.
 
-   **Próximos passos e limites:** integrar a correção isolada do medidor
-   (nove testes com processos reais passaram).
-   Ela recusa resultados antigos após falha, continua as sessões após erro de
-   lançamento e acusa relatórios incompletos, mantendo a seleção parcial explícita.
+   **Medidor corrigido após o gate:** recusa resultados antigos após falha,
+   continua as sessões após erro de lançamento e acusa relatórios incompletos,
+   mantendo a seleção parcial explícita. Os 21 testes Python passaram,
+   incluindo dez do medidor; os relatórios das 36 sessões válidas já coletadas
+   ficaram idênticos aos anteriores. Essa etapa não alterou as fontes Rust.
+
+   **Próximos passos e limites:** medir tempo e CPU por consulta após API.
    As sessões funcionais com consultas após API continuam custosas: o frontend
    levou 134,24 s e pico total de 1.840,77 MiB, contra 17,89 s e 754,91 MiB do Dart.
-   É uma sessão por servidor, separada da matriz acima; falta medir tempo e CPU
-   por consulta para localizar esse custo. Também seguem pendentes identidade
+   É uma sessão por servidor, separada da matriz acima; ainda falta localizar
+   esse custo. Também seguem pendentes identidade
    geral de elementos, parts, preservação de slots removidos e mudanças de assinatura,
    `OutlineTypes` por biblioteca e reanálise apenas dos outlines dependentes.
    Sessões longas e Windows precisam de nova rodada. Implementação, matrizes,

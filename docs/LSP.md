@@ -5809,12 +5809,12 @@ repetir uma sessão, publica o novo JSON somente após validar a saída e devolv
 falha quando o driver falha ou não produz um resultado válido. Passaram seis
 testes de CLI com processos reais, sem SDK, em
 `/tmp/test_dartforge_editing_compare_draft.py`, com log em
-`/tmp/dartforge-editing-compare-draft-tests.log`. Essa versão ainda está fora
-do repositório: sua integração fica para depois do gate atual, preservando
-a janela de fontes estáveis da implementação Rust.
+`/tmp/dartforge-editing-compare-draft-tests.log`. Essa versão ficou fora
+do repositório durante o gate, preservando a janela de fontes estáveis
+da implementação Rust; a integração posterior está registrada abaixo.
 
 A preparação da integração ampliou o rascunho em
-`/tmp/dartforge-editing-compare-portable/`, ainda fora do repositório.
+`/tmp/dartforge-editing-compare-portable/`, mantido fora do repositório durante o gate.
 Nove testes agora chamam o fluxo principal e executam o driver de teste em
 processos reais pelo interpretador Python, sem shebang ou permissões de
 execução específicas do Unix. As leituras de carga e uptime são substituídas
@@ -5833,6 +5833,25 @@ edições). Os relatórios ficaram idênticos, byte a byte, aos da ferramenta
 atual, com saída zero e sem stderr; não foram iniciados servidores nem novas
 medições. Hashes e contagens em
 `/tmp/dartforge-editing-compare-real-reports.json`.
+
+**Medidor integrado após a validação ampla.** O reparo de slots e ordem foi
+registrado na `main` em `228a9f3e`, com árvore limpa e os hashes das 1.963
+fontes ainda iguais aos do gate. O vínculo entre commit, estado final e
+snapshot está em `/tmp/dartforge-named-slots-prune-commit-audit.json`.
+Só depois foram integrados o reparo de `editing_compare.py` e os testes em
+`crates/lsp/oracle/test_editing_compare.py`. Além dos nove casos do rascunho,
+um décimo testa o relatório de JSON salvo inválido, tanto sintaticamente
+como pela falta dos campos obrigatórios.
+
+Passaram os **21 testes Python** do diretório do oráculo (dez do medidor e
+11 de protocolo), com log em `/tmp/dartforge-editing-compare-integrated-tests.log`.
+O CLI integrado reproduziu os mesmos relatórios, byte a byte, para as nove
+sessões funcionais e as 27 da matriz anterior, sem iniciar servidores.
+Um conjunto incompleto deu saída 1 pelo CLI real. Hashes e resultados em
+`/tmp/dartforge-editing-compare-integrated-reports.json`.
+Essa etapa altera Python e documentação, sem mudar as fontes Rust validadas
+no gate de `228a9f3e`. A validação foi feita no macOS; os testes evitam
+shebang e permissões Unix, mas não constituem execução no Windows.
 
 Uma auditoria independente do limite de poda compilou o módulo atual de
 ordem, sem alterar o repositório, e enumerou 874 permutações, suas composições
