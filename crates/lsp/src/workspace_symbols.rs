@@ -299,8 +299,8 @@ enum Signature {
 struct Declaration {
     name: String,
     kind: Kind,
-    /// `className ?? mixinName`.
-    container: Option<String>,
+    /// `className ?? mixinName`, shared by the containing declaration's members.
+    container: Option<Arc<str>>,
     signature: Signature,
     /// The code range in LSP positions of the file.
     start: (u32, u32),
@@ -726,7 +726,7 @@ impl Read<'_> {
         &self,
         name: String,
         kind: Kind,
-        container: Option<String>,
+        container: Option<Arc<str>>,
         signature: Signature,
         start: usize,
         end: usize,
@@ -790,14 +790,13 @@ impl Collector<'_, '_> {
     fn members(
         &mut self,
         members: &[ast::MemberId],
-        container: Option<&str>,
+        container: Option<Arc<str>>,
         constructors: bool,
         first_fields: Vec<Declaration>,
         first_constructors: Vec<Declaration>,
     ) {
         let l = self.l;
         let ast = l.ast;
-        let container = container.map(str::to_string);
         let mut accessors = Vec::new();
         let mut ctors = first_constructors;
         let mut fields = first_fields;
@@ -956,7 +955,13 @@ impl Collector<'_, '_> {
                         start,
                         d.span.end,
                     ));
-                    self.members(&c.members, Some(&name), true, Vec::new(), Vec::new());
+                    self.members(
+                        &c.members,
+                        Some(Arc::from(name.as_str())),
+                        true,
+                        Vec::new(),
+                        Vec::new(),
+                    );
                 }
                 DeclKind::Enum(e) => {
                     let name = l.name(e.name);
@@ -1000,7 +1005,13 @@ impl Collector<'_, '_> {
                         start,
                         d.span.end,
                     ));
-                    self.members(&m.members, Some(&name), true, Vec::new(), Vec::new());
+                    self.members(
+                        &m.members,
+                        Some(Arc::from(name.as_str())),
+                        true,
+                        Vec::new(),
+                        Vec::new(),
+                    );
                 }
                 _ => {}
             }
@@ -1044,6 +1055,7 @@ impl Collector<'_, '_> {
             ));
             // The representation field and the primary constructor
             // (`_builtRepresentationDeclaration`) come before the declared ones.
+            let container: Arc<str> = Arc::from(name.as_str());
             let field_name_ = Some(l.name(x.representation_name))
                 .filter(|n| !n.is_empty())
                 .unwrap_or_else(|| "<empty>".to_string());
@@ -1055,7 +1067,7 @@ impl Collector<'_, '_> {
             let field = l.declaration(
                 field_name_,
                 Kind::Field,
-                Some(name.clone()),
+                Some(container.clone()),
                 Signature::None,
                 field_start,
                 x.representation_name.span.end,
@@ -1077,12 +1089,12 @@ impl Collector<'_, '_> {
             let ctor = l.declaration(
                 ctor_name,
                 Kind::Constructor,
-                Some(name.clone()),
+                Some(container.clone()),
                 Signature::List { empty: false },
                 ctor_start,
                 x.representation_span.end,
             );
-            self.members(&x.members, Some(&name), true, vec![field], vec![ctor]);
+            self.members(&x.members, Some(container), true, vec![field], vec![ctor]);
         }
         for did in functions {
             let d = ast.decl(did);
@@ -1866,6 +1878,64 @@ mod tests {
             .iter()
             .filter_map(|s| s["name"].as_str().map(str::to_owned))
             .collect()
+    }
+
+    #[test]
+    fn shared_container_names_follow_library_replacement() {
+        let root = fixture("container-names");
+        let path = root.join("entry.dart");
+        let source = "class ContainerAlpha { ContainerAlpha.memberCtor(); int memberField = 0; int get memberGetter => 0; set memberSetter(int value) {} void memberMethod() {} } class ContainerBeta { int memberField = 1; } extension type ContainerWrapper(int memberRepresentation) { void memberMethod() {} }";
+        std::fs::write(&path, source).unwrap();
+        let added = [path.clone()];
+        let contexts = [Context::default()];
+        let mut open = HashMap::new();
+        let mut index = Index::default();
+        let before = index.search("member", &added, &[], None, &contexts, &open, None, false);
+        let previous = {
+            let library = index.entries[&path].library.as_ref().unwrap();
+            let declarations = &library.units[0].declarations;
+            for name in ["ContainerAlpha", "ContainerWrapper"] {
+                let names: Vec<_> = declarations
+                    .iter()
+                    .filter_map(|d| d.container.as_ref())
+                    .filter(|c| c.as_ref() == name)
+                    .collect();
+                assert!(names.len() > 1);
+                assert!(names.iter().all(|c| Arc::ptr_eq(c, names[0])));
+            }
+            let name = declarations
+                .iter()
+                .filter_map(|d| d.container.as_ref())
+                .find(|c| c.as_ref() == "ContainerAlpha")
+                .unwrap();
+            Arc::downgrade(name)
+        };
+        let uri = url::Url::from_file_path(&path).unwrap().to_string();
+        open.insert(
+            path.clone(),
+            (uri, source.replace("ContainerAlpha", "ContainerRenamed")),
+        );
+        let after = index.search("member", &added, &added, None, &contexts, &open, None, true);
+        assert!(
+            after
+                .iter()
+                .any(|s| s["containerName"] == "ContainerRenamed")
+        );
+        assert!(!after.iter().any(|s| s["containerName"] == "ContainerAlpha"));
+        assert!(
+            before
+                .iter()
+                .any(|s| s["containerName"] == "ContainerAlpha")
+        );
+        assert!(
+            previous.upgrade().is_none(),
+            "the replaced container remained retained"
+        );
+        assert_eq!(
+            after,
+            Index::default().search("member", &added, &added, None, &contexts, &open, None, true)
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

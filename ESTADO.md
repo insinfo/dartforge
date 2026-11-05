@@ -331,7 +331,32 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   cada servidor idênticos entre estados. São 12 sessões adicionais com preparação
   explícita, separadas das tabelas de desempenho e das reprovações do legado.
   Detalhes e medições em `docs/LSP.md`.
-- **Regressões do servidor:** **336 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
+- **Extração paralela avaliada e retirada (05/11):** o protótipo antecipou os
+  metadados com até quatro trabalhadores na primeira busca, mantendo a
+  descoberta sequencial. As **54 sessões** preservaram **216/216 respostas
+  completas em cada comparação de cada matriz**, e a primeira resposta caiu
+  **27–37%**. Entretanto, a CPU inicial subiu **8–11%** e o footprint aumentou
+  **1,0–9,1 MiB** em todas as células. No core, a latência venceu o Dart, mas a
+  CPU passou de menor para maior que a dele. O código paralelo foi retirado;
+  os artefatos e a comparação de metadados em 17.645 arquivos ficaram registrados
+  em `docs/LSP.md`. O oráculo de parts com 320 arquivos adicionais foi mantido,
+  verificando **36/36 com e 36/36 sem watcher**, inclusive a ordem dos 320 símbolos.
+- **Nomes de contêiner compartilhados (05/11):** os membros de cada classe,
+  mixin ou extension type passam a compartilhar seu texto imutável de
+  `containerName`. Uma regressão verifica o compartilhamento, a atualização após
+  edição, a igualdade com um índice novo e a liberação da cadeia antiga. A
+  indexação continua sequencial. Passaram **337 testes do LSP**, **450/450**
+  controles completos com o Dart, 11 testes Python, clippy do workspace,
+  documentação estrita e formatação. A comparação entre parsers manteve os
+  metadados integrais iguais nos 17.645 arquivos do corpus. Nas **54 sessões
+  revezadas**, cada matriz manteve **216/216 respostas completas iguais em cada
+  comparação**. O footprint final do frontend caiu **8,1 / 7,8 MiB** e o do
+  `limitless_ui`, **2,5 / 1,5 MiB**, nos modos sem/com watcher. O core subiu
+  **1,0 / 1,2 MiB**. A primeira busca melhorou pouco sem watcher e não teve
+  ganho geral com watcher; continua mais lenta que o Dart. As buscas quentes
+  ficaram próximas do baseline, com +1,1 ms no frontend sem watcher. Manifestos
+  idênticos antes/depois, sem raízes ausentes. Detalhes e medições em `docs/LSP.md`.
+- **Regressões do servidor:** **337 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
   raízes numa regressão nova, duas regressões de descoberta e listas de resposta e
   quatro de URIs, normalização e fontes sombreadas, além das duas novas de criação

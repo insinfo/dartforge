@@ -2,6 +2,7 @@
 
 Usage: ORACLE_DART=... ORACLE_SDK_LIB=... python3 workspace_symbol_parts.py
        <output.jsonl> <dartforge-lsp> [--without-watcher] [--fixture <path>]
+       [--padding-files N]
 
 The owner's text never changes. The part is opened before it exists on disk,
 closed, created, edited, deleted and recreated. Full ordered JSON differences
@@ -19,11 +20,21 @@ import time
 from oracle import CAPABILITIES, DART, DART_CACHE, SDK_LIB, Lsp, settle_initial_analysis
 
 
-def run(output, binary, fixture, watch_files):
+def run(output, binary, fixture, watch_files, padding_files):
     root = fixture / "workspace"
     anchor = root / "lib/owner.dart"
     part = root / "lib/generated.g.dart"
     anchor.parent.mkdir(parents=True, exist_ok=True)
+    padding = anchor.parent / "oracle_padding"
+    expected = {f"unit_{i:04}.dart" for i in range(padding_files)}
+    existing = {p.name for p in padding.glob("*.dart")}
+    if existing - expected:
+        raise RuntimeError("fixture has more padding files than requested; use a new fixture")
+    if padding_files:
+        padding.mkdir(exist_ok=True)
+    for i in range(padding_files):
+        (padding / f"unit_{i:04}.dart").write_text(
+            f"class OraclePaddingProbe{i} {{ int marker() => {i}; }}\n", encoding="utf-8")
     part.unlink(missing_ok=True)
     source = "part 'generated.g.dart'; class PartRefreshProbeOwner {}\n"
     anchor.write_text(source, encoding="utf-8")
@@ -55,9 +66,12 @@ def run(output, binary, fixture, watch_files):
 
     def record(phase, revision=None, closed=False):
         nonlocal total, mismatches
-        for index, query in enumerate(("PartRefreshProbe", "PartRefreshProbeGenerated", "PartRefreshProbe")):
+        queries = ("PartRefreshProbe", "PartRefreshProbeGenerated", "PartRefreshProbe")
+        if padding_files:
+            queries += ("OraclePaddingProbe",)
+        for index, query in enumerate(queries):
             row = {"project": "symbol_parts", "phase": phase, "method": "workspace/symbol",
-                   "pos": f"{index}:{query}", "watchedFiles": watch_files}
+                   "pos": f"{index}:{query}", "watchedFiles": watch_files, "paddingFiles": padding_files}
             for server in servers:
                 row[server.name], _ = server.request("workspace/symbol", {"query": query})
                 if not isinstance(row[server.name], list):
@@ -71,9 +85,11 @@ def run(output, binary, fixture, watch_files):
             generated = f"PartRefreshProbeGenerated{revision}" if revision else None
             if closed:
                 assert not names, names
+            elif query == "OraclePaddingProbe":
+                assert len(names) == min(padding_files, 500), names
             elif index != 1:
                 assert "PartRefreshProbeOwner" in names, names
-            if generated:
+            if generated and query != "OraclePaddingProbe":
                 assert generated in names, names
             else:
                 assert not any(n.startswith("PartRefreshProbeGenerated") for n in names), names
@@ -145,7 +161,10 @@ def main():
     parser.add_argument("binary")
     parser.add_argument("--without-watcher", action="store_true")
     parser.add_argument("--fixture", type=Path)
+    parser.add_argument("--padding-files", type=int, default=0)
     args = parser.parse_args()
+    if args.padding_files < 0:
+        parser.error("--padding-files must be nonnegative")
 
     def execute(fixture):
         fixture.mkdir(parents=True, exist_ok=True)
@@ -157,7 +176,7 @@ def main():
             raise RuntimeError(f"fixture must be empty or oracle-owned: {fixture}")
         marker.write_text(json.dumps({"version": 1}), encoding="utf-8")
         with args.output.open("w", encoding="utf-8") as output:
-            return run(output, os.path.abspath(args.binary), fixture, not args.without_watcher)
+            return run(output, os.path.abspath(args.binary), fixture, not args.without_watcher, args.padding_files)
 
     if args.fixture:
         return execute(args.fixture.resolve())

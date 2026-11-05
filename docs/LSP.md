@@ -4757,6 +4757,237 @@ Essa dupla usa preparação explícita e não transforma as reprovações anteri
 do protocolo legado em aprovações. As edições nos projetos grandes, a primeira
 busca e a sessão longa continuam exigindo trabalho.
 
+### Experimento retirado: antecipar a extração dos metadados em paralelo (05/11)
+
+**Não integrado ao código principal.** As matrizes mantiveram as respostas,
+mas aumentaram a CPU inicial e o footprint final. O protótipo foi retirado,
+incluindo sua regressão específica e a expansão de comparação com metadados
+antecipados; o oráculo de parts com arquivos adicionais foi mantido.
+
+Na primeira busca, o índice lê declarações de milhares de bibliotecas de forma
+sequencial. Os diagnósticos iniciais são produzidos em outro processo e cobrem
+as bibliotecas alcançadas pelos arquivos analisados; não fornecem ao despachante
+os metadados do restante do catálogo. O experimento separou a extração dos
+metadados da descoberta: preparou bibliotecas independentes antes das duas
+travessias, preservando a escolha de donos de URI e a ordem da resposta no
+fluxo sequencial.
+
+O lote usa no máximo **quatro trabalhadores, incluindo o despachante**, apenas
+com pelo menos 256 arquivos ainda não indexados e somente na construção inicial
+do índice. Com um único processador disponível, o caminho continua sequencial;
+se uma thread auxiliar não puder ser criada, os trabalhadores restantes,
+incluindo o despachante, terminam o lote. As threads têm a mesma reserva de
+pilha do parser no despachante, para os inicializadores gerados profundos, e
+são encerradas antes de retornar do lote. Não há fila ou pool persistente.
+
+Os trabalhadores leem a mesma fotografia dos documentos abertos, usam o coletor
+de outlines já existente e entregam somente os metadados e as impressões
+digitais. A descoberta continua resolvendo imports e exports em sua ordem
+original. Ao terminar a primeira resposta, os metadados antecipados que nenhuma
+das travessias ou documentos prioritários usou são descartados. As buscas
+seguintes continuam pelo caminho normal de validação e cache.
+
+Uma regressão compara os metadados integrais antecipados com a indexação
+sequencial de 320 unidades, incluindo aliases, parts compartilhadas, texto
+malformado, Unicode, URI do cliente, arquivo ausente e caminho repetido. A
+expansão opcional do corpus comparou **17.645 arquivos Dart únicos** entre a
+leitura completa, outlines e metadados antecipados: todos iguais. Continua
+sendo uma expansão de um teste, não 17.645 testes nem prova isolada de paridade
+com o servidor oficial. Log em `/tmp/dartforge-symbol-prefetch-corpus.log`.
+
+O oráculo de parts ganhou `--padding-files N`: com 320 arquivos adicionais,
+inclui uma consulta dos 320 símbolos para conferir sua ordem integral durante
+abertura, criação, edição, remoção, recriação e fechamento do part. Passaram
+**36/36 com e 36/36 sem watcher**, com respostas do Dart idênticas no baseline
+e no experimento nos mesmos caminhos. O binário final foi repetido nos dois
+modos. O oráculo conserva suas 27 consultas padrão quando a opção não é usada.
+Artefatos em `/tmp/dartforge-symbol-prefetch-final-padded-parts{,-unwatched}.jsonl`;
+baseline em `/tmp/dartforge-symbol-prefetch-parts-before.jsonl` e
+`/tmp/dartforge-symbol-prefetch-padded-parts-before-unwatched.jsonl`.
+
+Antes das medições, passaram **337 testes do LSP**, sem falhas ou ignorados,
+os **11 testes Python**, clippy do workspace sem avisos, documentação estrita e
+formatação. Os controles mantiveram **450/450 respostas completas iguais ao
+Dart**: 378 anteriores e as 72 dos parts com arquivos adicionais. O workspace
+inteiro e a suíte nativa não foram repetidos nesta etapa. Logs em
+`/tmp/dartforge-symbol-prefetch-{tests,clippy,doc,python,controls}.log` e respostas
+em `/tmp/dartforge-symbol-prefetch-control-*.jsonl`,
+`/tmp/dartforge-symbol-prefetch-aliases{,-unwatched}.jsonl` e
+`/tmp/dartforge-symbol-prefetch-parts{,-unwatched}.jsonl`.
+
+O baseline é `d79cce98`, em `/tmp/dartforge-symbol-prefetch-before`, SHA-256
+iniciado em `05ab494ee0b1`; o experimento está em
+`/tmp/dartforge-symbol-prefetch-final` (também copiado para `-after`), SHA-256
+`25ff43d8fba9fe049fe757bd5ad53235e2a3b7869aa912e9eed9c584f6c61e5e`.
+O ensaio inicial do frontend, antes de limitar a retenção ao trabalho usado,
+mediu primeira resposta **2.012,9 → 996,8 ms**, CPU **1.451,4 → 1.467,9 ms**,
+mediana quente **181,1 → 191,2 ms** e footprint final **570,3 → 587,5 MiB**.
+Com o descarte, uma nova dupla mediu **1.626,3 → 974,1 ms**, CPU **1.404,2 →
+1.446,1 ms**, mediana quente **181,4 → 183,6 ms** e footprint **581,4 → 586,8 MiB**.
+O tempo fora da CPU do baseline varia; a diferença de latência não deve ser
+atribuída integralmente ao paralelismo. As duas duplas mantiveram **24/24**
+respostas iguais antes/depois; são diagnósticas e não entram nas medianas das
+matrizes revezadas. Artefatos em `/tmp/dartforge-symbol-prefetch-{quick,pruned}-{before,after}.jsonl`.
+
+As **54 sessões revezadas** mantiveram **216/216 respostas completas iguais em
+cada comparação** antes/depois, antes/Dart e depois/Dart, tanto com quanto
+sem watcher. Manifestos idênticos, com 9.761 / 6.640 / 10.894 arquivos e nenhuma
+raiz ausente. Compilações, testes e comparação do corpus terminaram antes das
+medições; preparação com documento resolvido e dez segundos extras de ociosidade.
+
+**Primeira busca do experimento**, medianas de três sessões, latência / CPU da
+árvore em ms:
+
+| Cliente | Projeto | Antes | Experimento retirado | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 1.110,5 / 1.109,6 | 709,4 / 1.213,1 | 708,9 / 953,3 |
+| Sem watcher | core | 745,2 / 744,5 | 468,7 / 817,1 | 511,6 / 758,2 |
+| Sem watcher | frontend | 1.357,4 / 1.356,5 | 987,6 / 1.461,8 | 568,7 / 735,7 |
+| Com watcher | `limitless_ui` | 1.116,8 / 1.115,9 | 709,2 / 1.211,1 | 697,6 / 948,5 |
+| Com watcher | core | 747,5 / 746,6 | 475,5 / 826,8 | 516,3 / 763,9 |
+| Com watcher | frontend | 1.347,2 / 1.346,3 | 981,2 / 1.457,6 | 558,9 / 726,0 |
+
+A latência caiu **27–37%**, mas a CPU subiu **8–11%**. No core, a primeira
+resposta ficou mais rápida que a do Dart, enquanto a CPU passou de menor para
+maior que a dele. Esse resultado não atende ao objetivo conjunto de latência,
+CPU e memória.
+
+**Buscas quentes**, medianas de 48 pedidos por célula, nas mesmas unidades:
+
+| Cliente | Projeto | Antes | Experimento retirado | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 151,5 / 150,9 | 150,7 / 150,2 | 17,4 / 20,0 |
+| Sem watcher | core | 60,8 / 60,3 | 61,1 / 60,7 | 12,8 / 13,1 |
+| Sem watcher | frontend | 185,5 / 185,0 | 187,1 / 186,7 | 18,1 / 25,6 |
+| Com watcher | `limitless_ui` | 11,7 / 11,2 | 11,5 / 11,1 | 16,1 / 17,6 |
+| Com watcher | core | 9,1 / 8,7 | 8,9 / 8,5 | 12,8 / 12,9 |
+| Com watcher | frontend | 12,6 / 12,2 | 12,3 / 11,9 | 18,1 / 22,4 |
+
+**Footprint final**, medianas em MiB:
+
+| Cliente | Projeto | Antes | Experimento retirado | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 134,3 | 141,1 | 672,4 |
+| Sem watcher | core | 124,3 | 129,0 | 506,8 |
+| Sem watcher | frontend | 585,3 | 586,3 | 706,6 |
+| Com watcher | `limitless_ui` | 134,2 | 143,3 | 673,6 |
+| Com watcher | core | 123,5 | 127,7 | 503,4 |
+| Com watcher | frontend | 583,7 | 586,4 | 708,6 |
+
+O footprint subiu em todas as células, entre **1,0 e 9,1 MiB**. As amostras
+finais não incluem o pico simultâneo dos trabalhadores durante a construção.
+O experimento não virou opção ou caminho padrão do servidor. Código preservado
+em `/tmp/dartforge-symbol-prefetch-source-final.{rs,patch}` e binário no caminho
+e SHA acima; respostas em
+`/tmp/dartforge-symbol-prefetch-{matrix,watched-matrix}-{limitless,core,frontend}-{before,after,dart}-{0,1,2}.jsonl`,
+resumos `/tmp/dartforge-symbol-prefetch-{summary,watched-summary}.log` e manifestos
+`/tmp/dartforge-symbol-prefetch-{limitless,core,frontend}-inputs-{before,after}.json`.
+
+### Continuação: compartilhar o nome do contêiner entre seus membros (05/11)
+
+Cada campo, método, construtor e acessor conservava uma cópia própria do nome
+da classe ou do mixin em `containerName`. O índice agora guarda uma única
+cadeia imutável compartilhada pelos membros da declaração. Os campos e o
+construtor primário dos extension types participam do mesmo compartilhamento.
+O texto pertence aos metadados da biblioteca e sai quando sua última referência
+é descartada; não há tabela global de nomes ou histórico de versões.
+
+A representação interna passou de `Option<String>` para `Option<Arc<str>>`.
+Isso também reduz o espaço do campo em cada declaração, inclusive quando
+ausente. A resposta JSON continua contendo o mesmo texto de `containerName`.
+Uma regressão verifica o compartilhamento dentro da classe e do extension type,
+a substituição do nome após uma edição, a igualdade com um índice novo e a
+liberação da cadeia antiga por referência fraca. A resposta anterior permanece
+com seu texto original.
+
+O oráculo de parts ampliado no experimento anterior foi mantido. Com
+`--padding-files 320`, passaram **36/36 com e 36/36 sem watcher** na versão
+sequencial com nomes compartilhados. Somados aos 378 controles anteriores,
+foram **450/450 respostas completas iguais ao Dart**. Passaram **337 testes
+do LSP, zero falhas e zero ignorados**, **11 testes Python**, clippy do workspace
+sem avisos, documentação estrita e formatação. A expansão da comparação entre
+parsers manteve metadados iguais em **17.645 arquivos Dart únicos**, sem contar
+cada arquivo como um teste. O teste de comparação com a extração paralela não
+integra esta versão. O workspace inteiro e a suíte nativa não foram repetidos.
+
+Logs em `/tmp/dartforge-symbol-container-{unit,tests,clippy,doc,python,corpus,controls}.log`;
+respostas em `/tmp/dartforge-symbol-container-control-*.jsonl`,
+`/tmp/dartforge-symbol-container-aliases{,-unwatched}.jsonl`,
+`/tmp/dartforge-symbol-container-parts{,-unwatched}.jsonl` e
+`/tmp/dartforge-symbol-container-padded-parts{,-unwatched}.jsonl`.
+O baseline continua `d79cce98`, preservado em `/tmp/dartforge-symbol-container-before`,
+SHA-256 iniciado em `05ab494ee0b1`; o novo binário está em
+`/tmp/dartforge-symbol-container-after`, SHA-256
+`bd326c1bf6655146d423983721efeb6d20a9770f2d61e106c1b4340fe0f1c549`.
+
+No ensaio preliminar do frontend, a primeira busca passou de **1.385,0 para
+1.352,5 ms**, CPU **1.384,0 → 1.351,6 ms**, mediana quente **185,8 → 185,8 ms**
+e footprint final **582,7 → 570,8 MiB**. As **24/24 respostas completas** foram
+iguais antes/depois. É uma sessão por versão, sem Dart pareado; esses tempos
+ficam fora das matrizes revezadas. Artefatos em
+`/tmp/dartforge-symbol-container-quick-{before,after}.jsonl`.
+
+As **54 sessões revezadas** mantiveram **216/216 respostas completas iguais em
+cada comparação** antes/depois, antes/Dart e depois/Dart nos dois modos de
+watcher. Projetos, SDK 3.6.2, caches, documento de preparação e dez segundos
+extras de ociosidade foram mantidos. Compilações e testes terminaram antes
+das medições. Manifestos idênticos antes/depois, com 9.761 / 6.640 / 10.894
+arquivos e nenhuma raiz ausente.
+
+**Footprint final**, medianas de três sessões em MiB:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 134,7 | 132,2 | 673,3 |
+| Sem watcher | core | 123,8 | 124,8 | 499,6 |
+| Sem watcher | frontend | 583,4 | 575,3 | 705,5 |
+| Com watcher | `limitless_ui` | 133,8 | 132,3 | 673,8 |
+| Com watcher | core | 123,2 | 124,4 | 505,6 |
+| Com watcher | frontend | 582,0 | 574,2 | 715,8 |
+
+A queda do frontend foi de **8,1 / 7,8 MiB**, menor que os 11,9 MiB do ensaio
+preliminar. O `limitless_ui` caiu **2,5 / 1,5 MiB**; o core subiu **1,0 / 1,2 MiB**.
+Compartilhar o texto reduz cópias nos metadados, mas não demonstra redução
+geral do footprint: o efeito do alocador também participa dessas amostras
+finais. Não medem pico simultâneo da árvore nem o platô com ondas de gerados.
+
+**Primeira busca**, medianas de três sessões, latência / CPU da árvore em ms:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 1.129,7 / 1.128,9 | 1.110,0 / 1.109,3 | 717,6 / 962,5 |
+| Sem watcher | core | 741,1 / 740,3 | 736,5 / 735,8 | 514,0 / 761,9 |
+| Sem watcher | frontend | 1.361,8 / 1.360,9 | 1.351,0 / 1.350,0 | 560,1 / 728,5 |
+| Com watcher | `limitless_ui` | 1.108,3 / 1.107,4 | 1.118,4 / 1.117,6 | 699,9 / 944,4 |
+| Com watcher | core | 737,2 / 736,5 | 737,7 / 737,0 | 522,5 / 777,9 |
+| Com watcher | frontend | 1.344,9 / 1.344,1 | 1.344,6 / 1.343,8 | 558,1 / 725,3 |
+
+Sem watcher, os tempos caíram pouco, cerca de 1–2%; com watcher não houve
+ganho geral. A primeira resposta continua mais lenta que a do Dart nos três
+projetos. O compartilhamento de nomes não resolve o custo da construção inicial.
+
+**Buscas quentes**, medianas de 48 pedidos por célula, nas mesmas unidades:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 150,4 / 150,0 | 150,5 / 149,9 | 16,7 / 20,4 |
+| Sem watcher | core | 60,9 / 60,4 | 60,7 / 60,3 | 12,9 / 13,2 |
+| Sem watcher | frontend | 185,6 / 185,0 | 186,7 / 186,1 | 18,4 / 25,5 |
+| Com watcher | `limitless_ui` | 11,7 / 11,2 | 11,8 / 11,3 | 15,7 / 17,6 |
+| Com watcher | core | 9,0 / 8,5 | 9,0 / 8,5 | 12,8 / 13,2 |
+| Com watcher | frontend | 12,5 / 12,0 | 12,6 / 12,1 | 18,1 / 22,7 |
+
+As buscas quentes ficaram próximas do baseline. O frontend sem watcher subiu
+1,1 ms de latência e CPU; com watcher, frontend e `limitless_ui` subiram 0,1 ms.
+O ganho desta etapa é a memória final nos dois projetos, sem vitória geral
+em tempo ou CPU. Resultados em
+`/tmp/dartforge-symbol-container-{matrix,watched-matrix}-{limitless,core,frontend}-{before,after,dart}-{0,1,2}.jsonl`,
+resumos `/tmp/dartforge-symbol-container-{summary,watched-summary}.log` e manifestos
+`/tmp/dartforge-symbol-container-{limitless,core,frontend}-inputs-{before,after}.json`.
+A dupla fria/quente, o protocolo legado, as edições nos projetos grandes e a
+sessão longa não foram repetidos nesta etapa; os resultados anteriores e as
+reprovações conhecidas continuam registrados separadamente.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da
