@@ -719,6 +719,7 @@ dependencies = [
  "dartforge-intern",
  "dartforge-parity",
  "dartforge-types",
+ "percent-encoding",
  "serde",
  "serde_json",
  "url",

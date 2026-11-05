@@ -41,7 +41,9 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 mod context_order;
+mod uri_resolution;
 pub(crate) use context_order::{DriverOrder, root_order};
+use uri_resolution::dependency_target;
 
 /// The handler's result limit.
 pub(crate) const LIMIT: usize = 500;
@@ -353,6 +355,36 @@ pub(crate) struct Context {
 }
 
 impl Context {
+    /// AnalysisDriver.addFile checks FileSystemState.hasUri: mapping this
+    /// physical path to a canonical URI and back must preserve the path.
+    /// A shadowed non-lib source is not added merely because it is on disk.
+    fn has_uri(&self, path: &Path) -> bool {
+        let path = dartforge_elements::generated::key(path);
+        let uri = match self.identity(&path) {
+            FileIdentity::Package(name, relative) => format!(
+                "package:{name}/{}",
+                relative
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/")
+            ),
+            FileIdentity::File(source) => {
+                let Ok(uri) = url::Url::from_file_path(source) else {
+                    return false;
+                };
+                uri.to_string()
+            }
+        };
+        dependency_target(
+            &path,
+            &uri,
+            None,
+            &self.packages,
+            &self.generated,
+            &self.generated_files,
+        )
+        .is_some_and(|resolved| dartforge_elements::generated::key(&resolved) == path)
+    }
+
     /// Loads the nearest package configuration, which can be inherited by a
     /// context with no configuration of its own (for example a BUILD.gn root).
     pub(crate) fn load(root: &Path) -> Self {
@@ -1379,6 +1411,13 @@ impl Index {
             uri_of: &uri_of,
             trust_disk,
         };
+        let empty_context = Context::default();
+        let has_uri = |path: &Path, context: usize| {
+            contexts
+                .get(context)
+                .unwrap_or(&empty_context)
+                .has_uri(path)
+        };
         if trust_disk && self.paths.as_ref().is_some_and(|(last, _)| *last == inputs) {
             let (_, discovery) = self.paths.take().unwrap();
             return self.query_snapshot(query, inputs, discovery, kinds, &environment);
@@ -1399,7 +1438,10 @@ impl Index {
             _ => {
                 let mut discovery = Discovery::default();
                 for p in added {
-                    discovery.add(p, context_for(p, contexts), contexts, true);
+                    let context = context_for(p, contexts);
+                    if has_uri(p, context) {
+                        discovery.add(p, context, contexts, true);
+                    }
                 }
                 discovery
             }
@@ -1418,14 +1460,22 @@ impl Index {
         let mut pending: Vec<_> = added
             .iter()
             .rev()
-            .map(|p| (context_for(p, contexts), p.clone()))
+            .filter_map(|p| {
+                let context = context_for(p, contexts);
+                discovery
+                    .created
+                    .contains(&(context, dartforge_elements::generated::key(p)))
+                    .then(|| (context, p.clone()))
+            })
             .collect();
-        pending.extend(
-            priority
-                .iter()
-                .rev()
-                .map(|p| (context_for(p, contexts), p.clone())),
-        );
+        pending.extend(priority.iter().rev().filter_map(|p| {
+            let context = context_for(p, contexts);
+            (discovery
+                .created
+                .contains(&(context, dartforge_elements::generated::key(p)))
+                || has_uri(p, context))
+            .then(|| (context, p.clone()))
+        }));
         self.discover_graph(&mut discovery, pending, &environment);
         let empty = Context::default();
         let mut available_contexts = context_order::order(contexts);
@@ -1687,57 +1737,6 @@ fn symbol(
     v
 }
 
-/// Resolves a written dependency through the analyzer SDK and package map,
-/// including the generated package workspace used by build_runner.
-fn dependency_target(
-    unit: &Path,
-    uri: &str,
-    sdk: Option<&SdkFiles>,
-    packages: &[(String, PathBuf)],
-    generated: &[(String, PathBuf, PathBuf)],
-    generated_files: &[(PathBuf, PathBuf)],
-) -> Option<PathBuf> {
-    if let Some(name) = uri.strip_prefix("dart:") {
-        return sdk?.layout.library(name).map(|l| l.path.clone());
-    }
-    if let Some(rest) = uri.strip_prefix("package:") {
-        let (name, relative) = rest.split_once('/')?;
-        let (_, lib) = packages.iter().find(|(n, _)| n == name)?;
-        return generated_target(unit, uri, generated, generated_files)
-            .or_else(|| Some(lib.join(relative)));
-    }
-    // A generated unit keeps its canonical source URI. Resolve relative
-    // directives from that source location before trying its generated
-    // counterpart; using the physical output directory can manufacture a
-    // missing FileState that shadows the real package source at the same URI.
-    let source_unit = if url::Url::parse(uri).is_err() {
-        generated
-            .iter()
-            .map(|(_, source, output)| (source, output))
-            .chain(
-                generated_files
-                    .iter()
-                    .map(|(source, output)| (source, output)),
-            )
-            .find_map(|(source, output)| {
-                unit.strip_prefix(output)
-                    .ok()
-                    .map(|relative| source.join(relative))
-            })
-    } else {
-        None
-    };
-    let unit = source_unit.as_deref().unwrap_or(unit);
-    generated_target(unit, uri, generated, generated_files).or_else(|| {
-        url::Url::from_file_path(unit)
-            .ok()?
-            .join(uri)
-            .ok()?
-            .to_file_path()
-            .ok()
-    })
-}
-
 /// `discoverRecursively`: the `.dart` files of the folder and its subfolders,
 /// in file system order (the same as Dart's `Directory.listSync`).
 fn discover(folder: &Path, output: &mut Vec<PathBuf>) {
@@ -1797,58 +1796,6 @@ fn read_libraries_dart(lib: &Path, layout: &dartforge_elements::sdk::SdkLayout) 
     output
 }
 
-/// The generated file `uri` (imported or exported by `unit`) points to, when
-/// it is a `build_runner` output: a `package:` URI of a package in
-/// `generated` (name, `lib/` folder, generated `lib/` folder) whose file is
-/// not in the package's `lib/` but is under the generated one, or a relative
-/// URI from a source/generated file to another generated output. The
-/// `generated_files` mappings also cover non-lib outputs such as tests.
-fn generated_target(
-    unit: &Path,
-    uri: &str,
-    generated: &[(String, PathBuf, PathBuf)],
-    generated_files: &[(PathBuf, PathBuf)],
-) -> Option<PathBuf> {
-    if let Some(rest) = uri.strip_prefix("package:") {
-        let (name, path) = rest.split_once('/')?;
-        let (_, lib, out) = generated.iter().find(|(n, ..)| n == name)?;
-        if lib.join(path).is_file() {
-            return None;
-        }
-        let g = out.join(path);
-        return g.is_file().then_some(g);
-    }
-    if uri.contains(':') {
-        return None;
-    }
-    // A relative URI: from a generated file, or from a package file to an
-    // output next to it.
-    let folder = unit.parent()?;
-    let target = url::Url::from_file_path(unit)
-        .ok()?
-        .join(uri)
-        .ok()?
-        .to_file_path()
-        .ok()?;
-    if target.is_file() {
-        return generated
-            .iter()
-            .map(|(_, _, out)| out)
-            .chain(generated_files.iter().map(|(_, out)| out))
-            .any(|out| target.starts_with(out))
-            .then_some(target);
-    }
-    generated
-        .iter()
-        .map(|(_, lib, out)| (lib, out))
-        .chain(generated_files.iter().map(|(source, out)| (source, out)))
-        .filter(|(source, _)| folder.starts_with(source))
-        .find_map(|(source, out)| {
-            let generated = out.join(target.strip_prefix(source).ok()?);
-            generated.is_file().then_some(generated)
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1860,7 +1807,7 @@ mod tests {
         }]
     }
 
-    fn fixture(name: &str) -> PathBuf {
+    pub(super) fn fixture(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "dartforge-symbol-{name}-{}-{}",
             std::process::id(),
@@ -1878,6 +1825,80 @@ mod tests {
             .iter()
             .filter_map(|s| s["name"].as_str().map(str::to_owned))
             .collect()
+    }
+
+    #[test]
+    fn shadowed_nonlib_source_is_not_added_but_its_built_import_is_known() {
+        let root = fixture("uri-added-shadow");
+        let lib = root.join("lib");
+        let output = root.join("generated");
+        for dir in [
+            &lib,
+            &root.join("test"),
+            &output.join("lib"),
+            &output.join("test"),
+        ] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        let entry = lib.join("entry.dart");
+        let shadow = root.join("test/shadow.dart");
+        std::fs::write(&entry, "class ProbeEntry {}").unwrap();
+        std::fs::write(
+            &shadow,
+            "import '../foreign.dart'; class ProbeSourceShadow {}",
+        )
+        .unwrap();
+        std::fs::write(root.join("foreign.dart"), "class ProbeForeign {}").unwrap();
+        std::fs::write(
+            output.join("lib/entry.dart"),
+            "class ProbeWrongBuiltEntry {}",
+        )
+        .unwrap();
+        std::fs::write(output.join("test/shadow.dart"), "class ProbeBuiltShadow {}").unwrap();
+        let contexts = [Context {
+            root: root.clone(),
+            packages: vec![("p".into(), lib.clone())],
+            generated: vec![("p".into(), lib, output.clone())],
+            generated_files: vec![(root.clone(), output.clone())],
+            ..Context::default()
+        }];
+        let mut index = Index::default();
+        let added = [entry.clone(), shadow.clone()];
+        let mut open = HashMap::new();
+        assert_eq!(
+            symbol_names(index.search("Probe", &added, &[], None, &contexts, &open, None, false)),
+            ["ProbeEntry"]
+        );
+        let entry_uri = url::Url::from_file_path(&entry).unwrap().to_string();
+        let shadow_uri = url::Url::from_file_path(&shadow).unwrap();
+        open.insert(
+            entry.clone(),
+            (
+                entry_uri,
+                format!("import '{shadow_uri}'; class ProbeEntry {{}}"),
+            ),
+        );
+        let result = index.search(
+            "Probe",
+            &added,
+            &[entry],
+            None,
+            &contexts,
+            &open,
+            None,
+            true,
+        );
+        assert_eq!(
+            symbol_names(result.clone()),
+            ["ProbeEntry", "ProbeBuiltShadow"]
+        );
+        assert_eq!(
+            result[1]["location"]["uri"],
+            url::Url::from_file_path(output.join("test/shadow.dart"))
+                .unwrap()
+                .as_str()
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

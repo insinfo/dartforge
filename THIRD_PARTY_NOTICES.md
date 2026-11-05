@@ -16,6 +16,9 @@ Root path sorting in `crates/lsp/src/workspace_symbols/context_order/dart_sort.r
 adapts `sdk/lib/internal/sort.dart` (Copyright (c) 2011, the Dart project authors),
 and root ordering follows `pkg/analyzer/lib/src/dart/analysis/context_locator.dart`
 (Copyright (c) 2018, the Dart project authors), under that same BSD license.
+Dot-segment removal in `crates/lsp/src/workspace_symbols/uri_resolution.rs`
+adapts `sdk/lib/core/uri.dart` (Copyright (c) 2012, the Dart project authors),
+also under that BSD license.
 
 `corpus/diagnostics/` (the parity scoreboard of `crates/parity`) contains
 copies of `tests/language` and excerpts of `pkg/analyzer/test/src/diagnostics`

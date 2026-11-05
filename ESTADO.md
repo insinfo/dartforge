@@ -144,6 +144,18 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   Inclui alternativas fora dos catálogos, dependências dessas alternativas, edição
   sem salvar, reversão e fechamento. Depois de estabilizar, buscas confiáveis com
   as mesmas diretivas não percorrem novamente o grafo.
+- **URIs canônicas e fontes sombreadas (05/11):** imports relativos de uma biblioteca
+  de pacote agora resolvem dentro de `package:`, antes de mapear para o disco.
+  `../../x.dart` e `/x.dart` mantêm a raiz de `lib/`; URIs de arquivo mantêm suas
+  regras próprias. Corrigidos escapes percentuais, barras escapadas e Unicode;
+  fragmentos não vazios são rejeitados, como no SDK. O fallback de gerados
+  conserva os escapes, pois o SDK usa esse caminho sem decodificá-lo.
+  O oráculo principal passou de **4/12 para 12/12**, também repetido sem watcher.
+  A variante com uma fonte real fora de `lib/` sombreada por um gerado passou de
+  **7/16 para 16/16** após respeitar a ida e volta caminho → URI → caminho exigida
+  por `AnalysisDriver.addFile`. Importar explicitamente essa URI encontra o gerado.
+  A variante manteve **16/16 com watcher, sem watcher e com cache Dart frio**;
+  as respostas ficaram idênticas. Quatro regressões novas incluem 60 vetores da VM.
 - **Projetos grandes, comparação de 04/11:** a dupla deu **9/24 respostas completas no
   cache Dart frio e 24/24 no quente**, com **20/24 e 24/24 conjuntos**, respectivamente.
   Os três projetos deram **8/8 no quente**, incluindo os 373 resultados de `Ponto` no
@@ -162,19 +174,25 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   do manifesto mudou por `/tmp` versus `/private/tmp`; os arquivos canônicos, conteúdos,
   tamanhos e datas coincidem. As três falhas da primeira repetição são conservadas;
   o novo 8/8 não fecha a paridade entre sessões. Não houve nova dupla fria nos projetos
-  grandes. Detalhes e reprodução em `docs/LSP.md`.
-- **Regressões:** **325 testes do LSP passaram em 05/11**, incluindo doctests, o platô de
+  grandes. **Após as URIs, duas matrizes quentes mantiveram 21/24 respostas completas
+  e 24/24 conjuntos**, com respostas idênticas nos dois servidores entre elas. As
+  respostas do DartForge também são idênticas às da etapa anterior, e os manifestos
+  permaneceram iguais, sem raízes ausentes. Detalhes e reprodução em `docs/LSP.md`.
+- **Regressões:** **329 testes do LSP passaram em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
-  raízes numa regressão nova, mais duas regressões de descoberta e listas de resposta.
+  raízes numa regressão nova, duas regressões de descoberta e listas de resposta e
+  quatro de URIs, normalização e fontes sombreadas.
   Clippy do workspace sem avisos, formatação e documentação estrita passaram.
-  Após as condicionais, mantidos **112/112** no ciclo de vida, **24/24 com e 24/24 sem
-  watcher** nos dois contextos, **18/18** na capacidade e **32/32** nos quatro projetos
-  pequenos. Sem watcher, eram 15/24 antes de preservar a colisão da URI; a matriz
+  Após as URIs, mantidos **112/112** no ciclo de vida, **24/24 com e 24/24 sem
+  watcher** nos dois contextos, **18/18** na capacidade, **16/16** nas condicionais e
+  **32/32** nos quatro projetos pequenos. Sem watcher, eram 15/24 antes de preservar
+  a colisão da URI; a matriz
   corrigida já havia passado duas vezes nos dois modos em 04/11 (**96/96**).
 - **Desempenho ainda sem repetição:** capturar a ordem inicial exige enumerar os arquivos
   ao criar a coleção; reconstruí-la reenumera as raízes e descarta o índice sintático.
   Contextos existentes não são reenumerados por edições de corpo; o custo de abertura
-  e reconstrução nos projetos grandes ainda precisa ser medido. Faltam a paridade
+  e reconstrução nos projetos grandes ainda precisa ser medido, incluindo a nova
+  checagem de ida e volta das URIs na adição dos arquivos. Faltam a paridade
   após edições nesses projetos e com dependências condicionais, e CPU/latência/memória
   sem compilações ou testes concorrentes.
 - Detalhes e critérios em `docs/LSP.md`, seção de 04/11 e continuação de 05/11. Os problemas de desempenho e de

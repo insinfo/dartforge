@@ -3721,6 +3721,105 @@ e a verificação de URIs relativas que tentam sair da raiz de um `package:`. Es
 verificações vêm antes de repetir CPU, latência e memória; as execuções atuais são
 de corretude, com ferramentas de verificação concorrentes em parte da rodada.
 
+### Continuação de 05/11: fronteiras de `package:`, escapes e fontes sombreadas
+
+O índice de `workspace/symbol` resolvia URIs relativas pelo caminho físico. Isso
+não equivale a resolver a URI canônica: em `package:p/src/entry.dart`,
+`../../target.dart` e `/target.dart` resolvem para `package:p/target.dart`.
+O caminho físico podia encontrar um arquivo fora de `lib/`, que não deveria
+participar da descoberta. Agora a resolução mantém a fronteira do pacote antes
+de escolher o arquivo fonte ou seu gerado. URIs `file:` conservam a resolução
+de caminhos de arquivo.
+
+O novo `workspace_symbol_uris.py` coloca arquivos de controle fora de `lib/` e
+dependências externas dos alvos corretos. Assim a primeira resposta prova quais
+URIs foram resolvidas antes da busca; as respostas seguintes verificam também
+a descoberta causada pela própria consulta. O roteiro cobre raiz com `/`, excesso
+de `..`, espaço escapado, barra escapada, UTF-8, query, fragmento e gerado.
+
+| Cenário | Antes do ajuste correspondente | Depois |
+|---|---:|---:|
+| Fronteiras, escapes e gerado | 4/12 | 12/12 |
+| Mesmo cenário sem watcher do cliente | — | 12/12 |
+| Fonte não-lib sombreada, antes/depois de importá-la | 7/16 | 16/16 |
+| Mesma sombra, sem watcher | — | 16/16 |
+| Mesma sombra, cache Dart isolado e frio | — | 16/16 |
+
+O baseline de 7/16 é do binário intermediário que já corrigia as URIs; ele ainda
+adicionava uma fonte real cujo caminho canônico apontava para outro arquivo.
+As referências antes/depois ficaram idênticas em cada comparação. As três
+execuções finais da variante de sombra também têm respostas idênticas nos dois
+servidores. As quatro respostas fechadas e as consultas específicas continuam
+na matriz; não são usadas para esconder diferenças das consultas gerais.
+
+Pontos conferidos no SDK 3.6.2:
+
+- `Uri.resolveUri` mantém o nome do pacote antes de remover segmentos `.` e `..`
+  de referências relativas. A normalização de uma URI absoluta tem suas regras
+  próprias; os vetores de referência conferem as duas operações separadamente;
+- `PackageMapUriResolver` decodifica os segmentos do caminho. Em contraste,
+  `PackageConfigPackageUriResolver` usa `Uri.path` ainda escapado no fallback de
+  `.dart_tool/build/generated`. Um output com espaço físico no nome não satisfaz
+  por si só esse fallback escrito com `%20`;
+- `SourceFactory.forUri2` exige `Uri.isAbsolute`, que exclui fragmento não vazio.
+  Uma query sem fragmento não impede a resolução de pacote. O arquivo cujo import
+  tem fragmento ainda pode ser descoberto pela enumeração do catálogo, mas suas
+  dependências não entram na primeira resposta por esse import;
+- `AnalysisDriver.addFile` chama `FileSystemState.hasUri`: o caminho deve mapear
+  para uma URI que resolva de volta para ele mesmo. Uma fonte de `test/` cujo `file:`
+  aponta para o gerado não é adicionada só porque existe no disco. Quando o editor
+  importa essa URI, o gerado passa a ser conhecido e seus símbolos aparecem.
+
+O modelo agora verifica essa ida e volta ao adicionar os arquivos e não percorre
+o corpo da fonte recusada como se ela tivesse sido analisada. Pacotes continuam
+preferindo a fonte existente ao fallback gerado; a resolução `file:` do workspace
+tem a precedência de gerado própria do SDK. A regressão testa ambas as regras,
+inclusive uma fonte de `lib/` e uma fonte não-lib sombreadas.
+
+A normalização ficou em `workspace_symbols/uri_resolution.rs`, com a atribuição
+da remoção de segmentos do Dart em `THIRD_PARTY_NOTICES.md`. Foram adicionadas
+quatro regressões, uma delas comparando 60 vetores completos capturados da VM:
+limites de raiz, escapes canônicos e malformados, Unicode, barras, caminhos
+com espaços, query e referência com autoridade. O gerador é reproduzível:
+
+```sh
+"$ORACLE_DART" crates/lsp/oracle/package_uri_paths.dart crates/lsp/tests/data/package_uri_paths.json
+python3 crates/lsp/oracle/workspace_symbol_uris.py /tmp/symbol-uris.jsonl target/debug/dartforge-lsp --fixture /tmp/symbol-uri-fixture
+python3 crates/lsp/oracle/workspace_symbol_uris.py /tmp/symbol-shadow.jsonl target/debug/dartforge-lsp --fixture /tmp/symbol-shadow-fixture --source-shadow
+python3 crates/lsp/oracle/workspace_symbol_uris.py /tmp/symbol-shadow-unwatched.jsonl target/debug/dartforge-lsp --fixture /tmp/symbol-shadow-fixture --source-shadow --without-watcher
+```
+
+Use fixtures próprias desse oráculo, vazias na primeira execução, e execute as
+repetições de cada fixture sequencialmente. Configure `ORACLE_DART` e
+`ORACLE_SDK_LIB` do mesmo SDK 3.6.2; `ORACLE_DART_CACHE` permite isolar o cache.
+O índice passou a depender diretamente de `percent-encoding`, que já era uma
+dependência transitiva fixada em 2.3.2: nenhuma versão do lockfile foi atualizada.
+
+Evidência principal: `/tmp/dartforge-symbol-uri-{before,final,final-unwatched}.jsonl`
+e `/tmp/dartforge-symbol-uri-shadow-{before,after,unwatched,cold}.jsonl`. O binário
+intermediário está em `/tmp/dartforge-symbol-uri-before-shadow-fix`.
+Passaram **329 testes do LSP, zero falhas e zero ignorados**, incluindo doctests e
+platô de memória. Mantidos **112/112** no ciclo de vida, **48/48** nos dois contextos,
+**18/18** na capacidade, **16/16** nas condicionais e **32/32** nos projetos pequenos.
+Formatação, clippy do workspace e documentação estrita passaram. Logs finais:
+`/tmp/dartforge-symbol-uri-final-{tests,clippy,doc}.log`.
+
+**Projetos grandes:** as duas matrizes quentes desta etapa deram **21/24 respostas
+completas e 24/24 conjuntos**, com respostas idênticas entre as duas execuções nos
+dois servidores: `limitless_ui` 8/8, core 8/8 e frontend 5/8. As respostas do DartForge
+também são idênticas às da etapa anterior. As três diferenças de ordem do frontend
+permanecem reprovadas. Os manifestos de 9.761, 6.640 e 10.894 arquivos ficaram
+idênticos antes/depois e entre as matrizes, sem raízes ausentes. Resultados em
+`/tmp/dartforge-symbol-uri-{large,final-large}-{limitless,core,frontend}.jsonl`;
+os manifestos têm sufixos `-inputs-before.json` e `-inputs-after.json`.
+
+Ainda faltam as edições e a dupla fria nos projetos grandes, a investigação da
+ordem entre sessões e da barreira de análise inicial, reconstruções sem eventos
+observados e mudanças dinâmicas de sombra que alterem a URI canônica. Também falta
+ampliar a cobertura de nomes com escapes literais. A checagem de ida e volta tem
+custo na abertura do índice, ainda sem medição; esta etapa não repete latência,
+CPU ou memória dos projetos grandes.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da
