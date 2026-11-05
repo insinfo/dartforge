@@ -4396,6 +4396,111 @@ O protocolo legado, seus resultados anteriores reprovados e as edições nos
 projetos grandes continuam exigindo validação própria; a dupla fria/quente da
 etapa anterior não foi repetida com esse novo binário.
 
+### Continuação: abertura de projeto externo e experimento de aliases retirado (05/11)
+
+O novo `workspace_symbol_aliases.py` compara os JSONs completos e ordenados com
+o Dart 3.6.2 em nove fases: carga, repetição, edição de corpo, abertura de alias
+editado sem salvar, fechamento desse alias, duas substituições do catálogo
+(tipos diferentes e iguais), remoção da dependência e fechamento final. Cada
+fase faz três consultas, incluindo uma busca ampla; URIs, intervalos e itens
+duplicados continuam participando da comparação.
+
+Esse oráculo revelou uma divergência anterior ao experimento: abrir um arquivo
+de outro projeto reconstruía a ordem de todos os arquivos adicionados. Quando
+a nova raiz vinha antes da existente no `ContextLocator`, seus símbolos passavam
+à frente dos símbolos já conhecidos. Na abertura e no fechamento de documentos,
+a sessão agora conserva os arquivos sobreviventes na ordem anterior e acrescenta
+os novos. Mudanças explícitas de configuração ou das pastas do workspace continuam
+reconstruindo a coleção. Uma regressão de integração falhou antes dessa correção
+e passou depois. Essa correção e o oráculo são a alteração mantida no código.
+
+Nos mesmos caminhos, o baseline `bf8545d2` deu **26/27 com watcher e 26/27 sem
+watcher**; o binário final, sem cache de aliases, deu **27/27 nos dois modos**.
+As 27 respostas do próprio Dart permaneceram idênticas entre antes/depois em
+cada modo. A diferença era a ordem da consulta ampla na abertura do alias
+externo; a declaração duplicada, uma com URI de arquivo e outra de package, é
+preservada como no Dart. Respostas anteriores em
+`/tmp/dartforge-symbol-alias-before{,-unwatched}.jsonl` e finais em
+`/tmp/dartforge-symbol-external-final{,-unwatched}.jsonl`.
+Binário final em `/tmp/dartforge-symbol-external-final`, SHA-256
+`05a27776f12e36db9cd50146ec781f40bff339038e7c3623eb6a217d07a3e47b`.
+
+Passaram **335 testes do LSP, zero falhas e zero ignorados**, os **11 testes
+Python**, clippy do workspace sem avisos, documentação estrita e formatação.
+Os controles anteriores mantiveram **270/270 respostas completas iguais**.
+Logs finais em `/tmp/dartforge-symbol-external-final-{tests,python,clippy,doc}.log`,
+controles em `/tmp/dartforge-symbol-external-control-*.jsonl`. O workspace inteiro
+e a suíte nativa não foram repetidos nesta etapa, que altera somente o LSP.
+
+**Experimento retirado:** foi implementado um cache da tabela global de aliases,
+com as tabelas de tipos em ordem como chave. Edições só de corpo podiam reutilizar
+a tabela local quando seu conteúdo continuava igual. A chave conservava apenas
+as tabelas de tipos, sem bibliotecas antigas nem histórico; referências fracas
+verificaram a liberação de versões removidas, inclusive na troca por tipos iguais.
+O experimento passou 337 testes do LSP e 270 controles antes das medições, mas
+foi retirado por seu custo de memória e pela falta de ganho geral sem watcher.
+As duas regressões específicas do cache foram retiradas junto com ele.
+
+O baseline experimental é `bf8545d2`, preservado em
+`/tmp/dartforge-symbol-alias-before` (SHA-256 iniciado em `34593ff88c41`);
+`/tmp/dartforge-symbol-alias-final` contém o experimento retirado, SHA-256
+`4697821beb58f475762212c0fb0fb2fba2685674594e5aafac558dbdd17f309e`.
+**Esse binário não representa a alteração final.** As 54 sessões revezaram os
+dois binários e o Dart 3.6.2 nos três projetos em três ordens, separando clientes
+com e sem watcher. A preparação manteve o documento e dez segundos adicionais
+de ociosidade. Compilações e testes terminaram antes das medições.
+
+**Buscas quentes do experimento**, medianas de 48 pedidos por célula,
+latência / CPU da árvore em ms:
+
+| Cliente | Projeto | Antes | Experimento retirado | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Com watcher | `limitless_ui` | 13,1 / 12,8 | 11,8 / 11,3 | 15,5 / 19,8 |
+| Com watcher | core | 9,0 / 8,5 | 8,8 / 8,3 | 12,7 / 13,0 |
+| Com watcher | frontend | 12,7 / 12,3 | 12,2 / 11,7 | 17,7 / 25,1 |
+| Sem watcher | `limitless_ui` | 177,3 / 176,9 | 180,3 / 179,7 | 15,5 / 17,9 |
+| Sem watcher | core | 71,9 / 71,5 | 72,0 / 71,5 | 12,9 / 13,1 |
+| Sem watcher | frontend | 236,7 / 236,0 | 236,7 / 236,2 | 17,7 / 22,7 |
+
+O ganho agregado com watcher do `limitless_ui` varia entre sessões: medianas
+quentes do baseline 11,40 / 13,60 / 11,56 ms; experimento 11,35 / 11,33 / 12,11 ms.
+Não demonstra uma redução estável de 10% nesse projeto. No core, as três medianas
+novas ficaram abaixo das três anteriores, com uma diferença pequena; no frontend,
+caíram de 12,74 / 12,46 / 12,64 para 12,13 / 12,23 / 12,11 ms. Sem watcher, o
+`limitless_ui` piorou em duas das três sessões: baseline 177,15 / 178,26 / 177,08 ms,
+experimento 177,08 / 181,90 / 180,86 ms. Essa regressão não foi transformada em ganho.
+
+A primeira busca ficou próxima do baseline e continuou mais lenta que o Dart.
+Com watcher, antes → experimento: **1.167,8 → 1.163,5 ms**, **774,6 → 767,1 ms** e
+**1.420,3 → 1.412,1 ms**, contra **705,7 / 512,1 / 575,7 ms** do Dart. Sem watcher:
+**1.154,8 → 1.164,9 ms**, **765,5 → 757,9 ms** e **1.428,6 → 1.422,7 ms**, contra
+**698,9 / 515,1 / 560,6 ms**. As CPUs completas estão nos resumos dos artefatos.
+
+**Footprint final do experimento**, medianas em MiB:
+
+| Cliente | Projeto | Antes | Experimento retirado | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Com watcher | `limitless_ui` | 134,3 | 134,4 | 673,6 |
+| Com watcher | core | 122,3 | 122,8 | 505,0 |
+| Com watcher | frontend | 580,1 | 583,7 | 716,5 |
+| Sem watcher | `limitless_ui` | 134,5 | 134,8 | 680,3 |
+| Sem watcher | core | 122,6 | 123,4 | 505,0 |
+| Sem watcher | frontend | 581,4 | 585,2 | 704,2 |
+
+São amostras finais de sessões curtas, sem pico simultâneo ou prova de platô
+com ondas de gerados. O aumento de até 3,8 MiB, junto à regressão sem watcher,
+não justificou manter o cache por esse ganho quente pequeno. A alteração final
+preserva o coletor de símbolos de `bf8545d2`; não reivindica esses ganhos.
+
+Cada matriz experimental manteve **216/216 respostas completas iguais em cada
+comparação** antes/depois, antes/Dart e depois/Dart. Manifestos idênticos antes e
+depois, com 9.761, 6.640 e 10.894 arquivos e nenhuma raiz ausente. Resultados em
+`/tmp/dartforge-symbol-alias-{matrix,watched-matrix}-{limitless,core,frontend}-{before,after,dart}-{0,1,2}.jsonl`,
+resumos `/tmp/dartforge-symbol-alias-{summary,watched-summary}.log` e manifestos
+`/tmp/dartforge-symbol-alias-{limitless,core,frontend}-inputs-{before,after}.json`.
+O protocolo legado, suas reprovações anteriores, a dupla fria/quente e as edições
+nos projetos grandes continuam exigindo validação própria.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da

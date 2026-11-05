@@ -763,6 +763,47 @@ fn workspace_symbols_keep_dependency_resolution_in_its_referring_context() {
 }
 
 #[test]
+fn opening_an_external_project_appends_its_added_symbols() {
+    let mut p = Project::new("nav-symbol-external-root");
+    p.write("lib/entry.dart", "class LiveRootProbeMain {}\n");
+    let initial = p.request("workspace/symbol", json!({"query": "LiveRootProbe"}))["result"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(initial.len(), 1);
+    let external = p.root.join("a");
+    std::fs::create_dir_all(external.join("lib")).unwrap();
+    std::fs::write(external.join("pubspec.yaml"), "name: external\n").unwrap();
+    let file = external.join("lib/entry.dart");
+    let source = "class LiveRootProbeExternal {}\n";
+    std::fs::write(&file, source).unwrap();
+    let uri = url::Url::from_file_path(file).unwrap().to_string();
+    p.server.receive(
+        json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {
+            "textDocument": {"uri": uri, "languageId": "dart", "version": 1, "text": source}
+        }}),
+    );
+    p.server.pump();
+    let opened = p.request("workspace/symbol", json!({"query": "LiveRootProbe"}))["result"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(opened.len(), 2);
+    assert_eq!(opened[0], initial[0]);
+    assert_eq!(opened[1]["name"], "LiveRootProbeExternal");
+    p.server.receive(
+        json!({"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {
+            "textDocument": {"uri": uri}
+        }}),
+    );
+    p.server.pump();
+    assert_eq!(
+        p.request("workspace/symbol", json!({"query": "LiveRootProbe"}))["result"],
+        json!(initial)
+    );
+}
+
+#[test]
 fn workspace_symbols_preserve_discovery_order_through_file_events() {
     fn symbols(p: &mut Project, query: &str) -> Vec<Value> {
         p.request("workspace/symbol", json!({"query": query}))["result"]

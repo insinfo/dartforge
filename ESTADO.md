@@ -271,13 +271,31 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   CPU 8,5 → 8,9 ms nesta matriz). Manifestos idênticos antes/depois, sem raízes
   ausentes. Os detalhes, o ensaio preliminar mais lento e os limites dessa
   medição estão em `docs/LSP.md`.
-- **Regressões do servidor:** **334 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
+- **Abertura de projeto externo e experimento retirado (05/11):** o novo oráculo
+  de aliases revelou uma divergência preexistente: abrir um arquivo de outro
+  projeto podia colocar seus símbolos antes dos já conhecidos. A abertura e o
+  fechamento agora conservam os arquivos sobreviventes e acrescentam os novos,
+  mantendo a reconstrução nas mudanças explícitas de configuração. Nos mesmos
+  caminhos, **26/27 → 27/27 com watcher e 26/27 → 27/27 sem watcher**, com as
+  respostas do Dart inalteradas. As nove fases incluem edições sem salvar,
+  catálogos com tipos diferentes/iguais, remoção de dependência e fechamento final.
+  Os **270/270** controles anteriores foram mantidos. Foi medido também um cache
+  de aliases em **54 sessões**, com **216/216 respostas completas em cada
+  comparação de cada matriz**. O cache foi **retirado**: o ganho quente com
+  watcher foi pequeno e variável (core 9,0 → 8,8 ms; frontend 12,7 → 12,2 ms),
+  o footprint subiu até **3,8 MiB**, e sem watcher o `limitless_ui` piorou de
+  **177,3 para 180,3 ms**. A alteração final mantém somente a correção de ordem,
+  o oráculo e sua regressão; não reivindica os ganhos do experimento. Detalhes e
+  artefatos em `docs/LSP.md`.
+- **Regressões do servidor:** **335 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
   raízes numa regressão nova, duas regressões de descoberta e listas de resposta e
   quatro de URIs, normalização e fontes sombreadas, além das duas novas de criação
   de part e retorno do contador de validação ao início após seu limite.
   As duas regressões das bases relativas foram acrescentadas na continuação.
   O teste de igualdade dos metadados entre os parsers foi acrescentado depois.
+  A abertura de projeto externo acrescentou uma regressão de integração que
+  falhava antes da correção; as duas específicas do cache retirado não integram a suíte.
   Clippy do workspace sem avisos, formatação e documentação estrita passaram.
   Após as URIs, mantidos **112/112** no ciclo de vida, **24/24 com e 24/24 sem
   watcher** nos dois contextos, **18/18** na capacidade, **16/16** nas condicionais e

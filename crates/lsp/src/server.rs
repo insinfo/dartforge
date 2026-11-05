@@ -1261,7 +1261,7 @@ impl<A: Analyzer> Server<A> {
                 }
                 // The files of the roots are analyzed and published from the start (Dart's
                 // driver adds them when creating the contexts, §3.2).
-                self.refresh_symbol_contexts(&self.symbol_roots());
+                self.refresh_symbol_contexts(&self.symbol_roots(), false);
                 self.analyze_folders();
                 None
             }
@@ -1300,7 +1300,7 @@ impl<A: Analyzer> Server<A> {
                     self.symbol_priority_files.push(uri.to_string());
                 }
                 self.analyzer.open_document(&self.documents, uri);
-                self.refresh_symbol_contexts(&self.symbol_roots());
+                self.refresh_symbol_contexts(&self.symbol_roots(), true);
                 self.request_typed(uri);
                 if self.pulled_diagnostics {
                     return None;
@@ -1343,7 +1343,7 @@ impl<A: Analyzer> Server<A> {
                         t.closed(uri);
                     }
                 }
-                self.refresh_symbol_contexts(&self.symbol_roots());
+                self.refresh_symbol_contexts(&self.symbol_roots(), true);
                 if self.only_analyze_open_projects && self.documents.uris().next().is_none() {
                     self.symbol_listing = None;
                     self.symbol_index = Default::default();
@@ -1404,7 +1404,7 @@ impl<A: Analyzer> Server<A> {
                 }
                 // What the session retains may depend on the roots.
                 self.analyzer.changed_document("");
-                self.refresh_symbol_contexts(&self.symbol_roots());
+                self.refresh_symbol_contexts(&self.symbol_roots(), false);
                 // The new folders join the worker's analysis (I7).
                 if self.typed_tried {
                     self.analyze_folders();
@@ -1452,7 +1452,7 @@ impl<A: Analyzer> Server<A> {
                     self.symbol_disk_dirty = true;
                 }
                 if paths.iter().any(|p| is_symbol_context_configuration(p)) {
-                    self.rebuild_symbol_contexts(&self.symbol_roots());
+                    self.rebuild_symbol_contexts(&self.symbol_roots(), false);
                 }
                 // Dart reports the analysis its watcher starts the same way as
                 // an edit's.
@@ -4388,27 +4388,40 @@ impl<A: Analyzer> Server<A> {
     /// A context's original discovery order must exist before watcher events,
     /// even if no workspace/symbol request has needed its syntax index yet.
     /// An unchanged collection is not walked again for document edits or opens.
-    fn refresh_symbol_contexts(&mut self, roots: &[std::path::PathBuf]) {
+    fn refresh_symbol_contexts(&mut self, roots: &[std::path::PathBuf], retain_added: bool) {
         if roots
             .iter()
             .eq(self.symbol_contexts.iter().map(|(root, _)| root))
         {
             return;
         }
-        self.rebuild_symbol_contexts(roots);
+        self.rebuild_symbol_contexts(roots, retain_added);
     }
 
-    /// A new analysis collection replaces OwnedFiles and all drivers; only
-    /// the driver-map capacity survives. Capture this before the first query.
-    fn rebuild_symbol_contexts(&mut self, roots: &[std::path::PathBuf]) {
+    /// Explicit configuration changes replace the collection. Opening another
+    /// document's project instead retains surviving added files and appends
+    /// the new ones, even when the new root sorts before the existing roots.
+    fn rebuild_symbol_contexts(&mut self, roots: &[std::path::PathBuf], retain_added: bool) {
         let context_files = workspace_symbol_context_files(roots);
         let contexts = context_files.iter().map(|(root, _)| root.clone()).collect();
         let mut seen = HashSet::new();
-        self.symbol_file_order = context_files
+        let discovered: Vec<_> = context_files
             .into_iter()
             .flat_map(|(_, files)| files)
             .filter(|p| seen.insert(p.clone()))
             .collect();
+        if retain_added {
+            let available: HashSet<_> = discovered.iter().collect();
+            self.symbol_file_order.retain(|p| available.contains(p));
+            let mut retained: HashSet<_> = self.symbol_file_order.iter().cloned().collect();
+            self.symbol_file_order.extend(
+                discovered
+                    .into_iter()
+                    .filter(|p| retained.insert(p.clone())),
+            );
+        } else {
+            self.symbol_file_order = discovered;
+        }
         // Keep the client's roots in their original order for change detection;
         // only analysis discovery uses the locator's hash/length order.
         self.symbol_contexts = roots
@@ -4466,7 +4479,7 @@ impl<A: Analyzer> Server<A> {
                 loose.push(file);
             }
         }
-        self.refresh_symbol_contexts(&roots);
+        self.refresh_symbol_contexts(&roots, false);
         if roots.is_empty() && loose.is_empty() {
             self.symbol_listing = None;
             self.symbol_index = Default::default();
