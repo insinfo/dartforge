@@ -116,11 +116,23 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   adiando a primeira busca até depois da redução, de **1/4 para 4/4**. A capacidade já
   é registrada ao abrir os contextos, antes de qualquer busca. Projetos removidos não
   ficam retidos para preservar esse histórico.
-  **A matriz inteira continua reprovada:** **13/18** e **9/12** respostas completas,
+  **Na primeira correção, a matriz inteira continuava reprovada:** **13/18** e **9/12** respostas completas,
   respectivamente, por diferenças na ordem dos símbolos dos próprios projetos.
   As execuções anteriores deram 12/18 e 9/12, em outros caminhos temporários: esses
   totais não isolam o efeito da correção. As dependências têm uma ordem esperada
   calculada pela VM para cada caminho, que é conferida pelo oráculo.
+- **Ordem de criação dos contextos (05/11):** o `ContextLocator` primeiro passa as
+  raízes por um `HashSet` novo e depois as ordena pelo comprimento UTF-16. Isso agora
+  antecede a criação dos drivers e dos arquivos adicionados, mantendo separada a
+  capacidade histórica do mapa de drivers. A ordenação também reproduz os movimentos
+  entre caminhos do mesmo comprimento no quicksort da VM, a partir de 34 raízes.
+  **Matriz completa nos mesmos caminhos:** **13/18 → 18/18**, repetidos duas vezes
+  antes e duas depois, com as mesmas respostas do Dart nas quatro execuções.
+  Com a primeira busca adiada até depois da redução: **9/12 → 12/12**. Os 27 casos
+  capturados da VM verificam raízes duplicadas, comprimentos distintos, pares UTF-16
+  e a transição entre insertion sort e quicksort. Isso fecha esses cenários com
+  várias pastas; a repetição com cache Dart isolado e frio também manteve **18/18**.
+  Os demais históricos de sessão continuam sujeitos ao oráculo.
 - **Projetos grandes, última comparação de 04/11:** a nova dupla deu **9/24 respostas completas no
   cache Dart frio e 24/24 no quente**, com **20/24 e 24/24 conjuntos**, respectivamente.
   Os três projetos deram **8/8 no quente**, incluindo os 373 resultados de `Ponto` no
@@ -132,14 +144,17 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   a paridade no frio, a descoberta condicional, edições nos projetos grandes nem
   todos os históricos de expansão/remoção de contextos. Essa matriz grande ainda não
   foi repetida após a correção de 05/11. Detalhes e reprodução em `docs/LSP.md`.
-- **Regressões:** **322 testes do LSP passaram em 05/11**, incluindo doctests, o platô de
-  memória e duas regressões novas do histórico da tabela. Clippy do workspace sem
+- **Regressões:** **323 testes do LSP passaram em 05/11**, incluindo doctests, o platô de
+  memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
+  raízes numa regressão nova. Clippy do workspace sem
   avisos, formatação e documentação estrita passaram. Em 04/11, o oráculo de dois
   contextos passou em **24/24 com watcher do cliente e 24/24 sem ele**,
   repetidos duas vezes: **96/96**. Sem watcher, eram 15/24 antes de preservar a colisão
   da URI; o teste unitário também falhava na segunda consulta. Mantidos **112/112** no
   ciclo de vida e **32/32** nos quatro projetos pequenos. Em 05/11, repetidos **112/112**
-  no ciclo de vida e **24/24** nos dois contextos com watcher.
+  no ciclo de vida e **24/24** nos dois contextos com watcher. Depois da correção da
+  ordem de criação, repetidos **112/112** no ciclo de vida e **24/24 com e 24/24 sem
+  watcher** nos dois contextos.
 - **Desempenho ainda sem repetição:** capturar a ordem inicial exige enumerar os arquivos
   ao criar a coleção; reconstruí-la reenumera as raízes e descarta o índice sintático.
   Contextos existentes não são reenumerados por edições de corpo; o custo de abertura

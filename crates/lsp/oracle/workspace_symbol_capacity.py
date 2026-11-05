@@ -1,7 +1,7 @@
 """Compare workspace symbols through driver-map growth, rebuild and removal.
 
 Usage: ORACLE_DART=... ORACLE_SDK_LIB=... python3 workspace_symbol_capacity.py
-       <output.jsonl> <dartforge-lsp> [--query-after-reduction]
+       <output.jsonl> <dartforge-lsp> [--query-after-reduction] [--fixture <path>]
 
 Only seven projects are analyzed. A small program run by the reference VM
 selects paths whose HashMap order exposes both resize history and rebuilding
@@ -27,13 +27,18 @@ import 'dart:collection';
 import 'dart:convert';
 
 void main(List<String> paths) {
+  List<int> creation(List<int> ids) {
+    final roots = HashSet<String>.from(ids.map((i) => paths[i])).toList();
+    roots.sort((a, b) => a.length - b.length);
+    return roots.map(paths.indexOf).toList();
+  }
   List<int> order(List<int> ids, {bool grown = false}) {
     final map = HashMap<String, int>();
     if (grown) {
       for (var i = 0; i < 7; i++) { map[paths[i]] = i; }
       for (var i = 0; i < 7; i++) { map.remove(paths[i]); }
     }
-    for (final i in ids) { map[paths[i]] = i; }
+    for (final i in creation(ids)) { map[paths[i]] = i; }
     return map.values.toList();
   }
   for (var a = 0; a < paths.length; a++) {
@@ -50,6 +55,7 @@ void main(List<String> paths) {
           final rebuilt = order(ids, grown: true);
           if (jsonEncode(initial) == jsonEncode(rebuilt)) continue;
           print(jsonEncode({'peak': ids, 'survivors': pair,
+            'contextOrder': creation(ids), 'survivorContextOrder': creation(pair),
             'initialOrder': initial, 'rebuiltOrder': rebuilt,
             'freshPairOrder': order(pair), 'retainedPairOrder': order(pair, grown: true)}));
           return;
@@ -65,6 +71,29 @@ void main(List<String> paths) {
 def _write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _prepare_fixture(fixture):
+    """Reuse only an oracle-owned directory and reset its known phase options.
+
+    Keeping absolute paths stable matters: Folder.hashCode changes the order
+    being tested. Unknown directories and edited options are never removed.
+    """
+    fixture.mkdir(parents=True, exist_ok=True)
+    marker = fixture / "capacity_fixture.json"
+    identity = {"oracle": "workspace_symbol_capacity", "version": 1}
+    if marker.exists():
+        if json.loads(marker.read_text(encoding="utf-8")) != identity:
+            raise RuntimeError(f"unsupported capacity fixture: {fixture}")
+    elif any(fixture.iterdir()):
+        raise RuntimeError(f"capacity fixture must be empty or oracle-owned: {fixture}")
+    else:
+        marker.write_text(json.dumps(identity), encoding="utf-8")
+    for options in fixture.glob("project_*/analysis_options.yaml"):
+        if options.read_text(encoding="utf-8") not in (
+                "# Driver capacity scenario: expanded\n", "# Driver capacity scenario: small\n"):
+            raise RuntimeError(f"unexpected edited fixture options: {options}")
+        options.unlink()
 
 
 def _run(output, binary, fixture, query_after_reduction):
@@ -159,6 +188,10 @@ def _run(output, binary, fixture, query_after_reduction):
                   f"({len(row['dart'])}/{len(row['dartforge'])})", flush=True)
             if query == "CapacityEntry":
                 assert len(row["dart"]) == len(active), row["dart"]
+                creation = (case["contextOrder"] if active == case["peak"] else
+                            case["survivorContextOrder"] if active else [])
+                expected = [f"CapacityEntry{i:02}" for i in creation]
+                assert [s["name"] for s in row["dart"]] == expected, (phase, expected, row["dart"])
             if query == "CapacityDependency":
                 expected = [f"CapacityDependency{i:02}" for i in expected_order]
                 assert [s["name"] for s in row["dart"]] == expected, (phase, expected, row["dart"])
@@ -202,8 +235,16 @@ def main():
     parser.add_argument("output")
     parser.add_argument("binary")
     parser.add_argument("--query-after-reduction", action="store_true")
+    parser.add_argument("--fixture", type=Path,
+                        help="keep and reuse an oracle-owned fixture at stable absolute paths")
     args = parser.parse_args()
+    if args.fixture:
+        fixture = args.fixture.resolve()
+        _prepare_fixture(fixture)
+        with open(args.output, "w", encoding="utf-8") as output:
+            return _run(output, os.path.abspath(args.binary), fixture, args.query_after_reduction)
     with tempfile.TemporaryDirectory(prefix="dartforge-symbol-capacity-") as temporary:
+        _prepare_fixture(Path(temporary))
         with open(args.output, "w", encoding="utf-8") as output:
             return _run(output, os.path.abspath(args.binary), Path(temporary).resolve(), args.query_after_reduction)
 

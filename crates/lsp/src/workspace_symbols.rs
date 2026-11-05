@@ -41,7 +41,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 mod context_order;
-pub(crate) use context_order::DriverOrder;
+pub(crate) use context_order::{DriverOrder, root_order};
 
 /// The handler's result limit.
 pub(crate) const LIMIT: usize = 500;

@@ -3560,13 +3560,82 @@ incluindo doctests e o platô de memória. Mantidos **112/112** no ciclo de vida
 documentação com avisos negados passaram. Logs:
 `/tmp/dartforge-symbol-capacity-{tests,clippy,doc}.log`.
 
-Ainda faltam a ordem dos arquivos adicionados nas sessões com várias pastas, a
-observação de reconstruções sem eventos do cliente quando as raízes não mudam,
+Naquele ponto ainda faltavam a ordem dos arquivos adicionados nas sessões com várias
+pastas e a observação de reconstruções sem eventos do cliente quando as raízes não mudam,
 dependências condicionais, descoberta iniciada durante consultas e edições nos
 projetos grandes. A matriz grande de 04/11 não foi repetida com esta mudança.
 Recriar uma coleção agora também descarta o índice sintático e reenumera as raízes;
 seu custo precisa ser medido. Esta etapa é de corretude, sem nova conclusão de
 CPU, latência ou memória nos projetos grandes.
+
+### Continuação de 05/11: ordem de criação das raízes e comparação nos mesmos caminhos
+
+O problema dos símbolos dos próprios projetos estava numa etapa anterior ao mapa
+de drivers. `ContextLocator._uniqueSortedPaths` cria um `HashSet<String>` novo com
+os caminhos incluídos, enumera esse conjunto e chama `List.sort` comparando só o
+comprimento UTF-16. A coleção cria os contextos nessa ordem; o mapa persistente
+recebe os drivers depois. O DartForge enumerava os arquivos na ordem das pastas
+recebidas, sem essa passagem pelo conjunto e pela ordenação de comprimentos.
+
+As duas ordens agora são modeladas separadamente. A enumeração de raízes de entrada
+usa o conjunto novo; a descoberta dos contextos aninhados continua em profundidade.
+As raízes do cliente conservam sua ordem original para detectar mudanças: uma consulta
+sem alteração não recria a coleção porque a enumeração do analisador é diferente.
+O quicksort de `sdk/lib/internal/sort.dart` foi adaptado com atribuição no catálogo:
+para 34 ou mais raízes ele pode mover caminhos de comprimentos iguais, portanto a
+ordenação estável do Rust não seria equivalente. O teste compara os vetores completos
+de 27 casos capturados da VM 3.6.2, com até 128 entradas, incluindo duplicatas, pares
+UTF-16 e o limite de 33/34. Os dados e seu gerador estão no repositório:
+
+```sh
+"$ORACLE_DART" crates/lsp/oracle/context_root_order.dart crates/lsp/tests/data/context_root_order.json
+```
+
+O oráculo de capacidade ganhou `--fixture`, que conserva os caminhos absolutos entre
+execuções. O diretório precisa estar vazio ou ter o marcador desse oráculo; só as
+opções de análise escritas pelas fases conhecidas são removidas ao reiniciar. Não
+aponte essa opção para um projeto real: ela prepara os arquivos do cenário. O seletor
+da VM agora inclui a ordem de criação antes de simular o mapa de drivers; as respostas
+do Dart são conferidas contra ambas as ordens esperadas.
+
+Comparação sequencial nos mesmos caminhos, seleção de projetos e cache de referência:
+
+| Matriz completa, todos os campos e ordem | Antes | Depois |
+|---|---:|---:|
+| Seis fases, primeira execução comparável | 13/18 | 18/18 |
+| Repetição com a mesma configuração | 13/18 | 18/18 |
+| Primeira busca só depois da redução | 9/12 | 12/12 |
+
+As quatro execuções das seis fases têm respostas idênticas do Dart; as duas respostas
+do DartForge depois também são idênticas. Na variante adiada, a resposta do Dart
+permaneceu idêntica antes/depois. Esses resultados isolam a correção, ao contrário
+dos totais agregados anteriores com diretórios temporários distintos. A suíte
+completa ainda compara os casos vazios e consultas específicas, sem filtrar falhas.
+Uma execução adicional com cache Dart isolado e frio também passou em **18/18**,
+com respostas idênticas às da repetição quente nos dois servidores. Isso é evidência
+deste cenário sintético; não substitui as divergências frias dos projetos grandes.
+
+```sh
+python3 crates/lsp/oracle/workspace_symbol_capacity.py /tmp/symbol-order.jsonl target/debug/dartforge-lsp --fixture /tmp/symbol-order-fixture
+python3 crates/lsp/oracle/workspace_symbol_capacity.py /tmp/symbol-order-repeat.jsonl target/debug/dartforge-lsp --fixture /tmp/symbol-order-fixture
+python3 crates/lsp/oracle/workspace_symbol_capacity.py /tmp/symbol-order-late.jsonl target/debug/dartforge-lsp --fixture /tmp/symbol-order-fixture --query-after-reduction
+```
+
+Evidência: `/tmp/dartforge-symbol-order-before-{3,4}.jsonl`,
+`/tmp/dartforge-symbol-order-after-{1,2}.jsonl` e
+`/tmp/dartforge-symbol-order-late-{before,after}.jsonl`; a execução fria está em
+`/tmp/dartforge-symbol-order-cold-after.jsonl`. O binário anterior foi
+preservado em `/tmp/dartforge-symbol-order-before`; os caminhos do cenário e do cache
+estão em `/tmp/dartforge-symbol-order-fixture` e
+`/tmp/dartforge-symbol-order-cache-path.txt`.
+
+Passaram **323 testes do LSP, zero falhas e zero ignorados**, incluindo doctests e
+platô de memória. Mantidos **112/112** no ciclo de vida e **24/24 com watcher e 24/24
+sem watcher** nos dois contextos. Formatação, clippy de todo o workspace e documentação
+estrita passaram. Logs: `/tmp/dartforge-symbol-root-order-{tests,clippy,doc}.log`.
+Ainda faltam reconstruções não observadas por eventos, dependências condicionais,
+descoberta iniciada durante consultas, edições e a nova repetição nos projetos grandes.
+Não há nova medição de desempenho nesta etapa.
 
 ## Capacidades
 

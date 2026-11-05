@@ -9,6 +9,36 @@
 use super::Context;
 use std::path::PathBuf;
 
+mod dart_sort;
+
+/// ContextLocator._uniqueSortedPaths: a fresh HashSet followed by List.sort
+/// on UTF-16 path length. This precedes driver creation and differs from the
+/// persistent driver map's order. Return each distinct root only once.
+pub(crate) fn root_order(roots: &[PathBuf]) -> Vec<usize> {
+    let mut seen = std::collections::HashSet::new();
+    let unique: Vec<_> = roots
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| seen.insert(*p))
+        .map(|(i, _)| i)
+        .collect();
+    let hashes: Vec<_> = unique
+        .iter()
+        .map(|&i| path_hash(&roots[i].to_string_lossy()))
+        .collect();
+    let mut indices: Vec<_> = bucket_order(&hashes, 8)
+        .0
+        .into_iter()
+        .map(|i| unique[i])
+        .collect();
+    let lengths: Vec<_> = roots
+        .iter()
+        .map(|p| p.to_string_lossy().encode_utf16().count())
+        .collect();
+    dart_sort::sort(&mut indices, &lengths);
+    indices
+}
+
 /// ContextManager removes each driver during a rebuild, without clearing its
 /// HashMap. Retain its bucket capacity, even with no active analysis roots.
 /// Only live roots and their already computed order remain in this model.
@@ -117,6 +147,45 @@ fn bucket_order(hashes: &[u32], capacity: usize) -> (Vec<usize>, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn locator_root_order_matches_vm_hashset_and_unstable_length_sort() {
+        // Captured on the actual Dart 3.6.2 VM. Include the 33/34-element
+        // insertion/quicksort boundary, duplicate roots, UTF-16 pairs and
+        // large groups with equal and unequal path lengths.
+        let reference: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/data/context_root_order.json")).unwrap();
+        assert_eq!(reference["sdk"], "3.6.2");
+        for case in reference["cases"].as_array().unwrap() {
+            let pattern = case["pattern"].as_str().unwrap();
+            let count = case["count"].as_u64().unwrap() as usize;
+            let roots: Vec<PathBuf> = (0..count)
+                .map(|mut i| {
+                    if pattern == "duplicates" {
+                        i %= 17;
+                    }
+                    let nested = if pattern == "same_length" {
+                        String::new()
+                    } else {
+                        "nested/".repeat((i * 7) % 11)
+                    };
+                    let unicode = if pattern != "same_length" && i % 3 == 0 {
+                        "_😀"
+                    } else {
+                        ""
+                    };
+                    format!("/roots/{nested}project_{i:03}{unicode}").into()
+                })
+                .collect();
+            let expected: Vec<usize> = case["expected"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i.as_u64().unwrap() as usize)
+                .collect();
+            assert_eq!(root_order(&roots), expected, "{pattern}, {count}");
+        }
+    }
 
     // Captured from Dart 3.6.2 VM String.hashCode and HashMap<String, int>.
     // Forty paths force three resizes, including collisions and UTF-16 pairs.

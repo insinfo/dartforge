@@ -4401,21 +4401,29 @@ impl<A: Analyzer> Server<A> {
     /// A new analysis collection replaces OwnedFiles and all drivers; only
     /// the driver-map capacity survives. Capture this before the first query.
     fn rebuild_symbol_contexts(&mut self, roots: &[std::path::PathBuf]) {
-        let mut contexts = Vec::new();
+        let context_files = workspace_symbol_context_files(roots);
+        let contexts = context_files.iter().map(|(root, _)| root.clone()).collect();
         let mut seen = HashSet::new();
-        self.symbol_contexts.clear();
-        self.symbol_file_order.clear();
-        for root in roots {
-            let mut files = Vec::new();
-            for (context, found) in crate::project::symbol_context_files(root) {
-                if !contexts.contains(&context) {
-                    contexts.push(context);
-                }
-                files.extend(found.into_iter().filter(|p| seen.insert(p.clone())));
-            }
-            self.symbol_file_order.extend(files.iter().cloned());
-            self.symbol_contexts.push((root.clone(), files));
-        }
+        self.symbol_file_order = context_files
+            .into_iter()
+            .flat_map(|(_, files)| files)
+            .filter(|p| seen.insert(p.clone()))
+            .collect();
+        // Keep the client's roots in their original order for change detection;
+        // only analysis discovery uses the locator's hash/length order.
+        self.symbol_contexts = roots
+            .iter()
+            .map(|root| {
+                (
+                    root.clone(),
+                    self.symbol_file_order
+                        .iter()
+                        .filter(|p| p.starts_with(root))
+                        .cloned()
+                        .collect(),
+                )
+            })
+            .collect();
         self.symbol_driver_order.rebuild(contexts);
         self.symbol_listing = None;
         self.symbol_index = Default::default();
@@ -4476,10 +4484,7 @@ impl<A: Analyzer> Server<A> {
                 .as_ref()
                 .is_some_and(|l| l.0 == roots && l.1.elapsed() < crate::session::DISK_TRUST);
         if !trust_disk {
-            let context_files: Vec<_> = roots
-                .iter()
-                .flat_map(|r| crate::project::symbol_context_files(r))
-                .collect();
+            let context_files = workspace_symbol_context_files(&roots);
             let discovered: Vec<std::path::PathBuf> = context_files
                 .iter()
                 .flat_map(|(_, files)| files.iter().cloned())
@@ -4772,6 +4777,20 @@ fn utf16_starts(text: &str) -> Vec<usize> {
         starts.push(o);
     }
     starts
+}
+
+/// Context creation starts with ContextLocator's ordered distinct input paths,
+/// then recursively discovers nested package roots. An overlapping workspace
+/// folder must not recreate a driver already discovered through its parent.
+fn workspace_symbol_context_files(
+    roots: &[std::path::PathBuf],
+) -> Vec<(std::path::PathBuf, Vec<std::path::PathBuf>)> {
+    let mut seen = HashSet::new();
+    crate::workspace_symbols::root_order(roots)
+        .into_iter()
+        .flat_map(|i| crate::project::symbol_context_files(&roots[i]))
+        .filter(|(root, _)| seen.insert(root.clone()))
+        .collect()
 }
 
 /// A file whose change reconfigures the projects under it (§3.3).
