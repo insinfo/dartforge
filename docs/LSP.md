@@ -4271,6 +4271,131 @@ O custo da primeira busca e a regressão quente com watcher continuam exigindo
 trabalho. Perfil em `/tmp/dartforge-symbol-bases-profile.txt`; seus tempos não
 foram usados nas tabelas.
 
+### Continuação: outlines para construir o índice de símbolos (05/11)
+
+O coletor de `workspace/symbol` lê declarações, assinaturas e intervalos de
+código, mas não percorre as instruções dos corpos. O índice passou a usar
+`parse_lexed_outline`, API já existente do frontend. Os blocos de funções,
+métodos, construtores e acessores viram blocos vazios com os mesmos spans.
+Parâmetros, listas de inicialização, inicializadores de campos e variáveis
+(incluindo funções literais) e corpos `=>` continuam sendo lidos. Quando as
+chaves do bloco não fecham, o parser conserva sua leitura normal e recuperação.
+A análise de diagnósticos e os demais consumidores do parser não foram alterados.
+
+Uma regressão compara os metadados completos dos dois modos, não apenas uma
+consulta limitada a 500 itens. Inclui a união de nomes, declarações em ordem,
+assinaturas, tipos locais, URIs, intervalos, imports, exports, parts e estados
+dos arquivos. As sete fontes fixas exercitam inicializadores com closures,
+registros, getters, setters, construtores, enums, mixins, extensões, documentação
+Unicode e corpos com erros. O teste também aceita manifestos em
+`DARTFORGE_SYMBOL_CORPUS_MANIFESTS`, separados pelo delimitador de caminhos da
+plataforma. Sem essa variável, as fontes fixas sempre rodam, sem novo requisito
+de SDK/corpus para o CI.
+
+Na expansão local, **17.645 arquivos Dart únicos** dos três manifestos produziram
+metadados idênticos nos dois modos. É uma comparação com o coletor anterior;
+não conta como 17.645 testes nem substitui o servidor oficial. Diagnósticos do
+parser não fazem parte dessa comparação, pois o índice não os publica.
+O comando usado foi:
+
+```sh
+DARTFORGE_SYMBOL_CORPUS_MANIFESTS=/tmp/dartforge-symbol-bases-limitless-inputs-after.json:/tmp/dartforge-symbol-bases-core-inputs-after.json:/tmp/dartforge-symbol-bases-frontend-inputs-after.json \
+  cargo test --locked --release -p dartforge-lsp \
+  symbol_outlines_preserve_full_parser_metadata --lib -- --nocapture
+```
+
+O log é `/tmp/dartforge-symbol-outline-corpus.log`; a comparação terminou em
+7,18 s, fora das medições de desempenho. A suíte normal passou com **334 testes
+do LSP, zero falhas e zero ignorados**, além dos **11 testes Python**, formatação,
+clippy do workspace sem avisos e documentação estrita. Os controles mantiveram
+**270/270**, e os parts deram **27/27 com e 27/27 sem watcher**. Logs em
+`/tmp/dartforge-symbol-outline-{tests,python,clippy,doc,controls}.log` e respostas
+em `/tmp/dartforge-symbol-outline-control-*.jsonl` e
+`/tmp/dartforge-symbol-outline-{parts,parts-unwatched}.jsonl`.
+
+O baseline é `c4badf38`, preservado em `/tmp/dartforge-symbol-outline-before`
+(SHA-256 iniciado em `1600d9ebf850`); o novo binário é
+`/tmp/dartforge-symbol-outline-after`, SHA-256
+`34593ff88c41bd3e55487180bcd0aab1d12e2e84bba9d951fbc96fa84918c75e`.
+As 54 sessões revezaram os dois binários `release` e o Dart 3.6.2 nos três
+projetos, em três ordens, separando clientes com e sem watcher. A preparação
+permaneceu com resolução do documento e dez segundos adicionais de ociosidade.
+Compilações, testes e verificações de corpus terminaram antes das medições.
+
+**Primeira busca sem watcher**, medianas de três sessões, em ms de
+latência / CPU da árvore:
+
+| Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | ---: | ---: | ---: |
+| `limitless_ui` | 1.310,4 / 1.309,4 | 1.142,5 / 1.141,6 | 712,2 / 958,2 |
+| core | 960,2 / 884,4 | 755,1 / 754,3 | 513,7 / 763,3 |
+| frontend | 1.592,2 / 1.591,2 | 1.413,4 / 1.412,5 | 562,4 / 733,0 |
+
+A CPU da construção caiu cerca de **13%, 15% e 11%**, respectivamente. A
+latência caiu cerca de 13%, 21% e 11%; no core, a diferença entre CPU e tempo
+total do baseline inclui tempo fora da CPU da árvore. Os logs não isolam I/O,
+escalonamento e transporte do cliente. O ganho não deve ser atribuído
+integralmente ao parser usando apenas o tempo total.
+
+**Primeira busca com watcher**, nas mesmas unidades:
+
+| Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | ---: | ---: | ---: |
+| `limitless_ui` | 1.290,0 / 1.289,0 | 1.145,9 / 1.145,1 | 711,2 / 957,6 |
+| core | 852,0 / 851,2 | 755,3 / 754,4 | 513,0 / 760,1 |
+| frontend | 1.590,2 / 1.589,3 | 1.405,5 / 1.404,6 | 557,7 / 726,8 |
+
+A CPU caiu aproximadamente **11%, 11% e 12%**. A primeira busca continua
+mais lenta que o Dart nos dois protocolos. Um ensaio preliminar do frontend
+mediu 2.043,9 ms totais e 1.511,5 ms de CPU, guardado em
+`/tmp/dartforge-symbol-outline-quick.jsonl`; ele não faz parte das medianas
+das matrizes revezadas. Nenhuma sessão dessas matrizes foi descartada.
+
+**Buscas quentes**, medianas de 48 pedidos por célula, latência / CPU da
+árvore em ms:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 176,3 / 175,7 | 175,7 / 175,2 | 17,2 / 19,7 |
+| Sem watcher | core | 71,6 / 71,1 | 71,7 / 71,1 | 12,4 / 12,8 |
+| Sem watcher | frontend | 236,5 / 235,6 | 235,4 / 234,8 | 18,1 / 25,4 |
+| Com watcher | `limitless_ui` | 12,0 / 11,5 | 11,6 / 11,1 | 16,3 / 17,8 |
+| Com watcher | core | 9,0 / 8,5 | 9,3 / 8,9 | 12,8 / 13,2 |
+| Com watcher | frontend | 12,6 / 12,1 | 12,6 / 12,2 | 17,6 / 22,5 |
+
+O índice aquecido já reutiliza os metadados; essa mudança não dá ganho geral
+nessas buscas. O core com watcher subiu 0,3 ms de latência e 0,4 ms de CPU:
+a regressão quente da etapa anterior não foi resolvida. As buscas quentes
+com watcher continuam menores que o Dart; sem watcher, ainda perdem.
+
+**Footprint final da árvore**, medianas em MiB:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 135,5 | 134,5 | 671,9 |
+| Sem watcher | core | 123,6 | 122,6 | 505,0 |
+| Sem watcher | frontend | 585,1 | 580,9 | 712,6 |
+| Com watcher | `limitless_ui` | 135,2 | 133,9 | 669,4 |
+| Com watcher | core | 123,6 | 122,6 | 505,2 |
+| Com watcher | frontend | 584,0 | 579,4 | 710,5 |
+
+A queda final foi de aproximadamente **1–4,6 MiB**. São amostras no fim de
+sessões curtas, não um pico simultâneo da árvore nem prova do platô durante
+ondas de gerados.
+
+Cada matriz manteve **216/216 respostas completas iguais em cada comparação**
+antes/depois, antes/Dart e depois/Dart. Os manifestos anteriores e posteriores
+foram idênticos, com os mesmos 9.761, 6.640 e 10.894 arquivos e sem raízes
+ausentes. Os 17.645 caminhos Dart únicos também foram relidos como UTF-8 sem
+falha, conferindo que a comparação de corpus não passou por entradas primárias
+ilegíveis. Resultados em
+`/tmp/dartforge-symbol-outline-{matrix,watched-matrix}-{limitless,core,frontend}-{before,after,dart}-{0,1,2}.jsonl`,
+resumos `/tmp/dartforge-symbol-outline-{summary,watched-summary}.log` e
+manifestos `/tmp/dartforge-symbol-outline-{limitless,core,frontend}-inputs-{before,after}.json`.
+O protocolo legado, seus resultados anteriores reprovados e as edições nos
+projetos grandes continuam exigindo validação própria; a dupla fria/quente da
+etapa anterior não foi repetida com esse novo binário.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da

@@ -253,12 +253,31 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   A preparação tem dez segundos adicionais de ociosidade: não fecha as falhas do
   protocolo legado, que precisa de nova rodada na árvore atual. Detalhes, CPU,
   memória e artefatos em `docs/LSP.md`.
-- **Regressões do servidor:** **333 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
+- **Outlines no índice de símbolos (05/11):** a construção do índice passou a
+  pular as instruções dos blocos usando a API de outlines já existente, mantendo
+  spans, assinaturas, inicializadores, closures e corpos `=>`. A análise de
+  diagnósticos continua usando a leitura completa. A comparação dos metadados
+  integrais dos dois modos passou em sete fontes fixas e **17.645 arquivos Dart
+  únicos** do corpus; essa expansão é um teste, não 17.645 testes ou uma prova de
+  paridade com o Dart. Mantidos **270/270** controles completos e **54/54** nos parts.
+  Nas **54 sessões revezadas**, cada matriz manteve **216/216 respostas completas
+  iguais em cada comparação**. Sem watcher, a primeira busca caiu de **1.310 para
+  1.143 ms**, de **960 para 755 ms** e de **1.592 para 1.413 ms** nos três projetos;
+  a CPU caiu cerca de **13%, 15% e 11%**. Com watcher, caiu de **1.290 para 1.146 ms**,
+  de **852 para 755 ms** e de **1.590 para 1.406 ms**, com **11–12% menos CPU**.
+  O footprint final caiu aproximadamente **1–4,6 MiB**, mas a primeira busca
+  continua mais lenta que a do Dart. As buscas quentes ficaram próximas do
+  baseline; a regressão do core com watcher continua aberta (9,0 → 9,3 ms,
+  CPU 8,5 → 8,9 ms nesta matriz). Manifestos idênticos antes/depois, sem raízes
+  ausentes. Os detalhes, o ensaio preliminar mais lento e os limites dessa
+  medição estão em `docs/LSP.md`.
+- **Regressões do servidor:** **334 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
   raízes numa regressão nova, duas regressões de descoberta e listas de resposta e
   quatro de URIs, normalização e fontes sombreadas, além das duas novas de criação
   de part e retorno do contador de validação ao início após seu limite.
   As duas regressões das bases relativas foram acrescentadas na continuação.
+  O teste de igualdade dos metadados entre os parsers foi acrescentado depois.
   Clippy do workspace sem avisos, formatação e documentação estrita passaram.
   Após as URIs, mantidos **112/112** no ciclo de vida, **24/24 com e 24/24 sem
   watcher** nos dois contextos, **18/18** na capacidade, **16/16** nas condicionais e

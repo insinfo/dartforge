@@ -52,7 +52,7 @@ pub(crate) const LIMIT: usize = 500;
 
 /// `ElementNameUnion`: for each letter position (up to 63), the letters that
 /// some name of the library has there; `mask[0]` is the longest length.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct NameUnion {
     mask: [u32; 64],
 }
@@ -121,7 +121,7 @@ impl NameUnion {
 
 /// What matters about a written type to know where the first `(` of the
 /// executable's `getDisplayString()` is.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Summary {
     /// `Name<args>` (the last segment of `p.Name`).
     Name {
@@ -139,7 +139,7 @@ enum Summary {
 
 /// A `typedef`: the aliased type (the type parameters become
 /// [`Summary::Parameter`]).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Alias {
     target: Summary,
 }
@@ -275,7 +275,7 @@ impl Kind {
 }
 
 /// What the element's `getDisplayString()` needs for the suffix.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Signature {
     /// Not an executable.
     None,
@@ -294,7 +294,7 @@ enum Signature {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Declaration {
     name: String,
     kind: Kind,
@@ -306,13 +306,13 @@ struct Declaration {
     end: (u32, u32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Unit {
     uri: String,
     declarations: Vec<Declaration>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Library {
     union: NameUnion,
     units: Vec<Unit>,
@@ -1158,6 +1158,26 @@ fn index(
     read_: &Reader<'_>,
     uri_of: &dyn Fn(&Path) -> String,
 ) -> (Vec<(PathBuf, Fingerprint)>, Option<Library>) {
+    index_with_parser(path, read_, uri_of, parse_symbol_unit)
+}
+
+/// Symbol metadata needs signatures and full code ranges, not block statements.
+/// Initializers, arrow bodies and unmatched-block recovery stay with the parser.
+fn parse_symbol_unit(source: &str, names: &mut Interner) -> dartforge_frontend::parser::Parsed {
+    dartforge_frontend::parser::parse_lexed_outline(
+        source,
+        dartforge_frontend::lexer::lex(source),
+        names,
+        dartforge_frontend::LibraryFeatures::current(),
+    )
+}
+
+fn index_with_parser(
+    path: &Path,
+    read_: &Reader<'_>,
+    uri_of: &dyn Fn(&Path) -> String,
+    parse: impl Fn(&str, &mut Interner) -> dartforge_frontend::parser::Parsed,
+) -> (Vec<(PathBuf, Fingerprint)>, Option<Library>) {
     let mut files = Vec::new();
     let mut union = NameUnion::empty();
     let mut types = LocalTypes::new();
@@ -1183,7 +1203,7 @@ fn index(
         };
         files.push((file.clone(), fingerprint));
         let mut names = Interner::new();
-        let analyzed = dartforge_frontend::parser::parse(&source, &mut names);
+        let analyzed = parse(&source, &mut names);
         if first && is_part(&analyzed.unit) {
             return (files, None);
         }
@@ -1830,6 +1850,74 @@ mod tests {
             .iter()
             .filter_map(|s| s["name"].as_str().map(str::to_owned))
             .collect()
+    }
+
+    #[test]
+    fn symbol_outlines_preserve_full_parser_metadata() {
+        let root = fixture("outline-metadata");
+        let sources = [
+            "/// 😀 Documentation\n@deprecated class Probe<T> {\n".to_owned()
+                + "  int field = (() { return 1; })();\n"
+                + "  Probe.named() : field = 2 { print(field); }\n"
+                + "  int get value { return field; }\n"
+                + "  set value(int n) { field = n; }\n"
+                + "  T method(T value) { void local() {} return value; }\n}\n",
+            "typedef Callback<T> = T Function(int);\n".to_owned()
+                + "Callback<int> callback() { return (n) => n; }\n"
+                + "var literal = (int n) { return n + 1; };\n"
+                + "var arrow = (int n) => n;\n"
+                + "(int, String) record() { return (1, 'x'); }\n",
+            "enum Probe { one, two; int method() { return index; } }\n".to_owned()
+                + "mixin Mix { void method() {} }\n"
+                + "extension Ext on int { int get next => this + 1; }\n"
+                + "extension type Wrapper(int value) { void method() {} }\n",
+            "void broken() { var x = ; } class After {}".into(),
+            "void broken() { class Local {} } class After {}".into(),
+            "class Open { void broken() { var x = 1;".into(),
+            "void broken() { print('unterminated); } class After {}".into(),
+        ];
+        let uri_of = |p: &Path| url::Url::from_file_path(p).unwrap().to_string();
+        for (i, source) in sources.iter().enumerate() {
+            let file = root.join(format!("case_{i}.dart"));
+            let read = |p: &Path| (p == file).then(|| (source.clone(), text_fingerprint(source)));
+            let full = index_with_parser(&file, &read, &uri_of, dartforge_frontend::parser::parse);
+            let outline = index_with_parser(&file, &read, &uri_of, parse_symbol_unit);
+            assert_eq!(outline, full, "source {i}: {source}");
+        }
+        // Optional real-world expansion of the same metadata invariant. The
+        // fixed sources above always run; no SDK or corpus is required in CI.
+        if let Some(manifests) = std::env::var_os("DARTFORGE_SYMBOL_CORPUS_MANIFESTS") {
+            let mut files = std::collections::BTreeSet::new();
+            for manifest in std::env::split_paths(&manifests) {
+                let data: Value =
+                    serde_json::from_str(&std::fs::read_to_string(manifest).unwrap()).unwrap();
+                for file in data["files"].as_array().unwrap() {
+                    let path = PathBuf::from(file["path"].as_str().unwrap());
+                    if path.extension().is_some_and(|e| e == "dart") {
+                        files.insert(path);
+                    }
+                }
+            }
+            assert!(
+                !files.is_empty(),
+                "the supplied corpus must contain Dart files"
+            );
+            let read = |p: &Path| {
+                std::fs::read_to_string(p).ok().map(|s| {
+                    let fingerprint = text_fingerprint(&s);
+                    (s, fingerprint)
+                })
+            };
+            let count = files.len();
+            for file in files {
+                let full =
+                    index_with_parser(&file, &read, &uri_of, dartforge_frontend::parser::parse);
+                let outline = index_with_parser(&file, &read, &uri_of, parse_symbol_unit);
+                assert_eq!(outline, full, "corpus file: {}", file.display());
+            }
+            eprintln!("Compared complete symbol metadata for {count} corpus files");
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
