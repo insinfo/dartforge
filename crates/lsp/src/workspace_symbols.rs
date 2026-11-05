@@ -37,6 +37,7 @@ use dartforge_intern::Interner;
 use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -529,9 +530,14 @@ impl Discovery {
         }
     }
 
-    fn retain_live(&mut self, open: &HashMap<PathBuf, Fingerprint>, contexts: &[Context]) {
+    fn retain_live(
+        &mut self,
+        open: &HashMap<PathBuf, Fingerprint>,
+        contexts: &[Context],
+        disk: &DiskSnapshot,
+    ) {
         self.files
-            .retain(|f| open.contains_key(&f.path) || f.path.is_file());
+            .retain(|f| open.contains_key(&f.path) || disk.state(&f.path).is_file);
         self.positions.clear();
         for (i, file) in self.files.iter().enumerate() {
             self.positions.insert(file.identity.clone(), i);
@@ -543,7 +549,7 @@ impl Discovery {
         // an unbounded history of invalid directives typed in the editor.
         self.created.retain(|(context, path)| {
             open.contains_key(path)
-                || path.is_file()
+                || disk.state(path).is_file
                 || self.positions.contains_key(
                     &contexts
                         .get(*context)
@@ -623,16 +629,56 @@ struct DiscoveryContext<'a> {
     open: &'a HashMap<PathBuf, Fingerprint>,
     uri_of: &'a dyn Fn(&Path) -> String,
     trust_disk: bool,
+    disk: &'a DiskSnapshot,
     relative_bases: uri_resolution::RelativeBases,
     /// Pre-query analysis and snapshot resolution share completed directive
     /// materialization, separately for each referring context and this query.
     resolved: RefCell<HashSet<(usize, PathBuf)>>,
 }
 
-/// The fingerprint of a file on disk, without reading it.
-fn disk_fingerprint(path: &Path) -> Option<Fingerprint> {
-    let m = std::fs::metadata(path).ok()?;
-    Some(Fingerprint::Disk(m.modified().ok(), m.len()))
+/// Metadata needed by declaration validation and discovery.
+#[derive(Debug, Clone)]
+struct DiskState {
+    is_file: bool,
+    fingerprint: Option<Fingerprint>,
+}
+
+impl DiskState {
+    fn read(path: &Path) -> Self {
+        let metadata = std::fs::metadata(path).ok();
+        Self {
+            is_file: metadata.as_ref().is_some_and(std::fs::Metadata::is_file),
+            fingerprint: metadata.map(|m| Fingerprint::Disk(m.modified().ok(), m.len())),
+        }
+    }
+}
+
+/// Metadata shared while revalidating a previous discovery. Initial builds
+/// and trusted lookups need no map. Generated URI target selection stays fresh.
+/// Exact OS strings avoid component hashing without conflating path aliases.
+struct DiskSnapshot {
+    states: Option<RefCell<HashMap<OsString, DiskState>>>,
+}
+
+impl DiskSnapshot {
+    fn new(share: bool) -> Self {
+        Self {
+            states: share.then(RefCell::default),
+        }
+    }
+
+    fn state(&self, path: &Path) -> DiskState {
+        let Some(states) = &self.states else {
+            return DiskState::read(path);
+        };
+        let mut states = states.borrow_mut();
+        if let Some(state) = states.get(path.as_os_str()) {
+            return state.clone();
+        }
+        let state = DiskState::read(path);
+        states.insert(path.as_os_str().to_owned(), state.clone());
+        state
+    }
 }
 
 /// The fingerprint of an open text.
@@ -1305,7 +1351,11 @@ impl Index {
         {
             Some(o) => o.clone(),
             None if environment.trust_disk && !matches!(i, Fingerprint::Open(..)) => i.clone(),
-            None => disk_fingerprint(p).unwrap_or(Fingerprint::Missing),
+            None => environment
+                .disk
+                .state(p)
+                .fingerprint
+                .unwrap_or(Fingerprint::Missing),
         };
         if let Some(e) = self.entries.get_mut(path)
             && (e.checked_at == self.search_generation
@@ -1426,12 +1476,17 @@ impl Index {
             .iter()
             .map(|(k, (_, t))| (k.clone(), text_fingerprint(t)))
             .collect();
+        let reuse_untrusted = !trust_disk
+            && self.paths.as_ref().is_some_and(|(last, _)| {
+                last.added == added && last.sdk.as_deref() == sdk && last.contexts == contexts
+            });
+        let disk = DiskSnapshot::new(reuse_untrusted);
         let read = |p: &Path| -> Option<(String, Fingerprint)> {
             let k = dartforge_elements::generated::key_of(p);
             if let (Some((_, t)), Some(i)) = (open_texts.get(k.as_ref()), open.get(k.as_ref())) {
                 return Some((t.clone(), i.clone()));
             }
-            let i = disk_fingerprint(p)?;
+            let i = disk.state(p).fingerprint?;
             let t = std::fs::read_to_string(p).ok()?;
             Some((t, i))
         };
@@ -1453,6 +1508,7 @@ impl Index {
             open,
             uri_of: &uri_of,
             trust_disk,
+            disk: &disk,
             relative_bases: Default::default(),
             resolved: Default::default(),
         };
@@ -1498,12 +1554,14 @@ impl Index {
         // driver must not steal a URI back from another driver.
         let mut discovery = match self.paths.take() {
             Some((last, mut previous))
-                if last.added == inputs.added
-                    && last.sdk == inputs.sdk
-                    && last.contexts == inputs.contexts =>
+                if reuse_untrusted
+                    || (trust_disk
+                        && last.added == inputs.added
+                        && last.sdk == inputs.sdk
+                        && last.contexts == inputs.contexts) =>
             {
                 if !trust_disk {
-                    previous.retain_live(open, contexts);
+                    previous.retain_live(open, contexts, &disk);
                 }
                 previous
             }
@@ -1878,6 +1936,37 @@ mod tests {
             .iter()
             .filter_map(|s| s["name"].as_str().map(str::to_owned))
             .collect()
+    }
+
+    #[test]
+    fn disk_metadata_is_shared_only_within_the_current_request() {
+        let root = fixture("disk-snapshot");
+        let file = root.join("entry.dart");
+        let absent = DiskSnapshot::new(true);
+        assert!(!absent.state(&file).is_file);
+        assert_eq!(absent.state(&file).fingerprint, None);
+        std::fs::write(&file, "a").unwrap();
+        assert!(!absent.state(&file).is_file);
+        let present = DiskSnapshot::new(true);
+        let previous = present.state(&file).fingerprint;
+        assert!(present.state(&file).is_file);
+        std::fs::write(&file, "a longer declaration").unwrap();
+        assert_eq!(present.state(&file).fingerprint, previous);
+        let edited = DiskSnapshot::new(true);
+        assert_ne!(edited.state(&file).fingerprint, previous);
+        assert!(edited.state(&file).is_file);
+        std::fs::remove_file(&file).unwrap();
+        assert!(edited.state(&file).is_file);
+        assert!(!DiskSnapshot::new(true).state(&file).is_file);
+        let uncached = DiskSnapshot::new(false);
+        assert!(!uncached.state(&file).is_file);
+        std::fs::write(&file, "visible without sharing").unwrap();
+        assert!(uncached.state(&file).is_file);
+        std::fs::remove_file(&file).unwrap();
+        let directory = DiskSnapshot::new(true);
+        assert!(!directory.state(&root).is_file);
+        assert!(directory.state(&root).fingerprint.is_some());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

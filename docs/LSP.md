@@ -4988,6 +4988,119 @@ A dupla fria/quente, o protocolo legado, as edições nos projetos grandes e a
 sessão longa não foram repetidos nesta etapa; os resultados anteriores e as
 reprovações conhecidas continuam registrados separadamente.
 
+### Metadados de disco por pedido (05/11)
+
+Sem notificações confiáveis do cliente, cada `workspace/symbol` revalida os
+arquivos no disco. A mesma busca consultava os metadados de um caminho ao
+reter os arquivos conhecidos, ao reter as colisões de URIs e ao validar a
+biblioteca. Uma reconstrução ainda podia consultá-los de novo antes da leitura.
+Essas fases agora compartilham o estado do disco somente durante aquele pedido.
+
+O mapa existe apenas ao revalidar uma descoberta anterior, com os mesmos
+arquivos adicionados, SDK e catálogos, sem confiança no disco. A primeira
+indexação, a substituição dos catálogos e os pedidos com watcher confiável
+continuam sem esse mapa. As chaves conservam a grafia exata do caminho no
+sistema operacional; aliases não são fundidos. O estado distingue arquivo de
+diretório e conserva separadamente o fingerprint de data e tamanho.
+
+O mapa sai ao terminar o pedido, inclusive seus registros de arquivos ausentes.
+A busca seguinte consulta o disco novamente. Documentos abertos continuam
+usando o texto do editor. A seleção entre fonte e arquivo gerado no resolvedor
+de URIs continua consultando sua existência a cada resolução, sem congelar o
+alvo escolhido.
+
+Uma regressão verifica criação, edição e exclusão entre snapshots, estabilidade
+dentro de um pedido, leitura fresca quando o compartilhamento está desativado
+e distinção entre arquivo e diretório. Passaram **338 testes do LSP**, sem
+falhas ou ignorados, **11 testes Python**, clippy do workspace sem avisos,
+documentação estrita e formatação. Os **450/450 controles** mantiveram as
+respostas completas iguais ao Dart, incluindo as transições de parts com e
+sem watcher e a ordem dos 320 símbolos adicionais. O workspace inteiro e a
+suíte nativa não foram repetidos nesta etapa.
+
+Logs em `/tmp/dartforge-symbol-stat-{tests,clippy,doc,python,controls}.log`;
+respostas em `/tmp/dartforge-symbol-stat-control-*.jsonl`,
+`/tmp/dartforge-symbol-stat-aliases{,-unwatched}.jsonl`,
+`/tmp/dartforge-symbol-stat-parts{,-unwatched}.jsonl` e
+`/tmp/dartforge-symbol-stat-padded-parts{,-unwatched}.jsonl`.
+O baseline é `e437a160`, preservado em `/tmp/dartforge-symbol-stat-before`,
+SHA-256 `bd326c1bf6655146d423983721efeb6d20a9770f2d61e106c1b4340fe0f1c549`;
+o novo binário está em `/tmp/dartforge-symbol-stat-after`, SHA-256
+`010d09c8d2194f61e58f9be6980ac24fa4778761eacf970c455a2486867e8351`.
+
+As **54 sessões revezadas** mantiveram **216/216 respostas completas iguais em
+cada comparação** antes/depois, antes/Dart e depois/Dart, em cada modo de
+watcher. As configurações, o documento de preparação, os caches e os dez
+segundos extras de ociosidade foram iguais. Compilações e testes terminaram
+antes da medição. Os manifestos antes/depois permaneceram idênticos, com
+9.761 / 6.640 / 10.894 arquivos e nenhuma raiz ausente.
+
+**Buscas quentes**, medianas de 48 pedidos por célula, latência / CPU da árvore em ms:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 150,8 / 150,2 | 141,0 / 140,5 | 16,6 / 19,1 |
+| Sem watcher | core | 61,3 / 61,0 | 54,9 / 54,4 | 12,7 / 13,1 |
+| Sem watcher | frontend | 184,8 / 184,3 | 175,4 / 174,9 | 18,0 / 24,6 |
+| Com watcher | `limitless_ui` | 11,8 / 11,3 | 11,8 / 11,3 | 16,0 / 17,7 |
+| Com watcher | core | 9,3 / 8,8 | 8,9 / 8,4 | 12,7 / 13,1 |
+| Com watcher | frontend | 12,5 / 12,1 | 12,4 / 11,9 | 18,0 / 22,5 |
+
+Sem watcher, a latência caiu **6,4% / 10,4% / 5,1%**, e a CPU,
+**6,5% / 10,8% / 5,1%**. Ainda perde do Dart nessa modalidade. Com watcher,
+as diferenças ficaram entre zero e 0,4 ms; o mapa novo não participa do
+caminho confiável. A busca quente com watcher continua ganhando do Dart.
+
+**Primeira busca**, medianas de três sessões, nas mesmas unidades:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 1.112,5 / 1.111,6 | 1.125,1 / 1.124,3 | 699,9 / 950,7 |
+| Sem watcher | core | 739,4 / 738,6 | 755,1 / 752,0 | 514,3 / 764,8 |
+| Sem watcher | frontend | 1.350,3 / 1.349,5 | 1.347,4 / 1.346,5 | 567,7 / 735,1 |
+| Com watcher | `limitless_ui` | 1.123,4 / 1.122,5 | 1.100,3 / 1.099,4 | 694,7 / 943,3 |
+| Com watcher | core | 738,7 / 737,9 | 733,8 / 733,0 | 510,4 / 761,2 |
+| Com watcher | frontend | 1.348,4 / 1.347,6 | 1.338,4 / 1.337,5 | 552,6 / 720,8 |
+
+O mapa permanece desativado na construção inicial. Sem watcher, as medianas
+de primeira latência subiram **12,6 / 15,7 ms** nos dois primeiros projetos
+(1,1% / 2,1%); no frontend caíram 2,9 ms. Com watcher caíram nos três projetos.
+Não há ganho geral demonstrado na primeira busca, que continua mais lenta que
+a do Dart. As variações individuais e a ordem das sessões ficam nos artefatos.
+
+**Footprint final**, medianas de três sessões em MiB:
+
+| Cliente | Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | --- | ---: | ---: | ---: |
+| Sem watcher | `limitless_ui` | 132,2 | 132,8 | 678,5 |
+| Sem watcher | core | 124,8 | 125,3 | 506,8 |
+| Sem watcher | frontend | 574,8 | 576,0 | 704,4 |
+| Com watcher | `limitless_ui` | 132,3 | 131,5 | 670,9 |
+| Com watcher | core | 124,6 | 124,5 | 508,4 |
+| Com watcher | frontend | 574,8 | 574,9 | 711,8 |
+
+O custo final sem watcher foi **+0,6 / +0,5 / +1,2 MiB**. Descartar o mapa
+ao fim do pedido não obriga o alocador a devolver suas páginas ao sistema.
+A mudança reduz tempo e CPU na revalidação, mas não reduz a memória final
+dessa matriz. Os três projetos continuam abaixo do Dart. Essas amostras não
+medem pico simultâneo da árvore ou estabilidade em sessões longas.
+
+Os ensaios preliminares de uma sessão por versão ficam fora das matrizes:
+`/tmp/dartforge-symbol-stat-quick-{before,after}.jsonl` avaliou o mapa em todos
+os pedidos; `/tmp/dartforge-symbol-stat-selective-{before,after}.jsonl`, a
+ativação restrita mantida. A primeira tentativa da matriz parou antes de
+iniciar o Dart por falta de `ORACLE_DART` explícito. Foi preservada em
+`/tmp/dartforge-symbol-stat-aborted-matrix-*` e reiniciada integralmente;
+nenhuma dessas sessões integra as tabelas.
+
+Resultados em
+`/tmp/dartforge-symbol-stat-{matrix,watched-matrix}-{limitless,core,frontend}-{before,after,dart}-{0,1,2}.jsonl`,
+resumos `/tmp/dartforge-symbol-stat-{summary,watched-summary}.log` e manifestos
+`/tmp/dartforge-symbol-stat-{limitless,core,frontend}-inputs-{before,after}.json`.
+A dupla fria/quente, o protocolo legado, as edições nos projetos grandes e a
+sessão longa não foram repetidos; as reprovações e limitações anteriores
+continuam registradas separadamente.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da

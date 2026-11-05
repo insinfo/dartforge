@@ -356,7 +356,22 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   ganho geral com watcher; continua mais lenta que o Dart. As buscas quentes
   ficaram próximas do baseline, com +1,1 ms no frontend sem watcher. Manifestos
   idênticos antes/depois, sem raízes ausentes. Detalhes e medições em `docs/LSP.md`.
-- **Regressões do servidor:** **337 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
+- **Metadados de disco por pedido (05/11):** a descoberta e a validação das
+  bibliotecas compartilham os metadados ao revalidar um índice sem confiança no
+  disco. O mapa sai ao fim do pedido; a primeira indexação e as buscas confiáveis
+  ficam sem ele. A resolução entre fonte e gerado continua fresca a cada chamada.
+  Passaram **338 testes do LSP**, **450/450 controles completos com o Dart**,
+  11 testes Python, clippy do workspace, documentação estrita e formatação.
+  Nas **54 sessões revezadas**, cada matriz manteve **216/216 respostas completas
+  iguais em cada comparação**. Sem watcher, as medianas quentes caíram
+  **150,8 → 141,0 / 61,3 → 54,9 / 184,8 → 175,4 ms**, com **5–11% menos CPU**;
+  ainda perdem do Dart. O custo de footprint final foi **+0,6 / +0,5 / +1,2 MiB**.
+  A primeira busca subiu **1,1% / 2,1%** nos dois primeiros projetos sem watcher;
+  não há ganho geral nela. As buscas quentes com watcher ficaram próximas do
+  baseline e continuam ganhando do Dart. Manifestos idênticos antes/depois,
+  sem raízes ausentes. A sessão longa e as edições grandes não foram repetidas.
+  Detalhes, tabelas e limitações em `docs/LSP.md`.
+- **Regressões do servidor:** **338 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
   raízes numa regressão nova, duas regressões de descoberta e listas de resposta e
   quatro de URIs, normalização e fontes sombreadas, além das duas novas de criação
@@ -365,6 +380,7 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   O teste de igualdade dos metadados entre os parsers foi acrescentado depois.
   A abertura de projeto externo acrescentou uma regressão de integração que
   falhava antes da correção; as duas específicas do cache retirado não integram a suíte.
+  A regressão mais recente cobre o estado de disco compartilhado só dentro de um pedido.
   Clippy do workspace sem avisos, formatação e documentação estrita passaram.
   Após as URIs, mantidos **112/112** no ciclo de vida, **24/24 com e 24/24 sem
   watcher** nos dois contextos, **18/18** na capacidade, **16/16** nas condicionais e
