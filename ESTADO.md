@@ -195,7 +195,24 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   pedidos, e a espera pelo intervalo ocioso respeita o prazo total. Passaram
   **11 testes Python** sem SDK; os controles mantiveram **32/32** nos projetos
   pequenos e **16/16** na fonte sombreada sem watcher. Detalhes em `docs/LSP.md`.
-- **Regressões do servidor:** **329 testes do LSP passaram em 05/11**, incluindo doctests, o platô de
+- **Buscas sem watcher, latência e CPU medidas em 05/11:** o perfil do binário
+  `release` encontrou normalizações repetidas dos longos caminhos de pacotes com
+  `..`. O catálogo agora guarda esses caminhos normalizados desde a carga, sem
+  mudar a ordem nem dispensar revalidações do disco. Em três sessões por servidor
+  e projeto, alternando a ordem e sem compilações/testes concorrentes, as medianas
+  quentes de latência caíram de **595,5 para 385,7 ms** no `limitless_ui`, de
+  **275,4 para 158,3 ms** no core e de **877,2 para 615,0 ms** no frontend.
+  A CPU da árvore caiu na mesma proporção: cerca de **35%, 43% e 30%**.
+  **O Dart ainda ganha:** suas medianas foram 17,1, 13,3 e 18,9 ms. A primeira
+  busca também melhorou, mas continua mais lenta. As **27 sessões** conservaram
+  **216/216 respostas completas** em cada comparação antes/depois/Dart, com
+  manifestos idênticos. Este protocolo resolve o documento e espera dez segundos
+  adicionais de ociosidade; não fecha as falhas do protocolo antigo nem o cache
+  frio. O footprint final ficou menor que o Dart, sem redução consistente após
+  esta mudança; no frontend, variou de 586,7 para 589,6 MiB (Dart 712,1 MiB), com
+  faixas sobrepostas. Não é uma medição de estabilidade de sessão longa.
+  Reprodução, CPU, primeira busca e memória em `docs/LSP.md`.
+- **Regressões do servidor:** **329 testes do LSP passaram novamente em 05/11**, incluindo doctests, o platô de
   memória, as duas regressões do histórico da tabela e os 27 casos de ordenação de
   raízes numa regressão nova, duas regressões de descoberta e listas de resposta e
   quatro de URIs, normalização e fontes sombreadas.
@@ -205,13 +222,16 @@ mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
   **32/32** nos quatro projetos pequenos. Sem watcher, eram 15/24 antes de preservar
   a colisão da URI; a matriz
   corrigida já havia passado duas vezes nos dois modos em 04/11 (**96/96**).
-- **Desempenho ainda sem repetição:** capturar a ordem inicial exige enumerar os arquivos
+  Após normalizar os catálogos, passaram **270/270 controles completos**: 112 do
+  ciclo de vida, 48 dos catálogos, 44 das URIs e sombras, 16 condicionais, 18 de
+  capacidade e 32 dos projetos pequenos; os gates e os 11 testes Python passaram.
+- **Desempenho ainda incompleto:** capturar a ordem inicial exige enumerar os arquivos
   ao criar a coleção; reconstruí-la reenumera as raízes e descarta o índice sintático.
   Contextos existentes não são reenumerados por edições de corpo; o custo de abertura
   e reconstrução nos projetos grandes ainda precisa ser medido, incluindo a nova
-  checagem de ida e volta das URIs na adição dos arquivos. Faltam a paridade
-  após edições nesses projetos e com dependências condicionais, e CPU/latência/memória
-  sem compilações ou testes concorrentes.
+  checagem de ida e volta das URIs na adição dos arquivos. As buscas sem watcher
+  agora têm a medição isolada acima. Faltam a paridade após edições nesses projetos
+  e com dependências condicionais, desempenho nessas mudanças e a sessão longa.
 - Detalhes e critérios em `docs/LSP.md`, seção de 04/11 e continuação de 05/11. Os problemas de desempenho e de
   memória da décima sétima rodada abaixo continuam abertos.
 

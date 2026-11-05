@@ -396,7 +396,10 @@ impl Context {
             .unwrap_or_default();
         let packages: Vec<_> = locations
             .iter()
-            .map(|p| (p.name.clone(), p.lib.clone()))
+            // Package configurations often contain long relative paths with
+            // `..`. URI discovery compares every import against this catalog;
+            // normalize once rather than rebuilding each root per comparison.
+            .map(|p| (p.name.clone(), dartforge_elements::generated::key(&p.lib)))
             .collect();
         let generated = config_root
             .into_iter()
@@ -419,7 +422,9 @@ impl Context {
                     .filter(move |p| p.root.starts_with(root))
                     .filter_map(move |p| {
                         let generated = output.join(&p.name);
-                        generated.is_dir().then(|| (p.root.clone(), generated))
+                        generated
+                            .is_dir()
+                            .then(|| (dartforge_elements::generated::key(&p.root), generated))
                     })
             })
             .collect();

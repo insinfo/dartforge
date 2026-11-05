@@ -3909,6 +3909,103 @@ com os rastros de mesmo nome terminados em `.trace.json`;
 `/tmp/dartforge-readiness-unit.log`. Estes ensaios não medem desempenho: ainda
 faltam latência, CPU e memória em condições equivalentes e sem concorrência.
 
+### Continuação: normalizar os catálogos antes das buscas de símbolos (05/11)
+
+Um perfil do binário `release`, sem watcher, mostrou trabalho repetido na
+resolução dos imports: os caminhos de `package_config.json` conservavam longas
+sequências de `..`, e cada comparação com uma raiz de pacote reconstruía seu
+caminho normalizado. `Context::load` agora normaliza os diretórios `lib/` dos
+pacotes e as raízes fonte dos mapeamentos de gerados ao carregar o catálogo.
+A ordem dos pacotes, a seleção das bibliotecas e a revalidação do disco foram
+preservadas. Sem watcher, o catálogo continua sendo relido; a alteração não
+introduz um prazo adicional durante o qual mudanças ficariam invisíveis.
+
+O perfil diagnóstico está em `/tmp/dartforge-symbol-perf-before-profile.txt`.
+Seus tempos não entram na comparação de desempenho. O baseline é o commit
+`34ab3f5b`; os dois binários foram construídos com
+`cargo build --locked --release -p dartforge-lsp --bin dartforge-lsp`, no mesmo
+ambiente e sem alteração dos perfis. Cópias preservadas:
+`/tmp/dartforge-symbol-perf-{before,after}` (SHA-256 iniciados em `66ea1d95dd73`
+e `5278bd3cee9f`, respectivamente).
+
+O novo `workspace_symbol_performance.py` executa um servidor por vez, conserva
+as listas completas e mede recursos da árvore de processos no macOS. O cliente
+não anuncia watcher, abre o mesmo primeiro documento do oráculo anterior,
+resolve seus símbolos e observa dez segundos adicionais de ociosidade. São
+três passagens das oito consultas `Arg`, `parse`, `Scanner`, `ctx`, `Ponto`,
+`join`, `a` e `e`. A primeira consulta `Arg` inclui a construção do índice;
+as duas últimas passagens dão 16 amostras quentes por sessão. A CPU soma usuário
+e sistema do servidor, dos descendentes vivos e dos filhos encerrados já
+recolhidos. A memória usa o footprint físico, com RSS também guardada nos JSONL;
+as amostras nos limites dos pedidos e no repouso final não medem um pico
+simultâneo de toda a árvore nem provam estabilidade numa sessão longa.
+
+Foram **27 sessões**, três por servidor e projeto, executadas sequencialmente,
+alternando `antes/depois/Dart`, `depois/Dart/antes` e `Dart/antes/depois`. Compilações,
+testes e perfil diagnóstico terminaram antes da matriz. Cada mediana quente usa
+48 pedidos (16 por sessão); a primeira busca usa três. O cliente não anuncia
+watcher, mas o Dart observa o sistema de arquivos nativamente. Nesse cenário,
+o DartForge ainda reenumera e revalida os arquivos em cada busca.
+
+Medianas quentes em **ms de latência / ms de CPU da árvore**:
+
+| Projeto | Antes | Depois | Dart 3.6.2 |
+| --- | ---: | ---: | ---: |
+| `limitless_ui` | 595,5 / 595,0 | 385,7 / 385,2 | 17,1 / 21,4 |
+| core | 275,4 / 274,5 | 158,3 / 157,7 | 13,3 / 13,6 |
+| frontend | 877,2 / 876,4 | 615,0 / 613,6 | 18,9 / 26,3 |
+
+A queda de latência/CPU foi de aproximadamente **35% no `limitless_ui`, 43% no
+core e 30% no frontend**. Todos os três ainda perdem do Dart nesse protocolo.
+A construção inicial e a memória não foram descartadas da coleta:
+
+| Projeto | Primeira busca: antes / depois / Dart (ms) | Footprint final: antes / depois / Dart (MiB) |
+| --- | ---: | ---: |
+| `limitless_ui` | 1.831 / 1.551 / 731 | 137,6 / 137,2 / 674,4 |
+| core | 1.124 / 961 / 529 | 127,8 / 125,2 / 503,2 |
+| frontend | 2.393 / 2.037 / 598 | 586,7 / 589,6 / 712,1 |
+
+Não houve redução consistente de memória: no frontend, a mediana subiu 0,5%,
+com intervalos das sessões sobrepostos (antes 579,4–592,2 MiB; depois
+582,6–589,6 MiB). O footprint final continua menor que o Dart nos três projetos,
+mas esse ensaio curto não substitui as ondas de gerados nem o platô da sessão
+longa. A primeira busca também continua mais lenta que a referência.
+
+**Respostas completas:** as 72 por projeto coincidiram nas três comparações
+`antes/depois`, `antes/Dart` e `depois/Dart`: **216/216 em cada comparação**,
+sem alterar ordem, duplicatas, URIs ou campos. Este protocolo acrescenta uma
+espera de dez segundos à preparação estabilizada; não transforma os resultados
+antigos de **21/24** em aprovações nem valida cache Dart frio. Os manifestos
+anteriores e posteriores foram idênticos, inclusive aos da etapa de preparação:
+9.761, 6.640 e 10.894 arquivos, sem raízes ausentes e com os mesmos digests.
+
+Reprodução de uma sessão, com os executáveis e o SDK selecionados explicitamente:
+
+```sh
+ORACLE_DART=/sdk/3.6.2/bin/dart ORACLE_SDK_LIB=/sdk/3.6.2/lib \
+  ORACLE_DART_CACHE=/tmp/cache-do-projeto \
+  python3 crates/lsp/oracle/workspace_symbol_performance.py \
+  /caminho/dartforge-lsp /caminho/projeto /tmp/symbol-performance.jsonl
+```
+
+Use `dart` no primeiro argumento para a referência. Repita com os dois binários
+e a referência, alternando a ordem entre sessões. `--profile /tmp/sample.txt`
+é diagnóstico; sua linha de inicialização marca `profiled: true`, e seus tempos
+devem ser excluídos da comparação.
+
+Artefatos: `/tmp/dartforge-symbol-perf-matrix-{limitless,core,frontend}-{before,after,dart}-{0,1,2}.jsonl`,
+logs de mesmo nome, `/tmp/dartforge-symbol-perf-{matrix,summary}.log` e
+`/tmp/dartforge-symbol-perf-{limitless,core,frontend}-inputs-{before,after}.json`.
+Passaram novamente **329 testes do LSP, zero falhas e zero ignorados**, os
+**11 testes Python**, formatação, clippy do workspace sem avisos e documentação
+estrita. Logs em `/tmp/dartforge-symbol-perf-{tests,python,clippy,doc}.log`.
+Após terminar as medições, passaram **270/270 controles completos**: ciclo de
+vida normal e criação antes da primeira busca (112), catálogos com e sem watcher
+(48), URIs e fontes sombreadas (44), condicionais (16), capacidade (18) e os
+projetos pequenos pelo protocolo antigo (32). Arquivos em
+`/tmp/dartforge-symbol-perf-control-*.jsonl` e
+`/tmp/dartforge-symbol-perf-controls.log`.
+
 ## Capacidades
 
 `textDocument/documentSymbol` lista declarações de topo e membros a partir da
