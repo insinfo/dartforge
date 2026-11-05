@@ -226,21 +226,10 @@ pub(crate) fn project_files(root: &Path) -> Vec<PathBuf> {
     output
 }
 
-/// Project files in the analyzer's context and directory discovery order.
-///
-/// `workspace/symbol` preserves this order, including at its result limit.
-/// Other project loads keep using the sorted [`project_files`] so that their
-/// element layout does not depend on directory enumeration order.
-pub(crate) fn symbol_files(root: &Path) -> Vec<PathBuf> {
-    symbol_context_files(root)
-        .into_iter()
-        .flat_map(|(_, files)| files)
-        .collect()
-}
-
 /// Analysis contexts and their files in discovery order. Each context keeps
 /// its own package configuration; a dependency is resolved by the referring
 /// context even when the dependency's path lies outside that context's root.
+/// Other loads keep using sorted [`project_files`] for stable element layout.
 pub(crate) fn symbol_context_files(root: &Path) -> Vec<(PathBuf, Vec<PathBuf>)> {
     fn contexts(dir: &Path, ancestors: &mut HashSet<PathBuf>, roots: &mut Vec<PathBuf>) {
         let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());

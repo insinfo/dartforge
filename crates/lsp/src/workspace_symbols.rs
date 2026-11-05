@@ -41,6 +41,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 mod context_order;
+pub(crate) use context_order::DriverOrder;
 
 /// The handler's result limit.
 pub(crate) const LIMIT: usize = 500;
@@ -334,6 +335,8 @@ struct SdkFiles {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Context {
     root: PathBuf,
+    /// Session driver-map iteration rank; absent for standalone catalogs.
+    driver_rank: Option<usize>,
     packages: Vec<(String, PathBuf)>,
     generated: Vec<(String, PathBuf, PathBuf)>,
     generated_files: Vec<(PathBuf, PathBuf)>,
@@ -380,6 +383,7 @@ impl Context {
             .collect();
         Self {
             root: root.to_path_buf(),
+            driver_rank: None,
             packages,
             generated,
             generated_files,

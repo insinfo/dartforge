@@ -323,6 +323,9 @@ pub struct Server<A = SyntacticAnalyzer> {
     /// Initial file membership of the live analysis contexts, captured when
     /// they open, before the first workspace symbol request.
     symbol_contexts: Vec<(std::path::PathBuf, Vec<std::path::PathBuf>)>,
+    /// Driver-map capacity survives removal of the last context. It belongs
+    /// to the session, rather than the disposable syntax index.
+    symbol_driver_order: crate::workspace_symbols::DriverOrder,
     /// Global OwnedFiles insertion order, including events before any query.
     symbol_file_order: Vec<std::path::PathBuf>,
     /// Current documents in priority-file insertion order, without history
@@ -504,6 +507,7 @@ impl<A: Analyzer> Server<A> {
             workspace_symbol_kinds: None,
             symbol_index: Default::default(),
             symbol_contexts: Vec::new(),
+            symbol_driver_order: Default::default(),
             symbol_file_order: Vec::new(),
             symbol_priority_files: Vec::new(),
             symbol_listing: None,
@@ -1446,6 +1450,9 @@ impl<A: Analyzer> Server<A> {
                 self.analyzer.disk_changed(&paths);
                 if !paths.is_empty() {
                     self.symbol_disk_dirty = true;
+                }
+                if paths.iter().any(|p| is_symbol_context_configuration(p)) {
+                    self.rebuild_symbol_contexts(&self.symbol_roots());
                 }
                 // Dart reports the analysis its watcher starts the same way as
                 // an edit's.
@@ -4380,27 +4387,38 @@ impl<A: Analyzer> Server<A> {
 
     /// A context's original discovery order must exist before watcher events,
     /// even if no workspace/symbol request has needed its syntax index yet.
-    /// Existing contexts are never walked again by document edits or opens.
+    /// An unchanged collection is not walked again for document edits or opens.
     fn refresh_symbol_contexts(&mut self, roots: &[std::path::PathBuf]) {
-        let before = self.symbol_contexts.len();
-        self.symbol_contexts.retain(|(r, _)| roots.contains(r));
-        if self.symbol_contexts.len() != before {
-            let retained: HashSet<_> = self
-                .symbol_contexts
-                .iter()
-                .flat_map(|(_, files)| files)
-                .collect();
-            self.symbol_file_order.retain(|p| retained.contains(p));
+        if roots
+            .iter()
+            .eq(self.symbol_contexts.iter().map(|(root, _)| root))
+        {
+            return;
         }
+        self.rebuild_symbol_contexts(roots);
+    }
+
+    /// A new analysis collection replaces OwnedFiles and all drivers; only
+    /// the driver-map capacity survives. Capture this before the first query.
+    fn rebuild_symbol_contexts(&mut self, roots: &[std::path::PathBuf]) {
+        let mut contexts = Vec::new();
+        let mut seen = HashSet::new();
+        self.symbol_contexts.clear();
+        self.symbol_file_order.clear();
         for root in roots {
-            if !self.symbol_contexts.iter().any(|(r, _)| r == root) {
-                let files = crate::project::symbol_files(root);
-                let mut seen: HashSet<_> = self.symbol_file_order.iter().cloned().collect();
-                self.symbol_file_order
-                    .extend(files.iter().filter(|p| seen.insert((*p).clone())).cloned());
-                self.symbol_contexts.push((root.clone(), files));
+            let mut files = Vec::new();
+            for (context, found) in crate::project::symbol_context_files(root) {
+                if !contexts.contains(&context) {
+                    contexts.push(context);
+                }
+                files.extend(found.into_iter().filter(|p| seen.insert(p.clone())));
             }
+            self.symbol_file_order.extend(files.iter().cloned());
+            self.symbol_contexts.push((root.clone(), files));
         }
+        self.symbol_driver_order.rebuild(contexts);
+        self.symbol_listing = None;
+        self.symbol_index = Default::default();
     }
 
     /// `workspace/symbol`: the symbols of the open documents and of the `.dart`
@@ -4486,12 +4504,20 @@ impl<A: Analyzer> Server<A> {
                     .collect();
             }
             let mut seen = HashSet::new();
-            let contexts = context_files
+            let context_roots: Vec<_> = context_files
                 .iter()
                 .map(|(root, _)| root)
                 .filter(|root| seen.insert((*root).clone()))
+                .cloned()
+                .collect();
+            if self.symbol_driver_order.update(context_roots.clone()) {
+                self.symbol_index = Default::default();
+            }
+            let mut contexts: Vec<_> = context_roots
+                .iter()
                 .map(|root| crate::workspace_symbols::Context::load(root))
                 .collect();
+            self.symbol_driver_order.apply(&mut contexts);
             let sdk = dartforge_elements::sdk::SdkLayout::discover();
             self.symbol_listing = Some((
                 roots.clone(),
@@ -4749,6 +4775,18 @@ fn utf16_starts(text: &str) -> Vec<usize> {
 }
 
 /// A file whose change reconfigures the projects under it (§3.3).
+fn is_symbol_context_configuration(path: &std::path::Path) -> bool {
+    matches!(
+        path.file_name().and_then(|n| n.to_str()),
+        Some("pubspec.yaml" | "analysis_options.yaml" | ".analysis_options" | "BUILD.gn")
+    ) || (path.file_name().is_some_and(|n| n == "package_config.json")
+        && path
+            .parent()
+            .and_then(|p| p.file_name())
+            .is_some_and(|n| n == ".dart_tool"))
+}
+
+/// A file whose change invalidates language versions and retained programs.
 fn is_project_configuration(path: &std::path::Path) -> bool {
     path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
         matches!(

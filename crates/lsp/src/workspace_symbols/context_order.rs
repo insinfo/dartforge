@@ -7,6 +7,61 @@
 //! BSD license and attribution: THIRD_PARTY_NOTICES.md.
 
 use super::Context;
+use std::path::PathBuf;
+
+/// ContextManager removes each driver during a rebuild, without clearing its
+/// HashMap. Retain its bucket capacity, even with no active analysis roots.
+/// Only live roots and their already computed order remain in this model.
+#[derive(Debug)]
+pub(crate) struct DriverOrder {
+    capacity: usize,
+    roots: Vec<PathBuf>,
+    indices: Vec<usize>,
+}
+
+impl Default for DriverOrder {
+    fn default() -> Self {
+        Self {
+            capacity: 8,
+            roots: Vec::new(),
+            indices: Vec::new(),
+        }
+    }
+}
+
+impl DriverOrder {
+    /// Reinsert a new context collection, retaining the old bucket capacity.
+    pub(crate) fn rebuild(&mut self, roots: Vec<PathBuf>) {
+        let hashes: Vec<_> = roots
+            .iter()
+            .map(|p| path_hash(&p.to_string_lossy()))
+            .collect();
+        let (indices, capacity) = bucket_order(&hashes, self.capacity);
+        self.capacity = capacity;
+        self.indices = indices;
+        self.roots = roots;
+    }
+
+    /// Detect new context boundaries during disk revalidation as well as
+    /// explicit root changes. A query alone must not rebuild collision chains.
+    pub(crate) fn update(&mut self, roots: Vec<PathBuf>) -> bool {
+        if roots == self.roots {
+            return false;
+        }
+        self.rebuild(roots);
+        true
+    }
+
+    /// Attach the saved iteration rank without reordering context creation,
+    /// which also determines bootstrap and fallback ownership.
+    pub(crate) fn apply(&self, contexts: &mut [Context]) {
+        for (rank, &index) in self.indices.iter().enumerate() {
+            if let Some(context) = contexts.iter_mut().find(|c| c.root == self.roots[index]) {
+                context.driver_rank = Some(rank);
+            }
+        }
+    }
+}
 
 fn path_hash(path: &str) -> u32 {
     let mut hash = 0u32;
@@ -24,11 +79,23 @@ fn path_hash(path: &str) -> u32 {
 /// Entry indices in the VM HashMap's iteration order, including collision
 /// chains and the reversals introduced when a bucket table grows.
 pub(super) fn order(contexts: &[Context]) -> Vec<usize> {
+    if contexts.iter().all(|c| c.driver_rank.is_some()) {
+        let mut indices: Vec<_> = (0..contexts.len()).collect();
+        indices.sort_by_key(|&i| contexts[i].driver_rank);
+        return indices;
+    }
     let hashes: Vec<_> = contexts
         .iter()
         .map(|c| path_hash(&c.root.to_string_lossy()))
         .collect();
-    let mut buckets = vec![Vec::new(); 8];
+    bucket_order(&hashes, 8).0
+}
+
+fn bucket_order(hashes: &[u32], capacity: usize) -> (Vec<usize>, usize) {
+    if hashes.is_empty() {
+        return (Vec::new(), capacity);
+    }
+    let mut buckets = vec![Vec::new(); capacity];
     for (index, hash) in hashes.iter().enumerate() {
         let bucket = *hash as usize & (buckets.len() - 1);
         buckets[bucket].insert(0, index);
@@ -43,7 +110,8 @@ pub(super) fn order(contexts: &[Context]) -> Vec<usize> {
             buckets = grown;
         }
     }
-    buckets.into_iter().flatten().collect()
+    let capacity = buckets.len();
+    (buckets.into_iter().flatten().collect(), capacity)
 }
 
 #[cfg(test)]
@@ -95,5 +163,52 @@ mod tests {
                 16, 8, 21, 30, 9, 2, 7, 10, 36, 32, 17, 20, 5, 35, 1, 27, 11, 4, 38
             ]
         );
+    }
+
+    #[test]
+    fn removed_drivers_release_paths_but_preserve_vm_bucket_capacity() {
+        // Dart 3.6.2: fresh pair [0, 6], after adding/removing all forty
+        // reference paths [6, 0]. Removal never shrinks the VM HashMap.
+        let roots: Vec<PathBuf> = reference_paths().into_iter().map(PathBuf::from).collect();
+        let pair = vec![roots[0].clone(), roots[6].clone()];
+        let mut drivers = DriverOrder::default();
+        drivers.rebuild(pair.clone());
+        assert_eq!(drivers.indices, [0, 1]);
+        drivers.rebuild(roots);
+        assert_eq!(drivers.capacity, 64);
+        drivers.rebuild(Vec::new());
+        assert_eq!(drivers.capacity, 64);
+        assert!(drivers.roots.is_empty());
+        assert!(drivers.indices.is_empty());
+        drivers.rebuild(pair.clone());
+        assert_eq!(drivers.indices, [1, 0]);
+        assert!(!drivers.update(pair.clone()));
+        assert_eq!(drivers.indices, [1, 0]);
+        let mut contexts: Vec<_> = pair
+            .into_iter()
+            .map(|root| Context {
+                root,
+                ..Context::default()
+            })
+            .collect();
+        drivers.apply(&mut contexts);
+        assert_eq!(order(&contexts), [1, 0]);
+    }
+
+    #[test]
+    fn rebuilding_a_grown_table_changes_collisions_only_once() {
+        // These two UTF-16 hashes collide even in the grown table. A resize
+        // reverses their chain, while reinsertion into that table prepends it.
+        let roots: Vec<PathBuf> = reference_paths().into_iter().map(PathBuf::from).collect();
+        let mut drivers = DriverOrder::default();
+        drivers.rebuild(roots.clone());
+        let initial = drivers.indices.clone();
+        assert!(!drivers.update(roots.clone()));
+        assert_eq!(drivers.indices, initial);
+        drivers.rebuild(roots.clone());
+        assert_ne!(drivers.indices, initial);
+        let rebuilt = drivers.indices.clone();
+        drivers.rebuild(roots);
+        assert_eq!(drivers.indices, rebuilt);
     }
 }

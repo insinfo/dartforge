@@ -3496,9 +3496,77 @@ As execuções continuam sendo de corretude, sem nova medição de desempenho.
 e remover 40 chaves sem `clear`; o `clear` restaura a ordem inicial. O ensaio é da
 tabela da VM, não de uma sessão LSP de 40 contextos, e está em
 `/tmp/dartforge-driver-capacity-reference.json`. Como o SDK remove os drivers sem limpar
-o mapa, falta preservar esse histórico no modelo atual. Também permanecem a paridade
-no frio, as dependências condicionais, a descoberta iniciada durante consultas e as
-edições nos projetos grandes antes de repetir as medidas da rodada 17.
+o mapa, faltava preservar esse histórico no modelo de 04/11. A continuação abaixo
+amplia o ensaio para uma sessão LSP real.
+
+### 05/11: capacidade da tabela de drivers ao reconstruir e remover contextos
+
+`workspace_symbol_capacity.py` analisa sete projetos, cada um com uma dependência
+externa não importada. Um programa executado pela VM 3.6.2 escolhe os caminhos de
+modo que haja tanto uma colisão alterada pela expansão de oito para dezesseis baldes
+quanto um par cuja ordem difira entre uma tabela nova e uma tabela já expandida.
+O oráculo confere a ordem esperada das dependências na resposta do Dart antes de
+comparar os JSON completos. Assim a prova não depende de um nome temporário por acaso
+produzir o contraexemplo.
+
+A sessão percorre seis fases: sete pastas abertas, reconstrução pelas opções de
+análise, redução a duas pastas, remoção de todas, reabertura das duas e outra
+reconstrução. A variante `--query-after-reduction` só faz a primeira consulta de
+símbolos depois de reduzir para duas, preservando a expansão anterior da tabela.
+As barreiras esperam a análise e, quando não resta driver, `FileNotAnalyzed`.
+Com algum driver ativo, o Dart pode resolver arquivos fora das raízes: esse erro
+não serve como barreira de remoção individual.
+
+| Consulta de todas as dependências não importadas | Antes | Depois |
+|---|---:|---:|
+| Seis fases, com consultas desde a expansão | 2/6 | 6/6 |
+| Primeira consulta só depois da redução | 1/4 | 4/4 |
+
+A capacidade agora pertence à sessão, não ao índice sintático. Reconstruir insere
+novamente os drivers usando a capacidade conservada; consultar sem mudança conserva
+a ordem calculada, inclusive as cadeias revertidas durante uma expansão. Ao remover
+a última raiz, os caminhos e índices ativos são liberados e só o número de baldes
+é conservado. A captura ocorre ao abrir a coleção, antes da primeira busca.
+Eventos de `pubspec.yaml`, opções, `BUILD.gn` e `.dart_tool/package_config.json`
+reconstroem a coleção e invalidam a descoberta anterior. `pubspec.lock` sozinho não
+é tratado como uma reconstrução da tabela.
+
+**A matriz completa continua reprovada.** O oráculo também consulta os símbolos dos
+próprios projetos e uma dependência específica: foram **13/18 respostas completas**
+na sessão inteira e **9/12** na variante com primeira busca adiada. As cinco e três
+diferenças, respectivamente, são da ordem dos símbolos dos projetos. Os totais
+anteriores eram 12/18 e 9/12, mas os diretórios temporários diferem entre execuções;
+esses totais agregados não isolam a correção. A consulta das dependências, cuja ordem
+esperada é calculada para os caminhos de cada execução, passou nas dez fases. O
+script conserva as diferenças nos JSONL e termina com código 1 enquanto qualquer
+resposta divergir.
+
+```sh
+python3 crates/lsp/oracle/workspace_symbol_capacity.py /tmp/symbol-capacity.jsonl target/debug/dartforge-lsp
+python3 crates/lsp/oracle/workspace_symbol_capacity.py /tmp/symbol-capacity-late.jsonl target/debug/dartforge-lsp --query-after-reduction
+python3 crates/lsp/oracle/summary.py /tmp/symbol-capacity.jsonl --method workspace/symbol
+```
+
+Use `ORACLE_DART` e `ORACLE_SDK_LIB` do mesmo SDK 3.6.2; `ORACLE_DART_CACHE` pode
+isolar o cache de referência. Evidência desta etapa:
+`/tmp/dartforge-symbol-capacity-{before,after,late-before,late-after}.jsonl` e seus
+logs com os mesmos nomes. As duas regressões unitárias novas usam os hashes e a
+ordem já capturados da VM: removem quarenta raízes, reabrem o par e verificam que
+uma nova consulta não reconstrói as colisões de uma tabela já expandida.
+
+A suíte completa do LSP passou com **322 testes, zero falhas e zero ignorados**,
+incluindo doctests e o platô de memória. Mantidos **112/112** no ciclo de vida e
+**24/24** nos dois contextos com watcher. Formatação, clippy do workspace e
+documentação com avisos negados passaram. Logs:
+`/tmp/dartforge-symbol-capacity-{tests,clippy,doc}.log`.
+
+Ainda faltam a ordem dos arquivos adicionados nas sessões com várias pastas, a
+observação de reconstruções sem eventos do cliente quando as raízes não mudam,
+dependências condicionais, descoberta iniciada durante consultas e edições nos
+projetos grandes. A matriz grande de 04/11 não foi repetida com esta mudança.
+Recriar uma coleção agora também descarta o índice sintático e reenumera as raízes;
+seu custo precisa ser medido. Esta etapa é de corretude, sem nova conclusão de
+CPU, latência ou memória nos projetos grandes.
 
 ## Capacidades
 

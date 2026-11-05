@@ -1,4 +1,4 @@
-# Estado do DartForge — 2026-11-04
+# Estado do DartForge — 2026-11-05
 
 ## Prioridade: LSP mais rápido e mais leve que o servidor oficial
 
@@ -74,8 +74,8 @@ os campos, e consultas que chegam ao limite de 500; igualdade só do conjunto n�
 
 **Dono:** agente LSP, primeiro da fila de desempenho a partir de 01/11/2026.
 
-**Andamento (04/11), décima oitava rodada: `workspace/symbol` igual nos cenários sintéticos,
-mas com paridade ainda incompleta nos projetos grandes:**
+**Andamento (04–05/11), décima oitava rodada: paridade de `workspace/symbol` ampliada,
+mas ainda incompleta nos projetos grandes e em sessões com várias pastas:**
 - O oráculo antigo comparava conjuntos de `(nome, URI)` em 24 consultas. Seus 100% não
   verificavam a ordem nem os demais campos: a resposta completa coincidia em **4/24**.
 - Acrescentadas as consultas amplas `a` e `e`, agora são 32. Antes da correção, coincidiam
@@ -109,7 +109,19 @@ mas com paridade ainda incompleta nos projetos grandes:**
   colisão fica registrada enquanto houver uma biblioteca válida; imports inválidos sem
   vínculo válido são descartados. O teste mantém a resposta após 128 mudanças de import,
   sem acumular os estados e índices antigos.
-- **Projetos grandes, resultado atual:** a nova dupla deu **9/24 respostas completas no
+- **Histórico da tabela de drivers (05/11):** a sessão agora preserva a capacidade da
+  tabela após reconstruir os contextos ou fechar a última pasta. O oráculo novo usa
+  sete projetos e dependências não importadas: a consulta de dependências passou de
+  **2/6 para 6/6** nas fases de expansão, reconstrução, redução, esvaziamento e reabertura;
+  adiando a primeira busca até depois da redução, de **1/4 para 4/4**. A capacidade já
+  é registrada ao abrir os contextos, antes de qualquer busca. Projetos removidos não
+  ficam retidos para preservar esse histórico.
+  **A matriz inteira continua reprovada:** **13/18** e **9/12** respostas completas,
+  respectivamente, por diferenças na ordem dos símbolos dos próprios projetos.
+  As execuções anteriores deram 12/18 e 9/12, em outros caminhos temporários: esses
+  totais não isolam o efeito da correção. As dependências têm uma ordem esperada
+  calculada pela VM para cada caminho, que é conferida pelo oráculo.
+- **Projetos grandes, última comparação de 04/11:** a nova dupla deu **9/24 respostas completas no
   cache Dart frio e 24/24 no quente**, com **20/24 e 24/24 conjuntos**, respectivamente.
   Os três projetos deram **8/8 no quente**, incluindo os 373 resultados de `Ponto` no
   `limitless_ui`; outra execução com os mesmos caches manteve **24/24**, sem mudar as
@@ -117,19 +129,24 @@ mas com paridade ainda incompleta nos projetos grandes:**
   frio veio da variação do Dart no core, sem mudar a resposta do DartForge nesse projeto.
   Os manifestos de entrada continuaram iguais e sem raízes ausentes. O core usa a cópia com os 64
   caminhos Windows corrigidos, mantendo versões e fontes. Os 24/24 quentes não fecham
-  a paridade no frio, a descoberta condicional, edições nos projetos grandes nem o
-  histórico de expansão/remoção de contextos. Detalhes e reprodução em `docs/LSP.md`.
-- **Regressões:** **320 testes do LSP passaram**, incluindo doctests e o platô de memória.
-  O oráculo de dois contextos passou em **24/24 com watcher do cliente e 24/24 sem ele**,
+  a paridade no frio, a descoberta condicional, edições nos projetos grandes nem
+  todos os históricos de expansão/remoção de contextos. Essa matriz grande ainda não
+  foi repetida após a correção de 05/11. Detalhes e reprodução em `docs/LSP.md`.
+- **Regressões:** **322 testes do LSP passaram em 05/11**, incluindo doctests, o platô de
+  memória e duas regressões novas do histórico da tabela. Clippy do workspace sem
+  avisos, formatação e documentação estrita passaram. Em 04/11, o oráculo de dois
+  contextos passou em **24/24 com watcher do cliente e 24/24 sem ele**,
   repetidos duas vezes: **96/96**. Sem watcher, eram 15/24 antes de preservar a colisão
   da URI; o teste unitário também falhava na segunda consulta. Mantidos **112/112** no
-  ciclo de vida e **32/32** nos quatro projetos pequenos.
+  ciclo de vida e **32/32** nos quatro projetos pequenos. Em 05/11, repetidos **112/112**
+  no ciclo de vida e **24/24** nos dois contextos com watcher.
 - **Desempenho ainda sem repetição:** capturar a ordem inicial exige enumerar os arquivos
-  ao criar cada contexto. Contextos existentes não são reenumerados por edições de corpo;
-  o custo de abertura nos projetos grandes ainda precisa ser medido. Faltam a paridade
+  ao criar a coleção; reconstruí-la reenumera as raízes e descarta o índice sintático.
+  Contextos existentes não são reenumerados por edições de corpo; o custo de abertura
+  e reconstrução nos projetos grandes ainda precisa ser medido. Faltam a paridade
   após edições nesses projetos e com dependências condicionais, e CPU/latência/memória
   sem compilações ou testes concorrentes.
-- Detalhes e critérios em `docs/LSP.md`, seção de 04/11. Os problemas de desempenho e de
+- Detalhes e critérios em `docs/LSP.md`, seção de 04/11 e continuação de 05/11. Os problemas de desempenho e de
   memória da décima sétima rodada abaixo continuam abertos.
 
 **Andamento (03/11, 11h), décima sétima rodada: as consultas servidas pelo residente:**
