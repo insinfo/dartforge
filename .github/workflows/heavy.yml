@@ -521,6 +521,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Native scoreboard input regression tests
+        run: python3 scripts/test_native_scoreboard_inputs.py
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: report-native-*
@@ -535,13 +537,13 @@ jobs:
           $all = @(Get-ChildItem shards -Recurse -Filter report.txt | Sort-Object FullName)
           # The reports of the root and exception modes (`native-modes`: A1,
           # B0, B1) are not corpus shards either.
-          $rels = @($all | Where-Object { $_.FullName -notmatch 'report-native-(gc-stress|A1|B0|B1)' })
+          $rels = @(& ./scripts/native-scoreboard-inputs.ps1 -Root shards -ExpectedShards ([int]$env:N))
           $stress = $all | Where-Object { $_.FullName -match 'report-native-gc-stress' } | Select-Object -First 1
           New-Item -ItemType Directory -Force scoreboard | Out-Null
           $md = & ./scripts/ci-scoreboard.ps1 -Report $rels -Title "Native — whole corpus ($($rels.Count) of $env:N shards)" -Expected ([int]$env:N)
           $one = & ./scripts/ci-scoreboard.ps1 -Report $rels -Line -Expected ([int]$env:N)
           # Time of each shard, to size N (see ESTADO.md §3.2).
-          $times = foreach ($f in Get-ChildItem shards -Recurse -Filter scoreboard.md | Where-Object { $_.FullName -notmatch 'report-native-(gc-stress|A1|B0|B1)' } | Sort-Object FullName) {
+          $times = foreach ($f in Get-ChildItem shards -Recurse -Filter scoreboard.md | Where-Object { $_.Directory.Name -match '^report-native-[1-9][0-9]*$' } | Sort-Object FullName) {
             $t = (Get-Content $f -Encoding utf8) -join ' '
             if ($t -match 'Harness time on the runner: (.+?)\. Minimum free memory: (.+? GB)') { "| $($f.Directory.Name) | $($Matches[1]) | $($Matches[2]) |" }
           }

@@ -11,7 +11,7 @@ runner Ubuntu 26.04. Os jobs Heavy e de empacotamento que usam esse pacote
 passam a fixar Ubuntu 24.04; a action confere também o início de cada
 linker, além do Clang. Nenhum teste ou limite de aprovação foi removido.
 Todos os workflows passaram no `actionlint` 1.7.12. O commit consolidado
-`1f4f6e6f` foi enviado à `main`. Estão em execução sobre ele o
+`1f4f6e6f` foi enviado à `main`. A primeira rodada sobre ele foi o
 [CI](https://github.com/insinfo/dartforge/actions/runs/42413911967), o
 [Heavy completo](https://github.com/insinfo/dartforge/actions/runs/42413910876)
 e o [No system toolchain](https://github.com/insinfo/dartforge/actions/runs/42413911968).
@@ -29,14 +29,38 @@ o `const` explícito em construtores abreviados. Três regressões dirigidas
 passaram, e uma primeira passagem completa do pacote de tipos teve 156
 aprovados em 15 alvos. A referência oficial confirmou ainda que uma chave
 com igualdade própria só deve ser recusada se a entrada for inserida;
-esse controle foi acrescentado na revisão final, agora em nova validação.
+esse controle foi acrescentado na revisão final e passou.
 Na repetição conjunta passaram os 279 testes/exemplos dos pacotes de tipos,
 elements e differential, em 26 alvos, sem falhas ou ignorados. Passaram
 também o Clippy rigoroso em todos os alvos e o build da CLI native/JIT,
-do JS de produção e do harness. A comparação dos 26 programas modernos,
-os cenários nativos e a documentação continuam em execução. A primeira
+do JS de produção e do harness. A comparação completa dos 26 programas
+modernos passou em desenvolvimento e produção, com DDC×VM também 26/26.
+Passaram os três cenários nativos e os dois cenários combinando nativo/JS,
+além da documentação rigorosa dos três pacotes alterados. A primeira
 tentativa conjunta, reprovada por uma simulação de SDK que usou o Dart
 do PATH, foi mantida; a simulação corrigida exige seu próprio executável.
+
+**Nova rodada de fechamento:** a correção `2ab08746` está na `main`, com
+todos os checks locais selecionados concluídos em 0. Estão em execução
+o [CI](https://github.com/insinfo/dartforge/actions/runs/42420570636), o
+[Heavy completo](https://github.com/insinfo/dartforge/actions/runs/42420576925)
+e o [No system toolchain](https://github.com/insinfo/dartforge/actions/runs/42420578710).
+O CI Windows agora executa também a regressão de ambiente AOT/JIT.
+O encerramento aguarda os resultados remotos; não há aprovação geral
+de produção.
+
+O corpus nativo de I/O no Windows da nova rodada passou em **164/164**.
+O agregador do placar revelou um problema independente: aceitava também
+relatórios ARC/I/O conforme chegavam, somando quatro relatórios como se
+fossem as duas partes solicitadas. Isso explica os totais 831 e 718 das
+rodadas anteriores, sem representar redução da cobertura das partes.
+O filtro corrigido exige exatamente os IDs numéricos esperados e uma
+pontuação válida por arquivo. Com os artefatos reais, o bloco corrigido
+terminou em 0 com **277/277 em duas partes**; um controle com pontuação
+reduzida foi recusado. Os seis testes do seletor passaram, incluindo
+partes ausentes, duplicadas, extras e relatórios inválidos. A comparação
+com GC stress permanece ativa. Essa alteração é somente de CI/scripts;
+o código Rust continua idêntico ao `2ab08746`.
 
 A sonda no Windows confirmou que `dart run` abre stdout e muda seu modo
 antes de executar o programa: a execução direta da VM emite CRLF e a via
