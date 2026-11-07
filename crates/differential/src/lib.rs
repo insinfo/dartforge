@@ -71,7 +71,14 @@ impl Default for Options {
 pub fn run_program(env: &Environment, program: &Program, op: Options) -> ProgramResult {
     // The WebAssembly target answers to dart2wasm, where the web semantics
     // differ from the VM (`dart:io`, isolates, `dart:ffi`).
-    let dart = dart_oracle(env, program);
+    let direct_vm = op.native && !op.wasm;
+    let dart = if direct_vm {
+        oracles::dart_native_oracle(env, program)
+    } else {
+        dart_oracle(env, program)
+    };
+    // A combined native/JS run still needs the web oracle's stdio state.
+    let production_vm = (direct_vm && op.with_production).then(|| dart_oracle(env, program));
     // The WebAssembly target also answers to dart2wasm (`ProgramResult::alternative`).
     let alternative = op
         .wasm
@@ -105,6 +112,7 @@ pub fn run_program(env: &Environment, program: &Program, op: Options) -> Program
                 forge,
                 native: true,
                 production,
+                production_vm,
                 jit,
                 alternative: None,
             };
@@ -119,6 +127,7 @@ pub fn run_program(env: &Environment, program: &Program, op: Options) -> Program
             forge,
             native: true,
             production,
+            production_vm,
             jit: None,
             alternative,
         }
@@ -134,6 +143,7 @@ pub fn run_program(env: &Environment, program: &Program, op: Options) -> Program
             forge,
             native: false,
             production,
+            production_vm,
             jit: None,
             alternative: None,
         }

@@ -3020,6 +3020,70 @@ fn constant_diagnostics_of(source: &str) -> Option<Vec<dartforge_diagnostics::Di
     diagnostics_in_mode(source, false)
 }
 
+#[test]
+fn constant_modern_null_aware_elements_omit_null_values() {
+    let source = "// @dart=3.13\n
+        const int? absent = null;
+        const int? present = 4;
+        const list = <int>[?absent, ?present];
+        const set = <int>{?absent, ?present};
+        const map = <String, int>{?null: 1, 'a': ?absent, 'a': ?present};
+        class Key {
+          const Key();
+          bool operator ==(Object other) => true;
+          int get hashCode => 0;
+        }
+        const omitted = <Key, int>{const Key(): ?absent};
+        void main() { print([list, set, map, omitted]); }";
+    let Some(diags) = constant_diagnostics_of(source) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+    let inserted = source.replace("const Key(): ?absent", "const Key(): 1");
+    let diags = constant_diagnostics_of(&inserted).unwrap();
+    assert!(
+        code_names(&diags).contains(&"const_map_key_not_primitive_equality"),
+        "{diags:?}"
+    );
+}
+
+#[test]
+fn constant_modern_null_aware_entries_keep_other_operand_checks() {
+    for (entry, expected) in [
+        ("?null: 'wrong'", "map_value_type_not_assignable"),
+        ("1: ?null", "map_key_type_not_assignable"),
+        ("?null: runtimeValue()", "const_eval_method_invocation"),
+    ] {
+        let source = format!(
+            "// @dart=3.13\nint runtimeValue() => 1;\n\
+             const map = <String, int>{{{entry}}};\nvoid main() {{ print(map); }}"
+        );
+        let Some(diags) = constant_diagnostics_of(&source) else {
+            return;
+        };
+        assert!(code_names(&diags).contains(&expected), "{entry}: {diags:?}");
+    }
+}
+
+#[test]
+fn constant_modern_explicit_shorthand_constructor_defaults() {
+    let source = "// @dart=3.13\n
+        enum Choice { first, second }
+        class Point { final int x; const Point.origin() : x = 0; }
+        void use([Choice c = .second, Point p = const .origin()]) {}
+        void main() { use(); }";
+    let Some(diags) = constant_diagnostics_of(source) else {
+        return;
+    };
+    assert!(diags.is_empty(), "{diags:?}");
+    let source = "// @dart=3.13\n
+        class Point { Point.origin(); }
+        void use([Point p = const .origin()]) {}
+        void main() { use(); }";
+    let diags = constant_diagnostics_of(source).unwrap();
+    assert!(!diags.is_empty(), "non-const constructors must be rejected");
+}
+
 /// [`constant_diagnostics_of`] in the analyzer's mode (types keep their
 /// decoration and the pattern flow applies, as in `dartforge analyze`).
 fn analyzer_diagnostics_of(source: &str) -> Option<Vec<dartforge_diagnostics::Diagnostic>> {

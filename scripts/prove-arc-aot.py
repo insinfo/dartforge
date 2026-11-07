@@ -115,6 +115,9 @@ def main():
             "DARTFORGE_ARC_CHECK", "DARTFORGE_ARC_NURSERY", "DARTFORGE_GC_STRESS")},
         "runs": [],
     }
+    # These native entries leave stdout in the CRT's initial text mode.
+    expected_stdout = b"1\r\n" if os.name == "nt" else b"1\n"
+    manifest["expected_stdout_hex"] = expected_stdout.hex()
     manifest_path = destination / "evidence.json"
     if args.example == "arc_source_return":
         sdk_lib = environment.get("DARTFORGE_SDK_LIB")
@@ -174,7 +177,7 @@ def main():
                         traps = {0xC000001D, -1073741795} if os.name == "nt" else {-int(signal.SIGILL), -int(signal.SIGTRAP)}
                         if code not in traps or stdout.read_bytes() != b"":
                             raise RuntimeError(f"negative control did not end by a trap: {stem} ({code})")
-                    elif code != 0 or stdout.read_bytes() != b"1\n":
+                    elif code != 0 or stdout.read_bytes() != expected_stdout:
                         raise RuntimeError(f"proof failed: {stem} ({code}); see {stdout} and {stderr}")
                     files = [log, exe.with_suffix(".ll"), stdout, stderr, destination / f"{stem}.exit"]
                     if args.example == "arc_source_return":

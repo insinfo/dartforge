@@ -10,9 +10,46 @@ a ausência de `libxml2.so.2` ao iniciar os linkers do LLVM 22.1.8 no novo
 runner Ubuntu 26.04. Os jobs Heavy e de empacotamento que usam esse pacote
 passam a fixar Ubuntu 24.04; a action confere também o início de cada
 linker, além do Clang. Nenhum teste ou limite de aprovação foi removido.
-Todos os workflows passaram no `actionlint` 1.7.12. A correção ainda precisa
-da execução remota; os registros do fechamento estão em
+Todos os workflows passaram no `actionlint` 1.7.12. O commit consolidado
+`1f4f6e6f` foi enviado à `main`. Estão em execução sobre ele o
+[CI](https://github.com/insinfo/dartforge/actions/runs/42413911967), o
+[Heavy completo](https://github.com/insinfo/dartforge/actions/runs/42413910876)
+e o [No system toolchain](https://github.com/insinfo/dartforge/actions/runs/42413911968).
+Essa primeira rodada revelou novas falhas: o corpus moderno ficou em
+24/26 nos dois perfis JS; o corpus nativo Windows ficou em 2/164 e o placar
+consolidado em 30/831; o teste de ambiente AOT do pacote JIT falhou no Linux.
+Esses resultados reprovados foram preservados. As correções estão em
+validação local antes de um novo envio, e o CI ainda não está verde.
+Os registros do fechamento estão em
 `/Volumes/ssd_dock/tmp/dartforge-closing-2026-11-07/`.
+
+O verificador de constantes passou a omitir os operandos null-aware nulos,
+mantendo os testes de tipos/constância dos demais operandos, e a reconhecer
+o `const` explícito em construtores abreviados. Três regressões dirigidas
+passaram, e uma primeira passagem completa do pacote de tipos teve 156
+aprovados em 15 alvos. A referência oficial confirmou ainda que uma chave
+com igualdade própria só deve ser recusada se a entrada for inserida;
+esse controle foi acrescentado na revisão final, agora em nova validação.
+Na repetição conjunta passaram os 279 testes/exemplos dos pacotes de tipos,
+elements e differential, em 26 alvos, sem falhas ou ignorados. Passaram
+também o Clippy rigoroso em todos os alvos e o build da CLI native/JIT,
+do JS de produção e do harness. A comparação dos 26 programas modernos,
+os cenários nativos e a documentação continuam em execução. A primeira
+tentativa conjunta, reprovada por uma simulação de SDK que usou o Dart
+do PATH, foi mantida; a simulação corrigida exige seu próprio executável.
+
+A sonda no Windows confirmou que `dart run` abre stdout e muda seu modo
+antes de executar o programa: a execução direta da VM emite CRLF e a via
+Dartdev emite LF. O harness nativo passa a usar a VM diretamente, com
+cache separado e comparação bruta preservada. A combinação nativo/JS usa
+as duas referências apropriadas. Uma prova ARC nativa também terminou em
+0 com os bytes `31 0d 0a`; o script passa a exigir exatamente esse resultado
+no Windows e `31 0a` nos demais sistemas, sem normalização.
+
+O suporte runtime a timeline no modo produto também segue a condição do
+[SDK 3.6.2](https://github.com/dart-lang/sdk/blob/3.6.2/runtime/vm/globals.h#L98-L103):
+macOS, Android e Fuchsia o mantêm; Linux e Windows o desativam. A regra
+anterior tinha sido validada no Mac e generalizada incorretamente.
 
 A preparação da suíte completa agora dispõe do D8 13.1.113 fixado no
 `DEPS` do SDK 3.6.2 e dos preâmbulos originais de timers e eventos. Esse
@@ -105,10 +142,14 @@ JIT, AOT e JS, com 32 linhas por modo, e foi conferida por verificador
 independente. Pré-requisitos, metadados, formatação e os dois Clippys
 rigorosos da rodada completa passaram. Os testes completos do workspace
 terminaram em 0: 3.609 aprovados, nenhum reprovado ou ignorado, em 254
-alvos. O reinício do Mac interrompeu o comando seguinte, da CLI native/JIT;
-esse comando inteiro está sendo repetido, seguido da documentação.
-Os relatórios e logs interrompidos foram preservados separadamente,
-sem converter o estado antigo «em execução» em aprovação. O build
+alvos. O reinício do Mac interrompeu o comando seguinte, da CLI native/JIT.
+Esse comando inteiro foi repetido e terminou em 0: 124 aprovados, nenhum
+reprovado ou ignorado, em 20 alvos. A documentação completa, com
+`RUSTDOCFLAGS=-D warnings`, também terminou em 0. Os oito checks da fonte
+v20 congelada estão concluídos e os 657 insumos externos foram conferidos.
+Os relatórios e logs interrompidos foram preservados separadamente; a
+conclusão está em `mac-v20-qualification.json`, no diretório do fechamento,
+sem alterar o relatório histórico interrompido. O build
 registrou avisos do `rust-objcopy` da ferramenta Rust, que não encontrou
 sua `libLLVM.dylib` ao remover informações de depuração; os avisos
 permanecem no log, sem supressão.
@@ -158,7 +199,8 @@ suplementos não alteram o resultado reprovado da fonte v19 congelada.
 A auditoria independente conferiu 866 arquivos, as 27.132 entradas da
 fonte e as contagens dos logs. Seu status 0 confirma a integridade da
 prova; o status da validação original continua sendo 1. Ainda não há
-conclusão da rodada completa da fonte v20 no Mac e no Windows.
+conclusão da rodada completa da fonte v20 no Windows; a rodada Mac foi
+concluída no fechamento descrito acima.
 
 **Base v19: integração de declarações e recarga.**
 

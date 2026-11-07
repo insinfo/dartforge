@@ -119,7 +119,7 @@ pub fn tsv(results: &[ProgramResult], profile: &str) -> String {
             let _ = writeln!(out, "{}\t{profile}\t{}\t{d}", r.program.name, e.name());
         }
         if let Some(p) = &r.production {
-            let (e, d) = classify(reference, p, r.program.pending);
+            let (e, d) = classify(&r.production_reference(), p, r.program.pending);
             let _ = writeln!(out, "{}\tjs-prod\t{}\t{d}", r.program.name, e.name());
         }
     }

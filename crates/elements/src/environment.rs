@@ -127,7 +127,15 @@ impl CompilationEnvironment {
             }
             runtime_values.insert("dart.vm.product".into(), product.to_string());
             runtime_values.insert("dart.isVM".into(), "true".into());
-            runtime_values.insert("dart.developer.timeline".into(), "true".into());
+            // SDK 3.6.2 runtime/vm/globals.h:98-103: product runtimes retain
+            // timeline support on macOS, Android and Fuchsia, not Linux/Windows.
+            let timeline = !product
+                || cfg!(any(
+                    target_os = "macos",
+                    target_os = "android",
+                    target_os = "fuchsia"
+                ));
+            runtime_values.insert("dart.developer.timeline".into(), timeline.to_string());
             if target == EnvironmentTarget::NativeJit {
                 for definition in definitions {
                     if let Some((name, value)) = definition.split_once('=')
@@ -417,7 +425,16 @@ mod tests {
         );
         assert_eq!(jit.get("dart.developer.timeline"), Some("true"));
         assert_eq!(aot.get("dart.developer.timeline"), None);
-        assert_eq!(aot.runtime_get("dart.developer.timeline"), Some("true"));
+        let timeline = if cfg!(any(
+            target_os = "macos",
+            target_os = "android",
+            target_os = "fuchsia"
+        )) {
+            "true"
+        } else {
+            "false"
+        };
+        assert_eq!(aot.runtime_get("dart.developer.timeline"), Some(timeline));
         assert_eq!(aot.get("flag"), Some("value"));
         assert_eq!(aot.runtime_get("flag"), None);
         assert_eq!(aot.get("dart.library.mirrors"), None);

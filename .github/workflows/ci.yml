@@ -115,6 +115,9 @@ jobs:
       - name: JIT reload with state through the CLI
         if: success() || failure()
         run: cargo test --locked --release -p dartforge-cli --features native,jit --test reload_state
+      - name: Compilation environments through JIT and AOT (Windows)
+        if: success() || failure()
+        run: cargo test --locked --release -p dartforge-jit --test compilation_environment -- --include-ignored
       - name: Getters and setters of local fields (AOT Windows)
         shell: pwsh
         run: python scripts/prove-arc-aot.py arc_local_fields --features embedded-llvm

@@ -792,12 +792,18 @@ impl<'a> Engine<'a> {
             }
             ExprKind::Call { target, arguments } => {
                 if let Some(Resolved::Constructor(f)) = self.resolved(u, e) {
-                    // Implicit creation: constant only in a constant context.
-                    if !in_const {
+                    let explicit_const = matches!(
+                        a.expr(*target).kind,
+                        ExprKind::DotShorthand { const_: true, .. }
+                    );
+                    // A shorthand stores its explicit keyword on the target,
+                    // unlike an ordinary InstanceCreation expression.
+                    if !in_const && !explicit_const {
                         return self.generic(u, e, false);
                     }
                     let f = *f;
-                    let r = self.call_constructor(cx, e, f, arguments, None, None);
+                    let keyword = self.creation_keyword(u, e, explicit_const);
+                    let r = self.call_constructor(cx, e, f, arguments, keyword, None);
                     return self.format_constructor_error(u, e, r);
                 }
                 let tgt = *target;

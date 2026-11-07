@@ -2286,6 +2286,9 @@ impl Verifier<'_, '_> {
                 let Constant::Value(v) = self.evaluate_and_report(*x, true, code) else {
                     return false;
                 };
+                if matches!(el, CollectionElement::NullAwareExpression(_)) && v.state.is_null() {
+                    return true;
+                }
                 let span = self.m.span(u, *x);
                 match lv.ty {
                     LiteralType::List(t) => {
@@ -2356,25 +2359,41 @@ impl Verifier<'_, '_> {
                     }
                 }
             }
-            CollectionElement::MapEntry { key, value, .. } => {
+            CollectionElement::MapEntry {
+                key,
+                value,
+                null_aware_key,
+                null_aware_value,
+            } => {
                 let LiteralType::Map(tk, tv) = lv.ty else {
                     return false;
                 };
                 let k = self.evaluate_and_report(*key, true, c::NON_CONSTANT_MAP_KEY);
                 let v = self.evaluate_and_report(*value, true, c::NON_CONSTANT_MAP_VALUE);
-                if let Constant::Value(k) = k {
+                let omitted_key =
+                    *null_aware_key && matches!(&k, Constant::Value(k) if k.state.is_null());
+                let omitted_value =
+                    *null_aware_value && matches!(&v, Constant::Value(v) if v.state.is_null());
+                // Even an omitted entry must have constant, well-typed other
+                // operands, but it must not reserve a duplicate map key.
+                if let Constant::Value(k) = k
+                    && !omitted_key
+                {
                     let span = self.m.span(u, *key);
                     if !self.m.matches_type(&k, tk) {
                         let args = vec![self.m.format(k.ty), self.m.format(tk)];
                         self.report(c::MAP_KEY_TYPE_NOT_ASSIGNABLE, span, args);
                     }
-                    if !self.m.primitive_equality(&k, self.lib) {
+                    if !omitted_value && !self.m.primitive_equality(&k, self.lib) {
                         let args = vec![self.m.format(k.ty)];
                         self.report(c::CONST_MAP_KEY_NOT_PRIMITIVE_EQUALITY, span, args);
                     }
-                    self.record_unique(lv, k, span);
+                    if !omitted_value {
+                        self.record_unique(lv, k, span);
+                    }
                 }
                 if let Constant::Value(v) = v
+                    && !omitted_value
                     && !self.m.matches_type(&v, tv)
                 {
                     let span = self.m.span(u, *value);

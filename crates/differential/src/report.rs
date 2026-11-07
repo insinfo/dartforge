@@ -29,6 +29,8 @@ pub struct ProgramResult {
     pub native: bool,
     /// The JS production profile (`dartforge-jsprod`, single pruned file).
     pub production: Option<Output>,
+    /// Web VM reference when a combined native/JS run uses a direct native VM.
+    pub production_vm: Option<Output>,
     /// With `--jit`/`--jit-aot`: `forge` came from the ORCv2 JIT, and this
     /// holds its time and, with `--jit-aot`, the AOT of the same IR.
     pub jit: Option<JitRun>,
@@ -243,7 +245,10 @@ impl ProgramResult {
     /// compiler keeps them (`DARTFORGE_JSPROD_LATE_NAMES=0`). The report names
     /// every program where it applied.
     pub fn production_reference(&self) -> std::borrow::Cow<'_, Output> {
-        let r = self.reference();
+        let r = self
+            .production_vm
+            .as_ref()
+            .unwrap_or_else(|| self.reference());
         // `-O1` keeps the names, as `dart2js -O1`.
         if std::env::var("DARTFORGE_JSPROD_LATE_NAMES").is_ok_and(|v| v == "0")
             || crate::levels::level() < 2
@@ -526,7 +531,7 @@ pub fn format_report(results: &[ProgramResult]) -> String {
             }
             (None, None) => {
                 ok_prod += 1;
-                if !std::ptr::eq(&*r.production_reference(), r.reference()) {
+                if matches!(r.production_reference(), std::borrow::Cow::Owned(_)) {
                     let _ = writeln!(
                         out,
                         "ok     {name}  (late names omitted in production, as dart2js -O2)"
@@ -1150,6 +1155,7 @@ mod tests {
                 forge: Some(s("1\n", 0)),
                 native: false,
                 production: None,
+                production_vm: None,
                 jit: None,
                 alternative: None,
             },
@@ -1164,6 +1170,7 @@ mod tests {
                 }),
                 native: false,
                 production: None,
+                production_vm: None,
                 jit: None,
                 alternative: None,
             },
@@ -1178,6 +1185,7 @@ mod tests {
                 }),
                 native: false,
                 production: None,
+                production_vm: None,
                 jit: None,
                 alternative: None,
             },
@@ -1188,6 +1196,30 @@ mod tests {
         assert!(t.contains("DartForge development:     1/3 ok"), "{t}");
         assert!(t.contains("   2  erro: X"), "{t}");
         assert!(t.contains("b, c"), "{t}");
+    }
+
+    #[test]
+    fn combined_native_and_web_runs_keep_separate_raw_references() {
+        let mut result = ProgramResult {
+            program: Program::test("stdio"),
+            dart: s("value\r\n", 0),
+            ddc: s("", 0),
+            forge: Some(s("value\r\n", 0)),
+            native: true,
+            production: Some(s("value\n", 0)),
+            production_vm: Some(s("value\n", 0)),
+            jit: None,
+            alternative: None,
+        };
+        assert!(result.ok());
+        assert!(!format_report(std::slice::from_ref(&result)).contains("late names omitted"));
+        let matrix = crate::matrix::tsv(std::slice::from_ref(&result), "native");
+        assert_eq!(matrix.matches("\tsupported\t").count(), 2, "{matrix}");
+        result.forge = Some(s("value\n", 0));
+        assert_eq!(result.forge_vs_reference(), Some(Divergence::Line(1)));
+        result.forge = Some(s("value\r\n", 0));
+        result.production = Some(s("value\r\n", 0));
+        assert_eq!(result.production_vs_reference(), Some(Divergence::Line(1)));
     }
 
     fn ir(name: &str, result: Result<&str, &str>) -> ProgramIr {
@@ -1273,6 +1305,7 @@ mod tests {
             }),
             native: true,
             production: None,
+            production_vm: None,
             jit: None,
             alternative: None,
         }];

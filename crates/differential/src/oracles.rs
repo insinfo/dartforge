@@ -377,11 +377,26 @@ fn experiments_arg(program: &Program) -> Option<String> {
 /// ([`Environment::oracle`]). Asserts are enabled because DDC (and
 /// DartForge's development mode) enables them.
 pub fn dart_oracle(env: &Environment, program: &Program) -> Output {
+    dart_oracle_entry(env, program, false)
+}
+
+/// Native entries must inherit the VM's untouched stdio descriptors. Dartdev's
+/// `dart run` opens stdout before main and changes Windows print to binary mode.
+pub(crate) fn dart_native_oracle(env: &Environment, program: &Program) -> Output {
+    dart_oracle_entry(env, program, true)
+}
+
+fn dart_oracle_entry(env: &Environment, program: &Program, direct: bool) -> Output {
     let sdk = match env.oracle(program) {
         Ok(s) => s,
         Err(e) => return Output::error(e),
     };
-    let label = sdk.label("dart-ea");
+    // Never reuse Dartdev results for the direct VM's different stdio state.
+    let label = sdk.label(if direct {
+        "dart-direct-ea-v1"
+    } else {
+        "dart-ea"
+    });
     let key = cache_key(program);
     let s = match cache_read(env, &label, &key) {
         Some(s) => s,
@@ -392,14 +407,19 @@ pub fn dart_oracle(env: &Environment, program: &Program) -> Output {
                 .unwrap()
                 .to_string_lossy()
                 .into_owned();
-            let mut args: Vec<String> = vec!["run".into(), "--enable-asserts".into()];
+            let mut args: Vec<String> = if direct {
+                Vec::new()
+            } else {
+                vec!["run".into()]
+            };
+            args.push("--enable-asserts".into());
             args.extend(experiments_arg(program));
             args.push(name);
             let mut s = run(&sdk.dart(), &args, program.dir(), env.timeout);
             // The 3.13 VM on Windows writes `print` with `\r\n` (3.6.2 and
             // Node write `\n`): the console's line ending is not the
             // program's semantics.
-            if !sdk.primary {
+            if !direct && !sdk.primary {
                 s.stdout = s.stdout.replace("\r\n", "\n");
             }
             cache_write(env, &label, &key, &s);
@@ -1369,6 +1389,67 @@ fn split_executor_timings(output: &mut Output) -> Option<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_vm_cache_does_not_reuse_or_normalize_dartdev_output() {
+        for (version, primary) in [("3.6.2", true), ("3.13.4", false)] {
+            let root = std::env::temp_dir().join(format!(
+                "dartforge-direct-cache-{}-{}-{version}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let sdk = root.join("sdk");
+            std::fs::create_dir_all(sdk.join("bin")).unwrap();
+            std::fs::write(sdk.join("version"), version).unwrap();
+            std::fs::write(
+                sdk.join("bin")
+                    .join(format!("dart{}", std::env::consts::EXE_SUFFIX)),
+                [],
+            )
+            .unwrap();
+            std::fs::write(root.join("sample.dart"), "void main() {}\n").unwrap();
+            let program = crate::corpus::list(&root, None).pop().unwrap();
+            let runtime = root.join("dart_sdk.js");
+            let oracle = OracleSdk::detect(sdk.clone(), runtime.clone(), primary).unwrap();
+            let old_label = oracle.label("dart-ea");
+            let direct_label = oracle.label("dart-direct-ea-v1");
+            let env = Environment {
+                root: root.clone(),
+                sdk,
+                dart_sdk_js: runtime,
+                sdks: vec![oracle],
+                dartforge_bin: None,
+                work_dir: root.join("work"),
+                use_cache: true,
+                timeout: Duration::from_secs(1),
+                native_timeout: Duration::from_secs(1),
+                extra_path: Vec::new(),
+                gc_stress: false,
+                optimize: false,
+            };
+            let web = Output {
+                stdout: "value\n".into(),
+                stderr: String::new(),
+                code: 0,
+            };
+            let native = Output {
+                stdout: "value\r\n".into(),
+                ..web.clone()
+            };
+            let key = cache_key(&program);
+            cache_write(&env, &old_label, &key, &web);
+            // With no executable SDK, only accidentally reusing the old cache
+            // could make this first direct invocation succeed.
+            assert_eq!(dart_native_oracle(&env, &program).code, -1);
+            cache_write(&env, &direct_label, &key, &native);
+            assert_eq!(dart_native_oracle(&env, &program), native);
+            assert_eq!(dart_oracle(&env, &program), web);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
 
     #[test]
     fn ddc_cache_recovers_failures_without_discarding_declared_errors() {
