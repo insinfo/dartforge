@@ -66,7 +66,11 @@ runs:
       run: |
         set -euo pipefail
         prefix="$RUNNER_TEMP/llvm-22.1.8"
-        "$prefix/bin/clang" --version
+        # Clang can start while LLD is missing a host shared library. Check
+        # each linker before building or restoring native test artifacts.
+        for tool in clang ld.lld ld64.lld lld-link llvm-config; do
+          "$prefix/bin/$tool" --version
+        done
         echo "DARTFORGE_CLANG=$prefix/bin/clang" >> "$GITHUB_ENV"
         echo "DARTFORGE_LLVM_DIR=$prefix" >> "$GITHUB_ENV"
         echo "LLVM_SYS_221_PREFIX=$prefix" >> "$GITHUB_ENV"

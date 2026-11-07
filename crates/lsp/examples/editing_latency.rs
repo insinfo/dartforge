@@ -1254,7 +1254,7 @@ fn resident_memory(o: &Options, c: &mut Client) {
     }
 }
 
-/// Complete API responses captured after the timed edit boundary.
+/// Complete API responses and per-request latency/CPU after the timed edit boundary.
 fn capture_api_state(
     c: &mut Client,
     doc: &Document,
@@ -1263,9 +1263,16 @@ fn capture_api_state(
     queries: bool,
 ) -> Value {
     let mut requests = BTreeMap::new();
+    let mut metrics = BTreeMap::new();
     if queries {
         let mut record = |method, params| {
-            let (response, _) = c.request(method, params);
+            let cpu_before = cpu_of_all(c.pid);
+            let (response, elapsed) = c.request(method, params);
+            let cpu = cpu_of_all(c.pid).saturating_sub(cpu_before) as f64 / 1e6;
+            metrics.insert(
+                method.to_string(),
+                json!({"elapsed_ms": ms(elapsed), "cpu_ms": cpu}),
+            );
             let result = match response.get("error") {
                 Some(error) => json!({"error": error}),
                 None => response["result"].clone(),
@@ -1289,7 +1296,8 @@ fn capture_api_state(
             );
         }
     }
-    json!({"phase": phase, "iteration": iteration, "diagnostics": c.diagnostics, "requests": requests})
+    json!({"phase": phase, "iteration": iteration, "diagnostics": c.diagnostics,
+           "requests": requests, "request_metrics": metrics})
 }
 
 struct ApiCaptures<'a> {

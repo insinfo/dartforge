@@ -10,6 +10,7 @@
 pub mod augmentation;
 pub mod config;
 pub mod distribution;
+pub mod environment;
 pub mod frozen;
 pub mod fs_cache;
 pub mod generated;

@@ -640,13 +640,30 @@ impl Builder {
         root: &Path,
         tables: &mut Tables<'_>,
     ) -> Vec<FileRecord> {
+        self.library_with_identifier_files(project, lib, root, tables, None)
+    }
+
+    /// Keep complete semantic relations for every unit. Identifier and rename
+    /// preparation facts are optional query shortcuts: files omitted here
+    /// are identified in their current library when queried later.
+    fn library_with_identifier_files(
+        &self,
+        project: &Project,
+        lib: LibraryId,
+        root: &Path,
+        tables: &mut Tables<'_>,
+        identifier_files: Option<&HashSet<PathBuf>>,
+    ) -> Vec<FileRecord> {
         let mut emit = Emit {
             project,
             keys: Keys::new(project),
         };
         let by_unit = declared_by_unit(project, lib);
         let mut records = emit.library(&by_unit, lib, root, tables.keys, tables.words);
-        for r in records.iter_mut().filter(|r| !r.frozen) {
+        for r in records
+            .iter_mut()
+            .filter(|r| !r.frozen && identifier_files.is_none_or(|files| files.contains(&r.path)))
+        {
             if let Some(&u) = project.program().library(lib).units.iter().find(|u| {
                 project
                     .program()
@@ -697,12 +714,12 @@ impl Emit<'_> {
             referenced.sort_unstable();
             let frozen = !inside(&path, root);
             let (modified, disk_length) = file_date(&path);
-            // A project file's record is of the disk only when the text is the
-            // disk's (an open document may differ); the SDK and the packages are.
+            // Dependencies can also have unsaved overlays from another open
+            // project. Equal lengths do not establish that their text is the
+            // disk's, and this flag must remain valid after closing an overlay.
             let disk = disk_length == Some(unit.source.len() as u64)
-                && (frozen
-                    || std::fs::read_to_string(&path)
-                        .is_ok_and(|t| text_stamp(&t) == text_stamp(&unit.source)));
+                && std::fs::read_to_string(&path)
+                    .is_ok_and(|t| text_stamp(&t) == text_stamp(&unit.source));
             records.push((
                 u,
                 FileRecord {
@@ -1259,7 +1276,7 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
         let Ok(Some(d)) = project.identify(u, o) else {
             continue;
         };
-        let prepare = match crate::rename::prepare_with(project, &cx, u, o) {
+        let prepare = match crate::rename::prepare_with(project, &cx, u, o, Some(&d)) {
             Ok(None) => PrepareFact::Nothing,
             Ok(Some((s, old))) => PrepareFact::Range {
                 start: s.start as u32,
@@ -1309,20 +1326,23 @@ fn identifier_facts(project: &Project, u: UnitId, r: &mut FileRecord, tables: &m
                     }
                     continue;
                 }
-                let answer = crate::semantic::references_at(project, u, o).and_then(|a| {
-                    let here = |x: &(String, Span)| x.0 == r.uri;
-                    (a.declaration.as_ref().is_none_or(here) && a.uses.iter().all(here)).then(
-                        || IdentFact::Local {
-                            declaration: a.declaration.map(|(_, s)| (s.start as u32, s.end as u32)),
-                            uses: a
-                                .uses
-                                .iter()
-                                .map(|(_, s)| (s.start as u32, s.end as u32))
-                                .collect(),
-                            positional,
-                        },
-                    )
-                });
+                let answer =
+                    crate::semantic::references_identified(project, u, o, &d).and_then(|a| {
+                        let here = |x: &(String, Span)| x.0 == r.uri;
+                        (a.declaration.as_ref().is_none_or(here) && a.uses.iter().all(here)).then(
+                            || IdentFact::Local {
+                                declaration: a
+                                    .declaration
+                                    .map(|(_, s)| (s.start as u32, s.end as u32)),
+                                uses: a
+                                    .uses
+                                    .iter()
+                                    .map(|(_, s)| (s.start as u32, s.end as u32))
+                                    .collect(),
+                                positional,
+                            },
+                        )
+                    });
                 let i = answer.map(|f| {
                     let n = facts.len() as u32;
                     *facts.entry(f).or_insert(n)
@@ -1483,6 +1503,9 @@ pub(crate) type Located = (String, Span, Option<(u32, u32, u32, u32)>);
 #[derive(Debug, Default)]
 pub(crate) struct ReferenceIndex {
     pub(crate) root: PathBuf,
+    /// Configuration verified before and after a complete build. Partial
+    /// record batches have no independent configuration certificate.
+    package_configuration: Option<u64>,
     pub(crate) keys: Strings,
     pub(crate) words: Strings,
     /// The files the identifier facts name (canonical paths).
@@ -1511,6 +1534,15 @@ impl ReferenceIndex {
             root,
             ..Default::default()
         }
+    }
+
+    /// Whether this complete index was built with the current package map,
+    /// pubspec and generated-source directory selection.
+    pub(crate) fn package_configuration_current(&self, entry: &Path) -> bool {
+        self.package_configuration.is_some_and(|recorded| {
+            package_configuration_stamp(&self.root, entry)
+                .is_some_and(|current| current.identity == recorded)
+        })
     }
 
     /// Adds or replaces the records of their files.
@@ -2536,6 +2568,7 @@ pub(crate) fn build(
 ) -> Option<ReferenceIndex> {
     let file = crate::project::uri_file(uri)?;
     let root = crate::project::project_root(&file);
+    let configuration = package_configuration_stamp(&root, &file)?;
     let started = std::time::Instant::now();
     let mut project = crate::project::load_wide_project_with(sdk, documents, uri, None, false)?;
     let loaded = started.elapsed();
@@ -2561,7 +2594,7 @@ pub(crate) fn build(
         if orphaned() {
             std::process::exit(3);
         }
-        project.query.infer_libraries(&[lib]);
+        project.infer_libraries(&[lib]);
         let mut tables = Tables {
             keys: &mut index.keys,
             words: &mut index.words,
@@ -2584,26 +2617,126 @@ pub(crate) fn build(
             started.elapsed().as_millis()
         );
     }
+    if package_configuration_stamp(&root, &file) != Some(configuration) {
+        return None;
+    }
+    index.package_configuration = Some(configuration.identity);
     Some(index)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct PackageConfigurationStamp {
+    /// Stable across identical rewrites, so they do not discard a valid cache.
+    identity: u64,
+    /// File dates detect a configuration changed and restored during a build.
+    revision: u64,
+}
+
+/// Inputs that determine the package namespace. Walk to the nearest package
+/// map, as the loader does, and include the generated-root selection.
+fn package_configuration_stamp(root: &Path, entry: &Path) -> Option<PackageConfigurationStamp> {
+    use std::hash::{Hash, Hasher};
+
+    fn input(path: &Path, hash: &mut impl Hasher, revision: &mut impl Hasher) -> Option<bool> {
+        path.hash(hash);
+        path.hash(revision);
+        let before = match std::fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                false.hash(hash);
+                false.hash(revision);
+                return Some(false);
+            }
+            Err(_) => return None,
+        };
+        let bytes = std::fs::read(path).ok()?;
+        let after = std::fs::metadata(path).ok()?;
+        let modified = before.modified().ok()?;
+        if before.len() != after.len() || modified != after.modified().ok()? {
+            return None;
+        }
+        true.hash(hash);
+        true.hash(revision);
+        std::fs::canonicalize(path).ok()?.hash(hash);
+        std::fs::canonicalize(path.parent()?).ok()?.hash(hash);
+        modified.hash(revision);
+        bytes.hash(hash);
+        Some(true)
+    }
+
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    let mut revision = std::collections::hash_map::DefaultHasher::new();
+    input(&root.join("pubspec.yaml"), &mut hash, &mut revision)?;
+    let mut found = false;
+    for directory in entry.parent()?.ancestors() {
+        let path = directory.join(".dart_tool/package_config.json");
+        let metadata = match std::fs::metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return None,
+        };
+        if metadata.is_file() {
+            if !input(&path, &mut hash, &mut revision)? {
+                return None;
+            }
+            let generated = directory.join(".dart_tool/build/generated");
+            let generated_exists = generated.is_dir();
+            generated_exists.hash(&mut hash);
+            if generated_exists {
+                std::fs::canonicalize(generated).ok()?.hash(&mut hash);
+            }
+            found = true;
+            break;
+        }
+    }
+    found.hash(&mut hash);
+    Some(PackageConfigurationStamp {
+        identity: hash.finish(),
+        revision: revision.finish(),
+    })
+}
+
 /// The version of [`ReferenceIndex::encode`]'s format (in the header).
-const FORMAT: u32 = 6;
+// Earlier versions did not bind complete indexes to their package map.
+const FORMAT: u32 = 8;
 
-/// A little-endian LEB128 writer.
+/// A little-endian LEB128 writer. The counting pass shares the format's
+/// traversal but computes lengths without allocating or copying payloads.
 #[derive(Default)]
-struct Writer(Vec<u8>);
+struct Writer<const COUNT: bool = false> {
+    bytes: Vec<u8>,
+    length: usize,
+}
 
-impl Writer {
+impl<const COUNT: bool> Writer<COUNT> {
+    fn add_length(&mut self, n: usize) {
+        self.length = self
+            .length
+            .checked_add(n)
+            .expect("reference index is too large");
+    }
+
+    fn raw(&mut self, bytes: &[u8]) {
+        if COUNT {
+            self.add_length(bytes.len());
+        } else {
+            self.bytes.extend_from_slice(bytes);
+        }
+    }
+
     fn u(&mut self, mut v: u64) {
+        if COUNT {
+            self.add_length((64 - v.leading_zeros()).max(1).div_ceil(7) as usize);
+            return;
+        }
         loop {
             let b = (v & 0x7f) as u8;
             v >>= 7;
             if v == 0 {
-                self.0.push(b);
+                self.bytes.push(b);
                 return;
             }
-            self.0.push(b | 0x80);
+            self.bytes.push(b | 0x80);
         }
     }
 
@@ -2613,7 +2746,7 @@ impl Writer {
 
     fn s(&mut self, t: &str) {
         self.n(t.len());
-        self.0.extend_from_slice(t.as_bytes());
+        self.raw(t.as_bytes());
     }
 
     fn path(&mut self, p: &Path) {
@@ -2720,7 +2853,7 @@ fn unopt(v: u64) -> Option<u32> {
     }
 }
 
-fn write_record(w: &mut Writer, r: &FileRecord) {
+fn write_record<const COUNT: bool>(w: &mut Writer<COUNT>, r: &FileRecord) {
     w.path(&r.path);
     w.s(&r.uri);
     w.u(u64::from(r.library));
@@ -2908,7 +3041,7 @@ fn write_record(w: &mut Writer, r: &FileRecord) {
     }
 }
 
-fn write_fact(w: &mut Writer, f: &IdentFact) {
+fn write_fact<const COUNT: bool>(w: &mut Writer<COUNT>, f: &IdentFact) {
     match f {
         IdentFact::Local {
             declaration,
@@ -3313,29 +3446,42 @@ impl ReferenceIndex {
     /// The index as bytes (the child's answer, the disk cache): a header with
     /// the format, the root, the strings and the records.
     pub(crate) fn encode(&self) -> Vec<u8> {
-        let mut w = Writer::default();
-        w.0.extend_from_slice(b"DFRI");
+        let mut absent: Vec<(&PathBuf, &u64)> = self.absent.iter().collect();
+        absent.sort();
+        let mut count = Writer::<true>::default();
+        self.write_encoded(&mut count, &absent);
+        let mut w = Writer::<false> {
+            bytes: Vec::with_capacity(count.length),
+            length: 0,
+        };
+        self.write_encoded(&mut w, &absent);
+        debug_assert_eq!(w.bytes.len(), count.length);
+        w.bytes
+    }
+
+    fn write_encoded<const COUNT: bool>(&self, w: &mut Writer<COUNT>, absent: &[(&PathBuf, &u64)]) {
+        w.raw(b"DFRI");
         w.u(u64::from(FORMAT));
         w.path(&self.root);
+        w.u(u64::from(self.package_configuration.is_some()));
+        if let Some(configuration) = self.package_configuration {
+            w.u(configuration);
+        }
         for strings in [&self.keys, &self.words, &self.paths] {
             w.n(strings.len());
             for t in strings.texts() {
                 w.s(t);
             }
         }
-        let records: Vec<&FileRecord> = self.records().collect();
-        w.n(records.len());
-        for r in records {
-            write_record(&mut w, r);
+        w.n(self.records().count());
+        for r in self.records() {
+            write_record(w, r);
         }
-        let mut absent: Vec<(&PathBuf, &u64)> = self.absent.iter().collect();
-        absent.sort();
         w.n(absent.len());
         for (p, s) in absent {
             w.path(p);
-            w.u(*s);
+            w.u(**s);
         }
-        w.0
     }
 
     /// The index of [`ReferenceIndex::encode`]'s bytes; `None` for another
@@ -3348,6 +3494,11 @@ impl ReferenceIndex {
         }
         let root = r.path()?;
         let mut index = ReferenceIndex::new(root);
+        index.package_configuration = match r.u()? {
+            0 => None,
+            1 => Some(r.u()?),
+            _ => return None,
+        };
         for i in 0..3 {
             let n = r.n()?;
             let strings = match i {
@@ -3629,12 +3780,12 @@ impl ReferenceIndex {
             .collect()
     }
 
-    /// The project files whose library imports or exports, directly or not,
+    /// The files whose library imports or exports, directly or not,
     /// the library of one of `changed` (the dependents of an API change).
     pub(crate) fn dependents(&self, changed: &[PathBuf]) -> Vec<PathBuf> {
         // Who imports each library (by the library of the imported file).
         let mut importers: HashMap<u32, Vec<u32>> = HashMap::new();
-        for r in self.records().filter(|r| !r.frozen) {
+        for r in self.records() {
             for i in &r.imports {
                 if let Some(target) = self.file(i) {
                     importers.entry(target.library).or_default().push(r.library);
@@ -3654,7 +3805,7 @@ impl ReferenceIndex {
             }
         }
         self.records()
-            .filter(|r| !r.frozen && seen.contains(&r.library))
+            .filter(|r| seen.contains(&r.library))
             .map(|r| r.path.clone())
             .collect()
     }
@@ -3693,7 +3844,7 @@ pub(crate) fn build_files(
         if orphaned() {
             std::process::exit(3);
         }
-        project.query.infer_libraries(&[lib]);
+        project.infer_libraries(&[lib]);
         let mut tables = Tables {
             keys: &mut index.keys,
             words: &mut index.words,
@@ -3760,12 +3911,15 @@ pub(crate) fn records_of_analysis(
 }
 
 /// The encoded index of the records of `libraries` (inferred) of `project`,
-/// a program over the resident's analysis.
+/// a program over the resident's analysis. Every unit keeps complete relations;
+/// only `identifier_files` receive optional identifier/preparation caches.
 pub(crate) fn records_of_project(
     project: &Project,
     libraries: &[LibraryId],
     root: &Path,
+    identifier_files: &[PathBuf],
 ) -> Vec<u8> {
+    let identifier_files = identifier_files.iter().cloned().collect();
     let mut index = ReferenceIndex::new(root.to_path_buf());
     for &lib in libraries {
         let mut tables = Tables {
@@ -3773,7 +3927,13 @@ pub(crate) fn records_of_project(
             words: &mut index.words,
             paths: &mut index.paths,
         };
-        let records = Builder.library(project, lib, root, &mut tables);
+        let records = Builder.library_with_identifier_files(
+            project,
+            lib,
+            root,
+            &mut tables,
+            Some(&identifier_files),
+        );
         index.put(records.into_iter().filter(|r| !r.frozen).collect());
     }
     index.encode()
@@ -3839,6 +3999,7 @@ pub(crate) fn project_of_loan(
     cache.loaned_analysis = cache.analysis;
     let project = Project {
         query: crate::query::Query {
+            display_reference: Default::default(),
             program,
             names: interner,
             table,
@@ -3985,4 +4146,94 @@ fn target_signature(t: &IndexTarget, keys: &Strings, words: &Strings) -> String 
         words.text(t.name),
         t.word.map(|w| words.text(w))
     )
+}
+
+impl ReferenceIndex {
+    /// Moves foreign declaration positions in records whose own source did not
+    /// change. Freshly recorded files already contain current positions. The
+    /// first pass validates every range before any fact is modified.
+    pub(crate) fn relocate_foreign_declarations(
+        &mut self,
+        path: &Path,
+        edit: crate::index_edit::Edit,
+        fresh: &HashSet<PathBuf>,
+    ) -> bool {
+        let paths: HashSet<u32> = self
+            .paths
+            .texts()
+            .enumerate()
+            .filter(|(_, text)| Path::new(text) == path)
+            .map(|(id, _)| id as u32)
+            .collect();
+        for apply in [false, true] {
+            for record in self
+                .files
+                .iter_mut()
+                .flatten()
+                .filter(|r| !fresh.contains(&r.path))
+            {
+                for fact in &mut record.facts {
+                    let IdentFact::Target(target) = fact else {
+                        continue;
+                    };
+                    for (file, start, end, _) in &mut target.declarations {
+                        if paths.contains(file) {
+                            let Some((s, e)) = edit.span(*start, *end) else {
+                                return false;
+                            };
+                            if apply {
+                                *start = s;
+                                *end = e;
+                            }
+                        }
+                    }
+                    if let Some((file, start, end)) = &mut target.answer
+                        && paths.contains(file)
+                    {
+                        let Some((s, e)) = edit.span(*start, *end) else {
+                            return false;
+                        };
+                        if apply {
+                            *start = s;
+                            *end = e;
+                        }
+                    }
+                }
+            }
+        }
+        true
+    }
+}
+
+#[cfg(test)]
+mod encoding_tests {
+    use super::*;
+
+    #[test]
+    fn counted_leb128_and_utf8_lengths_match_the_format() {
+        let mut count = Writer::<true>::default();
+        let mut writer = Writer::<false>::default();
+        for value in [
+            0,
+            1,
+            127,
+            128,
+            16_383,
+            16_384,
+            u64::from(u32::MAX),
+            u64::MAX,
+        ] {
+            count.u(value);
+            writer.u(value);
+        }
+        count.s("Aé🦀");
+        writer.s("Aé🦀");
+        let expected = [
+            0, 1, 127, 128, 1, 255, 127, 128, 128, 1, 255, 255, 255, 255, 15, 255, 255, 255, 255,
+            255, 255, 255, 255, 255, 1, 7, b'A', 0xc3, 0xa9, 0xf0, 0x9f, 0xa6, 0x80,
+        ];
+        assert_eq!(writer.bytes, expected);
+        assert_eq!(count.length, expected.len());
+        assert!(count.bytes.is_empty());
+    }
 }

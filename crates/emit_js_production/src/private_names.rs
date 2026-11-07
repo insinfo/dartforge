@@ -288,9 +288,10 @@ pub fn bare_member_symbols<'a>(allocator: &'a Allocator, program: &mut Program<'
         fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
             if crate::unwrap::dart_member(&it.callee) == Some("privateName")
                 && let [Argument::Identifier(l), Argument::StringLiteral(d)] = &it.arguments[..]
+                && let Some(description) = d.value.as_str()
             {
                 self.other_pairs
-                    .insert((l.name.to_string(), d.value.to_string()));
+                    .insert((l.name.to_string(), description.to_string()));
             }
             oxc_ast_visit::walk::walk_call_expression(self, it);
         }
@@ -347,9 +348,12 @@ pub fn bare_member_symbols<'a>(allocator: &'a Allocator, program: &mut Program<'
                             _ => None,
                         })
                         .collect();
+                    let Some(description) = text.value.as_str() else {
+                        continue;
+                    };
                     groups.push((
                         l.name.to_string(),
-                        text.value.split(' ').map(str::to_string).collect(),
+                        description.split(' ').map(str::to_string).collect(),
                         bindings,
                     ));
                 }
@@ -444,6 +448,10 @@ pub fn bare_member_symbols<'a>(allocator: &'a Allocator, program: &mut Program<'
                 v.declarations.push(d);
                 continue;
             };
+            if text.value.as_str().is_none() {
+                v.declarations.push(d);
+                continue;
+            }
             if let Some(Some(new)) = next.next() {
                 text.value = allocator.alloc_str(&new).into();
                 text.raw = None;
@@ -458,7 +466,13 @@ pub fn bare_member_symbols<'a>(allocator: &'a Allocator, program: &mut Program<'
                 })
                 .collect();
             match names {
-                Some(names) if merge && text.value.split(' ').all(|w| w == ".") => {
+                Some(names)
+                    if merge
+                        && text
+                            .value
+                            .as_str()
+                            .is_some_and(|s| s.split(' ').all(|w| w == ".")) =>
+                {
                     first_merged.get_or_insert((k, v.declarations.len()));
                     merged.extend(names);
                 }
@@ -518,7 +532,7 @@ pub fn strip_symbol_descriptions(program: &mut Program<'_>, runtime_end: u32) {
                 && matches!(&it.callee, Expression::Identifier(i) if i.name == "Symbol")
                 && it.arguments.len() == 1
                 && matches!(&it.arguments[0], Argument::StringLiteral(l)
-                    if !l.value.as_str().starts_with("dartx."))
+                    if !l.value.starts_with("dartx."))
             {
                 it.arguments.clear();
             }
@@ -599,7 +613,7 @@ fn declaration(d: &VariableDeclarator<'_>) -> Option<Declaration> {
     let Argument::StringLiteral(text) = &c.arguments[1] else {
         return None;
     };
-    let description = text.value.as_str();
+    let description = text.value.as_str()?;
     if description.is_empty()
         || description
             .chars()
@@ -744,7 +758,9 @@ fn symbol_loop(s: &Statement<'_>) -> Option<(Vec<String>, String)> {
             .elements
             .iter()
             .map(|e| match e {
-                oxc_ast::ast::ArrayExpressionElement::StringLiteral(l) => Some(l.value.to_string()),
+                oxc_ast::ast::ArrayExpressionElement::StringLiteral(l) => {
+                    l.value.as_str().map(str::to_string)
+                }
                 _ => None,
             })
             .collect::<Option<_>>()?,
@@ -761,7 +777,8 @@ fn symbol_loop(s: &Statement<'_>) -> Option<(Vec<String>, String)> {
                 return None;
             }
             text.value
-                .split(sep.value.as_str())
+                .as_str()?
+                .split(sep.value.as_str()?)
                 .map(str::to_string)
                 .collect()
         }
@@ -799,7 +816,7 @@ fn alias_of(d: &VariableDeclarator<'_>, g: &str) -> Option<(String, String)> {
         }
         Expression::ComputedMemberExpression(m) if matches!(&m.object, Expression::Identifier(o) if o.name == g) => {
             match &m.expression {
-                Expression::StringLiteral(l) => l.value.to_string(),
+                Expression::StringLiteral(l) => l.value.as_str()?.to_string(),
                 _ => return None,
             }
         }

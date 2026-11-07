@@ -50,6 +50,8 @@ type MemberLookup = (ClassId, SymbolId, bool);
 type MemberResolution = Option<(ClassId, MemberKind)>;
 
 pub struct Ctx<'a> {
+    compilation_constants:
+        RefCell<HashMap<(UnitId, ast::ExprId), Option<dartforge_types::const_eval::value::Value>>>,
     pub program: &'a Program,
     pub interner: &'a Interner,
     pub table: &'a TypeTable,
@@ -151,6 +153,8 @@ pub struct Ctx<'a> {
     member_names: std::cell::OnceCell<(HashSet<SymbolId>, bool)>,
     /// [`Ctx::positional_type_variables`], computed on first use.
     positional_type_variables: std::cell::OnceCell<bool>,
+    /// Whether emitted bodies require lexical `super.toString` dispatch.
+    live_super_to_string: std::cell::OnceCell<bool>,
     /// `DARTFORGE_JSPROD_SHORT_RECIPE=0` keeps the library in every recipe.
     short_recipe: bool,
     /// Per unit, the nodes that are the target of a compound assignment or of
@@ -191,6 +195,40 @@ pub struct JsClass {
 }
 
 impl<'a> Ctx<'a> {
+    /// Resolves a compilation expression, including imported and local constants.
+    /// The private type table keeps evaluator allocations out of emission state.
+    pub(crate) fn compilation_constant(
+        &self,
+        unit: UnitId,
+        expression: ast::ExprId,
+    ) -> Option<dartforge_types::const_eval::value::Value> {
+        if let Some(value) = self.compilation_constants.borrow().get(&(unit, expression)) {
+            return value.clone();
+        }
+        let mut table = self.table.clone();
+        let inferred = (0..self.program.libraries.len())
+            .map(|index| LibraryId(index as u32))
+            .collect();
+        let mut engine = dartforge_types::const_eval::evaluation::Engine::new(
+            self.program,
+            self.interner,
+            &mut table,
+            self.core,
+            self.outline,
+            self.bodies,
+            &inferred,
+        );
+        let context = dartforge_types::const_eval::evaluation::Ctx::simple(
+            unit,
+            self.program.unit(unit).library,
+        );
+        let value = engine.evaluate(&context, expression, true).value().cloned();
+        self.compilation_constants
+            .borrow_mut()
+            .insert((unit, expression), value.clone());
+        value
+    }
+
     pub fn new(
         program: &'a Program,
         interner: &'a Interner,
@@ -216,6 +254,7 @@ impl<'a> Ctx<'a> {
         };
         let libs = compute_libs(program);
         let mut ctx = Ctx {
+            compilation_constants: RefCell::new(HashMap::new()),
             program,
             interner,
             table,
@@ -279,6 +318,7 @@ impl<'a> Ctx<'a> {
             native_chain: std::cell::OnceCell::new(),
             member_names: std::cell::OnceCell::new(),
             positional_type_variables: std::cell::OnceCell::new(),
+            live_super_to_string: std::cell::OnceCell::new(),
             short_recipe: std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0"),
             write_targets: RefCell::new(HashMap::new()),
             super_memo: RefCell::new(HashMap::new()),
@@ -702,9 +742,122 @@ impl<'a> Ctx<'a> {
             .map_or(crate::filter::State::Live, |x| x.variable(v))
     }
 
-    /// Name invoked somewhere; without a filter, always.
+    /// Dynamic Object forwarding cannot implement a lexical super selection.
+    /// Include SDK patch bodies and field initializers, where late closures
+    /// need not have a separate function element. Dead declarations do not
+    /// disable the optimization for the rest of the program.
+    pub(crate) fn has_live_super_to_string(&self) -> bool {
+        use dartforge_elements::model::{FunctionRef, VariableRef};
+        *self.live_super_to_string.get_or_init(|| {
+            let candidates: Vec<Vec<dartforge_diagnostics::Span>> = self
+                .program
+                .units
+                .iter()
+                .map(|unit| {
+                    unit.ast
+                        .exprs
+                        .iter()
+                        .filter_map(|expr| {
+                            let ast::ExprKind::Property { target, name, .. } = &expr.kind else {
+                                return None;
+                            };
+                            if self.name(name.sym) != "toString" {
+                                return None;
+                            }
+                            let mut target = *target;
+                            while let ast::ExprKind::Parenthesized(inner) =
+                                unit.ast.expr(target).kind
+                            {
+                                target = inner;
+                            }
+                            matches!(unit.ast.expr(target).kind, ast::ExprKind::Super)
+                                .then_some(expr.span)
+                        })
+                        .collect()
+                })
+                .collect();
+            let contains = |unit: UnitId, span: dartforge_diagnostics::Span| {
+                candidates[unit.0 as usize]
+                    .iter()
+                    .any(|expr| span.start <= expr.start && expr.end <= span.end)
+            };
+            for (i, function) in self.program.functions.iter().enumerate() {
+                if self.fn_state(FunctionElementId(i as u32)) != crate::filter::State::Live {
+                    continue;
+                }
+                let function = function
+                    .patched_by
+                    .map_or(function, |f| self.program.function(f));
+                let live = match function.node {
+                    FunctionRef::Function { unit, function } => {
+                        contains(unit, self.program.unit(unit).ast.function(function).span)
+                    }
+                    FunctionRef::Constructor { unit, member } => {
+                        contains(unit, self.program.unit(unit).ast.member(member).span)
+                    }
+                    FunctionRef::None => false,
+                };
+                if live {
+                    return true;
+                }
+            }
+            for (i, variable) in self.program.variables.iter().enumerate() {
+                // Instance fields are reached through their accessors or
+                // constructor, rather than the world's static-variable set.
+                let instance_initializer = !variable.static_
+                    && variable
+                        .class
+                        .is_some_and(|c| self.class_level(c) != crate::filter::Level::Dead)
+                    && (!variable.late
+                        || [variable.getter, variable.setter]
+                            .into_iter()
+                            .flatten()
+                            .any(|f| self.fn_state(f) != crate::filter::State::Dead));
+                if !instance_initializer
+                    && self.var_state(VariableId(i as u32)) == crate::filter::State::Dead
+                {
+                    continue;
+                }
+                let (unit, list, index) = match variable.node {
+                    VariableRef::TopLevel { unit, decl, index } => {
+                        let ast::DeclKind::Variables(list) =
+                            &self.program.unit(unit).ast.decl(decl).kind
+                        else {
+                            continue;
+                        };
+                        (unit, list, index)
+                    }
+                    VariableRef::Field {
+                        unit,
+                        member,
+                        index,
+                    } => {
+                        let ast::MemberKind::Field(list) =
+                            &self.program.unit(unit).ast.member(member).kind
+                        else {
+                            continue;
+                        };
+                        (unit, list, index)
+                    }
+                    _ => continue,
+                };
+                if list.variables[index]
+                    .initializer
+                    .is_some_and(|expr| contains(unit, self.program.unit(unit).ast.expr(expr).span))
+                {
+                    return true;
+                }
+            }
+            false
+        })
+    }
+
+    /// Name invoked somewhere or retained by the implicit callable protocol.
+    /// Without a filter, every name is live.
     pub fn selector_live(&self, name: &str) -> bool {
-        self.filter.is_none_or(|x| x.selector(name))
+        // The world retains `call` bodies without an explicit selector. Their
+        // noSuchMethod and covariance forwarders must follow the same rule.
+        name == "call" || self.filter.is_none_or(|x| x.selector(name))
     }
 
     /// Name written somewhere (`x.name = v`); without a filter, always.
@@ -3038,6 +3191,15 @@ impl<'a> Ctx<'a> {
 
     pub fn sym(&self, name: &str) -> Option<SymbolId> {
         self.interner.lookup(name)
+    }
+
+    /// The element key of a constructor name: explicit `new` and an omitted
+    /// name both denote the unnamed constructor.
+    pub fn constructor_symbol(&self, name: Option<ast::Name>) -> Option<SymbolId> {
+        match name {
+            Some(n) if self.name(n.sym) != "new" => Some(n.sym),
+            _ => self.empty_sym,
+        }
     }
 
     pub fn name(&self, s: SymbolId) -> &str {

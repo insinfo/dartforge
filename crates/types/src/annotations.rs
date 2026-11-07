@@ -917,8 +917,8 @@ pub fn annotation_element(
         [_] => in_scope,
         // `p.x` with `p` an import prefix, or `C.x`.
         [p, x, ..] => match in_scope {
-            Some(e) => Some(e),
-            None => program
+            Some(e) if !matches!(e, Element::Prefix(..)) => Some(e),
+            _ => program
                 .lookup_prefixed_in_unit(u, p.sym, x.sym)
                 .and_then(|b| b.getter),
         },

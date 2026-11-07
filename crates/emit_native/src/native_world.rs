@@ -69,13 +69,64 @@ pub fn compute(
     outline: &OutlineTypes,
     bodies: &BodyTypes,
 ) -> Option<dartforge_world::World> {
+    let mut types = table.clone();
+    let core = dartforge_types::CoreTypes::init(&mut types, program, interner);
+    let inferred = program
+        .libraries
+        .iter()
+        .enumerate()
+        .filter(|(_, library)| !library.is_sdk)
+        .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
+        .collect();
+    let weak = dartforge_types::static_weak_references::normalize_for(
+        program,
+        interner,
+        &mut types,
+        &core,
+        outline,
+        bodies,
+        &inferred,
+        dartforge_types::static_weak_references::TargetPolicy::Native,
+    );
+    let options = dartforge_world::Options {
+        preserve_constant_conditions: !weak.calls.is_empty(),
+        ..Default::default()
+    };
+    let entries = entry_points(program, interner, &mut types, &core, outline, bodies);
+    compute_with_weak_references(
+        dartforge_world::WorldInput {
+            program,
+            interner,
+            table,
+            outline,
+            bodies,
+        },
+        weak,
+        options,
+        entries,
+    )
+}
+
+/// Compute native roots with the backend's validated weak-reference edges.
+/// An empty set retains ordinary calls and constant locals for reloadable code.
+pub(crate) fn compute_with_weak_references(
+    input: dartforge_world::WorldInput<'_>,
+    weak: dartforge_types::static_weak_references::WeakReferences,
+    options: dartforge_world::Options,
+    mut r: dartforge_world::Roots,
+) -> Option<dartforge_world::World> {
+    let dartforge_world::WorldInput {
+        program,
+        interner,
+        table,
+        bodies,
+        ..
+    } = input;
     if std::env::var_os("DARTFORGE_NO_PROGRAM_PRUNING").is_some_and(|v| v != "0") {
         return None;
     }
-    let mut r = dartforge_world::Roots::default();
     let main = crate::context::entry_main(program, interner)?;
     r.functions.push(FunctionElementId(main as u32));
-    marked_entries(program, interner, &mut r);
     let mut names = std::collections::BTreeSet::new();
     for n in LOWERING_NAMES {
         names.insert((*n).to_string());
@@ -83,28 +134,53 @@ pub fn compute(
     names_written_in_sdk(program, interner, &mut names);
     js_exported_names(program, interner, table, bodies, &mut names);
     r.selectors = names.into_iter().collect();
-    let e = dartforge_world::WorldInput {
-        program,
-        interner,
-        table,
-        outline,
-        bodies,
-    };
-    Some(dartforge_world::compute(e, &r))
+    Some(dartforge_world::compute_with_weak_references(
+        input, &r, weak, options,
+    ))
 }
 
 /// `@pragma('vm:entry-point')` in the program: the VM retains what the annotation
 /// marks (the embedder calls by name); here it becomes a root — the function (top-level
 /// or method) and the class.
-fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_world::Roots) {
-    use dartforge_elements::model::{ClassId, FunctionRef};
-    let marked = |a: &ast::Ast, meta: &[ast::Annotation]| {
-        meta.iter().any(|m| {
-            m.name.last().is_some_and(|n| interner.resolve(n.sym) == "pragma")
-                && m.arguments.as_ref().and_then(|args| args.args.first()).is_some_and(|arg| {
-                    matches!(&a.expr(arg.value).kind, ast::ExprKind::String(s)
-                        if s.constant_value().is_some_and(|v| v.to_string_lossy().starts_with("vm:entry-point")))
-                })
+pub(crate) fn entry_points(
+    program: &Program,
+    interner: &Interner,
+    table: &mut TypeTable,
+    core: &dartforge_types::CoreTypes,
+    outline: &OutlineTypes,
+    bodies: &BodyTypes,
+) -> dartforge_world::Roots {
+    use dartforge_elements::model::{ClassId, FunctionRef, LibraryId, UnitId};
+    use dartforge_types::const_eval::{
+        evaluation::Engine,
+        value::{Field, InstanceState},
+    };
+    let inferred = program
+        .libraries
+        .iter()
+        .enumerate()
+        .filter(|(_, library)| !library.is_sdk)
+        .map(|(i, _)| LibraryId(i as u32))
+        .collect();
+    let mut engine = Engine::new(program, interner, table, core, outline, bodies, &inferred);
+    let mut r = dartforge_world::Roots::default();
+    // Metadata authority follows the evaluated core instance, never the spelling
+    // of an annotation. False disables the root; aliases keep the same identity.
+    let mut marked = |unit: UnitId, metadata: &[ast::Annotation]| {
+        metadata.iter().any(|annotation| {
+            let Some(value) = engine.evaluate_annotation(unit, annotation) else { return false; };
+            let dartforge_types::Type::Interface { class, .. } = engine.table.get(value.ty) else { return false; };
+            let class = program.class(*class);
+            if program.library(class.library).uri != "dart:core" || interner.resolve(class.name) != "pragma" {
+                return false;
+            }
+            let InstanceState::Generic { fields, .. } = &value.state else { return false; };
+            let field = |name: &str| fields.iter().find_map(|(key, value)| {
+                matches!(key, Field::MemberName(symbol) if interner.resolve(*symbol) == name).then_some(value)
+            });
+            matches!(field("name").map(|v| &v.state), Some(InstanceState::Str(Some(name)))
+                if String::from_utf16_lossy(name) == "vm:entry-point")
+                && !matches!(field("options").map(|v| &v.state), Some(InstanceState::Bool(Some(false))))
         })
     };
     let mut by_node = std::collections::HashMap::new();
@@ -123,7 +199,7 @@ fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_worl
             let a = &program.unit(u).ast;
             for d in &a.decls {
                 if let ast::DeclKind::Function(fid) = d.kind
-                    && marked(a, &d.metadata)
+                    && marked(u, &d.metadata)
                     && let Some(&f) = by_node.get(&(u, fid))
                 {
                     r.functions.push(f);
@@ -131,7 +207,7 @@ fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_worl
             }
             for m in &a.members {
                 if let ast::MemberKind::Method(fid) = m.kind
-                    && marked(a, &m.metadata)
+                    && marked(u, &m.metadata)
                     && let Some(&f) = by_node.get(&(u, fid))
                 {
                     r.functions.push(f);
@@ -145,10 +221,11 @@ fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_worl
         }
         let Some(d) = c.decl else { continue };
         let a = &program.unit(d.unit).ast;
-        if marked(a, &a.decl(d.decl).metadata) {
+        if marked(d.unit, &a.decl(d.decl).metadata) {
             r.instantiated_classes.push(ClassId(i as u32));
         }
     }
+    r
 }
 
 /// Every member name written in the SDK libraries.

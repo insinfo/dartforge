@@ -23,7 +23,7 @@ fn ordinary_dart_with_full_sdk_reclaims_metadata_only_generations() {
             let options = CompileOptions {
                 contracts: ContractMode::Verify,
                 sdk: sdk.as_deref(), packages: None, timings: false, optimize: false,
-                language_version: None, experiments: Vec::new(), debug: false,
+                defines: Vec::new(), language_version: None, experiments: Vec::new(), debug: false,
                 generator: None, cpu: None,
             };
             let first = dartforge_emit_native::emit_reloadable_ir(&source, &options, None).unwrap();

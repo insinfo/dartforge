@@ -68,7 +68,7 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
     ctx.world = dartforge_emit_native::native_world::compute(
         &program, &interner, &types, &outline, &bodies,
     );
-    let ctx = ctx.with_source_sdk_and_ids(sdk_module::sdk_class_ids(sdk_dir)?);
+    let ctx = ctx.with_source_sdk_and_ids(sdk_module::sdk_class_ids(sdk_dir, None)?);
     let mut m = dartforge_emit_native::lower::lower_program(&ctx);
     m.program_ids = ctx.program_ids();
     m.program_fields = ctx.program_fields();
@@ -294,7 +294,7 @@ fn lower_sdk_for_audit(
         &mut outline,
         &libs,
     );
-    let ids = sdk_module::sdk_class_ids(sdk_dir)?;
+    let ids = sdk_module::sdk_class_ids(sdk_dir, None)?;
     let mut modules = Vec::new();
     for lib in libs {
         let mut ctx = Context::new(&program, &interner, &types, &core, &outline, &bodies)

@@ -22,6 +22,7 @@ pub mod linker_wasm;
 pub mod linker_windows;
 pub mod llvm;
 pub mod lower;
+mod native_context;
 pub mod native_inputs;
 pub mod native_world;
 pub mod natives;
@@ -34,6 +35,8 @@ pub mod source;
 pub mod summary;
 pub mod target;
 pub mod wasm_frames;
+
+pub use dartforge_elements::environment::{CompilationEnvironment, EnvironmentTarget};
 
 use context::Context;
 use dartforge_elements::Program;
@@ -52,6 +55,8 @@ pub struct CompileOptions<'a> {
     pub packages: Option<&'a Path>,
     pub timings: bool,
     pub optimize: bool,
+    /// Ordered native `name=value` declarations for this compilation/session.
+    pub defines: Vec<String>,
     /// Current language version (`--language-version`, docs/VERSOES-LINGUAGEM.md);
     /// `None` = the tool's (3.13).
     pub language_version: Option<dartforge_frontend::LanguageVersion>,
@@ -149,6 +154,9 @@ pub struct EmissionTimes {
 /// The LLVM IR of a program, ready for Clang.
 #[derive(Debug, Clone)]
 pub struct EmittedIr {
+    /// Immutable declarations shared by the program and its SDK artifacts.
+    pub compilation_environment:
+        Option<std::sync::Arc<dartforge_elements::environment::CompilationEnvironment>>,
     /// Contract provenance for this exact emission; never an implicit proof.
     pub contracts: contracts::ContractReport,
     pub text: String,
@@ -197,6 +205,7 @@ fn prune_program_hir(
     production: bool,
     sdk_lib: &Path,
     flags: DartFlags,
+    environment: Option<&dartforge_elements::environment::CompilationEnvironment>,
     timings: bool,
 ) -> Result<Option<pruning::HirPruning>, String> {
     module.imported_allocation_inventory = None;
@@ -212,7 +221,7 @@ fn prune_program_hir(
     let clang = driver::NativeDriverOptions::default().clang;
     // The same directory, the same Clang and the same flags as the link
     // (`driver::compile_and_link`): the same cache key.
-    let sdk = sdk_module::compiled_sdk_for(sdk_lib, &clang, profile, flags)?;
+    let sdk = sdk_module::compiled_sdk_for(sdk_lib, &clang, profile, flags, environment)?;
     if !sdk.summaries.iter().all(|r| r.is_file()) {
         return Ok(None);
     }
@@ -402,7 +411,7 @@ pub fn emit_ir_with_flags(
     options: &CompileOptions,
     flags: DartFlags,
 ) -> Result<EmittedIr, String> {
-    emit_ir_internal(entry, options, None, None, options.optimize, true, flags)
+    emit_ir_internal(entry, options, None, options.optimize, true, flags)
 }
 
 /// [`emit_ir`] of a new generation of a running program (the JIT hot
@@ -413,16 +422,22 @@ pub fn emit_reloadable_ir(
     options: &CompileOptions,
     previous_ir: Option<&str>,
 ) -> Result<EmittedIr, String> {
-    let area = previous_ir.and_then(ir_area);
-    // J03: the same class with the same id as in the live generation.
-    let ids = previous_ir.map(context::ir_ids);
+    let previous = previous_ir
+        .map(|ir| -> Result<PreviousGeneration, String> {
+            Ok(PreviousGeneration {
+                area: ir_area(ir),
+                ids: context::ir_ids(ir),
+                environment: ir_environment(ir)?,
+                flags: ir_dart_flags(ir)?,
+            })
+        })
+        .transpose()?;
     // The JIT frees the memory of a generation (J02): no static objects in the
     // program modules (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
     emit_ir_internal(
         entry,
         options,
-        area,
-        ids,
+        previous,
         false,
         false,
         DartFlags::DEVELOPMENT,
@@ -446,11 +461,46 @@ pub fn ir_area(ir: &str) -> Option<Vec<i64>> {
     (values.len() == n + 2).then(|| values[2..].to_vec())
 }
 
+const ENVIRONMENT_IR_PREFIX: &str = dartforge_abi::compilation_environment::IR_PREFIX;
+
+/// Reads the immutable declarations recorded in program LLVM IR.
+///
+/// # Errors
+/// Invalid environment identity or multiple context headers.
+///
+/// ```
+/// assert!(dartforge_emit_native::ir_environment("; legacy IR\n").unwrap().is_none());
+/// ```
+pub fn ir_environment(
+    ir: &str,
+) -> Result<Option<dartforge_elements::environment::CompilationEnvironment>, String> {
+    Ok(native_context::from_ir(ir)?.map(|context| context.environment))
+}
+
+/// Reads the SDK execution flags encoded with the program's declarations.
+/// Legacy IR without recorded flags returns `None`.
+///
+/// # Errors
+/// Invalid context metadata or duplicate context headers.
+///
+/// ```
+/// assert_eq!(dartforge_emit_native::ir_dart_flags("; legacy IR\n").unwrap(), None);
+/// ```
+pub fn ir_dart_flags(ir: &str) -> Result<Option<DartFlags>, String> {
+    Ok(native_context::from_ir(ir)?.and_then(|context| context.flags))
+}
+
+struct PreviousGeneration {
+    area: Option<Vec<i64>>,
+    ids: std::collections::HashMap<(String, String), u32>,
+    environment: Option<dartforge_elements::environment::CompilationEnvironment>,
+    flags: Option<DartFlags>,
+}
+
 fn emit_ir_internal(
     entry: &Path,
     options: &CompileOptions,
-    previous_area: Option<Vec<i64>>,
-    previous_ids: Option<std::collections::HashMap<(String, String), u32>>,
+    previous: Option<PreviousGeneration>,
     static_objects: bool,
     prune: bool,
     flags: DartFlags,
@@ -459,6 +509,13 @@ fn emit_ir_internal(
     // that emits without pruning) does not have the tables: its code does not register
     // the unwind tables with the system.
     let table_exceptions = target::table_exceptions()?;
+    if previous
+        .as_ref()
+        .and_then(|previous| previous.flags)
+        .is_some_and(|prior| prior != flags)
+    {
+        return Err("hot reload cannot change SDK execution flags; restart the session".into());
+    }
     if table_exceptions && !prune {
         return Err("exceptions by tables (DARTFORGE_EXCEPTIONS=tables) do not exist in the JIT: use compile-native".to_string());
     }
@@ -491,6 +548,41 @@ fn emit_ir_internal(
     // Dart, P2).
     let mut sdk = sdk_module::load_native_sdk(&sdk_dir)
         .map_err(|e| format!("failed to load the VM SDK: {e}"))?;
+    let environment = if target::is_wasm() {
+        if !options.defines.is_empty() {
+            return Err(
+                "environment definitions are not implemented for the WebAssembly backend".into(),
+            );
+        }
+        None
+    } else {
+        use dartforge_elements::environment::{CompilationEnvironment, EnvironmentTarget};
+        let target = if prune {
+            EnvironmentTarget::NativeAot
+        } else {
+            EnvironmentTarget::NativeJit
+        };
+        let environment = std::sync::Arc::new(CompilationEnvironment::new(
+            target,
+            &sdk,
+            flags.product,
+            &options.defines,
+        )?);
+        environment.install(&mut sdk);
+        Some(environment)
+    };
+    if let Some(previous) = &previous
+        && previous.environment.as_ref() != environment.as_deref()
+    {
+        return Err(
+            "hot reload cannot change compilation environment declarations; restart the session"
+                .into(),
+        );
+    }
+    let (previous_area, previous_ids) = match previous {
+        Some(previous) => (previous.area, Some(previous.ids)),
+        None => (None, None),
+    };
     if let Some(v) = options.language_version {
         sdk.current_version = v;
     }
@@ -610,6 +702,30 @@ fn emit_ir_internal(
         return Err(message);
     }
 
+    let mut weak_references = dartforge_types::static_weak_references::normalize_for(
+        &program,
+        &interner,
+        &mut table,
+        &core,
+        &outline,
+        &bodies,
+        &inferred,
+        dartforge_types::static_weak_references::TargetPolicy::Native,
+    );
+    if !weak_references.issues.is_empty() {
+        return Err(weak_references
+            .issues
+            .iter()
+            .map(|(unit, offset, code)| {
+                format!(
+                    "{}:{offset}: invalid static weak reference: {code}",
+                    program.unit_path(*unit)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"));
+    }
+
     let normalized_annotations = dartforge_types::optimization_annotations::normalize(
         &program,
         &interner,
@@ -621,6 +737,9 @@ fn emit_ir_internal(
         &user_libraries,
     );
     let contract_report = contracts::inspect(&normalized_annotations, &program, options.contracts)?;
+
+    let entry_roots =
+        native_world::entry_points(&program, &interner, &mut table, &core, &outline, &bodies);
 
     let te = erasure::compute(&program, &outline, &mut table);
     let mut ctx = Context::new(&program, &interner, &table, &core, &outline, &bodies);
@@ -646,7 +765,29 @@ fn emit_ir_internal(
     // The closed world of the program (C7, `native_world.rs`): what `main`
     // does not reach is not lowered.
     let t_world = Instant::now();
-    ctx.world = native_world::compute(&program, &interner, &table, &outline, &bodies);
+    // CFE validates these declarations in both modes. Only AOT removes weak
+    // edges: reloadable code must execute the wrapper and retain its argument.
+    if !prune {
+        weak_references.calls.clear();
+        weak_references.elided_const_initializers.clear();
+    }
+    let world_options = dartforge_world::Options {
+        without_asserts: !flags.enable_asserts,
+        preserve_constant_conditions: !weak_references.calls.is_empty(),
+        ..Default::default()
+    };
+    ctx.world = native_world::compute_with_weak_references(
+        dartforge_world::WorldInput {
+            program: &program,
+            interner: &interner,
+            table: &table,
+            outline: &outline,
+            bodies: &bodies,
+        },
+        weak_references,
+        world_options,
+        entry_roots,
+    );
     let world_duration = t_world.elapsed();
     let world_stat = ctx
         .world
@@ -665,7 +806,7 @@ fn emit_ir_internal(
     }
     // The ids of the SDK classes are those of the compiled SDK, not those of what this
     // program loaded (`context::IdTable`).
-    let ids = sdk_module::sdk_class_ids(&sdk_dir)?;
+    let ids = sdk_module::sdk_class_ids(&sdk_dir, environment.as_deref())?;
     let ctx = ctx.with_source_sdk_and_ids(ids);
     let ctx = match previous_ids {
         Some(ids) => ctx.with_previous_ids(ids),
@@ -704,6 +845,7 @@ fn emit_ir_internal(
             options.optimize,
             &sdk_dir,
             flags,
+            environment.as_deref(),
             options.timings,
         )? && options.timings
         {
@@ -730,6 +872,7 @@ fn emit_ir_internal(
                 options.optimize,
                 &sdk_dir,
                 flags,
+                environment.as_deref(),
                 options.timings,
             )?;
         }
@@ -869,23 +1012,26 @@ fn emit_ir_internal(
         llvm::verify_shadow::verify(&llvm_ir)?;
     }
     // On Itanium targets, every function needs the unwind table:
-    // for exceptions by tables (the unwinding) and for roots by maps (the
+    // for exceptions by tables, symbolic traces and roots by maps (the
     // collector's walk through `_Unwind_Backtrace`, which stops at a frame without a
     // table — macOS libunwind ends it there, and the roots of the outer frames
     // went unvisited).
-    let llvm_ir = if (table_exceptions || roots_by_maps) && crate::target::is_unix() {
+    let llvm_ir = if (table_exceptions || roots_by_maps || symbolic_stack_trace)
+        && crate::target::is_unix()
+    {
         sdk_module::with_uwtable(&llvm_ir)
     } else {
         llvm_ir
     };
-    // With exceptions by check and the shadow stack nothing unwinds Dart
-    // code: without the CFI of each function (`sdk_module::with_nounwind`).
+    // With exceptions by check, shadow roots and no symbolic trace, no stack
+    // walker crosses Dart code: omit its CFI (`sdk_module::with_nounwind`).
     // Only on Itanium targets and WebAssembly (where nothing unwinds without
     // Wasm exceptions): on x64 COFF every function has an unwind table anyway,
     // and Windows was not measured.
     let llvm_ir = if (crate::target::is_unix() || crate::target::is_wasm())
         && !table_exceptions
         && !roots_by_maps
+        && !symbolic_stack_trace
     {
         sdk_module::with_nounwind(&llvm_ir)
     } else {
@@ -917,9 +1063,16 @@ fn emit_ir_internal(
 
     let sdk_byte_count = sdk_bytes(&llvm_ir, &program);
     Ok(EmittedIr {
+        compilation_environment: environment.clone(),
         text: format!(
-            "; DartForge contract provenance {}\n{llvm_ir}",
-            contract_report.cache_tag()
+            "; DartForge contract provenance {}\n{}{llvm_ir}",
+            contract_report.cache_tag(),
+            environment
+                .as_ref()
+                .map_or_else(String::new, |environment| format!(
+                    "{ENVIRONMENT_IR_PREFIX}{}\n",
+                    native_context::identity(environment, flags)
+                ))
         ),
         contracts: contract_report,
         sdk_lib: sdk_dir,
@@ -1002,6 +1155,7 @@ pub fn compile_with_flags(
         cpu: options.cpu,
         sdk_lib: Some(ir.sdk_lib.clone()),
         flags,
+        compilation_environment: ir.compilation_environment.clone(),
     };
 
     let linkage = driver::compile_and_link(&ir.text, exit, &driver_opts)?;
@@ -1087,6 +1241,7 @@ mod tests {
             packages: None,
             timings: false,
             optimize: false,
+            defines: Vec::new(),
             language_version: None,
             experiments: Vec::new(),
             debug: false,
@@ -1134,21 +1289,26 @@ void main() {
     }
 
     #[test]
-    fn native_compilation_environment_rejects_unknown_const_names_in_nested_queries() {
+    fn native_compilation_environment_accepts_computed_constants_and_rejects_calls() {
         std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
             let dir = tempfile::tempdir().unwrap();
             let entry = dir.path().join("main.dart");
             let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false,
-                optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+                optimize: true, defines: Vec::new(), language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
             for value in [
                 "const bool.fromEnvironment(1 == 1 ? 'dartforge.compiler' : 'missing')",
                 "bool.fromEnvironment(1 == 1 ? 'dartforge.compiler' : 'missing')",
                 "bool.fromEnvironment(bool.hasEnvironment(1 == 1 ? 'dartforge.compiler' : 'missing') ? 'dartforge.compiler' : 'missing')",
             ] {
                 std::fs::write(&entry, format!("void main() {{ const result = {value}; print(result); }}\n")).unwrap();
-                let error = emit_ir(&entry, &options).expect_err("unsupported const name must reject IR emission");
-                assert!(error.contains("constant compilation environment name"), "{value}: {error}");
+                emit_ir(&entry, &options).unwrap_or_else(|error| panic!("valid constant query {value}: {error}"));
             }
+            std::fs::write(&entry, "String choose() => 'dartforge.compiler'; void main() { const result = bool.fromEnvironment(choose()); print(result); }\n").unwrap();
+            let error = match emit_ir(&entry, &options) {
+                Ok(_) => panic!("non-constant invocation must reject IR emission"),
+                Err(error) => error,
+            };
+            assert!(error.contains("const"), "{error}");
         }).unwrap().join().unwrap();
     }
 
@@ -1171,14 +1331,14 @@ void main() {
             for body in cases {
                 std::fs::write(&entry, format!("{prefix}{body}\n")).unwrap();
                 let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false,
-                    optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+                    optimize: true, defines: Vec::new(), language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
                 let error = emit_ir(&entry, &options).expect_err("invalid constant must reject IR emission");
                 assert!(error.contains("const") || error.contains("constant"), "{body}: {error}");
             }
             std::fs::write(&entry,
                 "import 'dart:convert'; void main() { print(const JsonUtf8Encoder()); }\n").unwrap();
             let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false,
-                optimize: true, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+                optimize: true, defines: Vec::new(), language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
             let error = emit_ir(&entry, &options).expect_err("SDK non-const constructor must reject IR emission");
             assert!(error.contains("isn't a const constructor"), "{error}");
             std::fs::write(dir.path().join("dependency.dart"), "class Token { Token(); Token.named(); }\n").unwrap();
@@ -1278,6 +1438,7 @@ void main() {
             packages: None,
             timings: false,
             optimize: false,
+            defines: Vec::new(),
             language_version: None,
             experiments: Vec::new(),
             debug: false,
@@ -1533,6 +1694,7 @@ Future<void> main() async {
                         packages: None,
                         timings: false,
                         optimize,
+                        defines: Vec::new(),
                         language_version: None,
                         experiments: Vec::new(),
                         debug: false,
@@ -1608,7 +1770,7 @@ mod native_pump_contract_tests {
             std::fs::write(&entry, "import 'package:dartforge/src/native_pump.dart'; void main() { print(run()); }").unwrap();
             let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify,
                 sdk: Some(sdk_tests()), packages: Some(&config), timings: false, optimize: false,
-                language_version: None, experiments: vec![], debug: false, generator: None, cpu: None };
+                defines: Vec::new(), language_version: None, experiments: vec![], debug: false, generator: None, cpu: None };
             for (version, ty, argument) in [
                 ("v1", "void Function(int)", "(int value) {}"),
                 ("v1", "void Function()?", "null"),
@@ -1636,7 +1798,7 @@ mod native_pump_contract_tests {
             }]}).to_string()).unwrap();
             let entry = dir.path().join("main.dart");
             let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: Some(&config), timings: false,
-                optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+                optimize: false, defines: Vec::new(), language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
             // Test the defining library without requiring unrelated optional
             // package dependencies in this standalone package configuration.
             std::fs::write(&entry, "import 'package:dartforge/src/native_pump.dart'; void dispatch() {} void main() { print(EventLoop.supportsNativePump); EventLoop.enableNativePump(); print(EventLoop.supportsNativeEventDispatcher); EventLoop.setNativeEventDispatcher(dispatch); EventLoop.clearNativeEventDispatcher(); EventLoop.disableNativePump(); }\n").unwrap();

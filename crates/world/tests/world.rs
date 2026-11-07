@@ -295,6 +295,7 @@ fn always_null_parameters() {
             roots.functions.push(f);
             let options = dartforge_world::Options {
                 include_sdk: true,
+                preserve_constant_conditions: false,
                 without_asserts: true,
                 without_records: false,
                 without_legacy: false,

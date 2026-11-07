@@ -8,7 +8,7 @@
 //! [`crate::project`] (the same as `references`).
 //! Written without compiling or running (2026-10-05).
 
-use crate::project::{Concrete, Owner, Project, Target, base_name, word};
+use crate::project::{Concrete, Denoted, Owner, Project, Target, base_name, word};
 use crate::refactorings::Context;
 use crate::refactorings_exec::{Severity, State};
 use dartforge_diagnostics::Span;
@@ -281,11 +281,17 @@ impl Project {
     /// `getElementOfNode` + `getElementToRename` + `RenameRefactoring.create`.
     fn rename_request(&self, unit: UnitId, offset: usize) -> Option<Request> {
         let cx = Context::new(self, unit);
-        self.rename_request_in(&cx, unit, offset)
+        self.rename_request_in(&cx, unit, offset, None)
     }
 
     /// [`Project::rename_request`] with the unit's [`Context`] already built.
-    fn rename_request_in(&self, cx: &Context<'_>, unit: UnitId, offset: usize) -> Option<Request> {
+    fn rename_request_in(
+        &self,
+        cx: &Context<'_>,
+        unit: UnitId,
+        offset: usize,
+        identified: Option<&Denoted>,
+    ) -> Option<Request> {
         let p = self.program();
         let u = p.unit(unit);
         let source = u.source.as_str();
@@ -498,7 +504,12 @@ impl Project {
                 });
             }
         }
-        let d = self.identify(unit, offset).ok()??;
+        // The index already identified this position. Keep the AST-specific
+        // rename rules above, then reuse that resolution for ordinary names.
+        let d = match identified {
+            Some(d) => d.clone(),
+            None => self.identify(unit, offset).ok()??,
+        };
         // The prefix used in an expression: the `PrefixElement`, a member of the
         // unit (`RenameUnitMemberRefactoringImpl`); the directive's `as p` keeps
         // the `LibraryImportElement` (the `ImportDirective` branch).
@@ -2443,11 +2454,13 @@ pub(crate) fn prepare_in(
     unit: dartforge_elements::model::UnitId,
     offset: usize,
 ) -> Result<Option<(Span, String)>, String> {
-    prepare_with(project, &Context::new(project, unit), unit, offset)
+    prepare_with(project, &Context::new(project, unit), unit, offset, None)
 }
 
 /// [`prepare_in`] with the unit's [`Context`] already built (the reference
-/// index asks at every identifier of a unit).
+/// index asks at every identifier of a unit). `identified`, when supplied,
+/// must be [`Project::identify`]'s result at this unit and offset in the same
+/// project state. AST-specific rename rules still take precedence.
 ///
 /// # Errors
 ///
@@ -2457,8 +2470,9 @@ pub(crate) fn prepare_with(
     cx: &Context<'_>,
     unit: dartforge_elements::model::UnitId,
     offset: usize,
+    identified: Option<&Denoted>,
 ) -> Result<Option<(Span, String)>, String> {
-    let Some(request) = project.rename_request_in(cx, unit, offset) else {
+    let Some(request) = project.rename_request_in(cx, unit, offset, identified) else {
         return Ok(None);
     };
     let initial = project.initial_conditions(&request);

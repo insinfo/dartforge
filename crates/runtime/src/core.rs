@@ -19,6 +19,8 @@ unsafe extern "C" {
 #[cfg(not(any(dartforge_runtime_embedded, dartforge_runtime_dll, target_arch = "wasm32")))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
+    #[cfg(windows)]
+    let _console = windows_print_console::enter();
     // The context of the main thread before any generated prologue (see
     // `dartforge_init`).
     dartforge_context();
@@ -26,6 +28,8 @@ pub extern "C" fn main() -> i32 {
     unsafe { dartforge_entry() };
     let code = finalize_program();
     if code != 0 {
+        #[cfg(windows)]
+        windows_print_console::restore();
         std::process::exit(code);
     }
     0
@@ -37,6 +41,8 @@ pub extern "C" fn main() -> i32 {
 /// `dartforge_entry`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_init(input: extern "C" fn(), to_string_fn: extern "C" fn(i64) -> i64) -> i32 {
+    #[cfg(windows)]
+    let _console = windows_print_console::enter();
     // The context of the main thread, before any generated prologue: the
     // production prologue on macOS arm64 reads the `pthread` slot of the
     // context without a null check (`sdk_module::context_in_tsd`), so the key
@@ -81,6 +87,8 @@ fn finish_program() -> i32 {
     unmark_main_isolate();
     let code = finalize_program();
     if code != 0 {
+        #[cfg(windows)]
+        windows_print_console::restore();
         crate::console::exit(code);
     }
     0

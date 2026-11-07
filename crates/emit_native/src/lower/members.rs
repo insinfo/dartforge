@@ -2173,6 +2173,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(cid) = f.class else {
             return self.unsupported("constructor without a class", span);
         };
+        if let Some(value) = self.native_environment_constructor(ast, ctor_fid, args, span) {
+            return value;
+        }
         // Environment factories are evaluated by the native compiler, while
         // their argument expressions retain normal evaluation order outside const.
         if let Some((kind, has)) = self.environment_factory(ctor_fid) {
@@ -2310,6 +2313,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         explicit_rti: Option<Operand>,
         explicit_tuple: Option<Operand>,
     ) -> Operand {
+        if let Some(value) = self.evaluated_environment_constructor(ctor_fid, evaluated) {
+            return value;
+        }
         let ty = self.creation_type.take();
         let concrete = self.concrete_class.take();
         let fid = ctor_fid.0 as usize;

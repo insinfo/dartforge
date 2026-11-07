@@ -1019,14 +1019,16 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
             ));
         }
     }
-    if entries.is_empty() {
-        return String::new();
+    let mut out = String::new();
+    if !entries.is_empty() {
+        let json = format!("{{{}}}", entries.join(","));
+        out.push_str(&format!(
+            "dart_rti._Universe.addRules(dart.typeUniverse, JSON.parse({}));\n",
+            js::string_literal(&json)
+        ));
     }
-    let json = format!("{{{}}}", entries.join(","));
-    let mut out = format!(
-        "dart_rti._Universe.addRules(dart.typeUniverse, JSON.parse({}));\n",
-        js::string_literal(&json)
-    );
+    // A class with only positional parameters may have variance metadata but
+    // no supertype rule. Its variance registration must still be emitted.
     if !variances.is_empty() {
         out.push_str(&format!(
             "dart_rti._Universe.addTypeParameterVariances(dart.typeUniverse, JSON.parse({}));\n",
@@ -2382,10 +2384,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 }
             }
             MemberKind::Constructor(ctor) => {
-                let effective = ctor
-                    .name
-                    .map(|n| n.sym)
-                    .or(ctx.empty_sym)
+                let effective = ctx
+                    .constructor_symbol(ctor.name)
                     .and_then(|s| class.constructors.get(&s).copied());
                 if effective.is_some_and(|f| {
                     ctx.program.function(f).node
@@ -2562,23 +2562,7 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     // implements Invariant<T>`: `T Function(T)` with `c`'s own
                     // `T`), not with the declaring interface's parameters,
                     // which `c`'s instance cannot evaluate.
-                    let seen = ctx
-                        .program
-                        .function(fid)
-                        .class
-                        .and_then(|owner| {
-                            let Ty::Iface { args, .. } = ctx.as_super(&ctx.this_ty(c), owner)?
-                            else {
-                                return None;
-                            };
-                            let map: HashMap<u32, Ty> = ctx.class_params[owner.0 as usize]
-                                .iter()
-                                .map(|p| p.id)
-                                .zip(args.iter().cloned())
-                                .collect();
-                            Some(ctx.fn_ty(fid).subst(&map))
-                        })
-                        .unwrap_or_else(|| ctx.fn_ty(fid));
+                    let seen = nsm_member_type(ctx, c, crate::ctx::MemberKind::Method(fid));
                     method_sigs.push((jsname.clone(), seen));
                     // A generic forwarder's default type arguments (`dart.bind`
                     // and dynamic calls read them).
@@ -2604,11 +2588,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     }
                 }
                 crate::ctx::MemberKind::Getter(fid) => {
-                    let ret = ctx.ty_of(ctx.outline.functions[fid.0 as usize].return_type);
-                    let cast = if matches!(ret, Ty::Dynamic | Ty::Void)
-                        || ret.mentions_params()
-                        || !se.checks.downcasts
-                    {
+                    let ret = nsm_member_type(ctx, c, crate::ctx::MemberKind::Getter(fid));
+                    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || !se.checks.downcasts {
                         String::new()
                     } else {
                         format!("{}[_as]", se.rti(&ret))
@@ -2624,20 +2605,18 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                         "dart.const(new _internal.Symbol.new({}))",
                         js::string_literal(&format!("{name}="))
                     );
-                    cw.line(&format!("set {}(v) {{ dart.noSuchMethod(this, new core._Invocation.setter({ssym}, v)); }}", sig_key(&name, &se, c)));
-                    // Signed, so that a dynamic write checks the value.
-                    // An implicit setter (a field of the interface) has the
-                    // field's type.
-                    let value = match ctx.program.function(fid).variable {
-                        Some(v) => ctx.var_ty(v),
-                        None => ctx.outline.functions[fid.0 as usize]
-                            .parameters
-                            .first()
-                            .map_or(Ty::Dynamic, |p| ctx.ty_of(p.ty)),
+                    let value = nsm_member_type(ctx, c, crate::ctx::MemberKind::Setter(fid));
+                    let check = if !matches!(value, Ty::Dynamic | Ty::Void) && se.checks.parameters
+                    {
+                        format!("{}[_as](v); ", se.rti(&value))
+                    } else {
+                        String::new()
                     };
-                    if !value.mentions_params() {
-                        setter_sigs.push((name.clone(), value));
-                    }
+                    cw.line(&format!("set {}(v) {{ {check}dart.noSuchMethod(this, new core._Invocation.setter({ssym}, v)); }}", sig_key(&name, &se, c)));
+                    // Dynamic writes also need signatures for generic types;
+                    // the signature emitter evaluates them with this class's
+                    // runtime type arguments.
+                    setter_sigs.push((name.clone(), value));
                 }
                 crate::ctx::MemberKind::Field(_) => {}
             }
@@ -3269,10 +3248,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             .map(|n| static_member_name(&n))
             .unwrap_or("new".into());
         ctor_names.push(jsname.clone());
-        let state = ctor
-            .name
-            .map(|n| n.sym)
-            .or(ctx.empty_sym)
+        let state = ctx
+            .constructor_symbol(ctor.name)
             .and_then(|s| class.constructors.get(&s).copied())
             .map_or(crate::filter::State::Live, |f| ctx.fn_state(f));
         if state == crate::filter::State::Stub {
@@ -3418,11 +3395,14 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     let alias_accessor = |n: &str| keep_aliases && inherited_native_aliases.contains(n);
     method_sigs.retain(|(n, _)| ctx.signature_live(signature_name(n)) || alias_method(n));
     generic_methods.retain(|(n, _)| ctx.signature_live(n) || alias_method(n));
-    // A `late` field is a getter/setter pair (its storage is the field):
-    // dynamic accesses find it by its name, as in the CFE's lowering.
-    for f in fields.iter().filter(|f| f.late && f.virtual_ && !f.helper) {
+    // Late fields and virtual private fields use a separate storage key.
+    // Dynamic accesses need the accessor's public/library-private key too.
+    for f in fields
+        .iter()
+        .filter(|f| (f.late || f.name.starts_with('_')) && f.virtual_ && !f.helper)
+    {
         getter_sigs.push((f.name.clone(), f.ty.clone()));
-        if !(f.final_ && f.init.is_some()) {
+        if !f.final_ || (f.late && f.init.is_none()) {
             setter_sigs.push((f.name.clone(), f.ty.clone()));
         }
     }
@@ -3922,7 +3902,7 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     // (`usesJSInterop`, dev_compiler js_interop.dart:151-161); the
                     // rest is plain Dart, as in an erased extension type
                     // (`_emitLibraryProcedures`, compiler.dart:3527).
-                    let sym = ctor.name.map(|n| n.sym).or(ctx.empty_sym);
+                    let sym = ctx.constructor_symbol(ctor.name);
                     if let Some(fid) = sym.and_then(|s| class.constructors.get(&s).copied()) {
                         let text =
                             crate::extension_type::constructor_text(ctx, m, c, unit, ctor, fid);
@@ -4052,7 +4032,11 @@ fn foreign_private_supertype(ctx: &Ctx, c: ClassId) -> bool {
 /// Whether the private field `name` of `c` is an accessor pair over its own
 /// storage: it overrides an inherited member, or a subtype overrides it.
 pub(crate) fn private_field_is_virtual(ctx: &Ctx, c: ClassId, name: &str) -> bool {
-    overrides_supertype_member(ctx, c, name) || overridden_in_library(ctx, c, name)
+    overrides_supertype_member(ctx, c, name)
+        || overridden_in_library(ctx, c, name)
+        || ctx
+            .sym(name)
+            .is_some_and(|name| crate::own_sdk::private_nsm_field_conflict(ctx, c, name))
 }
 
 /// Whether another class of `c`'s library that has `c` as a supertype
@@ -4293,10 +4277,18 @@ struct NullInits {
     targets: Vec<String>,
 }
 
+/// Bound expression depth independently of the number of fields in a class.
+const MAX_NULL_INITIALIZER_CHAIN: usize = 128;
+
 impl NullInits {
     fn push(&mut self, target: String, body: &mut Writer) {
         if self.production {
             self.targets.push(target);
+            // A single enormous assignment chain exceeds JavaScript parsers'
+            // stacks. Each batch still creates properties in declaration order.
+            if self.targets.len() >= MAX_NULL_INITIALIZER_CHAIN {
+                self.flush(body);
+            }
         } else {
             crate::emit_line!(body, "{target} = null;");
         }
@@ -4571,6 +4563,41 @@ fn trivial_constructor(ctx: &Ctx, s: ClassId, sym: Option<dartforge_intern::Symb
         && sym.or(ctx.empty_sym).is_some_and(|sym| go(ctx, s, sym, 0))
 }
 
+/// The interface member's type expressed in the forwarding class's parameters.
+fn nsm_member_type(ctx: &Ctx, c: ClassId, kind: crate::ctx::MemberKind) -> Ty {
+    use crate::ctx::MemberKind;
+    let (owner, raw) = match kind {
+        MemberKind::Method(f) => (ctx.program.function(f).class, ctx.fn_ty(f)),
+        MemberKind::Getter(f) => (
+            ctx.program.function(f).class,
+            ctx.ty_of(ctx.outline.functions[f.0 as usize].return_type),
+        ),
+        MemberKind::Setter(f) => (
+            ctx.program.function(f).class,
+            ctx.program.function(f).variable.map_or_else(
+                || {
+                    ctx.outline.functions[f.0 as usize]
+                        .parameters
+                        .first()
+                        .map_or(Ty::Dynamic, |p| ctx.ty_of(p.ty))
+                },
+                |v| ctx.var_ty(v),
+            ),
+        ),
+        MemberKind::Field(v) => (ctx.program.variable(v).class, ctx.var_ty(v)),
+    };
+    let Some(owner) = owner else { return raw };
+    let Some(Ty::Iface { args, .. }) = ctx.as_super(&ctx.this_ty(c), owner) else {
+        return raw;
+    };
+    let map: HashMap<u32, Ty> = ctx.class_params[owner.0 as usize]
+        .iter()
+        .map(|p| p.id)
+        .zip(args.iter().cloned())
+        .collect();
+    raw.subst(&map)
+}
+
 /// Production: `Object.prototype[dartx.toString]` calls `this.toString()`
 /// instead of being `Object`'s own `toString`, and the classes that cannot
 /// sit in a native prototype chain drop their `dartx.toString` alias: the
@@ -4587,6 +4614,7 @@ fn object_member_forwarders(ctx: &Ctx) -> bool {
     ctx.production()
         && ctx.sdk.is_some()
         && std::env::var("DARTFORGE_JSPROD_TOSTRING_FORWARDER").map_or(true, |v| v != "0")
+        && !ctx.has_live_super_to_string()
 }
 
 /// `c`, one of its superclasses or one of their mixins (but `Object`) sits
@@ -4636,7 +4664,7 @@ fn emit_constructor(
     let mut e = FnEmitter::new(ctx, m, unit, Some(c), false);
     e.explicit_super = true;
     e.in_constructor = true;
-    let ctor_sym = ctor.name.map(|n| n.sym).or(ctx.empty_sym);
+    let ctor_sym = ctx.constructor_symbol(ctor.name);
     let fid = ctor_sym.and_then(|s| class.constructors.get(&s).copied());
     if let Some(f) = fid {
         e.checks = crate::checks::Checks::of_function(ctx, f);
@@ -4678,7 +4706,7 @@ fn emit_constructor(
         let tname = target
             .map(|n| static_member_name(ctx.name(n.sym)))
             .unwrap_or("new".into());
-        let tsym = target.map(|n| n.sym).or(ctx.empty_sym);
+        let tsym = ctx.constructor_symbol(*target);
         let tfid = tsym.and_then(|s| class.constructors.get(&s).copied());
         let tsig = tfid.map(|f| ctx.fn_ty(f)).unwrap_or(Ty::Dynamic);
         let (arg_js, _, _) = e.emit_args_for(&tsig, args, None);
@@ -4800,7 +4828,7 @@ fn emit_constructor(
                         let sname = constructor
                             .map(|n| static_member_name(ctx.name(n.sym)))
                             .unwrap_or("new".into());
-                        let ssym = constructor.map(|n| n.sym).or(ctx.empty_sym);
+                        let ssym = ctx.constructor_symbol(*constructor);
                         let sfid =
                             ssym.and_then(|x| ctx.program.class(s).constructors.get(&x).copied());
                         let ssig = sfid.map(|f| ctx.fn_ty(f)).unwrap_or(Ty::Dynamic);
@@ -5027,7 +5055,7 @@ fn emit_factory(
         .name
         .map(|n| static_member_name(ctx.name(n.sym)))
         .unwrap_or("new".into());
-    let ctor_sym = ctor.name.map(|n| n.sym).or(ctx.empty_sym);
+    let ctor_sym = ctx.constructor_symbol(ctor.name);
     let fid = ctor_sym.and_then(|s| class.constructors.get(&s).copied());
     let _ = mid;
     // `_ti` goes in when the class *or a superclass* is generic (DDC's rule, the
@@ -5043,8 +5071,8 @@ fn emit_factory(
     if ctor.redirect.is_some() {
         // Redirection: direct calls already resolve the target; the body forwards
         // to serve the tear-offs (`C.new` as a value).
-        let body = match fid.and_then(|f| e.factory_redirect_target(f)) {
-            Some((tclass, tname, is_target_factory)) => {
+        let body = match fid.and_then(|f| e.factory_redirect_target_type(f)) {
+            Some((tclass, tname, is_target_factory, target_ty)) => {
                 let tref = e.class_ref(tclass);
                 let tjs = if tname.is_empty() {
                     "new".to_string()
@@ -5053,11 +5081,7 @@ fn emit_factory(
                 };
                 let mut args: Vec<String> = Vec::new();
                 if ctx.requires_rti(tclass) {
-                    if tclass == c && generic {
-                        args.push("_ti".into());
-                    } else {
-                        args.push(e.rti(&ctx.this_ty_default(tclass)));
-                    }
+                    args.push(e.rti(&target_ty));
                 }
                 args.push("...args".into());
                 if is_target_factory {

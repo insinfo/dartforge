@@ -68,6 +68,7 @@ fn main() {
                     timings: false,
                     optimize: false,
                     // The corpus is `corpus/js`, written for 3.6.
+                    defines: Vec::new(),
                     language_version: Some(dartforge_frontend::LanguageVersion::FLOOR),
                     experiments: Vec::new(),
                     debug: false,

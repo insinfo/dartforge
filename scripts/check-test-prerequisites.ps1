@@ -57,3 +57,26 @@ foreach ($inputFile in $gzipInputs) {
         throw "DARTFORGE_GZIP_CORPUS is missing the VM output for '$($inputFile.Name)'."
     }
 }
+
+
+# Parser acceptance tests require this ignored external input independently
+# of the gzip oracle corpus. Fail before starting a complete workspace build.
+$pubCorpus = if ($env:DARTFORGE_PUB_CORPUS) {
+    $env:DARTFORGE_PUB_CORPUS
+} else {
+    Join-Path $PSScriptRoot '../references/pub'
+}
+if (!(Test-Path -LiteralPath $pubCorpus -PathType Container)) {
+    throw 'Set DARTFORGE_PUB_CORPUS to the parser Pub corpus, or populate references/pub. See CONTRIBUTING.md.'
+}
+$pubSources = @(Get-ChildItem -LiteralPath $pubCorpus -Recurse -File -Force -ErrorAction Stop |
+    Where-Object { $_.Extension -ceq '.dart' })
+if (!$pubSources.Count) {
+    throw "The parser Pub corpus contains no Dart sources: $pubCorpus."
+}
+$strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+foreach ($sourceFile in $pubSources) {
+    # Rust reads every source as strict UTF-8; invalid bytes cannot be accepted
+    # by a prerequisite check that would otherwise silently replace them.
+    $null = $strictUtf8.GetString([IO.File]::ReadAllBytes($sourceFile.FullName))
+}

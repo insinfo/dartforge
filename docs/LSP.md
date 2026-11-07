@@ -5682,16 +5682,1534 @@ com espera inicial e edições; não isolam o custo de cada consulta nem são
 as medianas da matriz de edições sem consultas. A auditoria, incluindo hashes,
 está em `/tmp/dartforge-named-slots-prune-api-query-audit.json`.
 
-O próximo ensaio precisa registrar tempo e CPU por método depois da edição
-e da reversão. Um rascunho externo em
-`/tmp/dartforge-api-query-metrics.patch` acrescenta essas medidas ao lado das
-respostas completas, fora do intervalo cronometrado de edição; ainda não foi
-aplicado nem compilado. A revisão do cache confirmou que uma geração nova
+O ensaio seguinte passou a registrar tempo e CPU por método depois da edição
+e da reversão. O rascunho externo em
+`/tmp/dartforge-api-query-metrics.patch` foi aplicado e o driver compilou em
+release; clippy do exemplo e fmt passaram. As medidas ficam ao lado das
+respostas completas, fora do intervalo cronometrado de edição. A revisão do cache confirmou que uma geração nova
 invalida os índices das consultas, mas não demonstrou que isso causa o custo
 total observado. Tampouco é seguro presumir que `referencedNames` depende
 só do texto: `Context::new` constrói a árvore usando a resolução dos corpos
 para distinguir construtores e prefixos. Qualquer reaproveitamento entre
 gerações precisa manter essa informação válida, além do texto e dos IDs.
+
+**Tempo por consulta e perfil separados (05/11).** Um par de sessões no
+frontend, com o release de poda e Dart 3.6.2, levou 131,99 / 18,37 s.
+Os três pedidos editados de `references` levaram **37.731,53 / 37.566,66 /
+37.654,15 ms** no DartForge, contra **10,44 / 3,21 / 2,96 ms** no Dart.
+As medianas de CPU amostrada foram 42.582,23 / 3,66 ms. Os três pedidos
+somaram 112,95 s no DartForge. As demais consultas capturadas somaram cerca
+de 2,09 s; a sessão inteira inclui esperas e edições, fora dessa soma.
+É um par em ordem fixa, com três pedidos por sessão, não três sessões
+independentes nem a matriz de desempenho. O pico de footprint foi
+1.839,05 / 763,91 MiB. Os dados estão em
+`/tmp/dartforge-api-query-probe-v1/metrics.json` e `sessions/`.
+
+Os 18 payloads de consultas e seis mapas completos de diagnósticos ficaram
+iguais aos da sessão anterior do mesmo servidor. Contra o Dart, os seis
+mapas coincidiram omitindo só `source`; as seis diferenças de consultas
+continuam restritas a `documentSymbol`. Não houve erro de pedido nem
+diagnóstico esperado ausente. Os 10.894 arquivos de entrada, fontes e
+binários ficaram iguais antes/depois; o digest de entrada continuou
+`0f834beeaf55403780a0741721ec90f3688cf83777dd3e49769a72a135fc2066`.
+
+Uma sessão adicional, só para perfil e com um ciclo de API, coletou o worker
+`--reference-index` pelo `sample` do macOS, sem benchmark concorrente.
+O debug registrou **368 arquivos regravados para uma API alterada**, em
+38.078 ms. A thread principal teve 2.301 de 3.590 amostras sob
+`identifier_facts`, passando por `semantic::references_at`; a varredura
+repetida de textos da documentação aparece nesse caminho. São amostras
+da sessão de perfil, não percentuais de CPU da sessão medida. Evidências em
+`/tmp/dartforge-api-query-profile-v1/{worker.sample.txt,driver.log,status.json}`.
+
+**Buscas locais de documentação, em validação.** `resolve_doc_reference`
+resolve locais e parâmetros de tipo na unidade da declaração documentada;
+os caminhos qualificados resolvem elementos e membros, não locais de outra
+unidade. A varredura agora respeita essa fronteira, além do filtro e das
+bibliotecas inferidas. Os parâmetros nomeados continuam percorrendo as
+referências de overrides e rótulos de chamadas pelo caminho próprio.
+O teste novo primeiro reprovou por ler a documentação da unidade estrangeira;
+depois passou para parâmetros locais e de tipo, mantendo também a documentação
+do override e o rótulo da chamada em outro arquivo. Logs em
+`/tmp/dartforge-local-doc-search-{red,green}.log`.
+Passaram a suíte inteira do LSP (**339 testes em 34 alvos, sem falhas ou
+ignorados**), clippy do workspace, documentação estrita, fmt e a compilação
+do candidato, com fontes estáveis. Status e logs em
+`/tmp/dartforge-local-doc-search-checks.json` e
+`/tmp/dartforge-local-doc-search-{lsp,clippy,doc,fmt,release}.log`.
+
+**Primeiro trio com o candidato.** Uma sessão por servidor no frontend,
+em ordem fixa antes/depois/Dart, conservou 18/18 payloads e seis mapas completos
+de diagnósticos antes/depois, além do estado final. Os mapas também coincidiram
+com o Dart ao omitir só `source`; as seis diferenças de consultas continuam
+restritas a `documentSymbol`. Os inputs, fontes e binários ficaram iguais.
+
+| Sessão funcional com consultas | Antes | Candidato | Dart |
+| --- | ---: | ---: | ---: |
+| `references` após API, mediana dos três pedidos (ms) | 37.611,52 | 10.268,54 | 3,27 |
+| CPU amostrada desses pedidos (ms) | 42.583,10 | 10.263,87 | 3,73 |
+| Sessão inteira (s) | 131,92 | 50,31 | 18,25 |
+| Pico de footprint total (MiB) | 1.864,74 | 1.448,99 | 759,00 |
+| Repouso de footprint total (MiB) | 1.021,74 | 1.448,99 | 759,00 |
+
+A queda de tempo/CPU não fecha o critério de desempenho: ainda perde do Dart,
+e o repouso maior é um custo aberto. O pico menor não transforma essa medição
+em ganho uniforme de memória. São três pedidos dentro de cada sessão, não
+três sessões independentes. Dados e verificação em
+`/tmp/dartforge-local-doc-search-probe-v1/{metrics.json,snapshot.json,sessions/}`.
+A matriz de 27 sessões, com três rodadas e ordem alternada nos três projetos,
+terminou com saída zero em `/tmp/dartforge-local-doc-search-matrix-v1/`;
+log principal em `/tmp/dartforge-local-doc-search-matrix-v1.log`.
+Foram preservados **162 payloads completos, 54 mapas de diagnósticos e nove
+estados finais** antes/depois. Os 54 mapas dos arquivos abertos coincidiram
+com o Dart ao omitir só `source`; as diferenças conhecidas de documentSymbol
+e das publicações globais do limitless permanecem registradas. Não houve
+pedido com erro nem diagnóstico esperado ausente. Fontes, binários e os três
+manifestos de entrada ficaram iguais antes/depois.
+
+| Mediana das sessões com consultas | Antes | Busca local de documentação | Dart |
+| --- | ---: | ---: | ---: |
+| limitless: `references` / CPU (ms) | 1.204,39 / 2.806,75 | 1.196,47 / 2.794,93 | 3,72 / 4,19 |
+| core: `references` / CPU (ms) | 1.129,10 / 2.630,43 | 1.129,59 / 2.629,64 | 2,29 / 2,48 |
+| frontend: `references` / CPU (ms) | 37.587,87 / 42.563,34 | 10.234,09 / 10.225,62 | 3,32 / 3,77 |
+| limitless: pico / repouso de footprint (MiB) | 1.466,61 / 1.067,72 | 1.481,58 / 1.037,25 | 793,92 / 793,88 |
+| core: pico / repouso de footprint (MiB) | 1.337,27 / 1.020,27 | 1.369,25 / 969,27 | 604,56 / 510,06 |
+| frontend: pico / repouso de footprint (MiB) | 1.839,42 / 1.015,89 | 1.426,08 / 1.426,08 | 776,33 / 776,33 |
+
+O repouso maior do frontend e os picos maiores dos outros dois projetos
+confirmam o custo de memória; a queda de tempo não fecha o critério de
+superar o Dart em todos os custos. No core não há ganho relevante de tempo
+ou CPU. As medianas de consultas reúnem nove pedidos de três sessões por
+servidor/projeto; as de memória reúnem três sessões. Dados, faixas e contagens
+em `verification.json`, gerado por
+`/tmp/dartforge-local-doc-search-matrix-verify.py`; log da verificação em
+`/tmp/dartforge-local-doc-search-matrix-v1-verification.log`.
+
+**Rastreamento de heap, separado da matriz.** Repetiu as sessões before/after
+com `DARTFORGE_LSP_MEMORY=1` e `DARTFORGE_LSP_DEBUG=1`, sem testes, builds ou
+benchmark concorrentes. Os três pedidos de registros esgotaram 15 s no
+binário anterior; no candidato, foram respondidos pelo residente em
+10,36 / 10,08 / 10,09 s. Isso confirma que o reparo muda o caminho utilizado:
+a versão lenta aguarda o prazo e recorre ao worker, enquanto a versão mais
+rápida recebe o lote do residente.
+
+Depois das reversões, o heap em uso no servidor ficou em 251,7 / 252,0 MiB;
+no residente, 479,4 MiB nas duas versões. Apesar disso, o footprint em
+repouso foi 1.004,50 / 1.417,21 MiB nessa execução de diagnóstico. Essa
+diferença com heap vivo praticamente igual aponta páginas livres mantidas
+pelo alocador, não crescimento equivalente dos objetos retidos.
+Logs e auditoria em `/tmp/dartforge-local-doc-search-memory-v1/`, incluindo
+`before.log`, `after.log`, `status.json` e `heap-audit.json`.
+
+**Devolução das páginas dos lotes, avaliada e retirada.** Um complemento chamou a
+rotina de liberação de páginas já usada após análises: no residente, depois
+de enviar e descartar o payload de registros; no servidor, depois de
+decodificar e incorporar o índice atualizado. Respeita `DARTFORGE_LSP_RELIEF`
+e manteve os dados vivos. Passaram os **339 testes do LSP em 34 alvos**, sem
+falhas ou ignorados, clippy do workspace, documentação estrita, fmt e build
+release, com fontes estáveis. Os cinco estágios
+e seus logs estão em `/tmp/dartforge-local-doc-search-relief-checks.json`
+e `/tmp/dartforge-local-doc-search-relief-*.log`. A versão anterior, com seu
+custo medido, está preservada no binário de busca local e no patch
+`/tmp/dartforge-local-doc-search-v1.patch`.
+
+O primeiro comparativo (uma sessão por binário e pelo Dart, três pedidos
+por sessão) manteve **18 payloads, seis mapas e um estado final iguais**
+antes/depois, com fontes, binários e inputs estáveis. As medianas dos pedidos
+de referências foram **10.284,78 / 10.327,33 / 3,33 ms**, CPU
+**10.272,78 / 10.303,99 / 3,82 ms** (busca local / complemento / Dart).
+O footprint em repouso foi **1.255,41 / 1.452,25 / 770,97 MiB**. Essa dupla
+fixa não prova que o complemento cause toda a diferença; não demonstra
+benefício de memória. Artefatos e verificação em
+`/tmp/dartforge-local-doc-search-relief-probe-v1/verification.json`,
+`snapshot.json`, `inputs-{before,after}.json` e `sessions/`.
+
+Um rastreamento posterior, separado de testes, builds e benchmarks, repetiu
+os três ciclos com logs de heap e uma amostragem de oito segundos do
+residente durante o primeiro lote. As **três chamadas adicionais no
+residente e três no servidor devolveram 0,0 MiB**, confirmando a limitação
+do alocador deste macOS já observada em rodadas anteriores. Os 368 arquivos
+continuaram sendo regravados em cada ciclo. A amostragem terminou com saída
+zero e a sessão também; fontes e binários permaneceram iguais. O perfil
+agora aponta trabalho de montagem dos registros e fatos locais, em vez da
+varredura de documentação de todas as unidades que dominava a versão lenta.
+O complemento foi retirado de `typed.rs` e `semantic.rs`, preservado em
+`/tmp/dartforge-local-doc-search-relief-rejected.patch` e no binário imutável.
+Logs, amostragem e status em
+`/tmp/dartforge-local-doc-search-relief-profile-v1/`. Não há commit dessa
+tentativa; reduzir o volume de trabalho e as alocações continua pendente.
+
+**Resolução compartilhada dos fatos, em validação.** A amostragem separada
+mostrou `identifier_facts` repetindo a identificação do mesmo cursor em
+`prepare_with` e `references_at`. O candidato passa o `Denoted` já obtido
+para os dois caminhos. As regras de rename que dependem do nó AST continuam
+antes da resolução comum (parâmetros de campo, construtores, prefixos e
+labels); o caso especial que identifica outro offset conserva sua resolução
+própria. Não há cache adicional nem mudança do formato do índice. Passaram
+os **339 testes do LSP**, clippy do workspace, documentação estrita, fmt e
+release, com fontes estáveis: `/tmp/dartforge-identified-facts-checks.json`
+e logs por estágio no mesmo prefixo.
+
+A comparação inicial, sem testes, builds ou perfis concorrentes, manteve
+**18 payloads, seis mapas completos e um estado final iguais**. No frontend,
+as medianas dos três pedidos de referências foram
+**10.263,17 / 8.415,67 / 3,47 ms**, CPU
+**10.257,39 / 8.394,46 / 3,98 ms** (busca local / resolução compartilhada /
+Dart). A sessão inteira levou **50,04 / 44,41 / 18,25 s**. Pico e repouso
+de footprint foram **1.335,71 / 1.417,03 / 764,94 MiB** e
+**1.335,71 / 1.417,03 / 764,86 MiB**. O ganho de cerca de 18% em tempo/CPU
+dos pedidos não constitui ganho de memória: o repouso variou para cima
+nessa dupla fixa. É uma sessão por servidor, não três sessões independentes.
+Fontes, binários e inputs ficaram iguais; dados e verificações em
+`/tmp/dartforge-identified-facts-probe-v1/verification.json` e demais artefatos
+do mesmo diretório. Ainda falta repetir nos três projetos e reduzir a
+memória; não há commit desse candidato.
+
+O oráculo ampliado consultou 27 posições, três métodos e três estados
+(inicial, edição de corpo e reversão), com SDKs correspondentes 3.6.2 e
+3.13.5. Inclui parâmetros de campo e `super`, construtores, getters/setters,
+parâmetros de função e opcionais, variáveis locais, labels e prefixos.
+As **486/486 respostas completas permaneceram iguais ao binário anterior**.
+Contra o Dart, foram **177/243 no SDK 3.6.2 e 153/243 no 3.13.5**, totais
+idênticos antes/depois; o processo terminou com saída 1. A classificação
+separada encontrou **99 diferenças de ordem de arrays e 57 de conteúdo ou
+campos**. Ela não altera o veredito: os casos adicionais expõem pendências
+anteriores de paridade, além das diferenças de ordem do oráculo menor.
+Fontes, binários e arquivos dos dois projetos ficaram iguais. Respostas
+brutas, manifestos e auditoria em
+`/tmp/dartforge-identified-facts-oracle-v1/{floor.json,modern.json,summary.json,difference-audit.json,sources.json,*-inputs.json}`.
+
+**Lotes binários, em validação.** Uma reconstrução isolada dos mesmos 368
+arquivos, com a inserção de API em overlay, gerou um índice de **25.784.506
+bytes**. É um diagnóstico do tamanho do lote pelo worker, não uma medição
+de memória do residente nem uma nova comparação de desempenho. Request,
+índice e status em `/tmp/dartforge-identified-facts-batch-size-v1/`.
+O transporte das consultas convertia os bytes para uma string hexadecimal,
+enviava uma linha JSON, alocava essa linha e outra string no leitor e só
+então decodificava os bytes. O experimento passa a enviar um cabeçalho JSON
+com o comprimento e, em seguida, os bytes crus. O leitor consome o payload
+inteiro antes de entregar a resposta ou ler o próximo cabeçalho. Cabeçalho
+inválido, falha de alocação e payload incompleto encerram a conexão para
+acionar o fallback existente. O formato persistido do índice não mudou;
+os registros assíncronos de análise continuam no protocolo anterior.
+
+Passaram três testes do transporte: payload vazio ou com bytes arbitrários
+(inclusive quebras de linha) seguido por outra resposta, leitura fragmentada,
+truncamento e cabeçalho incompatível. Log em
+`/tmp/dartforge-binary-records-transport-tests.log`. Passaram os **342 testes
+do LSP em 34 alvos**, sem falhas ou ignorados, clippy do workspace, docs
+estritos, fmt e release, com fontes estáveis. Status e logs no prefixo
+`/tmp/dartforge-binary-records-`.
+
+O primeiro comparativo terminou sem testes, builds ou perfis concorrentes,
+mantendo **18 payloads, seis mapas e um estado final iguais** antes/depois;
+fontes, binários e inputs ficaram estáveis. As seis comparações dos arquivos
+abertos coincidiram com o Dart ao omitir só `source`, conservando as
+diferenças conhecidas de documentSymbol. É uma sessão por servidor, com
+três ciclos de API e pedidos intercalados no frontend.
+
+| Medida | Resolução compartilhada, hexadecimal | Transporte binário | Dart |
+| --- | ---: | ---: | ---: |
+| `references`, mediana dos três pedidos (ms) | 8.385,58 | 8.287,42 | 3,34 |
+| CPU dos pedidos (ms) | 8.382,93 | 8.282,20 | 3,79 |
+| Sessão inteira (s) | 44,06 | 44,12 | 17,85 |
+| Pico de footprint total (MiB) | 1.419,91 | 1.161,17 | 762,91 |
+| Repouso de footprint total (MiB) | 1.419,91 | 1.161,17 | 762,89 |
+
+A redução observada foi **258,74 MiB** em repouso, principalmente no
+servidor (618,8 → 374,4 MiB), com consultas próximas do controle. Ainda é
+uma dupla fixa, sem provar estabilidade ou ganho geral nos três projetos;
+o consumo continua acima do Dart. Comparação, fontes, inputs, sessões e
+verificação em `/tmp/dartforge-binary-records-probe-v1/`, incluindo
+`verification.json`. O oráculo ampliado preservou **243/243 respostas
+anteriores por SDK**, 486 no total; contra o Dart manteve **177/243 no
+3.6.2 e 153/243 no 3.13.5**, encerrando com saída 1 pelas diferenças
+anteriores. Artefatos em `/tmp/dartforge-binary-records-oracle-v1/`;
+fontes, binários e arquivos dos projetos ficaram iguais antes/depois.
+
+Foi concluída uma matriz de **27 sessões**, três rodadas revezadas nos três
+projetos, comparando a base consolidada `ee403fe3…`, o candidato binário e
+o Dart com o mesmo driver instrumentado. Essa matriz mede o efeito conjunto
+da busca local, resolução compartilhada e transporte, sem compor percentuais
+de coortes anteriores. Terminou com saída zero no prefixo
+`/tmp/dartforge-binary-records-matrix-v1/`, log principal
+`/tmp/dartforge-binary-records-matrix-v1.log`. Mantidos **162 payloads, 54
+mapas completos e nove estados finais** antes/depois. Os 54 mapas dos
+arquivos abertos coincidiram com o Dart ao omitir só `source`, preservando
+as diferenças conhecidas de documentSymbol e dos mapas globais do limitless.
+Não houve erro em pedido nem diagnóstico esperado ausente. Fontes, cinco
+binários preservados e os três manifestos ficaram iguais antes/depois.
+
+| Mediana das sessões com consultas | Base consolidada | Busca local + resolução compartilhada + binário | Dart |
+| --- | ---: | ---: | ---: |
+| limitless: `references` / CPU (ms) | 1.205,97 / 2.821,38 | 1.202,52 / 2.805,05 | 7,94 / 25,09 |
+| core: `references` / CPU (ms) | 1.126,01 / 2.628,13 | 1.125,84 / 2.622,04 | 2,31 / 2,51 |
+| frontend: `references` / CPU (ms) | 37.643,50 / 42.594,87 | 8.302,43 / 8.293,45 | 3,33 / 3,80 |
+| limitless: pico / repouso de footprint (MiB) | 1.468,47 / 1.070,94 | 1.467,82 / 1.097,35 | 736,78 / 733,95 |
+| core: pico / repouso de footprint (MiB) | 1.339,16 / 950,81 | 1.347,14 / 1.035,42 | 595,08 / 499,84 |
+| frontend: pico / repouso de footprint (MiB) | 1.837,99 / 1.004,44 | 1.156,14 / 1.156,14 | 774,58 / 774,58 |
+| limitless: sessão inteira (s) | 21,39 | 21,45 | 17,40 |
+| core: sessão inteira (s) | 19,94 | 19,77 | 15,60 |
+| frontend: sessão inteira (s) | 132,38 | 43,88 | 17,59 |
+
+O repouso mediano aumentou **26,41 / 84,61 / 151,70 MiB** nos três projetos.
+O transporte binário recupera parte do custo observado na versão de busca
+local, mas essa matriz confirma que o conjunto **ainda reprova o critério
+de memória**. Core e limitless ficam próximos do baseline em latência/CPU;
+o ganho do frontend não fecha a meta de superar o Dart. As medianas dos
+pedidos reúnem nove consultas de três sessões por servidor/projeto; memória
+e tempo total reúnem três sessões. Dados, faixas e contagens em
+`verification.json`, gerado por `/tmp/dartforge-binary-records-matrix-verify.py`;
+log da verificação em `/tmp/dartforge-binary-records-matrix-v1-verification.log`.
+Ainda não há commit das três alterações.
+
+**Caminho sem índice no core, investigado depois da matriz.** O primeiro
+diagnóstico tentou amostrar após uma mensagem de registros obsoletos, mas
+essa mensagem não ocorreu: terminou com a sessão válida e **zero amostras**,
+sem ser tratado como perfil aprovado. O log mostrou cargas de sessão até
+~512 MiB de heap em uso durante `references`. A segunda execução iniciou
+a amostragem ao receber o pedido, capturando servidor, residente e worker
+do índice separadamente; os três `sample` e a sessão terminaram com saída
+zero, com fontes e binários estáveis.
+
+O servidor passou pelo fallback `unindexed_references` → `wide` → carga e
+parsing do programa, enquanto o worker construía o índice completo. Uma
+auditoria posterior encontrou 107 caches de índice no diretório do usuário;
+entre os três projetos, só havia o do frontend (formato 6, 70.826.751 bytes,
+gravado em 03/11). Não encontrou caches do core e limitless nos caminhos
+atuais. Isso impede interpretar a matriz curta como uma comparação
+uniformemente aquecida ou como prova de ociosidade ao medir o campo chamado
+`total_rest_mib`; os resultados anteriores são mantidos no protocolo em que
+foram coletados. Os logs confirmam diretamente o caminho do core nas duas
+execuções de diagnóstico, não o estado interno de cada uma das 27 sessões.
+Evidências em `/tmp/dartforge-core-query-profile-v1/`,
+`/tmp/dartforge-core-query-profile-v2/` e
+`/tmp/dartforge-reference-cache-audit-20261105.json`.
+
+**Chamadas de construtor, em validação.** O perfil do worker mostrou a
+varredura de `call_constructor` repetida para cada expressão de uma unidade,
+ao montar suas referências de construtor. O candidato calcula, no índice
+de ocorrências existente, o mapa alvo → primeiro construtor resolvido em
+ordem de arena. A identificação de cursores, o registro de referências e
+a resolução de prefixos passam a consultar esse mapa. Não muda o formato
+persistido nem reduz os alvos cobertos. Os fatos de ocorrência são
+invalidados antes de inferir novamente bibliotecas, incluindo a primeira
+inferência após uma consulta anterior só de outlines.
+
+Os dois testes existentes do índice passaram no primeiro candidato. A
+regressão nova da primeira inferência executou um caso e falhou sem essa
+invalidação, com a mensagem de chamada retida do estado anterior. A primeira
+tentativa de executá-la havia encontrado zero testes por posicionamento
+incorreto do item; esse log foi preservado separadamente e não conta como
+red. Logs no prefixo `/tmp/dartforge-constructor-call-map-`, incluindo
+`inference-red-executed.log` e `inference-empty-nested.log`. Com a
+invalidação restaurada, a regressão e o teste anterior de documentação
+passaram (dois casos em `inference-green.log`). Passaram os **343 testes do
+LSP em 34 alvos**, sem falhas ou ignorados, clippy do workspace, documentação
+estrita, fmt e release, com fontes estáveis. Status e logs no mesmo prefixo.
+O oráculo ampliado manteve **243/243 respostas anteriores por SDK**, 486
+no total; contra o Dart foram **177/243 no 3.6.2 e 153/243 no 3.13.5**, com
+as diferenças anteriores e saída 1 preservadas. Fontes, binários e arquivos
+das duas fixtures ficaram iguais; artefatos em
+`/tmp/dartforge-constructor-call-map-oracle-v1/`.
+
+**Construção completa isolada do core.** Mesma entrada com overlay, antes
+e depois do mapa, sem testes, builds ou perfis concorrentes, nem gravação
+do cache persistente. A dupla inicial levou **10,49 / 7,40 s**, CPU
+**10,78 / 7,25 s**, mas RSS máximo **652,53 / 697,80 MiB**. Em seguida,
+três pares com ordem alternada deram as medianas abaixo.
+
+| Medida do worker | Antes | Mapa de chamadas |
+| --- | ---: | ---: |
+| Tempo total (s) | 10,33 | 6,76 |
+| CPU, user + system (s) | 10,63 | 7,05 |
+| Pico de RSS (MiB) | 656,41 | 673,25 |
+
+Os seis processos terminaram com saída zero, preservando fontes, binários
+e o manifesto do core (6.640 entradas, nenhuma raiz ausente). O pico de
+RSS ficou maior, cerca de **16,84 MiB**; não é a métrica de footprint do
+driver LSP nem demonstra ganho de memória. Os tamanhos dos índices
+variaram inclusive entre execuções da mesma versão; não foram usados como
+prova de igualdade semântica. Resultados, tempos do sistema, índices e
+manifestos em `/tmp/dartforge-constructor-index-build-probe-v1/` e
+`/tmp/dartforge-constructor-index-build-matrix-v1/`, incluindo `metrics.json`.
+
+**Core iniciado sem índice persistente.** Três pares alternaram os dois
+binários com o mesmo driver: o cache desse projeto foi preservado fora
+do diretório ativo e cada sessão iniciou sem ele. O estado original foi
+restaurado ao final. O caminho foi calculado com o mesmo `DefaultHasher`
+da implementação, conferido também contra o nome do cache existente do
+frontend. Nenhuma das seis sessões chegou a gravar um novo cache do core.
+
+| Mediana das sessões sem cache | Antes | Mapa de chamadas |
+| --- | ---: | ---: |
+| `references` (ms) | 1.116,90 | 1.134,37 |
+| CPU dos pedidos (ms) | 2.605,33 | 2.645,03 |
+| Sessão inteira (s) | 19,61 | 19,68 |
+| Pico de footprint total (MiB) | 1.337,24 | 1.373,03 |
+| Footprint final amostrado (MiB) | 1.113,50 | 978,67 |
+
+Mantidos **54 payloads, 18 mapas completos e três estados finais**
+antes/depois, sem pedidos com erro ou diagnósticos esperados ausentes.
+Fontes, binários, entradas e o estado original do cache ficaram iguais.
+As medianas dos pedidos reúnem nove consultas de três sessões por binário;
+as de memória reúnem três sessões. O tempo/CPU das consultas ficou próximo,
+com aumento de **17,47 / 39,70 ms**; o pico aumentou **35,79 MiB** e o
+final caiu **134,83 MiB**. A construção mais rápida ainda não demonstrou
+ganho uniforme nessa sessão curta. Não houve comparação com o Dart nesta
+coorte. Scripts, sessões, estado/restauração do cache e verificações em
+`/tmp/dartforge-constructor-cold-core-v1/`, incluindo `verification.json`.
+Ainda não há commit do mapa nem conclusão de vantagem geral de memória.
+
+**Falha de atualização não torna o índice válido.** A investigação da
+reconstrução após edições encontrou uma falha de correção: o registro do
+arquivo editado podia ser incorporado antes de falhar a reconstrução de
+seus importadores. O marcador de API já tinha sido consumido, e comparar
+somente o texto na consulta seguinte não reencontrava os dependentes
+pendentes. Ela podia devolver referências antigas, embora o primeiro
+pedido tivesse recorrido corretamente à análise atual sem o índice.
+
+`refresh_index` agora conserva a lista expandida de arquivos a reconstruir
+até uma atualização bem-sucedida. Substituir o índice inteiro ou trocar a
+configuração descarta a pendência anterior; arquivos removidos não ficam
+retidos na fila. A regressão `a_failed_refresh_keeps_dependents_pending`
+fornece o registro da API nova pelo residente, força a falha do worker,
+verifica duas consultas consecutivas e depois a recuperação sem o filho.
+O caso executado falhou antes do reparo e passou depois. O primeiro comando
+usou um seletor incompleto e executou zero casos; seu log separado não
+conta como reprodução. Evidências no prefixo
+`/tmp/dartforge-index-refresh-retry-`, incluindo
+`red-executed.log`, `red-empty-selector.log` e `green-final.log`.
+Passaram os **344 testes do LSP em 34 alvos**, sem falhas ou ignorados,
+clippy do workspace, documentação estrita, fmt e release, com fontes
+estáveis. Status em `checks.json`, manifesto em `source.json` e binário
+preservado em `release`, no mesmo prefixo. A correção não integra as
+matrizes de desempenho anteriores.
+
+O oráculo ampliado preservou **243/243 respostas anteriores por SDK**,
+486 no total, antes/depois de uma edição de corpo e de desfazê-la.
+Contra o Dart, manteve **177/243 no 3.6.2 e 153/243 no 3.13.5**: a saída 1
+continua registrando essas diferenças, sem convertê-las em aprovação.
+Fontes, binários e entradas permaneceram iguais. Respostas integrais,
+manifestos e resumo em `/tmp/dartforge-index-refresh-retry-oracle-v1/`;
+log em `/tmp/dartforge-index-refresh-retry-oracle-v1.log`.
+
+**Perfil do worker após esses reparos.** Uma nova construção completa do
+core foi amostrada durante quatro segundos, a cada 2 ms. O worker e o
+`sample` terminaram com saída zero; fontes, binário e manifesto de 6.640
+entradas ficaram iguais, sem raízes ausentes. Não houve build, suíte ou
+outro perfil concorrente. É um diagnóstico de CPU, não uma nova amostra
+de latência ou de vantagem de memória.
+
+O caminho de `identifier_facts` ainda passa por buscas de famílias de
+membros e reconstrução de `written_subtypes`, que calcula nomes referidos
+usando árvores do analisador. A inferência e o descarte de cada biblioteca
+invalidam esse cache global, além dos fatos da unidade. Isso identifica um
+ponto para investigar reutilização entre bibliotecas, mas não autoriza
+conservar fatos semânticos anteriores: a forma resolvida da árvore também
+muda na primeira inferência. O perfil completo e seus manifestos estão em
+`/tmp/dartforge-index-refresh-worker-profile-v1/`; o próximo candidato
+precisa continuar conferindo as respostas integrais e as transições de
+inferência.
+
+**Atualização imediata do grafo, avaliada e retirada.** O experimento toma o grafo existente antes de invalidar as unidades
+e o atualiza com `written_subtypes_after` após inferir ou descartar seus
+corpos. Continua descartando nomes referidos, comentários e ocorrências das
+unidades afetadas: não supõe que a árvore resolvida seja independente da
+inferência. As duas passagens do construtor de índice usam o mesmo caminho
+de descarte. A regressão da primeira inferência e os **344 testes do LSP
+em 34 alvos** passaram, sem falhas ou ignorados, além de clippy do workspace,
+documentação estrita, fmt e release, com fontes estáveis. O oráculo foi
+ampliado para 31 posições e quatro métodos (`references`, `prepareRename`,
+`rename` e `implementation`) em três estados e dois SDKs. Preservou
+**744/744 respostas anteriores**; contra o Dart, manteve **303/372 no 3.6.2
+e 279/372 no 3.13.5**, incluindo as diferenças e a saída 1. Fontes, binários
+e entradas das fixtures ficaram iguais; respostas e resumo em
+`/tmp/dartforge-subtype-cache-reuse-oracle-v1/`.
+
+Três pares alternados compararam o worker isolado do core, com o mesmo
+overlay e o SDK 3.6.2 explicitamente selecionado. Não
+houve builds, testes ou perfis concorrentes; os seis processos terminaram
+com saída zero, com fontes, binários e manifesto de 6.640 entradas estáveis,
+sem raízes ausentes. Esse comando não escreve o cache persistente do LSP.
+
+| Mediana do worker | Correção de recuperação | Atualização imediata do grafo |
+| --- | ---: | ---: |
+| Tempo total (s) | 6,98 | 7,85 |
+| CPU, user + system (s) | 7,27 | 8,13 |
+| Pico de RSS (MiB) | 643,50 | 646,88 |
+| Pico de footprint (MiB) | 600,75 | 619,66 |
+
+O candidato piorou tempo, CPU e memória; **foi retirado**. A atualização
+era feita em cada inferência e descarte, mesmo entre consultas ao grafo.
+Adiar esse trabalho até uma consulta é uma hipótese posterior, ainda não
+implementada nem medida naquele ensaio. Não houve comparação de sessões LSP ou com o Dart
+nesta coorte de desempenho; os tamanhos binários não provam igualdade
+semântica. As 1.964 fontes restauradas coincidem com os hashes do manifesto
+`/tmp/dartforge-index-refresh-retry-source.json`, cuja correção continua
+validada. Patch retirado e registro da restauração em
+`/tmp/dartforge-subtype-cache-reuse-{rejected.patch,rejection.json}`;
+gates no mesmo prefixo e matriz em
+`/tmp/dartforge-subtype-cache-reuse-matrix-v1/`, incluindo `metrics.json`.
+
+**Atualização adiada do grafo, também retirada.** O candidato seguinte guardava
+o grafo e um conjunto de unidades pendentes. Inferir ou descartar corpos
+invalida seus fatos de nomes e ocorrências, mas apenas marca essas unidades
+no grafo. A próxima consulta aplica `written_subtypes_after` ao conjunto
+acumulado; uma mudança de texto descarta o grafo todo, como antes. O cache
+do residente transporta também as pendências entre empréstimos, evitando
+atualizá-lo numa consulta que não precisa de subtipos ou perder a invalidação
+antes de uma que precisa. Passaram os dois testes dirigidos e os **344
+testes do LSP em 34 alvos**, sem falhas ou ignorados, clippy do workspace,
+documentação estrita, fmt e release, com fontes estáveis. Fontes e artefatos
+no prefixo `/tmp/dartforge-lazy-subtype-`.
+
+O oráculo ampliado inclui agora mudança da hierarquia (`Box extends Base`)
+e seu desfazer, além da edição de corpo: 31 posições, quatro métodos, cinco
+estados e dois SDKs. Preservou **1.240/1.240 respostas anteriores**. Contra
+o Dart foram **503/620 no 3.6.2 e 461/620 no 3.13.5**, iguais ao baseline;
+a saída 1 mantém essas diferenças. Os dois binários receberam aliases
+distintos para os mesmos SDKs físicos, confirmados pelas mensagens do
+servidor. Isso separou seus arquivos de cache, inicialmente ausentes, sem
+trocar `HOME` ou misturar índices produzidos pelos dois binários. Os quatro
+caches criados foram arquivados com os resultados e retirados do diretório
+ativo. Fontes, binários e entradas ficaram iguais. As respostas completas,
+os resumos e `*-cache-isolation.json` estão em
+`/tmp/dartforge-lazy-subtype-oracle-v1/`.
+
+Três pares alternados repetiram a construção isolada do índice do core,
+com o mesmo overlay e SDK 3.6.2 explícito, sem builds, testes ou perfis
+concorrentes. Os seis workers terminaram com saída zero, preservando
+fontes, binários e manifesto de 6.640 entradas, sem raízes ausentes.
+
+| Mediana do worker | Correção de recuperação | Atualização adiada |
+| --- | ---: | ---: |
+| Tempo total (s) | 7,04 | 6,86 |
+| CPU, user + system (s) | 7,32 | 7,15 |
+| Pico de RSS (MiB) | 645,59 | 633,45 |
+| Pico de footprint (MiB) | 601,05 | 615,97 |
+
+O tempo/CPU mediano caiu cerca de **2–3%**, mas as faixas de tempo se
+sobrepõem e o pico de footprint aumentou **14,92 MiB**. A queda de RSS não
+autoriza declarar ganho geral de memória. A coorte não é uma sessão LSP
+nem uma comparação de desempenho com o Dart. Matriz, faixas e verificação
+em `/tmp/dartforge-lazy-subtype-matrix-v1/`, incluindo `metrics.json`.
+O ensaio isolado do frontend usou o mesmo driver instrumentado, SDK 3.6.2
+explícito e uma sessão por binário/Dart. Terminou com saída zero, preservando
+fontes, binários e manifesto de 10.894 entradas, sem raízes ausentes. A
+verificação manteve **18 payloads, seis mapas completos e um estado final**
+antes/depois, além dos mapas dos arquivos abertos contra o Dart ao omitir
+somente `source`. As diferenças conhecidas de documentSymbol foram mantidas.
+
+| Ensaio do frontend | Correção de recuperação | Atualização adiada | Dart |
+| --- | ---: | ---: | ---: |
+| `references` (ms) | 6.153,30 | 6.063,28 | 3,32 |
+| CPU dos pedidos (ms) | 6.140,84 | 6.057,59 | 3,79 |
+| Pico / amostra final de footprint (MiB) | 1.050,49 / 1.050,49 | 1.119,08 / 1.119,08 | 774,88 / 774,88 |
+| Sessão inteira (s) | 37,30 | 37,18 | 17,69 |
+
+As medianas dos pedidos reúnem três consultas; memória e tempo total vêm de
+uma sessão por binário, sem repetição alternada. A redução de aproximadamente
+**1,5%** na latência acompanhou aumento observado de **68,59 MiB** no pico
+e na amostra final do candidato. Essa amostra não comprova ociosidade ou
+estabilidade de sessão longa. O ensaio não demonstra vantagem conjunta;
+**a variante foi retirada**. Sessões e verificação em
+`/tmp/dartforge-lazy-subtype-frontend-probe-v1/`, incluindo
+`verification.json`; log da verificação em
+`/tmp/dartforge-lazy-subtype-frontend-probe-verification.log`.
+
+As 1.964 fontes e o binário `target/release/dartforge-lsp` voltaram
+exatamente ao manifesto e ao release preservado da correção de recuperação.
+Patch e registro em `/tmp/dartforge-lazy-subtype-{rejected.patch,rejection.json}`.
+O oráculo ampliado permanece como evidência dos cenários exercitados,
+sem promover o candidato ou fechar as diferenças contra o Dart.
+
+**Proveniência dos lotes do residente, em validação.** A fila
+`RecordState.ready` conservava somente bytes dos registros, embora `Job.texts`
+já contivesse os textos de todos os documentos abertos, de qualquer pacote.
+Uma sequência editar → desfazer → editar pode entregar lotes intermediários
+antes do lote atual e provocar invalidações adicionais. Comparar só a API final ou o texto de um registro não
+basta: outro registro do lote pode ter sido resolvido sob uma API
+intermediária.
+
+A regressão nova reproduziu um erro de resposta, além do trabalho repetido.
+O índice inicial tinha `int target() => 0;` em `a.dart`. O registro de
+`b.dart`, com texto inalterado, foi produzido enquanto o overlay de `a.dart`
+era `int get target => 0;`. Depois de restaurar a função, incorporar somente
+esse lote retornava o span **8–14** do getter temporário em vez de **4–10**
+da função atual. O teste executou um caso e falhou dessa forma em
+`/tmp/dartforge-record-context-red.log`; não é apenas uma expectativa sobre
+o número de invalidações.
+
+O candidato conserva com cada lote os hashes dos textos de **todos** os
+documentos Dart abertos, incluindo outros pacotes, e a raiz canônica do
+SDK. A incorporação exige o mesmo contexto completo. URIs distintas com
+overlays conflitantes do mesmo arquivo impedem o uso desse lote. A espera
+por registros considera também o contexto, evitando esperar por uma análise
+que já não representa os documentos atuais. Sem lotes ou trabalhos pendentes,
+esse snapshot adicional não é calculado na consulta.
+
+Mudanças de disco e de configuração invalidam os lotes prontos, os trabalhos
+em curso e os trabalhos selecionados antes da mudança: o pedido guarda a
+geração de invalidação em que foi criado. A sequência de IDs de análise e
+medição passa a abranger reinícios do residente, para uma resposta antiga
+não se associar a um pedido novo. O produtor conserva no máximo **um lote
+pronto**. Um lote omitido ainda não foi incorporado ao índice; os textos
+atuais continuam determinando quais unidades e dependentes precisam ser
+reconstruídos. A pendência após falha de atualização, reparada antes, continua
+preservada. Isso não introduz respostas parciais.
+
+Os testes novos cobrem o span incorreto, a sequência editar/desfazer sem
+reconstrução de um índice já atual, invalidação antes/depois do início do
+trabalho, 64 chegadas sem consumir a fila, resposta de residente anterior,
+outro pacote, fechamento de documento, troca de SDK, YAML fora do snapshot
+e aliases conflitantes. A regressão da falha de atualização continua passando.
+Passaram os **87 testes da biblioteca** e os **349 testes do LSP em 34
+alvos**, sem falhas ou ignorados, clippy do workspace, documentação estrita,
+fmt e release, com fontes estáveis.
+O primeiro comando após a alteração encontrou o contador antigo usado pela
+medição de memória; a medição passou a usar a mesma sequência global, e a
+compilação e os testes seguintes passaram. Logs dirigidos, manifesto e
+verificações no prefixo `/tmp/dartforge-record-context-`; ainda não há
+conclusão geral de desempenho desse candidato.
+
+O oráculo de 31 posições, quatro métodos, cinco estados e dois SDKs
+preservou **1.240/1.240 respostas anteriores**. Contra o Dart manteve
+**503/620 no 3.6.2 e 461/620 no 3.13.5**; a saída 1 continua registrando
+as diferenças anteriores. Os SDKs físicos foram os mesmos para os dois
+binários, por aliases distintos confirmados pelas mensagens do servidor.
+Cada binário produziu seu próprio cache inicialmente ausente; os quatro
+caches foram arquivados e retirados do diretório ativo. Fontes, binários
+e fixtures ficaram iguais. Respostas completas, resumos e comprovantes de
+isolamento em `/tmp/dartforge-record-context-oracle-v1/`.
+
+**Primeiro ensaio do frontend.** Uma sessão por binário/Dart, com o mesmo
+driver instrumentado e SDK 3.6.2 explícito, terminou com saída zero,
+preservando fontes, binários e manifesto de 10.894 entradas, sem raízes
+ausentes. Mantidas **18 respostas completas, seis mapas de diagnósticos
+e um estado final** antes/depois; os mapas dos arquivos abertos coincidem
+com o Dart omitindo só `source`, e as diferenças de documentSymbol seguem
+registradas.
+
+| Medida do frontend | Correção de recuperação | Contexto dos registros | Dart |
+| --- | ---: | ---: | ---: |
+| Primeira busca `references` (ms) | 6.513,39 | 6.440,83 | 8,73 |
+| Segunda busca, após voltar ao mesmo estado (ms) | 6.058,92 | 0,28 | 3,27 |
+| Terceira busca, após voltar ao mesmo estado (ms) | 6.147,45 | 0,28 | 3,06 |
+| Mediana de `references` / CPU (ms) | 6.147,45 / 6.109,94 | 0,28 / 0,26 | 3,27 / 3,73 |
+| Pico / amostra final de footprint (MiB) | 1.152,69 / 1.152,69 | 1.028,97 / 968,03 | 777,38 / 777,38 |
+| Sessão inteira (s) | 37,17 | 24,79 | 17,58 |
+
+O ganho vem da segunda e terceira consultas após editar/desfazer: o índice
+já tinha os fatos do estado atual, e os lotes intermediários deixaram de
+invalidá-lo. **A primeira consulta após uma API diferente continua cara**,
+com CPU de aproximadamente 6,43 s no candidato. A mediana baixa não elimina
+esse custo nem representa qualquer mudança arbitrária de API. O footprint
+final amostrado caiu **184,66 MiB**, ainda acima do Dart; essa leitura não
+prova ociosidade nem estabilidade de sessão longa. São três pedidos de
+uma sessão por binário, sem repetição alternada nesta coorte. Sessões,
+manifestos e verificação em
+`/tmp/dartforge-record-context-frontend-probe-v1/`, incluindo
+`verification.json`; log de verificação em
+`/tmp/dartforge-record-context-frontend-probe-verification.log`.
+
+A matriz de **27 sessões** terminou com saída zero nos três projetos, alternando
+correção de recuperação, candidato e Dart em três rodadas. Os SDKs são
+explícitos, com inventários dos caches antes/depois. No início só o frontend
+tinha cache persistente; os caches de core e limitless estavam ausentes.
+Isso não é uma coorte uniformemente aquecida. Prefixo
+`/tmp/dartforge-record-context-matrix-v1/`. A verificação manteve **162
+payloads, 54 mapas completos e nove estados finais** antes/depois, com
+fontes, cinco binários e entradas iguais, sem raízes ausentes. Os mapas dos
+arquivos abertos coincidem com o Dart omitindo apenas `source`; as diferenças
+anteriores de documentSymbol e mapas globais do limitless ficam registradas.
+O inventário dos três caches foi idêntico antes/depois; isso não registra
+o estado interno de cada lançamento. Verificação em `verification.json`,
+log em `/tmp/dartforge-record-context-matrix-verification.log`.
+
+| Mediana das 27 sessões | Correção de recuperação | Contexto dos registros | Dart |
+| --- | ---: | ---: | ---: |
+| limitless: `references` / CPU (ms) | 1.204,19 / 2.817,73 | 1.203,84 / 2.816,01 | 3,58 / 4,15 |
+| core: `references` / CPU (ms) | 1.129,84 / 2.635,57 | 1.139,00 / 2.648,72 | 2,23 / 2,39 |
+| frontend: `references` / CPU (ms) | 6.142,83 / 6.130,51 | 0,29 / 0,27 | 3,24 / 3,91 |
+| limitless: pico / amostra final de footprint (MiB) | 1.487,07 / 1.054,99 | 1.478,14 / 1.048,78 | 724,72 / 724,72 |
+| core: pico / amostra final de footprint (MiB) | 1.372,27 / 998,63 | 1.349,31 / 1.090,99 | 610,75 / 489,61 |
+| frontend: pico / amostra final de footprint (MiB) | 1.124,97 / 1.124,97 | 1.029,28 / 970,64 | 770,60 / 770,60 |
+| limitless: sessão inteira (s) | 21,34 | 21,34 | 17,25 |
+| core: sessão inteira (s) | 19,76 | 19,81 | 15,41 |
+| frontend: sessão inteira (s) | 37,24 | 24,83 | 17,55 |
+
+São nove pedidos e três sessões por servidor/projeto. O ganho do frontend
+se repetiu nas três rodadas: as primeiras consultas ficaram em
+**6.431,06 / 6.529,50 / 6.432,07 ms**, e as seis consultas após voltar ao
+mesmo estado em **0,26–0,29 ms**. A CPU da primeira continua perto de 6,4 s;
+a mediana não fecha a primeira consulta nem uma API nova arbitrária.
+O footprint final caiu **154,33 MiB** no frontend, mas subiu **92,36 MiB**
+no core. Core e limitless continuam mais lentos que o Dart. **Não há vantagem
+geral de latência, CPU ou memória**, nem nova prova de sessão longa ou Windows;
+o candidato segue sem commit, com a correção de resposta preservada.
+
+**Memória do core, investigação após a matriz.** Nas três sessões, o
+servidor principal terminou em aproximadamente **130–140 MiB** nos dois
+binários. Um filho passou de aproximadamente **579–580 para 677–679 MiB**,
+enquanto o outro ficou próximo de 279–285 MiB. A amostra final ainda pode
+conter trabalho em segundo plano; não é repouso comprovado.
+
+Três pares alternados do worker isolado, com a mesma entrada e SDK piso,
+também reproduziram aumento de memória. Os seis processos terminaram com
+saída zero, mantendo fontes, binários e manifesto de 6.640 entradas, sem
+raízes ausentes e sem builds, testes ou perfis concorrentes.
+
+| Mediana do worker isolado | Correção de recuperação | Contexto dos registros |
+| --- | ---: | ---: |
+| Tempo total (s) | 6,72 | 6,69 |
+| CPU, user + system (s) | 7,02 | 7,00 |
+| Pico de RSS (MiB) | 644,70 | 674,17 |
+| Pico de footprint (MiB) | 602,42 | 668,59 |
+
+O aumento de footprint de **66,17 MiB** no processo isolado impede atribuir
+toda a diferença somente ao instante da amostra LSP. Esse caminho não
+escreve o cache persistente; o tamanho dos índices não prova igualdade
+semântica. Dados em `/tmp/dartforge-record-context-worker-matrix-v1/`,
+incluindo `metrics.json`.
+
+**Heap após a construção.** Duas capturas diagnósticas, uma por binário,
+mantiveram o worker bloqueado na escrita do índice já serializado: stdout
+ficou em um pipe sem consumidor até terminar a inspeção. O `sample` confirmou
+a escrita bloqueada, e `heap`, `vmmap`, `sample` e os dois workers terminaram
+com saída zero. Fontes, binários e manifesto ficaram iguais, sem raízes
+ausentes. Esse protocolo usou `DARTFORGE_LSP_DEBUG=1` e um pipe; não é a
+medição de tempo/memória com stdout em arquivo da matriz isolada.
+
+O heap vivo coincidiu em **142.917.168 bytes (136,3 MiB) e 212.164
+alocações** nos dois binários. O log também registrou os mesmos 3.697
+arquivos, 774.610 relações e 195.490 chaves. Os footprints naquela captura
+foram aproximadamente **271,3 / 263,3 MiB**, com picos **601,0 / 595,2 MiB**.
+Essa dupla não reproduziu o pico maior do candidato no outro protocolo e
+não apaga os resultados da matriz ou das sessões LSP. Ela demonstra igualdade
+do heap vivo **na fase inspecionada**, sem provar a origem das alocações
+temporárias ou o comportamento ao longo de toda a construção.
+
+Evidências completas em `/tmp/dartforge-record-context-worker-heap-v1/`,
+incluindo `status.json`, `*.heap.txt`, `*.vmmap.txt` e `*.sample`. A causa
+do pico continua aberta. O próximo ponto a examinar é o buffer de
+`ReferenceIndex::encode`, que hoje começa vazio e cresce durante a escrita;
+uma eventual reserva de capacidade precisa preservar os bytes do formato
+6 e ser medida antes de atribuir qualquer ganho a ela.
+
+**Reserva do buffer de serialização, em validação.** O candidato seguinte
+usa a mesma travessia do formato em dois modos: o primeiro conta os bytes,
+sem copiar strings ou alocar o payload; o segundo escreve num `Vec` com a
+capacidade calculada. O tamanho dos inteiros LEB128 é calculado pelos bits
+significativos, sem executar o laço de escrita na contagem. A ordenação dos
+arquivos ausentes acontece uma vez, e a lista temporária de referências aos
+registros foi eliminada. O formato continua na versão **6**.
+
+Passou o teste com zero, limites de um/dois/três bytes, `u32::MAX`,
+`u64::MAX` e texto UTF-8. Um teste diagnóstico temporário decodificou e
+resserializou dois índices completos do core e o cache existente do
+frontend, comparando o conteúdo integral com os arquivos anteriores.
+
+| Arquivo anterior | Bytes reserializados | Capacidade do buffer | Conteúdo |
+| --- | ---: | ---: | --- |
+| Core, antes do contexto | 30.806.343 | 30.806.343 | idêntico |
+| Core, com contexto | 30.807.380 | 30.807.380 | idêntico |
+| Cache do frontend | 70.826.751 | 70.826.751 | idêntico |
+
+Foi um caso executado com três arquivos, não três novos testes da suíte.
+O módulo de diagnóstico foi removido e a fonte restaurada byte a byte ao
+candidato pretendido antes das verificações amplas. A reprodução exata do
+teste está em `/tmp/dartforge-sized-index-byte-probe.rs`, com o log em
+`/tmp/dartforge-sized-index-byte-probe.log`. Passaram os **350 testes do LSP
+em 34 alvos**, sem falhas ou ignorados, clippy do workspace, documentação
+estrita, fmt e release, com fontes estáveis. Fontes e verificações no
+prefixo `/tmp/dartforge-sized-index-`.
+
+O oráculo ampliado preservou **1.240/1.240 respostas anteriores**, incluindo
+edição de corpo, mudança de herança e seus desfazeres, nos dois SDKs. Contra
+o Dart foram **503/620 no 3.6.2 e 461/620 no 3.13.5**, com as diferenças e
+a saída 1 mantidas. Os caches foram separados por aliases dos mesmos SDKs
+físicos, confirmados pelas mensagens dos servidores, e arquivados após o
+ensaio. Fontes, binários e fixtures ficaram iguais. Respostas completas,
+resumo e isolamento em `/tmp/dartforge-sized-index-oracle-v1/`.
+
+Três pares alternados compararam o worker do core com a reserva exata
+contra a correção de contexto, com a mesma entrada e SDK 3.6.2 explícito,
+sem builds, testes ou perfis concorrentes. Os seis processos terminaram
+com saída zero, preservando fontes, binários e manifesto de 6.640 entradas,
+sem raízes ausentes. O comando não grava o cache persistente.
+
+| Mediana do worker | Contexto dos registros | Reserva exata |
+| --- | ---: | ---: |
+| Tempo total (s) | 7,00 | 6,97 |
+| CPU, user + system (s) | 7,29 | 7,27 |
+| Pico de RSS (MiB) | 679,23 | 638,06 |
+| Pico de footprint (MiB) | 673,67 | 608,24 |
+
+O pico mediano de footprint caiu **65,44 MiB** nessa comparação, com
+tempo/CPU próximos. As faixas de tempo são **6,96–7,01 s** na base e
+**6,96–7,49 s** no candidato; o primeiro processo do candidato foi mais
+lento. As medianas não demonstram vantagem geral de latência. Dados,
+faixas e verificação em `/tmp/dartforge-sized-index-worker-matrix-v1/`,
+incluindo `metrics.json`. O footprint do candidato variou de **603,56 a
+675,61 MiB**; o terceiro par não repetiu a redução dos dois primeiros.
+A causa completa da variação de pico anterior continua aberta.
+
+Um ensaio preliminar do frontend, com uma sessão por servidor e três ciclos,
+preservou 18 respostas, seis mapas e um estado final. O footprint final ficou
+em **1.000,55 / 1.006,94 MiB** (contexto/reserva), sem redução demonstrada.
+Esse ensaio está separado em `/tmp/dartforge-sized-index-frontend-probe-v1/`.
+
+A matriz seguinte terminou com **27 sessões alternadas**, três por servidor
+e projeto, SDK 3.6.2 explícito, sem builds, testes ou perfis concorrentes.
+Comparou contexto dos registros, reserva exata e Dart, preservando **162
+respostas completas, 54 mapas e nove estados finais** antes/depois. Os mapas
+dos documentos abertos coincidiram com o Dart, omitindo apenas `source`;
+as diferenças conhecidas de documentSymbol e diagnósticos globais continuam
+registradas como diferenças. Fontes, cinco binários e manifestos ficaram
+estáveis, sem raízes ausentes. Os caches não foram congelados por lançamento:
+só o frontend tinha índice persistente inicialmente.
+
+| Projeto | references: contexto → reserva (ms) | Dart (ms) | Footprint final: contexto → reserva (MiB) | Dart (MiB) |
+| --- | ---: | ---: | ---: | ---: |
+| limitless | 1.210,79 → 1.199,97 | 3,57 | 1.049,10 → 1.040,71 | 722,38 |
+| core | 1.128,96 → 1.128,07 | 2,21 | 988,66 → 984,60 | 488,89 |
+| frontend | 0,29 → 0,29 | 3,24 | 1.004,91 → 1.007,61 | 763,86 |
+
+As medianas de CPU dos pedidos ficaram em **2.824,76 → 2.799,50 ms**,
+**2.631,15 → 2.626,57 ms** e **0,26 → 0,26 ms**, respectivamente. Os picos de
+footprint ficaram em **1.478,44 → 1.482,08 MiB**, **1.350,00 → 1.363,31 MiB**
+e **1.004,91 → 1.011,95 MiB**. Não há redução uniforme de memória na sessão
+completa. A mediana quente do frontend não elimina a primeira reconstrução
+após uma API diferente. A amostra final não prova repouso estável nem sessão
+longa; esta matriz também não valida Windows.
+Dados em `/tmp/dartforge-sized-index-matrix-v1/`, com `verification.json`,
+manifestos e sessões; reprodução em `/tmp/dartforge-sized-index-matrix.py`
+e `/tmp/dartforge-sized-index-matrix-verify.py`.
+
+**Troca de projeto e contexto externo, candidato em validação em 06/11.**
+`ready_index` recusava sempre outra raiz depois de aceitar o primeiro
+índice, inclusive quando o cache da segunda já estava disponível. Uma
+regressão executada falhou com `Unsupported("no index ready")` nesse caso.
+O candidato descarta o índice anterior antes de carregar o próximo, sem
+reter uma coleção de índices por projeto. Um build em andamento de outra
+raiz não impede ler um cache pronto; sua conclusão não decodifica nem
+substitui o índice ativo de outra raiz. Continua havendo no máximo um build
+completo em andamento. As pendências de refresh e o prazo de conferência
+do disco são reiniciados ao trocar o índice ou a configuração. Isso permite
+detectar uma edição num chamador fechado ao retornar em menos de 30 s.
+
+A expansão encontrou outro erro: um documento de dependência aberto em
+outra raiz continuava tratado como congelado. Alterar função para getter
+devolvia sua declaração nos bytes **4–10**, em vez de **8–14**. A regressão
+falhou antes do reparo. O candidato compara os documentos externos abertos
+com seus registros; conserva também os caminhos externos vindos de texto
+não salvo para conferir o disco após fechar esses documentos. Uma mudança
+externa invalida o índice inteiro, pois reconstruir apenas o projeto não
+atualiza todos os fatos e spans das dependências transitivas. Com um binário
+filho, a construção é assíncrona e as consultas continuam pelo fallback;
+na análise em processo, o índice completo é reconstruído ali.
+
+Foi reproduzida também a aceitação indevida do cache após fechar um getter
+de mesmo comprimento da função no disco. O construtor agora confere o hash
+do texto também nas dependências antes de marcar `disk`; igualdade de tamanho
+não basta. O formato passa de **6 para 7** para rejeitar os registros antigos
+cuja marca não comprova esse contrato. A contagem exata do buffer permanece.
+As regressões incluem voltar ao projeto com edição no disco, build externo
+pendente/concluído, edição de dependência, mudança só de posição, edição com
+o mesmo tamanho, cache e fechamento. Passaram os **seis testes dirigidos**
+(três novos e três anteriores); as verificações de cada variante estão abaixo.
+
+Registros anteriores às correções em
+`/tmp/dartforge-project-index-{switch,dependency,same-length}-red.log`;
+execução dirigida em `/tmp/dartforge-project-index-switch-directed.log`.
+
+A primeira variante passou nos **353 testes do LSP**, clippy do workspace,
+documentação estrita, fmt e release, com fontes estáveis, no prefixo
+`/tmp/dartforge-project-index-switch-`. O oráculo novo de várias pastas
+exigiu corrigir o próprio roteiro inicial, que tratava uma recusa semântica
+de rename como falha do protocolo. A primeira execução permanece em
+`/tmp/dartforge-project-index-switch-multi-root-v1/`, com seu log externo.
+A segunda registrou **160 respostas completas** nos dois SDKs, sem esconder
+as recusas, e encontrou **quatro regressões**: dois estados de getter por
+SDK perdiam o uso no pacote chamador ao consultar pela raiz da dependência.
+Os resultados e a saída 1 estão preservados em
+`/tmp/dartforge-project-index-switch-multi-root-v2/`, incluindo
+`regressions.json`. Os totais de paridade foram **60/80 e 66/80**, contra
+**59/80 e 65/80** na base: os ganhos líquidos não justificam as regressões.
+
+A expansão da regressão Rust reproduziu a mesma omissão, em
+`/tmp/dartforge-project-index-foreign-dependent-red.log`. O grafo de
+dependentes agora percorre também os registros externos. Se algum precisa
+ser atualizado, uma carga completa substitui o índice; a carga estreita não
+alcança todas as bibliotecas dos pacotes não importadas pelo próprio projeto.
+Se outro build completo ainda está em andamento ou a construção falha, a
+consulta usa o fallback e conserva as pendências para a tentativa seguinte.
+Os seis casos dirigidos passaram novamente, em
+`/tmp/dartforge-project-index-switch-v2-directed.log`. Passaram os **353 testes
+do LSP em 34 alvos**, sem falhas ou ignorados, clippy do workspace,
+documentação estrita, fmt e release, com fontes estáveis, no prefixo
+`/tmp/dartforge-project-index-switch-v2-`. A nova comparação também encontrou
+a diferença de rename entre pastas: o Dart aceita o alvo público da outra
+pasta aberta, mas o DartForge ainda o recusa como externo ao projeto.
+
+A terceira execução entre pastas comparou **160 respostas completas**,
+nos SDKs 3.6.2 e 3.13.5, com sete estados de edição/fechamento/reabertura,
+duas raízes, quatro métodos e caches separados por aliases do mesmo SDK
+físico. Os caches de cada raiz foram gerados dos mesmos textos originais
+pelos respectivos binários, nos formatos 6 e 7. Fontes, binários e arquivos
+das fixtures ficaram iguais, e os caches criados foram arquivados ao final.
+As quatro regressões anteriores desapareceram; **nenhuma resposta antes
+igual ao Dart deixou de coincidir**.
+
+| SDK | Respostas completas: base / candidato / total | references: base → candidato | implementation |
+| --- | ---: | ---: | ---: |
+| 3.6.2 | 59 / 62 / 80 | 17/20 → 20/20 | 20/20 |
+| 3.13.5 | 65 / 68 / 80 | 17/20 → 20/20 | 20/20 |
+
+Das dez respostas alteradas contra a base, seis corrigem posições de
+declaração em references; quatro atualizam a espécie do alvo na mensagem de
+recusa de prepareRename, de função para variável de topo após virar getter.
+Ainda há **18 diferenças no SDK piso e 12 no moderno**, todas em rename ou
+prepareRename; a saída **1** do oráculo continua reprovada contra o Dart.
+Não é prova de paridade geral entre projetos. Respostas e resumo em
+`/tmp/dartforge-project-index-switch-multi-root-v3/`; roteiro em
+`/tmp/dartforge-project-index-switch-multi-root-v3.py` e log no mesmo prefixo.
+
+O oráculo ampliado anterior foi repetido com caches frios e separados nos
+mesmos SDKs físicos. Preservou **1.240/1.240 respostas anteriores**: contra
+o Dart, **503/620 no piso e 461/620 no moderno**, sem mudar as diferenças
+ou a saída 1. Fontes, binários e fixtures ficaram estáveis; os quatro caches
+criados foram arquivados. Dados em
+`/tmp/dartforge-project-index-switch-oracle-v2/`; reprodução em
+`/tmp/dartforge-project-index-switch-v2-oracle.py`.
+
+Três pares alternados do worker isolado do core compararam a reserva exata
+anterior com a variante corrigida, sem builds, testes ou perfis concorrentes.
+Os seis processos terminaram com saída zero; fontes, binários e manifesto de
+6.640 entradas ficaram iguais, sem raízes ausentes. O comando não grava cache
+persistente. As medianas foram:
+
+| Worker do core | Reserva exata anterior | Troca de projeto e contexto externo |
+| --- | ---: | ---: |
+| Tempo total (s) | 6,893 | 6,949 |
+| CPU user + system (s) | 7,19 | 7,25 |
+| Pico de RSS (MiB) | 680,33 | 646,42 |
+| Pico de footprint (MiB) | 674,83 | 602,86 |
+
+Há custo adicional de cerca de **0,8% em tempo e CPU** nesta carga. As faixas
+de tempo foram **6,886–6,897 / 6,943–7,019 s**; de footprint, **671,52–676,50 /
+598,27–603,66 MiB**. A queda de pico observada não prova redução na sessão
+completa nem explica toda a variação entre coortes anteriores. Dados e
+verificação em `/tmp/dartforge-project-index-switch-v2-worker-matrix-v1/`,
+incluindo `metrics.json` e `status.json`.
+
+A matriz seguinte terminou com **27 sessões alternadas** nos três
+projetos. Desta vez os dois servidores começam com índices preparados dos
+mesmos textos originais, em caches distintos para os formatos 6 e 7; aliases
+de mesmo comprimento apontam para um único SDK físico 3.6.2. Só os índices
+desses aliases novos foram escritos e arquivados ao terminar; os caches
+habituais não são substituídos. Os scripts e os binários efetivos dos wrappers
+entram no manifesto. O cache interno do Dart não está congelado por lançamento.
+Este protocolo não se confunde com as matrizes anteriores, nas quais só o
+frontend começava com índice persistente. Roteiro em
+`/tmp/dartforge-project-index-switch-v2-warm-matrix.py`, dados no diretório
+homônimo terminado em `-v1/` e verificador no prefixo com `-verify.py`.
+Foram preservadas **162 respostas completas, 54 mapas e nove estados finais**
+antes/depois, com fontes, binários e manifestos estáveis. Os mapas dos dois
+documentos abertos coincidiram com o Dart, exceto `source`; continuam as
+diferenças conhecidas de documentSymbol e diagnósticos globais. Os inventários
+dos seis caches ficaram idênticos antes/depois; todos foram retirados dos
+caminhos ativos dos aliases e arquivados no diretório da medição.
+
+| Projeto | references: reserva → contexto externo (ms) | Dart (ms) | Footprint final: reserva → contexto externo (MiB) | Dart (MiB) |
+| --- | ---: | ---: | ---: | ---: |
+| limitless | 0,42 → 0,48 | 3,52 | 446,63 → 446,14 | 728,39 |
+| core | 0,27 → 0,29 | 2,28 | 430,94 → 434,33 | 493,44 |
+| frontend | 0,28 → 0,31 | 3,46 | 996,06 → 998,74 | 771,89 |
+
+A CPU mediana dos pedidos passou de **0,40 → 0,45 ms**, **0,25 → 0,26 ms** e
+**0,26 → 0,28 ms**. Os picos de footprint foram **635,46 → 636,53 MiB**,
+**711,14 → 716,36 MiB** e **996,06 → 998,74 MiB**. As faixas finais do core
+foram **429,86–432,75 / 432,94–435,02 MiB**: a amostra não mostra redução
+uniforme de memória. O campo final tampouco comprova repouso de sessão longa.
+
+As primeiras consultas após a API diferente ficaram, no candidato, em
+**842–898 ms**, **959–999 ms** e **6.453–6.460 ms**; no Dart, **25–26 ms**,
+**7,0–7,2 ms** e **7,8–19,2 ms**. As demais consultas do candidato ficaram
+abaixo de um milissegundo. As medianas quentes não provam vantagem em todas
+as consultas após API. Os tempos totais foram **18,25 → 18,16 s**,
+**16,72 → 16,71 s** e **24,86 → 24,79 s**, ainda acima dos **17,64 / 15,43 /
+17,45 s** do Dart. A regressão quente de centésimos de milissegundo continua
+registrada; a implementação da validação externa repetia a canonicalização
+dos mesmos documentos antes do refresh. Não há validação Windows ou de
+sessão longa desta variante.
+
+**Disco externo e coleta única de caminhos, candidato seguinte.** A expansão
+reproduziu uma declaração estrangeira nos bytes **4–10 em vez de 8–14** após
+editar no disco uma dependência fechada e notificar o watcher. O teste falhou
+na variante da matriz, em `/tmp/dartforge-index-disk-sweep-red.log`.
+O candidato confere todos os registros externos durante a varredura completa
+exigida por evento de disco ou pelo prazo periódico de 30 s. Nos demais
+pedidos, continua verificando apenas documentos abertos e overlays externos
+que precisam ser conferidos após fechar. O cache também valida o texto
+externo quando datas/tamanho mudaram, aceitando uma reescrita idêntica.
+
+A coleta de caminhos canônicos passou a acontecer uma vez por pedido, sendo
+compartilhada com o refresh; a busca no mapa externo usa a chave emprestada.
+Não há cache adicional de caminhos entre pedidos ou hipótese nova sobre
+symlinks. O novo teste cobre evento do watcher, prazo expirado sem watcher e
+reescrita idêntica com um filho inexistente, que falharia se reconstruísse.
+Passaram os **sete testes dirigidos**, em
+`/tmp/dartforge-index-disk-sweep-directed.log`, e os **354 testes do LSP em
+34 alvos**, sem falhas ou ignorados. Clippy do workspace, documentação
+estrita, fmt e release passaram com fontes estáveis, no prefixo
+`/tmp/dartforge-index-disk-sweep-`.
+
+O novo oráculo mantém a dependência fechada e faz cinco estados de gravação
+no disco, com dois alvos e quatro métodos, nos SDKs 3.6.2 e 3.13.5. O catálogo
+do aplicativo contém os dois pacotes, e o da dependência contém apenas ela.
+Os índices de ambos os binários são preparados com os mesmos textos iniciais,
+em aliases separados do mesmo SDK físico. As fixtures são próprias do teste;
+o texto inicial é restaurado e seus hashes conferidos ao final. Os caches
+temporários são arquivados, sem substituir os habituais.
+
+- **Primeiro protocolo, análise só de projetos abertos:** o candidato devolveu
+  as posições dos textos gravados, mas o Dart vivo manteve as antigas.
+  O confronto ficou em **72/80**, contra **78/80 da base**, com seis casos
+  antes coincidentes e depois distintos. A execução permanece com saída 1 em
+  `/tmp/dartforge-index-disk-sweep-closed-oracle-v1/`; não foi declarada verde.
+- **Espera explícita e capacidade de watcher:** anunciada a capacidade de
+  registro dinâmico, o Dart não concluiu nova análise nos 20 s após a primeira
+  gravação. A execução foi interrompida sem tratar esse estado como pronto.
+  O trace e a saída 1 estão em
+  `/tmp/dartforge-index-disk-sweep-closed-oracle-v2/`. Isso limita o protocolo;
+  não comprova, sozinho, a causa do comportamento do servidor oficial.
+- **Projetos fechados também analisados:** com
+  `onlyAnalyzeProjectsWithOpenFiles=false`, foi observada uma nova conclusão
+  do Dart após cada mudança de conteúdo, seguida de intervalo ocioso.
+  References passou de **16/20 para 20/20** respostas integrais iguais; o total
+  passou de **56/80 para 60/80**, sem perder respostas antes iguais ao Dart.
+  As 20 diferenças restantes são rename/prepareRename de um alvo na outra
+  raiz. A saída 1 está preservada em
+  `/tmp/dartforge-index-disk-sweep-closed-oracle-v3/`.
+- **Referência nova por estado, mantendo a política original:** um processo
+  Dart novo em cada um dos dez estados/SDKs confirmou **80/80 respostas do
+  candidato**, contra **74/80 da base**. Os seis casos antes coincidentes com
+  o Dart vivo correspondem a dois spans de referências e uma mensagem de
+  espécie do alvo por SDK, cuja versão anterior estava obsoleta. As respostas
+  do Dart vivo continuam registradas separadamente, com **72/80**, e a saída
+  final continua **1**. Dados em
+  `/tmp/dartforge-index-disk-sweep-closed-oracle-v4/`, incluindo a lista vazia
+  de regressões contra a referência nova. Essa prova de análise nova não
+  fecha a paridade do protocolo contínuo com a política original.
+
+Os roteiros e logs usam os mesmos prefixos dos diretórios acima. Não houve
+medição de desempenho nesses oráculos. Os controles anteriores preservaram
+**1.240/1.240 respostas ampliadas** e **160/160 respostas entre pastas**.
+Contra o Dart, continuaram **964/1.240** e **130/160**, respectivamente,
+com saídas 1 mantidas e sem regressões novas. Fontes, binários e fixtures
+ficaram estáveis, com caches separados e arquivados. Dados em
+`/tmp/dartforge-index-disk-sweep-oracle-v1/` e
+`/tmp/dartforge-index-disk-sweep-multi-root-v1/`; verificação conjunta em
+`/tmp/dartforge-index-disk-sweep-rpc-checks.json`.
+
+A comparação de desempenho seguinte terminou, com 27 sessões
+alternadas, três projetos e SDK 3.6.2 explícito. Compara a variante anterior
+do contexto externo com a conferência do disco e caminhos compartilhados,
+ambas no formato 7. Os índices são preparados dos mesmos textos originais
+em aliases distintos do mesmo SDK físico; os caches habituais permanecem
+intactos. Não há build, testes ou perfis em paralelo. Roteiro em
+`/tmp/dartforge-index-disk-sweep-warm-matrix.py`, dados no diretório homônimo
+terminado em `-v1/` e verificador no prefixo com `-verify.py`.
+Foram preservadas **162 respostas completas, 54 mapas e nove estados finais**,
+com fontes, binários e manifestos estáveis. Os mapas dos documentos abertos
+coincidiram com o Dart omitindo `source`; as diferenças já conhecidas de
+documentSymbol e diagnósticos globais continuam registradas. Os seis caches
+temporários ficaram idênticos antes/depois e foram arquivados ao terminar.
+
+| Projeto | references: contexto externo → disco/caminhos (ms) | CPU (ms) | Pico/final de footprint: base → candidato (MiB) |
+| --- | ---: | ---: | ---: |
+| limitless | 0,456 → 0,412 | 0,423 → 0,388 | 639,49/445,99 → 635,99/445,42 |
+| core | 0,290 → 0,287 | 0,265 → 0,262 | 719,47/433,06 → 720,27/433,17 |
+| frontend | 0,315 → 0,293 | 0,293 → 0,270 | 996,02/996,02 → 1.032,70/950,03 |
+
+A latência quente caiu cerca de **9,6% / 1,0% / 7,2%** nessa comparação;
+o pequeno deslocamento do core não demonstra vantagem consistente. O pico
+do frontend aumentou **36,68 MiB** enquanto a amostra final caiu **45,99 MiB**;
+isso não prova memória menor em todos os momentos ou sessão longa. As faixas
+finais do frontend foram **992,75–998,33 / 939,78–952,33 MiB**. Os tempos
+totais foram **18,15 → 18,16 s**, **16,95 → 16,77 s** e **25,11 → 24,85 s**.
+
+As primeiras consultas do candidato ficaram em **842–926 ms**, **993–995 ms**
+e **6.460–6.466 ms**. No frontend, a base ficou em **6.416–6.441 ms**: o custo
+inicial aumentou nesta coorte, apesar do ganho quente. O Dart ficou em
+**24–27 ms**, **7,0–7,2 ms** e **9,4–10,1 ms** nos primeiros pedidos, e suas
+medianas gerais de references foram **4,40 / 2,27 / 3,35 ms**. Seu footprint
+final foi **747,22 / 506,56 / 767,85 MiB**. A meta geral continua reprovada;
+não há prova de sessão longa ou Windows desta variante.
+
+**Índice vinculado ao mapa de pacotes, candidato seguinte.** Mesmo após
+`project_configuration_changed`, o cache podia voltar a fornecer o arquivo
+da configuração antiga: o nome do cache só dependia da raiz e do SDK, e os
+arquivos do pacote antigo ainda existiam com as mesmas datas. A regressão
+executada devolveu o arquivo `old/lib/dep.dart`, bytes **4–10**, quando o
+package config apontava para `new/lib/dep.dart`, bytes **8–14**. O resultado
+anterior está em `/tmp/dartforge-index-config-red.log`.
+
+O formato **8** acrescenta aos índices completos a identificação dos inputs
+de configuração: pubspec, mapa de pacotes mais próximo do arquivo de entrada,
+origens canônicas e seleção da pasta de gerados. O conteúdo e a origem dão a
+identidade usada pelo cache; as datas são verificadas separadamente antes e
+depois da construção, para rejeitar um arquivo de configuração alterado e
+restaurado durante esse trabalho. Uma primeira variante misturava as datas
+com a identidade e descartava uma regravação idêntica; a regressão em
+`/tmp/dartforge-index-config-identical-red.log` impediu mantê-la assim.
+Lotes parciais não declaram uma configuração completa e não são aceitos como
+cache de sessão. A conferência periódica também invalida as sessões semânticas
+ao detectar outro mapa, mesmo sem evento específico de configuração.
+
+Os **oito testes dirigidos** passaram, incluindo troca, reversão periódica,
+regravação idêntica com filho inexistente e criação/remoção de um mapa mais
+próximo em `lib/.dart_tool`. Passaram também os **355 testes do LSP em 34
+alvos**, sem falhas ou ignorados, clippy do workspace, documentação estrita,
+fmt e release, com fontes estáveis. Evidências no prefixo
+`/tmp/dartforge-index-config-`.
+
+O novo oráculo de configuração fez cinco estados por SDK, com os arquivos
+dos dois destinos preservados no disco: inicial, regravação idêntica,
+redirecionamento, reversão e regravação da reversão. Nos SDKs **3.6.2 e
+3.13.5**, o candidato manteve **80/80 respostas completas iguais tanto ao
+Dart vivo quanto a um Dart novo por estado**, contra **76/80 da base**.
+A execução terminou com **saída 0**. Os quatro casos corrigidos são a URI/span
+de references e a espécie do alvo de prepareRename no estado redirecionado,
+por SDK. As fixtures próprias foram restauradas, fontes/binários ficaram
+estáveis e os caches de formatos 7/8 foram separados e arquivados. Respostas
+em `/tmp/dartforge-index-config-oracle-v1/`; roteiro e log no mesmo prefixo
+sem o sufixo `-v1/`. Os controles anteriores também preservaram
+**1.240/1.240 respostas ampliadas** e **160/160 entre pastas**, com
+**964/1.240 e 130/160 contra o Dart**, respectivamente. As saídas 1 dessas
+duas comparações continuam registradas; o êxito do novo caso de configuração
+não fecha suas diferenças. Fontes, binários e fixtures ficaram estáveis,
+com caches separados e arquivados. Dados em
+`/tmp/dartforge-index-config-expanded-v1/`,
+`/tmp/dartforge-index-config-multi-root-v1/` e
+`/tmp/dartforge-index-config-rpc-checks.json`. Ainda não há medição da variante
+de formato 8 ou prova de sessão longa.
+
+**Windows, atualização da fonte em 06/11.** A conferência imediatamente
+anterior encontrou `E:\MyRustProjects\dartforge` limpo, em `main`/`2dea8d39`,
+sem Cargo, rustc, Dart ou dartforge-lsp ativos. Um bundle incremental local
+foi verificado e importado; `main` avançou por fast-forward para **98d22ac6**.
+O patch do worktree macOS foi conferido e aplicado ao índice/checkout,
+deixando os mesmos nove arquivos modificados, preparados no índice Git.
+Não houve branch ou worktree novo, reset, commit, push ou execução dos
+scripts antigos do arquivo de validação. Os hashes do bundle e do patch
+foram conferidos antes de aplicá-los.
+
+As **1.964 fontes normalizadas pelo Git** coincidiram, sem divergências.
+Quatro arquivos diferem em bytes brutos; a configuração existente
+`core.autocrlf=true` foi preservada. Isso comprova equivalência dos blobs
+normalizados, não identidade dos bytes brutos ou dos corpora entre sistemas.
+O diário, manifesto e logs estão em
+`E:\Temp\dartforge-index-config-sync-v1`, com cópia local do manifesto em
+`/tmp/dartforge-index-config-win-sync-v1/` e da conferência em
+`/tmp/dartforge-index-config-windows-source-verification.json`.
+
+O volume é **NTFS**, Rust **1.98.1**, Node **24.14.1**, Python **3.12.4**;
+os SDKs executados são **3.6.2 e 3.13.4 Windows x64**. O moderno difere do
+**3.13.5 macOS** dos oráculos acima. O `link.exe` original do PATH era o do
+uutils; o roteiro de teste carrega o ambiente MSVC pelo `vcvars64.bat` do
+Visual Studio 18 Community. A conferência seguinte mostrou o linker MSVC
+**14.51.36231** antes do uutils no PATH, sem mudar configurações permanentes.
+
+A suíte `cargo test --locked -p dartforge-lsp --no-fail-fast -- --include-ignored`
+terminou, com `CARGO_TARGET_DIR=E:\Work\df-lsp\target` e os SDKs
+explicitamente configurados: **352 passaram, dois falharam, nenhum ignorado,
+34 alvos**, em **315,31 s**, saída **101**. A conferência final das fontes
+passou. Falharam `dependency_overlays_and_their_close_refresh_foreign_declarations`
+(esperava o registro da dependência congelado) e
+`workspace_search_uses_only_open_revisions_and_stable_order` (zero símbolos
+em vez de dois). A causa ainda não foi determinada. O novo teste de troca
+de configuração de pacote passou também no Windows. Logs Windows no diretório
+do diário, incluindo `lsp.log`, `test-status.json` e `linker-path.log`; cópia
+completa local em `/tmp/dartforge-index-config-windows-lsp.log`.
+Essa primeira rodada Windows está reprovada; o reparo e a repetição estão abaixo.
+
+**Reparo de portabilidade das fixtures, 06/11:** a repetição dirigida da
+primeira falha mostrou o registro correto e congelado no índice, em
+`E:\…\project\lib\b.dart`; o teste procurava diretamente o caminho devolvido
+por `std::fs::canonicalize`, `\\?\E:\…\project\lib\b.dart`. A fixture passa a
+usar `dartforge_elements::config::canonicalize`, a mesma normalização do
+projeto. O teste de símbolos usava `file:///a.dart` e `file:///z.dart`, sem
+unidade Windows; agora constrói URIs de caminhos absolutos da plataforma,
+mantendo os textos em memória e as mesmas exigências de conteúdo, ordem e
+fechamento. Nenhum comportamento de produção foi alterado por esses ajustes.
+
+A suíte completa repetida passou: **354 testes Windows em 34 alvos, zero
+falhas e zero ignorados**, **209,39 s**, saída zero; conferência das **1.964
+fontes normalizadas** antes e depois sem divergências. No macOS passaram
+**355 testes em 34 alvos**, clippy do workspace, documentação estrita, fmt e
+release. O teste adicional é
+`completion::uri_paths::tests::non_windows_file_authorities_are_rejected_like_dart`,
+restrito a sistemas não Windows. As fontes permaneceram estáveis; o release
+macOS é idêntico byte a byte a `/tmp/dartforge-index-config-release`
+(SHA-256 `971cf4b58efd9d5f4d1d98724aea9be73ac06dbcd23d8bd28ada3732b81c7063`).
+
+Diários locais: `/tmp/dartforge-windows-path-portability-v1/` conserva o
+diagnóstico da primeira falha e a tentativa que ainda não compilava; a
+rodada corrigida está em `/tmp/dartforge-windows-path-portability-v2/`, com
+`mac-{source,checks}.json`, logs completos `mac-lsp.log` e `windows-lsp.log`.
+No Windows, `E:\Temp\dartforge-windows-path-portability-v2` guarda os mesmos
+manifestos e `test-status.json`. A rodada anterior reprovada continua no
+diário do formato 8.
+
+**Oráculo de configuração no Windows:** a execução estrita terminou com
+**80/80 respostas completas iguais ao Dart vivo e ao Dart iniciado novamente
+em cada estado**, **40/40 por SDK**, nos Windows **3.6.2 e 3.13.4**. São dois
+alvos × quatro pedidos (`references`, `prepareRename`, `rename`, `implementation`)
+× cinco estados: inicial, regravação idêntica, redirecionamento do pacote,
+reversão e nova regravação idêntica. O índice inicial foi preparado no
+formato 8; a seleção dos SDKs foi confirmada pelos avisos do servidor.
+O executável é uma cópia preservada de `target/debug/dartforge-lsp.exe`;
+esse ensaio verifica correção e **não é uma medição de desempenho** nem uma
+comparação com um executável Windows anterior.
+
+As fontes normalizadas e o binário foram conferidos antes/depois; os sete
+arquivos de cada fixture voltaram aos hashes originais. Caches exclusivos
+das fixtures foram arquivados com cópia, conferência SHA-256 e remoção da
+origem. A primeira tentativa já tinha 40/40 respostas no SDK 3.6.2, mas
+falhou no arquivamento com `WinError 17`: `Path.replace` não move do C: para
+o E:. O cache dessa tentativa foi recuperado com cópia verificada e retirado
+da pasta ativa. A repetição completa, em novo diretório e com arquivamento
+entre volumes corrigido, saiu com zero. A falha anterior foi preservada.
+
+Artefatos Windows: `E:\Temp\dartforge-index-config-windows-oracle-v{1,2}`;
+cópia integral da rodada final em
+`/tmp/dartforge-windows-path-portability-v2/dartforge-index-config-windows-oracle-v2/`,
+incluindo `summary.json`, 80 respostas, certificados de fontes/binário,
+fixtures e dois caches. O script e os logs de execução estão no diário de
+portabilidade v2. A paridade geral, sessões longas e desempenho Windows
+continuam abertos.
+
+**Matriz macOS do formato 8, concluída:** três rodadas alternadas de
+formato 7 (`index-disk-sweep-release`), formato 8 (release da portabilidade
+v2, idêntico ao `index-config-release`) e Dart, nos três projetos: **27 sessões**.
+Os dois DartForge começaram com índices preparados dos textos originais,
+em seis caches separados, com aliases de mesmo comprimento apontando ao
+mesmo SDK 3.6.2 físico. Os seis arquivos permaneceram idênticos durante as
+sessões e foram arquivados, retirando apenas os caminhos exclusivos do
+ensaio da pasta ativa. Os caches habituais não foram alterados. O cache
+interno do Dart não foi congelado entre lançamentos.
+
+O verificador confirmou **162 payloads, 54 mapas completos de diagnósticos
+e nove estados finais iguais antes/depois**. Os diagnósticos dos documentos
+abertos coincidem com o Dart desconsiderando `source`; permanecem as
+diferenças conhecidas de `documentSymbol` e publicações globais. As **1.964
+fontes**, sete binários/scripts executáveis e os **9.761/6.640/10.894 arquivos
+de entrada** ficaram estáveis, sem raízes ausentes. As fontes abaixo desta
+medição ainda usavam a invalidação ampla de dependentes.
+
+Cada sessão tem um primeiro `references` depois da edição de API e dois
+pedidos aquecidos. A tabela separa os **três primeiros pedidos** dos **seis
+aquecidos**, em vez de interpretar a mediana dos nove como custo inicial.
+São resultados desta coorte; os SDKs modernos não integram essa matriz.
+
+| Projeto | Primeiro references: formato 7 → 8 (faixa, ms) | Aquecido: formato 7 → 8 / Dart (mediana de seis, ms) | CPU aquecida: formato 7 → 8 / Dart (ms) |
+| --- | --- | --- | --- |
+| limitless | 844,53–893,74 → 847,23–884,20 | 0,399 → 0,411 / 3,423 | 0,377 → 0,387 / 3,911 |
+| core | 965,34–995,96 → 959,37–998,37 | 0,281 → 0,275 / 2,231 | 0,258 → 0,254 / 2,355 |
+| frontend | 6.476,64–6.487,75 → 6.459,92–6.474,17 | 0,278 → 0,277 / 3,141 | 0,258 → 0,255 / 3,403 |
+
+Os primeiros pedidos do Dart foram **21,49–24,39 / 6,89–11,13 / 7,79–10,01 ms**
+nos mesmos projetos. O formato 8 continua muito acima do Dart nesse custo;
+as pequenas diferenças antes/depois não demonstram ganho geral.
+
+| Projeto | Pico/final footprint: formato 7 → 8 (MiB) | Dart (MiB) | Duração total: formato 7 → 8 / Dart (s) |
+| --- | --- | --- | --- |
+| limitless | 634,27/444,44 → 635,83/444,63 | 721,02/710,94 | 18,01 → 18,15 / 17,83 |
+| core | 716,22/431,31 → 719,47/433,97 | 610,94/487,13 | 16,72 → 16,71 / 15,55 |
+| frontend | 1.029,39/947,39 → 997,64/997,64 | 761,99/761,99 | 24,88 → 24,83 / 17,51 |
+
+O frontend baixou o pico **31,75 MiB**, mas aumentou a amostra final
+**50,25 MiB**; os outros dois também não tiveram redução uniforme. A amostra
+final não prova repouso estabilizado nem sessão longa. O formato 8 é um
+reparo de validade do cache, **não um ganho uniforme de desempenho**.
+
+Roteiros: `/tmp/dartforge-index-config-warm-matrix.py` e
+`/tmp/dartforge-index-config-warm-matrix-verify.py`; logs nos mesmos prefixos,
+incluindo `-verification.log`. Dados completos em
+`/tmp/dartforge-index-config-warm-matrix-v1/`, com `snapshot.json`, 27 relatórios
+e logs de sessão, `verification.json`, `first-and-warm-references.json`,
+inventários/manifestos antes/depois e seis caches arquivados. A execução e a
+verificação terminaram com saída zero, antes de qualquer nova alteração Rust.
+
+**Configuração com carimbo preservado, em validação:** a regressão existente
+`cached_indexes_follow_package_configuration_changes` foi ampliada para restaurar
+o `mtime` original depois de redirecionar `old/` para `new/`, que têm o mesmo
+comprimento. O teste confere diretamente nos metadados que o `FileStamp`
+permaneceu idêntico. Antes do reparo, mesmo com a notificação explícita da
+configuração, `semantic_references` devolveu `old/lib/dep.dart:4–10` em vez de
+`new/lib/dep.dart:8–14`. O log vermelho está em
+`/tmp/dartforge-config-preserved-stamp-v1/red.log`. Com o reparo, o teste passou;
+foi então ampliado também para a reversão descoberta pelo prazo periódico,
+sem notificação e com o mesmo carimbo.
+
+O cache de `PackageConfig::load`, em `crates/elements/src/config.rs`, agora
+compara também um hash do conteúdo lido. Reutiliza o mapa analisado e as
+raízes canonicalizadas quando carimbo, conteúdo e presença da raiz de gerados
+coincidem; num miss, passa o texto já lido ao parser, sem segunda leitura.
+Isso não elimina a leitura do arquivo nos hits. O custo adicional e a paridade
+pelo protocolo ainda precisam de conferência; nenhum ganho de desempenho
+foi atribuído ao reparo. A matriz de formato 8 imediatamente acima antecede
+essa mudança de produção.
+
+Diários `/tmp/dartforge-config-preserved-stamp-v{1,2}/`: v1 guarda o vermelho,
+o verde dirigido e a primeira verificação cancelada para aplicar o layout
+pedido pelo formatter, sem resultado de gate atribuído a ela. A rodada com
+fontes congeladas de v2 passou nos **56 testes de elements, seis alvos**, e
+nos **355 do LSP macOS, 34 alvos**, sem falhas ou ignorados; clippy do workspace
+também passou, assim como documentação estrita, fmt e release, com fontes
+estáveis. Roteiro `check.py`, log `check.log`, manifesto `check-source.json`,
+resultados `check-checks.json`; executável preservado `check-release`, SHA-256
+`155e1103ccb30b0e9291bc01607a8da4d27cc7fa8c56481570f5bb3582ec5061`.
+A fonte atual também foi sincronizada
+com guarda de hashes para o checkout Windows existente em `main`: **354 testes
+LSP, 34 alvos, sem falhas ou ignorados**, em **233,38 s**, com as **1.964 fontes
+normalizadas** conferidas antes/depois sem divergências. Diário Windows
+`E:\Temp\dartforge-config-preserved-stamp-v2`; cópia completa do log em
+`/tmp/dartforge-config-preserved-stamp-v2/windows-lsp.log`.
+
+O oráculo Windows repetiu os mesmos cinco estados de troca/reversão de pacote,
+restaurando data e conferindo tamanho após cada gravação: **80/80 respostas
+completas iguais ao Dart vivo e ao iniciado novamente por estado**, **40/40
+por SDK 3.6.2/3.13.4**, saída zero. Fontes normalizadas e binário preservado
+foram conferidos antes/depois, fixtures restauradas e caches exclusivos
+arquivados com cópia verificada entre volumes. Esse ensaio usa o executável
+debug atual, sem comparação com um Windows anterior e sem medir desempenho.
+Artefatos em `E:\Temp\dartforge-config-preserved-stamp-windows-oracle-v1`,
+com cópia integral em
+`/tmp/dartforge-config-preserved-stamp-v2/dartforge-config-preserved-stamp-windows-oracle-v1/`.
+O oráculo macOS de carimbo preservado terminou com **80/80 respostas completas
+iguais ao Dart vivo e ao iniciado novamente por estado**, contra **74/80 da
+base**, nos SDKs 3.6.2 e 3.13.5. Mudaram `references`, `prepareRename` e `rename`
+no estado redirecionado, três respostas por SDK. Os controles mantiveram
+**1.240/1.240 respostas ampliadas** e **160/160 entre pastas**, sem novas
+perdas; contra o Dart continuam **964/1.240** e **130/160**, preservando as
+saídas 1 dos oráculos com diferenças conhecidas. O roteiro agregador
+`protocol-check.py` terminou com zero após verificar esses resultados; logs
+e `protocol-checks.json` estão no diário v2. Oráculo de configuração em
+`/tmp/dartforge-config-preserved-stamp-oracle-v1/`; controles nos diretórios
+`/tmp/dartforge-config-preserved-stamp-{expanded,multi-root}-v1/`.
+
+**Custo da leitura em cada load, medido:** a nova coorte isolou a mudança
+entre o release da portabilidade v2 e `config-preserved-stamp-v2/check-release`,
+ambos formato 8. Três rodadas alternadas de antes/depois/Dart nos três projetos,
+**27 sessões**, com seis caches preparados dos textos originais, separados
+por aliases de mesmo comprimento do mesmo SDK físico 3.6.2. Fontes, sete
+executáveis/scripts, entradas e os seis caches ficaram estáveis; os caches
+exclusivos foram arquivados e retirados da pasta ativa.
+
+O verificador confirmou **162 payloads, 54 mapas completos de diagnósticos e
+nove estados finais antes/depois**, com as diferenças conhecidas contra o
+Dart preservadas. A primeira consulta e os seis pedidos aquecidos continuam
+separados, como na coorte anterior.
+
+| Projeto | Primeiros references: antes → depois (faixa, ms) | Aquecidos: antes → depois / Dart (mediana de seis, ms) | CPU aquecida: antes → depois / Dart (ms) |
+| --- | --- | --- | --- |
+| limitless | 849,53–895,18 → 856,13–888,48 | 0,413 → 0,402 / 3,479 | 0,389 → 0,377 / 4,151 |
+| core | 963,59–998,71 → 960,27–997,89 | 0,274 → 0,292 / 2,320 | 0,251 → 0,269 / 2,392 |
+| frontend | 6.475,86–6.522,48 → 6.528,46–6.608,18 | 0,271 → 0,280 / 3,183 | 0,251 → 0,259 / 3,402 |
+
+No frontend, a mediana inicial passou de **6.482,37 para 6.568,25 ms**,
+CPU **6.414,50 → 6.491,73 ms**; as faixas de tempo não se sobrepõem nessa
+coorte. Não é um ganho de desempenho. Pico/final de footprint, antes/depois:
+limitless **635,71/445,11 → 636,36/445,95 MiB**; core
+**716,28/431,80 → 715,61/431,47 MiB**; frontend
+**994,06/994,06 → 990,94/990,94 MiB**. O Dart ficou em
+**736,17/712,17**, **510,95/499,31** e **760,86/760,86 MiB**.
+Duração total antes/depois/Dart: **18,05/18,22/17,77 s**,
+**16,70/16,74/15,65 s**, **24,89/25,09/17,49 s**. Os pequenos ganhos de
+memória não resolvem a meta e a amostra final não demonstra repouso estável.
+
+Roteiros `warm-matrix.py` e `warm-matrix-verify.py`, logs nos mesmos prefixos,
+em `/tmp/dartforge-config-preserved-stamp-v2/`; dados completos em
+`/tmp/dartforge-config-preserved-stamp-warm-matrix-v1/`. Execução e verificação
+saíram com zero antes da alteração seguinte.
+
+**Conferência por geração confiável, em validação:** para evitar reler a
+configuração em todos os loads do residente, o cache de arquivos passa a
+expor internamente sua geração quando a confiança no disco está ativa.
+`forget`, `clear` e `trust(false)` avançam essa geração, separada dos contadores
+de medição. `PackageConfig::load` só usa o atalho sem leitura se data, tamanho,
+presença de gerados e geração confiável coincidirem. Fora desse modo continua
+lendo/conferindo o conteúdo, inclusive com carimbo idêntico; um miss lê uma
+vez, e conteúdo igual conserva o mapa analisado. A notificação explícita de
+configuração do analisador sintático também invalida a base de arquivos.
+
+Os testes dirigidos de configuração LSP (troca notificada e reversão periódica)
+e de elements passaram. O novo teste
+`config::cache_invalidation_tests::preserved_stamps_are_rechecked_after_disk_invalidations`
+cobre substituição sem confiança, `forget` no modo confiável, rejeição de JSON
+com `configVersion` inválido após `clear`, e restauração após `trust(false)`,
+sempre mantendo data e tamanho. A suíte de elements passou com **57 testes**;
+LSP, clippy, docs estritos, fmt e release estão no roteiro congelado
+`/tmp/dartforge-config-epoch-v1/check.py`. A fonte foi sincronizada com guarda
+de hashes no checkout Windows existente em `main`; estão em execução as
+suítes de elements e LSP em `E:\Temp\dartforge-config-epoch-v1`.
+A rodada congelada terminou: **57 testes de elements e 355 do LSP no macOS**,
+clippy do workspace, documentação estrita, fmt e release, sem falhas ou ignorados
+nos testes. O binário preservado é `/tmp/dartforge-config-epoch-v1/check-release`,
+SHA-256 `22e4ff85d8ce3f23e980457318ce3a3e6d37d8e2babc1d0291b88f08e53378fa`.
+No Windows passaram **58 testes de elements em seis alvos e 354 do LSP em 34**,
+em **243,50 s**, com as fontes normalizadas iguais antes/depois. O teste extra
+de elements é `generated::tests::windows_key_is_borrowed_when_already_normal`;
+o teste extra LSP macOS sobre autoridades de URI continua restrito a não Windows.
+
+O caso de configuração preservando data/tamanho manteve **80/80 respostas iguais
+ao Dart vivo e ao iniciado novamente por estado nos dois sistemas**: SDKs
+3.6.2/3.13.5 no macOS e 3.6.2/3.13.4 no Windows. Os controles macOS preservaram
+**1.240/1.240 e 160/160 respostas anteriores**, com **964/1.240 e 130/160 contra
+o Dart** e os estados reprovados dos oráculos com diferenças conhecidas.
+Logs, manifestos e resultados no diário `/tmp/dartforge-config-epoch-v1/`;
+oráculos em `/tmp/dartforge-config-epoch-{oracle,expanded,multi-root}-v1/`, e
+cópia integral do Windows em `dartforge-config-epoch-windows-oracle-v1/` dentro
+do diário. O agregador de protocolos terminou com zero.
+
+**Matriz da geração confiável, concluída:** a comparação voltou à base original
+do formato 8 (`windows-path-portability-v2/mac-release`, antes da leitura em cada
+load), para confrontar diretamente correção/geração com o comportamento anterior.
+São **27 sessões**, três rodadas alternadas de antes/depois/Dart nos três projetos,
+mesmo SDK físico 3.6.2, índices preparados dos textos originais em seis caches
+separados. As 1.964 fontes, sete executáveis/scripts e as entradas dos projetos
+ficaram estáveis; os seis caches permaneceram idênticos e foram arquivados.
+O verificador confirmou **162 payloads, 54 mapas completos e nove estados finais
+antes/depois**, preservando as diferenças conhecidas contra o Dart.
+
+| Projeto | Primeiros references: base original → geração (faixa, ms) | Aquecidos: base → geração / Dart (mediana de seis, ms) | CPU aquecida: base → geração / Dart (ms) |
+| --- | --- | --- | --- |
+| limitless | 885,98–896,14 → 889,57–893,17 | 0,394 → 0,423 / 3,664 | 0,370 → 0,399 / 3,956 |
+| core | 970,36–1.027,78 → 989,04–1.000,47 | 0,280 → 0,285 / 2,191 | 0,256 → 0,261 / 2,310 |
+| frontend | 6.514,42–6.541,59 → 6.512,96–6.598,90 | 0,273 → 0,288 / 3,201 | 0,251 → 0,265 / 3,438 |
+
+No frontend, mediana inicial **6.531,59 → 6.555,87 ms**; as faixas se sobrepõem.
+Pico/final de footprint: limitless **635,27/444,42 → 633,81/444,20 MiB**;
+core **718,94/433,89 → 715,06/428,00 MiB**; frontend
+**995,85/995,85 → 1.034,78/969,10 MiB**. O Dart ficou em
+**724,08/707,85**, **606,52/487,86** e **763,19/763,19 MiB**, respectivamente.
+Duração total base/geração/Dart: **18,09/18,39/17,63 s**,
+**16,79/16,75/15,53 s**, **25,10/25,01/17,55 s**. As amostras finais não
+demonstram repouso de sessão longa. A coorte não prova ganho uniforme nem
+permite compor percentuais com a medição anterior de leitura em cada load.
+
+Roteiros e logs `warm-matrix*`, agregador `post-check.py` e `post-checks.json`
+no diário epoch v1; dados completos em
+`/tmp/dartforge-config-epoch-warm-matrix-v1/`, incluindo 27 relatórios/logs,
+`verification.json`, `first-and-warm-references.json`, manifestos antes/depois e
+seis caches arquivados. Execução e verificação terminaram com zero, antes da
+alteração seletiva abaixo.
+
+**Retenção seletiva, em validação:** `index_edit.rs` prova deltas de funções
+top-level isoladas por textos anteriores verificados, APIs retidas, diretivas,
+versão de linguagem e contexto de pacote. Nomes adicionados/removidos não podem
+aparecer no texto retido da biblioteca nem dos dependentes (comentários e usos
+ainda não resolvidos incluídos). O dono é registrado inteiro, e os fatos dos
+outros arquivos só permanecem após validar todos os seus deslocamentos
+estrangeiros. Registros que já vieram atuais do residente não são deslocados
+de novo. Sem prova, o caminho amplo e o conjunto pendente de recuperação ficam
+preservados. A retenção de fontes antigas é limitada a 1 MiB, uma por documento
+registrado, com descarte ao fechar e substituir o índice.
+
+O caso de registrar só o dono falhou no caminho antigo com o filho amplo
+indisponível; a implementação atual passou nos **99 testes unitários do LSP**.
+Os novos casos cobrem várias edições sem salvar/reversão, CRLF/UTF-16, registros
+de chamador já atualizados, bloqueio por documentação/nomes não resolvidos/parts,
+limite de fontes e ausência de mutação parcial ao rejeitar ranges. A primeira
+rodada compilada teve 98/99 por uma fixture que anexava a fila antes de selecionar
+a raiz, fazendo a seleção descartar os registros; a ordem foi corrigida sem
+afrouxar as verificações. Logs e fontes de preparação em
+`/tmp/dartforge-selective-index-prototype-v1/`. A suíte completa e verificações
+do novo candidato começaram pelo roteiro
+`/tmp/dartforge-selective-index-v1/check.py`. Ainda não há conclusão de gate,
+oráculos de protocolo ou desempenho desse caminho; as matrizes anteriores
+não o incluem.
+
+Criação/recriação de fontes
+externas antes não registradas e o escopo entre pastas com catálogos de
+pacotes assimétricos ainda precisam de expansão própria do oráculo. O caso
+entre pastas acima usa o mesmo catálogo nas duas raízes e não prova esses
+cenários. A meta de paridade geral permanece aberta.
+
+**Próxima redução do trabalho, ainda não implementada.** `refresh_index`
+regrava todos os dependentes transitivos quando muda o hash de API, inclusive
+na adição de uma função que ninguém cita. Filtrar apenas pelos nomes
+resolvidos não basta: `IndexTarget` guarda spans de declarações e de respostas
+em outros arquivos, que podem se deslocar após uma inserção. A reutilização
+precisa atualizar essas posições ou invalidar os fatos que as contêm, além
+de cobrir identificadores ainda não resolvidos e efeitos transitivos de
+inferência. `ApiDigest` e as palavras textuais já existentes no motor são
+fontes para investigar essa invalidação; não foram integrados ao índice
+nesta etapa. A matriz concluída usou a invalidação ampla.
+
+**Preparação do Windows, leitura em 05/11.** A máquina `NOTEISASAMSUNG`
+continua acessível. O checkout existente em `E:\MyRustProjects\dartforge`
+está em `main`, limpo, no commit `2dea8d39`, diferente da base local; não
+foi atualizado. Na leitura inicial não havia processos Cargo, rustc, Dart
+ou dartforge-lsp ativos. Executaram com saída zero os Dart SDKs **3.6.2**
+(`E:\DartSDKs\3.6.2`) e **3.13.4**
+(`E:\DartSDKs\3.13.4\dart-sdk`), e o Clang **22.1.8** em
+`E:\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc`. O SDK moderno tem o
+snapshot DDC; foram confirmados **`lib\LLVM-C.lib` e `bin\LLVM-C.dll`**,
+usados pela integração com LLVM no Windows, e Rust **1.98.1**. Essas
+consultas ainda não verificam todos os pré-requisitos de compilação e testes
+nativos. Foram
+apenas consultas de estado, diretórios e versões: nenhum build, teste ou
+benchmark foi iniciado no Windows. Evidências em
+`/tmp/dartforge-windows-{readiness,tools,directories,versions,native-paths}-20261105.json`.
+
+A nova leitura durante a matriz de contexto confirmou o mesmo checkout
+Windows limpo em `main`/`2dea8d39`, sem processos Cargo, rustc, Dart ou
+dartforge-lsp ativos. O corpus anterior está em
+`E:\Work\df-lsp\new_sali\{core,frontend}`; não nos caminhos de projetos
+habituais testados primeiro. Os dois arquivos usados como alvo da edição
+de API têm os **mesmos bytes e SHA-256** dos correspondentes no macOS,
+e os dois `package_config.json` existem. Isso não verifica o restante do
+corpus nem todos os caminhos de dependências. Há Python em
+`C:\python312\python.exe`. O checkout, os scripts antigos e os corpora
+permaneceram intactos; ainda não houve build ou medição Windows do novo
+candidato. Evidências no prefixo
+`/tmp/dartforge-record-context-windows-`, incluindo `readiness.json`,
+`projects.json`, `lsp-directory.json` e `corpus-files.json`.
+
+**Manifestos e reparo de caminhos Windows, 05/11.** A ferramenta atual de
+fingerprint foi copiada para `E:\Temp` e executada sobre os dois corpora.
+O frontend tinha **6.215 arquivos, 120 raízes e nenhuma ausente**; o core,
+**2.871 arquivos, 66 raízes e dez ausentes**, com saída 1 preservada.
+As dez versões exatas estavam no cache Pub do usuário. Após conferir os
+pubspecs e a ausência dos destinos, foram criadas dez junções em
+`E:\Work\df-lsp\pkgs`, sem sobrescrever diretórios nem alterar o package
+config. Cada destino foi conferido pelo SHA-256 do pubspec. O manifesto
+repetido do core terminou com saída zero, **6.017 arquivos e nenhuma raiz
+ausente**, digest `3043ab55407e3e7cddf8a22add8182c2f3ab1c7eafd49d5df6609292f4e6cbcb`.
+Os corpora têm contagens diferentes dos usados no macOS; disponibilidade
+dos caminhos não prova identidade ou paridade entre plataformas. O checkout
+continuou limpo em `main`/`2dea8d39`, sem atualização ou build do candidato.
+Diário das junções, manifestos e estado do checkout nos arquivos
+`/tmp/dartforge-sized-index-windows-{core-root-repair,checkout-after-readiness}.json`
+e no prefixo `/tmp/dartforge-sized-index-windows-input-readiness`.
+
+**Oráculo dirigido dos locais e da documentação.** As respostas integrais de
+`references`, `prepareRename` e `rename`, em nove posições antes/depois de
+editar um corpo e desfazê-lo, mantiveram **81/81 iguais ao binário anterior
+em cada SDK** (3.6.2 e 3.13.5). Contra o Dart, o total integral foi **45/81
+em cada SDK**, tanto antes como depois: 36 diferenças por SDK na ordem de
+referências e de edições/documentos de rename. Uma auditoria separada
+confirmou o mesmo conteúdo e campos ao tratar arrays como multiconjuntos;
+isso só classifica a divergência e não altera a reprovação da resposta
+integral. As 72 diferenças de ordem anteriores ficam como pendência, sem
+regressão introduzida pelo reparo. Artefatos em
+`/tmp/dartforge-local-doc-search-oracle-v1/{floor.json,modern.json,summary.json,difference-audit.json}`;
+o processo de comparação terminou com saída 1 pelas diferenças com o Dart.
 
 **Poda dos índices sem varrer o prefixo.** Para aceitar listas
 em ordem de criação, o primeiro reparo filtrava todos os IDs de todas as listas
@@ -6833,3 +8351,414 @@ DartForge) com a máquina sob carga (média de carga ~45): references 3,1 /
 razões DartForge/Dart ficaram iguais ou menores que na reprise (references
 0,81, implementation 1,6 → 1,57, completion 1,6 → 1,47).
 
+
+## Correção de posições após comentários e edições de corpo — 06/11/2026
+
+O oráculo de atualização seletiva reproduziu uma falha anterior à otimização:
+a API de `a.dart` continuava igual após inserir um comentário, o residente
+substituía o registro desse arquivo e os fatos de identificadores em chamadores
+conservavam offsets antigos de declarações de `a.dart`. Uma referência a
+`target` apontava para 6:27, quando a declaração já estava em 8:4 (coordenadas
+LSP, a partir de zero). A falha também aparecia para classe, campo e método.
+
+A atualização passa a tratar deslocamentos como alterações que precisam de
+reconciliação. A prova de conservação aceita uma API idêntica ou a adição/remoção
+de uma função isolada sem usos em fontes retidas. Antes de conservar registros,
+atualiza toda a biblioteca dona, verifica contextos e fontes e transporta os
+intervalos de declarações nos registros que ainda não foram atualizados. Um
+intervalo cruzando a substituição, fontes fora do orçamento, contextos diferentes
+ou qualquer outra ausência de prova mantém o caminho de reanálise. Uma mudança
+de corpo pode mudar a assinatura conservadora; não é presumida equivalente.
+
+A nova regressão falhou antes no offset da declaração. Após o reparo, passaram
+os **100 testes de unidade**, incluindo comentário com emoji/CRLF, crescimento
+de corpo sem mudança de assinatura e reversão. O primeiro candidato, anterior
+a esse reparo adicional, tinha passado em 361 testes do LSP no macOS e 360 no
+Windows; esses números não validam por si só a nova revisão.
+
+O oráculo novo guarda todas as respostas de `references`, `prepareRename`,
+`rename` e `implementation`, em quatro arquivos (biblioteca, parte, chamador e
+subclasse), oito estados e SDKs 3.6.2/3.13.5. Foram **1.216 respostas** por
+servidor: 12 respostas de referências mudaram no estado com o comentário,
+corrigindo posições antigas; não houve perda de uma resposta que antes
+coincidia com o Dart reiniciado. A igualdade integral com essa referência foi
+**404/608 no SDK 3.6.2 e 376/608 no 3.13.5**, contra 402/608 e 375/608 da base
+nessa mesma rodada. As ordens do Dart vivo e reiniciado também variam. Nenhuma
+ordem foi normalizada para converter diferenças em aprovação; o oráculo ainda
+termina com erro por paridade incompleta.
+
+Artefatos: `/tmp/dartforge-selective-index-v2/comment-red.log`,
+`comment-green.log` (primeira execução também identificou que trocar corpo
+seta por bloco muda a assinatura conservadora; a fixture foi corrigida para
+alterar o conteúdo de um bloco), `comment-green2.log`,
+`/tmp/dartforge-selective-index-v3/` e
+`/tmp/dartforge-selective-index-oracle-v2/`. Na revisão atual, passaram
+362 testes LSP no macOS e 361 no Windows, sem falhas/ignorados; no Windows,
+58 de elements e os testes direcionados de pilha nativa e assinaturas JS
+também passaram. A verificação remota conservou 1.968 fontes normalizadas.
+O gate integral seguinte, preservado em
+`/tmp/dartforge-production-current-v2/full-gate.json`, passou: 3.480 testes
+do workspace e 118 no CLI com `native,jit`, sem falhas/ignorados, além de
+fmt, Clippy e documentação estrita. O binário LSP dessa revisão é idêntico
+ao usado na matriz corrigida abaixo; as alterações JS posteriores não
+foram atribuídas a esse gate.
+
+A auditoria da primeira matriz isolada de 27 sessões encontrou conversão
+de CRLF para LF no script externo que preparava os documentos do índice.
+O cliente preservava os bytes originais, portanto core (um arquivo) e
+frontend (dois arquivos) começavam com registros desatualizados. Não houve
+erro nos offsets de inserção nem erros de parsing no controle Dart; o
+diagnóstico editado esperado era apenas o retorno de string em função int.
+A matriz `warm-matrix-v1` preservou 162 respostas, 54 mapas de diagnósticos
+e nove estados finais, mas seus tempos medem também essa invalidação.
+Não demonstram o custo de uma edição sobre índice válido nesses projetos.
+A matriz corrigida (`/tmp/dartforge-production-lsp-warm-matrix-v2/`) lê os
+bytes em UTF-8 sem normalizar quebras de linha e registra hash, tamanho e
+contagem de CRLF de cada documento. Terminou sem builds ou testes
+concorrentes, com entradas/fontes/binários estáveis e caches de formato 8
+iguais antes/depois. Preservou 162 respostas, 54 mapas de diagnósticos e
+nove estados finais; as diferenças conhecidas contra Dart não foram
+normalizadas. Os resultados anteriores permanecem preservados.
+
+A carga insere uma função de topo isolada sem usos, consulta sua referência
+e desfaz a edição. As três primeiras consultas (uma por sessão) ficam
+separadas das seis consultas seguintes. Não mede alterações arbitrárias
+de assinatura, que continuam podendo exigir a reanálise ampla.
+
+| Projeto | Primeira references: base → candidato (ms) | Dart (ms) | CPU da primeira: base → candidato / Dart (ms) | Pico de footprint: base → candidato / Dart (MiB) |
+| --- | ---: | ---: | ---: | ---: |
+| limitless | 870,94 → 114,83 | 24,90 | 964,70 → 79,77 / 35,54 | 641,80 → 436,72 / 729,83 |
+| core | 981,75 → 103,48 | 6,90 | 1.137,38 → 72,92 / 6,97 | 712,41 → 426,72 / 616,30 |
+| frontend | 6.427,48 → 541,73 | 8,36 | 6.358,16 → 469,82 / 14,72 | 990,36 → 889,56 / 753,05 |
+
+As medianas das consultas seguintes foram 0,401 → 0,401 / 3,467 ms
+(limitless), 0,289 → 0,285 / 2,206 ms (core) e 0,273 → 0,281 / 3,171 ms
+(frontend). O ganho na primeira consulta e no pico contra a base é claro
+nesta carga. A meta continua aberta: a primeira consulta custa mais que
+no Dart e o frontend também usa mais memória. O footprint final do medidor
+é uma amostra ao fim da sessão, sem prova de ociosidade prolongada.
+Resultados completos, CPU, memória por sessão e hashes: `verification.json`,
+`first-and-warm-references.json`, `seeds.json` e `snapshot.json` nessa pasta.
+
+Uma amostragem isolada posterior, com o mesmo binário e índice inicial de
+bytes originais, localizou o trabalho dominante na primeira consulta do
+frontend: `Builder::library` → `identifier_facts` → busca de referências →
+família do membro → cálculo dos subtipos escritos. Este último exige os
+nomes referenciados das unidades, incluindo a construção da árvore do
+analisador. O servidor principal esperava o processo residente reconstruir
+os registros. As quatro respostas consultadas coincidiram exatamente com
+as da matriz corrigida, e fontes/entradas ficaram estáveis.
+
+Artefatos em `/tmp/dartforge-production-lsp-profile-v1/`: `report.json`,
+`sample-44160.txt`, `sample-44153.txt` e `server.log`. A captura omitiu o
+aquecimento de edição de corpo da matriz e usou o amostrador do sistema;
+serve para localizar o custo, sem fornecer uma nova comparação de latência
+ou memória. Ainda não há um reparo adicional validado para esse custo.
+
+O candidato seguinte adia as arestas implícitas de `Object` no grafo de
+subtipos até uma busca que alcance `Object`. O cálculo das arestas
+explícitas não exige mais os nomes referenciados de unidades não
+relacionadas. O formato persistido do índice não mudou: os fatos de cada
+classe continuam registrando suas relações completas. A atualização por
+edição de corpo invalida a lista implícita para sua próxima consulta.
+Um controle que detectava a caminhada pela unidade não relacionada falhou
+antes e passou depois; o teste de hierarquia de `Object` após edição e
+reversão também passou.
+
+Com o binário da v5 preservado, o oráculo
+`/tmp/dartforge-selective-index-oracle-v3/` conservou exatamente 1.216
+respostas da v2 e não perdeu uma resposta antes igual à referência.
+Candidato e base tiveram ambos 394/608 respostas iguais ao Dart reiniciado
+no SDK 3.6.2 e 376/608 no 3.13.5, nesta coorte. As diferenças de ordem da
+referência entre rodadas permanecem brutas; o status é erro por paridade
+incompleta. A auditoria `strict-difference-audit.json`, separada do resultado
+bruto, verificou que as 446 diferenças desta coorte conservam o conteúdo
+em outra ordem: 239 referências e 207 renames. Os documentos/versões e
+as edições não sobrepostas foram conferidos; as respostas e o status de
+erro originais não foram alterados.
+
+A matriz isolada v3 (`/tmp/dartforge-production-lsp-warm-matrix-v3/`)
+comparou v2, v5 e Dart, com o mesmo protocolo da matriz corrigida anterior:
+27 sessões, documentos de bytes originais, índices formato 8 preparados
+em aliases distintos para o mesmo SDK físico. Preservou 162 respostas,
+54 mapas de diagnósticos e nove estados finais; fontes, binários,
+projetos/SDK e os seis índices ficaram estáveis. Não houve builds nem
+testes locais concorrentes. O runtime Node ocioso do aplicativo ChatGPT
+foi identificado em `background-before.txt`, sem ser encerrado.
+
+| Projeto | Primeira references: v2 → v5 / Dart (ms) | CPU: v2 → v5 / Dart (ms) | Pico de footprint: v2 → v5 / Dart (MiB) |
+| --- | ---: | ---: | ---: |
+| limitless | 116,24 → 111,51 / 24,46 | 79,81 → 79,08 / 32,47 | 441,70 → 437,52 / 723,44 |
+| core | 102,48 → 101,98 / 6,92 | 73,51 → 72,34 / 7,00 | 429,91 → 428,95 / 505,25 |
+| frontend | 538,19 → 237,05 / 7,64 | 467,57 → 169,75 / 14,53 | 811,85 → 772,81 / 737,92 |
+
+O efeito observado concentra-se no frontend; nos outros projetos, as
+medianas ficaram próximas da base. As consultas seguintes no frontend
+foram 0,275 → 0,278 / 3,082 ms. A amostra final de footprint foi
+757,97 → 678,99 / 737,92 MiB, sem prova de repouso prolongado. A primeira
+consulta e o pico da v5 ainda superam o Dart. O recorte continua sendo a
+inserção de uma função de topo isolada; alterações arbitrárias de API
+podem exigir a reanálise ampla. Não se afirma ganho uniforme nem paridade
+geral. Dados e amostras: `verification.json` e
+`first-and-warm-references.json` nessa pasta.
+
+Na v5 passaram 137 testes direcionados LSP no macOS e todos os 363 testes
+LSP no Windows, sem falhas/ignorados. Fmt, Clippy dos três crates alterados
+com todos os alvos e documentação estrita também passaram. O gate integral
+da v5 terminou com 3.490 testes do workspace em 229 alvos e 118 do CLI
+`native,jit` em 17 alvos, sem falhas ou ignorados. Pré-requisitos, fmt,
+Clippy do workspace e CLI nativo, documentação estrita e estabilidade
+das 27.076 fontes/entradas e dos binários passaram. Relatório:
+`/tmp/dartforge-production-current-v5/full-gate.json` (3.644,68 segundos).
+
+
+### Controles adicionais para símbolos e API usada (06/11)
+
+A revisão LSP continua sendo a v5; a v6 modificou JS/mundo, sem alterar o
+servidor. O controle `/tmp/dartforge-used-api-oracle-v1/` comparou 180
+respostas com Dart reiniciado, nos SDKs 3.6.2 e 3.13.5: retorno de `make()`
+de A para B, parâmetro opcional novo, comentário com emoji e reversão.
+A identidade do campo usado pelos chamadores, as referências e os edits
+de rename acompanharam cada estado. Há 60 respostas exatamente iguais e
+120 diferenças brutas. Uma auditoria separada verificou 60 formas
+objeto/lista permitidas em definition, 30 ordenações de references e 30
+de rename, sem diferença de conteúdo inexplicada. Os intervalos, URIs,
+versões e textos dos edits foram verificados; os arquivos brutos ficaram
+intactos e o comparador retorna 1. Não é medição de desempenho nem prova
+de paridade geral.
+
+Os controles de símbolos `symbol-metadata-oracle-v2/` e `-v3/` e o protótipo
+externo `symbol-metadata-prototype-v1/` isolam a falta de `deprecated` e
+`detail`. O helper compartilhado de annotations devolve `Prefix` para uma
+anotação prefixed, em vez do alvo exportado. Duas regressões falham na
+base; o patch externo de um único ramo passa nas quatro regressões de
+resolução, sem alterar identidade de classe homônima nem sombreamento local.
+O impressor AST comum já fornece os 24 `detail` conferidos, sem procurar
+parênteses no texto. A resolução pelo modelo/outline mais a correção do
+prefixo emulada conferiram 30 flags de classes: 54/54 propriedades nos
+dois SDKs. Esse foi o resultado do protótipo antes da integração. O ramo de prefixo
+e o `detail` foram depois integrados na v7; a marcação `deprecated` ainda
+não foi integrada.
+
+A matriz `symbol-sdk-language-matrix-v1/` mostra que as diferenças em
+variáveis e campos anotados dependem da ferramenta: o servidor 3.13.5 não
+os marca neste controle, mesmo em pacotes 3.6 e com marcador 3.6; o 3.6.2
+marca. Getters/setters explícitos são marcados nas quatro cargas. O nome
+textual da anotação, seu valor constante ou a versão de linguagem não
+substituem a resolução e o contrato da referência. O caminho atual de
+`SemanticAnalyzer::symbols` delega ao parser; a integração dos metadados
+precisa respeitar imports abertos, partes e a versão atual do texto, sem
+obrigar uma inferência completa de corpos a cada consulta.
+
+Os artefatos citados estão sob `/tmp/dartforge-`; são diagnósticos preservados,
+não novos checks verdes do servidor. O gate integral v5 terminou com
+3.490 + 118 testes; o gate integral v6 também passou (3.503 + 118), sem
+falhas/ignorados, com fontes e binários estáveis. A rodada Windows
+v6 dos emissores JS e de `world` passou em 216 testes/57 alvos, com 1.972
+fontes normalizadas estáveis, sem mudança retroativa da evidência LSP v5.
+
+
+A v7 começou depois do fechamento do gate v6. Integra o `detail` de
+parâmetros pelo impressor AST e a correção do ramo de prefixo no helper
+compartilhado de annotations. Os cinco testes de símbolos passaram,
+incluindo edição, CRLF, emoji, comentários e strings com parênteses; as
+quatro regressões de resolução e o novo teste CLI com oráculo Dart também
+passaram. Ainda não há um novo oráculo completo ou medição isolada de
+latência dessa revisão, e os símbolos continuam sem `deprecated`.
+O helper afeta também diagnósticos e AOT: o ensaio de anotação prefixed
+com argumento não constante reproduziu aceitação indevida no CLI/AOT
+anteriores. O JS passa a verificar legalidade de constantes, com o registro
+de declarações locais necessário; esse ajuste tem validação própria em
+`/tmp/dartforge-production-current-v7/`, sem reutilizar o gate anterior.
+
+Na v7 passaram 36 testes direcionados em oito alvos, incluindo os cinco
+de símbolos, além de Clippy, documentação estrita e build release. A lista
+JS completa não teve regressões em relação à v6, preservando as 50
+diferenças brutas. As novas listas AOT, o gate integral e Windows estão
+em execução; não há ainda nova medição isolada de desempenho LSP.
+
+O controle do **servidor LSP release v7**, com servidor oficial novo para
+cada carga, confirmou os `detail`: **54 diferenças → zero em 180 símbolos**,
+em dez cargas dos dois SDKs, árvore e lista plana (20 respostas por revisão).
+Todos os campos fora de `detail` ficaram idênticos à v6 e as listas planas
+não mudaram. As 20 respostas completas continuam diferentes do Dart por
+metadados ausentes, inclusive `deprecated`; status bruto **1**, contrato
+específico de `detail` **0**. Artefatos:
+`/tmp/dartforge-v7-symbol-response-control/`.
+
+O controle incremental de anotações, em projetos com raiz canônica,
+também terminou: **12 estados nos dois SDKs**, com mudança sem salvar de
+`int` para `const int` em dependência, retirada do prefixo de importação,
+CRLF/emoji e restauração. As diferenças de **código/severidade/faixa**
+caíram de seis para zero. As quatro respostas limpas são idênticas;
+as oito com erro continuam brutas diferentes (incluindo `source`), e o
+status bruto permanece 1. Não foi uma medição de desempenho.
+`/tmp/dartforge-v7-annotation-edit-control-v2/`.
+
+A primeira carga, com `rootUri` absoluto por `/tmp` (um link para
+`/private/tmp` no macOS), revelou **outra falha real**, preservada em
+`/tmp/dartforge-v7-annotation-edit-control/`: diagnósticos somem nas
+revisões anterior e nova. O CLI release confirmou o problema; o analisador
+oficial retorna 3, o DartForge 0. Uma matriz com raiz absoluta
+por link, absoluta canônica e relativa isolou a configuração: só a
+primeira perde o erro, mesmo pedindo o arquivo por caminho canônico.
+O loader resolve `package:` pelo URL não canônico, enquanto o lote e
+os overlays usam a chave canônica. O primeiro protótipo externo passou nos
+quatro controles iniciais, mas **foi rejeitado**: retargetar o link
+conservava o diretório antigo no cache, apesar da invalidação do disco.
+A segunda proposta passou em sete controles, mas falhou quando o primeiro
+arquivo ainda não salvo ficava sob uma pasta de pacote inexistente.
+
+A terceira proposta resolve o diretório pelo ancestral existente mais
+próximo e conserva o sufixo ainda não gravado. Reutiliza a configuração
+somente na mesma geração de filesystem confiável; após invalidação,
+reconfere conteúdo e diretórios, mesmo com bytes/stamps preservados.
+**Oito controles passaram** no módulo externo; os mesmos testes portáteis,
+ligados ao `elements` atual, mostram **quatro passes e quatro falhas**.
+Incluem troca do destino do link, pasta aninhada inexistente, overlay,
+edição de configuração com stamp preservado e reutilização sem novos
+misses na mesma geração. Não foi medição de latência.
+
+Isso **ainda não foi integrado**: as 27.082 fontes/entradas v7 permanecem
+congeladas durante as listas e o gate. O êxito da carga canônica não
+aprova a carga por link. A nova política deverá ter o custo medido em
+execução isolada após a integração. O patch e o teste prontos para o
+repositório estão em `/tmp/dartforge-package-directory-control-v3/`;
+as falhas das tentativas `-v1/` e `-v2/` foram preservadas. O CLI atual
+continua reproduzindo a perda de diagnóstico em
+`/tmp/dartforge-v7-package-path-diagnostic-control/`.
+
+A rodada Windows v7 terminou: **587 testes em 94 alvos**, sem falhas ou
+ignorados: 218 JS/world (58 alvos), quatro de resolução, um CLI e
+364 LSP (34 alvos). As 1.975 fontes normalizadas ficaram estáveis; as
+quatro diferenças de bytes para o Mac são de fim de linha. A proposta
+externa de identidade de diretório passou depois nos **oito controles
+também no Windows**, usando junctions; o `elements` atual falha em quatro
+dos mesmos testes nos dois sistemas. Isso não integra a proposta nem
+fecha o gate macOS, ainda em andamento.
+
+Uma nova triagem AOT confirmou perda de **frames de usuário** em
+`private/private3`: o binário v7 imprime só `Object.noSuchMethod`,
+embora o IR tenha labels, `uwtable` e as chamadas dos três níveis. Um
+controle menor separou a causa de partes: throws diretos na unidade e
+numa parte preservam os chamadores, mas os dois caminhos que voltam
+a Dart pelo `noSuchMethod` do runtime perdem todos os frames de usuário
+em `check -O2`. Em `tables -O2` os quatro caminhos preservam os três
+frames exigidos, assim como a VM. Portanto, as diferenças de pilha
+não se reduzem à apresentação dos frames internos da VM. O reparo
+continua pendente; artefatos em `/tmp/dartforge-v7-part-symbolic-control/`
+e `/tmp/dartforge-v7-reentry-trace-control/`. Não há medição de desempenho
+nesses controles.
+
+O controle de pilha isolou o problema de link no macOS ARM64: o caminho
+existente que retém os objetos nativos do LTO e os relinka cobre
+`tables` e raízes por mapas, mas exclui a pilha simbólica em `check`.
+No controle **só de link**, os mesmos bitcodes/flags/SDK/runtime
+perderam os chamadores no link simples e preservaram os três frames
+os dois casos após a segunda etapa com os objetos nativos. Throws
+diretos e em parte continuaram corretos. O IR textual e o bitcode do
+SDK já têm `uwtable`; o executável do link simples contém uma faixa
+de encoding de unwind zero nos adaptadores envolvidos. Um SDK novo
+reproduziu o problema, descartando a hipótese de cache antigo.
+
+A extensão de uma condição para incluir `symbolic_stack_trace()` está
+preparada em `/tmp/dartforge-v7-reentry-trace-control/linker_macos.patch`,
+ainda sem mudar a fonte congelada. A prova de link está em
+`relink-control.json`; as variantes com debug/frame pointers também
+continuaram falhando (a variante de frame pointers reutilizou o SDK
+anterior, portanto não isola o efeito no SDK). O LLDB não completou
+o lançamento, sem breakpoint resolvido; a sessão de diagnóstico e
+seus filhos foram encerrados, sem interromper a suíte. Não há nova
+medição de desempenho ou certificação geral.
+
+O gate macOS v7 terminou com **3.511 testes/234 alvos** no workspace e
+**119/18** no CLI `native,jit`, zero falhas e zero ignorados. Depois desse
+fechamento, a revisão foi preservada e as duas correções preparadas
+foram integradas na v8.
+
+Depois do fechamento do gate integral v7 (3.511 workspace + 119 CLI
+nativo/JIT, sem falhas/ignorados), a v8 integrou a resolução de identidade
+do diretório de pacote e o teste de diagnósticos após edição não salva da
+dependência. O mesmo teste havia reproduzido a lista vazia indevida na
+v7. Também foram integrados a extensão da guarda de link para pilhas
+simbólicas e a regressão que exige os chamadores do `noSuchMethod` do
+runtime. Passaram **26 testes direcionados/nove alvos**, Clippy dos quatro
+crates afetados, documentação estrita do workspace e os três builds
+release. O CLI release passou no controle de diretórios e offsets
+UTF-16. Nos 12 estados do controle LSP release com diretório de pacote
+via link, as oito diferenças no contrato código/severidade/intervalo
+passaram a zero, contra servidores oficiais novos em dois SDKs.
+Oito respostas completas continuam diferentes; não são aprovações de
+paridade bruta. A nova rodada de API usada verifica alterações somente
+em overlays não salvos, CRLF/emoji e retorno A→B→A, antes da medição
+isolada. Isso ainda não é uma nova medição de latência nem validação
+integral v8. O controle AOT original `private3_test.dart` recuperou os
+dois quadros `PrivateMain`, mas ainda omite `main`; permanece com erro.
+
+O controle de API usada v8 terminou: **180 respostas preservadas** entre
+os releases v7/v8, em dois SDKs e cinco estados somente em overlays.
+CRLF, emoji, troca A→B→A, parâmetro opcional e posições/versões das
+renomeações foram conferidos, sem mudanças nos arquivos do disco.
+Contra servidores Dart novos por estado, 60 respostas são exatas e
+120 têm diferença de forma/ordem. A auditoria separada não encontrou
+diferença de conteúdo nesse recorte; o status bruto é erro. Protocolo,
+respostas, hashes e auditoria em `/tmp/dartforge-used-api-oracle-v2/`.
+A matriz isolada v7/v8/Dart terminou: **27 sessões**, com 162 respostas,
+54 mapas de diagnóstico e nove estados finais preservados; seis caches
+próprios, fontes, binários e insumos estáveis. Seu cenário de função
+independente é distinto desse controle de troca de retorno usado;
+não serve como medição de latência da troca A→B. A primeira referência
+teve medianas v7→v8/Dart de **109,17→113,06/25,02 ms** no limitless,
+**101,84→97,70/6,82 ms** no core e **236,06→237,33/8,41 ms** no
+frontend: a correção de identidade de diretórios não trouxe ganho
+uniforme de latência. As referências seguintes na v8 ficaram em
+**0,39/0,27/0,27 ms**. Pico/repouso final do frontend: **785,10/679,55
+MiB**, contra **742,47/736,22 MiB** do Dart; isso não mede repouso
+prolongado. Diferenças brutas conhecidas continuam preservadas.
+Artefatos em `/tmp/dartforge-production-lsp-warm-matrix-v4/`.
+A v9 modifica apenas a entrada AOT e seu teste de pilha, depois desse
+fechamento; a latência acima pertence ao executável LSP v8 preservado.
+
+Uma candidata externa troca a consulta a um conjunto hash por uma lista
+curta de IDs ao realocar posições de declarações estrangeiras. Preserva
+a igualdade de caminhos e as duas passagens de validação/aplicação; o
+conjunto vazio retorna imediatamente. A `main` congelada v9 não foi
+alterada. Base e candidata passaram nos mesmos **366 testes/35 alvos**,
+sem falhas ou ignorados, Clippy e build release. O controle de API usada
+também terminou: **180 respostas idênticas** entre release atual, cópia
+externa da base e candidata, em dois SDKs e overlays não salvos com
+CRLF/emoji. Contra o Dart, continuam 60 respostas exatas e 120 diferenças
+de forma/ordem, sem diferenças de conteúdo na auditoria desse recorte.
+Ainda não há ganho de latência medido. A matriz isolada está preparada
+e só será executada depois de fechar as validações locais em andamento.
+Artefatos e fonte do experimento em
+`/tmp/dartforge-lsp-relocation-control-v1/`; protocolo e auditoria em
+`/tmp/dartforge-lsp-relocation-used-api-control-v1/`.
+
+### API usada: medição isolada adicional de 06/11
+
+O candidato externo sobre a base v9 que substitui o conjunto de caminhos
+por vetor curto não foi integrado: em 27 sessões, preservou 162 respostas, 54 mapas de
+diagnóstico e nove estados finais, mas não demonstrou ganho na primeira
+referência. Nos três projetos, as medianas base/candidato foram
+115,94/120,59 ms, 110,95/113,18 ms e 260,08/261,38 ms.
+
+Em uma fixture separada com consumidores reais do retorno A/B, nove sessões
+preservaram 270 respostas com intervalos e versões conferidos. A auditoria
+posterior encontrou um erro no preparo dos caches: a chave foi calculada
+com `/tmp`, mas o driver resolve a raiz para `/private/tmp`. Assim, os
+caches preparados não foram selecionados pelo servidor. Os dados v2 foram
+preservados como observações de inicialização, sem conclusão sobre custo
+com índice carregado; os caches realmente criados foram arquivados em
+separado. A rodada v3 usou a raiz resolvida e terminou com nove sessões, 54 estados e
+270 respostas auditadas. As medianas da primeira referência após API foram
+0,98/0,92 ms na base/candidato, contra 4,05 ms do Dart; nas trocas seguintes,
+0,71/0,71 ms contra 2,92 ms. Os seis caches ficaram inalterados. Outro
+controle funcional confirmou em log o carregamento do cache, sem reconstrução
+integral. O resultado vale para essa fixture com índice carregado; a latência
+nos projetos reais continua separada e não demonstrou ganho no candidato. Os
+três projetos reais já usavam raízes resolvidas; este erro de preparo é
+específico da fixture pequena. As diferenças brutas de formato e
+ordem do Dart foram mantidas, sem diferença inexplicada de conteúdo no
+recorte. Artefatos: `/tmp/dartforge-used-api-latency-v3/report.json` e
+`/tmp/dartforge-lsp-relocation-control-v1/decision.json`.

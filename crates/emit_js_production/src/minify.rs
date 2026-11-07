@@ -397,15 +397,19 @@ struct IdentifierStrings {
 
 impl<'a> oxc_ast_visit::Visit<'a> for IdentifierStrings {
     fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
-        if self.is_name(it.span.start) {
-            self.record(it.value.as_str());
+        if self.is_name(it.span.start)
+            && let Some(value) = it.value.as_str()
+        {
+            self.record(value);
         }
     }
     fn visit_template_literal(&mut self, it: &oxc_ast::ast::TemplateLiteral<'a>) {
         if self.is_name(it.span.start) {
             for q in &it.quasis {
-                if let Some(c) = &q.value.cooked {
-                    self.record(c.as_str());
+                if let Some(c) = &q.value.cooked
+                    && let Some(value) = c.as_str()
+                {
+                    self.record(value);
                 }
             }
         }
@@ -480,8 +484,9 @@ impl<'a> oxc_ast_visit::Visit<'a> for IdentifierStrings {
     fn visit_binary_expression(&mut self, it: &oxc_ast::ast::BinaryExpression<'a>) {
         if it.operator == oxc_syntax::operator::BinaryOperator::In
             && let oxc_ast::ast::Expression::StringLiteral(s) = &it.left
+            && let Some(value) = s.value.as_str()
         {
-            self.record(s.value.as_str());
+            self.record(value);
         }
         oxc_ast_visit::walk::walk_binary_expression(self, it);
     }
@@ -557,8 +562,11 @@ struct StringOccurrences {
 
 impl StringOccurrences {
     fn record(&mut self, it: &oxc_ast::ast::StringLiteral<'_>) {
+        let Some(value) = it.value.as_str() else {
+            return;
+        };
         self.map
-            .entry(it.value.to_string())
+            .entry(value.to_string())
             .or_default()
             .push((it.span.start, it.span.end));
     }
@@ -571,7 +579,7 @@ impl<'a> oxc_ast_visit::Visit<'a> for StringOccurrences {
         // reservation reads it there) and as the key of `x["_n$1c"]` or of
         // `in` (the visits below), which compression replaces with
         // `x._n$1c`.
-        if is_identifier(it.value.as_str())
+        if it.value.as_str().is_some_and(is_identifier)
             && (it.span.start < self.sdk_end || self.stack.last().copied().unwrap_or(false))
         {
             return;
@@ -584,14 +592,15 @@ impl<'a> oxc_ast_visit::Visit<'a> for StringOccurrences {
     ) {
         self.visit_expression(&it.object);
         match &it.expression {
-            oxc_ast::ast::Expression::StringLiteral(l) if is_identifier(l.value.as_str()) => {}
+            oxc_ast::ast::Expression::StringLiteral(l)
+                if l.value.as_str().is_some_and(is_identifier) => {}
             e => self.visit_expression(e),
         }
     }
     fn visit_binary_expression(&mut self, it: &oxc_ast::ast::BinaryExpression<'a>) {
         if it.operator == oxc_syntax::operator::BinaryOperator::In
             && let oxc_ast::ast::Expression::StringLiteral(l) = &it.left
-            && is_identifier(l.value.as_str())
+            && l.value.as_str().is_some_and(is_identifier)
         {
             self.visit_expression(&it.right);
             return;
@@ -695,10 +704,10 @@ fn rewrite_late_fields<'a>(
         fn visit_call_expression(&mut self, it: &mut oxc_ast::ast::CallExpression<'a>) {
             if is_late_fields(&it.callee) {
                 for a in it.arguments.iter_mut().skip(1) {
-                    if let oxc_ast::ast::Argument::StringLiteral(l) = a {
-                        let mut words: Vec<&str> = l
-                            .value
-                            .as_str()
+                    if let oxc_ast::ast::Argument::StringLiteral(l) = a
+                        && let Some(value) = l.value.as_str()
+                    {
+                        let mut words: Vec<&str> = value
                             .split(' ')
                             .filter(|w| !w.is_empty())
                             .map(|w| self.map.get(w).map_or(w, String::as_str))
@@ -735,7 +744,8 @@ fn rewrite_binds<'a>(
             if is_bind(&it.callee) {
                 for a in it.arguments.iter_mut().skip(1) {
                     if let oxc_ast::ast::Argument::StringLiteral(l) = a
-                        && let Some(new) = self.map.get(l.value.as_str())
+                        && let Some(value) = l.value.as_str()
+                        && let Some(new) = self.map.get(value)
                     {
                         l.value = self.allocator.alloc_str(new).into();
                         l.raw = None;
@@ -946,15 +956,21 @@ fn assign_names(
             &mut self,
             it: &oxc_ast::ast::ComputedMemberExpression<'a>,
         ) {
-            if let oxc_ast::ast::Expression::StringLiteral(l) = &it.expression {
-                self.one(l.value.as_str());
+            if let oxc_ast::ast::Expression::StringLiteral(l) = &it.expression
+                && let Some(value) = l.value.as_str()
+            {
+                self.one(value);
             }
             oxc_ast_visit::walk::walk_computed_member_expression(self, it);
         }
         fn visit_property_key(&mut self, it: &oxc_ast::ast::PropertyKey<'a>) {
             match it {
                 oxc_ast::ast::PropertyKey::StaticIdentifier(i) => self.one(i.name.as_str()),
-                oxc_ast::ast::PropertyKey::StringLiteral(l) => self.one(l.value.as_str()),
+                oxc_ast::ast::PropertyKey::StringLiteral(l) => {
+                    if let Some(value) = l.value.as_str() {
+                        self.one(value);
+                    }
+                }
                 _ => {}
             }
             oxc_ast_visit::walk::walk_property_key(self, it);
@@ -969,8 +985,9 @@ fn assign_names(
         fn visit_binary_expression(&mut self, it: &oxc_ast::ast::BinaryExpression<'a>) {
             if it.operator == oxc_syntax::operator::BinaryOperator::In
                 && let oxc_ast::ast::Expression::StringLiteral(l) = &it.left
+                && let Some(value) = l.value.as_str()
             {
-                self.one(l.value.as_str());
+                self.one(value);
             }
             oxc_ast_visit::walk::walk_binary_expression(self, it);
         }
@@ -1149,6 +1166,10 @@ pub fn minify_with_properties(
     strings.visit_program(&program);
     if std::env::var("DARTFORGE_JSPROD_COMPRESS").map_or(true, |v| v != "0") {
         let mut c = oxc_minifier::CompressOptions::smallest();
+        // Match Oxc's implicit twelve-pass release budget explicitly. Its
+        // implicit limit panics in debug builds on valid deep hierarchies;
+        // reaching a bounded optimization budget must preserve executable JS.
+        c.max_iterations = Some(11);
         // `Object.create(dart.library)` of a namespace nobody cites: no effect.
         c.treeshake.manual_pure_functions = [
             "dart.privateName",

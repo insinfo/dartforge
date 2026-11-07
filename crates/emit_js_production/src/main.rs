@@ -13,7 +13,7 @@ const USAGE: &str = "usage: dartforge-jsprod <input.dart> -o <output.js> \
 [--sdk <lib>] [--packages <package_config.json>] [--dart-sdk-js <file>] \
 [--no-prune] [--no-members] [--no-user-prune] [--minify|--no-minify] [--verify-stub] [--own-sdk|--sdk-ddc] [--enable-asserts] \
 [--omit-implicit-checks] [--trust-primitives] [--omit-late-names|--no-omit-late-names] \
-[--language-version x.y] [--enable-experiment=a,b]
+[-Dname=value] [--language-version x.y] [--enable-experiment=a,b]
 
 Optimization levels, as dart2js (the default here is -O2):
   -O1  closed world and the optimizations that keep the semantics, not minified
@@ -89,7 +89,10 @@ fn run() -> Result<(), String> {
             }
             other
                 if other.starts_with("--language-version")
-                    || other.starts_with("--enable-experiment") =>
+                    || other.starts_with("--enable-experiment")
+                    || other.starts_with("-D")
+                    || other == "--define"
+                    || other.starts_with("--define=") =>
             {
                 let mut rest = args[i + 1..].iter().map(String::as_str);
                 let before = rest.len();

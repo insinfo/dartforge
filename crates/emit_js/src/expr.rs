@@ -629,6 +629,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn constant(&self, x: ExprId) -> Option<bool> {
         let f = self.ctx.filter?;
         match &self.expr(x).kind {
+            ExprKind::Bool(value) => Some(*value),
             ExprKind::Identifier(_)
             | ExprKind::Property { .. }
             | ExprKind::Unary { .. }
@@ -642,10 +643,28 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Emits an expression; `expected` is the context type (downward inference).
     pub fn emit_expr(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
+        if self
+            .ctx
+            .filter
+            .is_some_and(|filter| filter.elided_const_initializer(self.unit, e))
+        {
+            // Keep the local binding's static type while omitting an initializer
+            // whose only reads were already replaced by weak-reference literals.
+            return (
+                Js::prim("null"),
+                self.common_type(e)
+                    .or_else(|| expected.cloned())
+                    .unwrap_or(Ty::Dynamic),
+            );
+        }
+
         if let Some(b) = self.constant(e) {
             return (
                 Js::prim(if b { "true" } else { "false" }.to_string()),
-                self.ctx.t_bool(),
+                // Folding the value does not narrow its static type: an
+                // Object receiver can select an extension instead of bool's
+                // instance operators.
+                self.common_type(e).unwrap_or_else(|| self.ctx.t_bool()),
             );
         }
         let expr = self.expr(e);
@@ -894,6 +913,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         else {
             return (js, ty);
         };
+        if let Ty::Iface {
+            class,
+            nullable: false,
+            ..
+        } = &ty
+            && Some(*class) != self.ctx.function_
+            && let Some(m) = self.ctx.lookup_member(&ty, "call", false)
+            && matches!(m.kind, MemberKind::Method(_))
+        {
+            let mty = self.ctx.member_ty(&m);
+            let key = self.member_key_string(&ty, "call");
+            let bound = Js::prim(format!("dart.bind({}, {key})", js.code));
+            // A generic `call` tear-off still needs contextual instantiation.
+            return self.coerce_with(bound, mty, expected, true);
+        }
         if !etps.is_empty() {
             return (js, ty);
         }
@@ -959,21 +993,6 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     Js::prim(self.constant_instantiation(&js, code, constant)),
                     inner.subst(&subst),
                 )
-            }
-            Ty::Iface {
-                class,
-                nullable: false,
-                ..
-            } if Some(*class) != self.ctx.function_ => {
-                // Callable class: tearoff of `call`.
-                match self.ctx.lookup_member(&ty, "call", false) {
-                    Some(m) if matches!(m.kind, MemberKind::Method(_)) => {
-                        let mty = self.ctx.member_ty(&m);
-                        let key = self.member_key_string(&ty, "call");
-                        (Js::prim(format!("dart.bind({}, {key})", js.code)), mty)
-                    }
-                    _ => (js, ty),
-                }
             }
             _ => (js, ty),
         }
@@ -1382,7 +1401,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 } else {
                     *else_
                 };
-                self.emit_expr(branch, expected)
+                // The selected operand is still part of a conditional: implicit
+                // `.call` conversion belongs to the whole expression, whose
+                // static type also includes the discarded operand.
+                self.uncoerced.insert(branch);
+                let (js, ty) = self.emit_expr(branch, expected);
+                (js, self.common_type(e).unwrap_or(ty))
             }
             ExprKind::Conditional {
                 condition,
@@ -1655,16 +1679,29 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     fn emit_string_lit(&mut self, lit: &ast::StringLit) -> (Js, Ty) {
         let mut parts: Vec<String> = Vec::new();
         let mut pending: Vec<u16> = Vec::new();
+        // Empty text pieces around an interpolation do not provide the string
+        // operand needed by JavaScript's primitive concatenation.
+        let alone = lit
+            .parts
+            .iter()
+            .filter(|part| match part {
+                ast::StringPart::Text(text) => text.utf16_len() != 0,
+                ast::StringPart::Interpolation(_) => true,
+            })
+            .take(2)
+            .count()
+            == 1;
+        let mut interpolated = false;
         for part in lit.parts.iter() {
             match part {
                 ast::StringPart::Text(t) => pending.extend(t.code_units()),
                 ast::StringPart::Interpolation(e) => {
+                    interpolated = true;
                     if !pending.is_empty() {
                         parts.push(js::string_literal_units(pending.drain(..)));
                     }
                     let (v, vty) = self.emit_expr(*e, None);
                     // A lone interpolation (`"$b"`) is the whole string.
-                    let alone = lit.parts.len() == 1;
                     parts.push(self.interpolation_part(v, &vty, alone));
                 }
             }
@@ -1673,7 +1710,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             parts.push(js::string_literal_units(pending.drain(..)));
         }
         if parts.len() == 1 {
-            return (Js::new(parts.remove(0), P_PRIMARY), self.ctx.t_string());
+            // A lone value can still be an assignment, conditional or coercing
+            // addition. Member access must bind to its complete string value.
+            let precedence = if interpolated { P_ASSIGN } else { P_PRIMARY };
+            return (Js::new(parts.remove(0), precedence), self.ctx.t_string());
         }
         // Make sure the concatenation starts with a string.
         if !parts[0].starts_with('"') {
@@ -4054,7 +4094,49 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 };
                 (js, ty, guards)
             }
-            ExprKind::Call { target, arguments } => self.emit_call(*target, arguments, expected),
+            ExprKind::Call { target, arguments } => {
+                if let Some((fid, live)) = self
+                    .ctx
+                    .filter
+                    .and_then(|filter| filter.weak_reference(self.unit, e))
+                {
+                    if !live {
+                        return (Js::prim("null"), Ty::Null, vec![]);
+                    }
+                    let function = self.ctx.program.function(fid);
+                    let name = self.name(function.name).to_string();
+                    let (js, ty) = if matches!(
+                        function.kind,
+                        FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+                    ) {
+                        let class = function.class.expect("normalized constructor has a class");
+                        let constructor_name = if name.is_empty() { "new" } else { &name };
+                        let Some(value) = self.ctor_tearoff(class, vec![], constructor_name) else {
+                            self.language_error(
+                                self.expr(e).span,
+                                "The weak constructor tear-off could not be emitted.".into(),
+                            );
+                            return (Js::prim("null"), Ty::Dynamic, vec![]);
+                        };
+                        value
+                    } else if let Some(class) = function.class {
+                        self.emit_static_get(class, &name, MemberKind::Method(fid))
+                    } else if let Some(extension) = function.extension {
+                        let ext = self.extension_js_name(extension);
+                        let library = self.lib_var(function.library);
+                        let reference = format!(
+                            "{library}[{}]",
+                            js::string_literal(&format!("{ext}|{name}"))
+                        );
+                        let ty = self.ctx.fn_ty(fid);
+                        (self.tearoff_static(&reference, &ty), ty)
+                    } else {
+                        self.emit_element_get(Element::Function(fid), &name)
+                    };
+                    return (js, ty, vec![]);
+                }
+                self.emit_call(*target, arguments, expected)
+            }
             _ => {
                 let (js, ty) = self.emit_expr(e, expected);
                 (js, ty, vec![])
@@ -4933,7 +5015,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.pending_promotions = n;
                 self.negated_promotions = p;
                 (
-                    Js::new(format!("!{}", Js::new(c, P_PRIMARY).at(P_UNARY)), P_UNARY),
+                    // Conditions are returned as text, without precedence.
+                    // An optimized call may have become a comparison.
+                    Js::new(format!("!({c})"), P_UNARY),
                     self.ctx.t_bool(),
                 )
             }
@@ -7213,28 +7297,39 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         expected: Option<&Ty>,
         is_const: bool,
     ) -> (Js, Ty) {
-        // `bool/int/String.fromEnvironment` and `bool.hasEnvironment` (`const
-        // factory external` constructors): environment constants, evaluated at
-        // compile time — that is what the CFE does and what `dart_sdk.js`
-        // requires, since the constructors throw `UnsupportedError` at runtime.
-        if ctor_name == "fromEnvironment" {
-            if let Some(r) = self.environment_constant(class, arguments) {
-                return r;
+        // Explicit `C.new(...)` names the unnamed constructor. Its element
+        // determines factory dispatch and argument inference, just as `C(...)`.
+        let ctor_name = if ctor_name == "new" { "" } else { ctor_name };
+        // Only constant contexts read declarations. dart2js replaces ordinary
+        // environment invocations with an unsupported operation.
+        if !is_const && !self.in_const {
+            if let Some(result) = self.environment_unsupported(class, ctor_name, arguments) {
+                return result;
             }
         }
-        if ctor_name == "hasEnvironment" && Some(class) == self.ctx.bool_ {
-            // Outside a constant it is unsupported on the web, as in the SDK.
-            if !is_const && !self.in_const {
-                self.m.use_sdk("core");
-                return (
-                    Js::prim(
-                        "dart.throw(new core.UnsupportedError.new(\"bool.hasEnvironment can only be used as a const constructor\"))",
-                    ),
-                    self.ctx.t_bool(),
-                );
+        if is_const || self.in_const {
+            if ctor_name == "fromEnvironment" {
+                if let Some(result) = self.environment_constant(class, arguments) {
+                    return result;
+                }
             }
-            // Without `-D` on the command line, no variable is declared.
-            return (Js::prim("false"), self.ctx.t_bool());
+            if ctor_name == "hasEnvironment" && Some(class) == self.ctx.bool_ {
+                if let Some(name) = self.environment_name(arguments) {
+                    let declared = name.as_deref().is_some_and(|name| {
+                        if let Some(environment) = &self.ctx.program.compilation_environment {
+                            environment.get(name).is_some()
+                        } else {
+                            name.strip_prefix("dart.library.").is_some_and(|library| {
+                                self.ctx.program.supported_sdk_libraries.contains(library)
+                            })
+                        }
+                    });
+                    return (
+                        Js::prim(if declared { "true" } else { "false" }),
+                        self.ctx.t_bool(),
+                    );
+                }
+            }
         }
         if crate::extension_type::is_erased_extension_type(self.ctx, class) {
             let _ = is_const;
@@ -7359,66 +7454,159 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.finish_ctor_call(class, targs, fid, ctor_name, arg_js, is_const)
     }
 
-    /// Value of `const bool/int/String.fromEnvironment(name, defaultValue: v)`.
-    /// Without `-D` on the command line, the value is always the `defaultValue`
-    /// (`false`, `0` and `""` when omitted, as the specification requires).
+    /// Mirrors dart2js's external environment-constructor replacement (SDK
+    /// 3.6.2, ssa/builder.dart). CFE hoists named arguments preceding a
+    /// positional argument; the replacement does not evaluate call arguments
+    /// or perform their parameter casts. Keep those hoisted side effects.
+    pub fn environment_unsupported(
+        &mut self,
+        class: ClassId,
+        constructor: &str,
+        arguments: &ast::Arguments,
+    ) -> Option<(Js, Ty)> {
+        let (name, ty) = if Some(class) == self.ctx.bool_ {
+            ("bool", self.ctx.t_bool())
+        } else if Some(class) == self.ctx.int_ {
+            ("int", self.ctx.t_int())
+        } else if Some(class) == self.ctx.string_ {
+            ("String", self.ctx.t_string())
+        } else {
+            return None;
+        };
+        if constructor != "fromEnvironment" && !(constructor == "hasEnvironment" && name == "bool")
+        {
+            return None;
+        }
+        if !self.ctx.production() {
+            // CFE hoists named values preceding a positional argument without
+            // their parameter casts. The name is checked before later values;
+            // the saved default is checked when forming the SDK call.
+            let mut prefix = Vec::new();
+            let mut positional = None;
+            let mut default_value = None;
+            for argument in &arguments.args {
+                let (value, value_type) = self.emit_expr(argument.value, None);
+                let value = if argument.name.is_none() {
+                    self.coerce_with(value, value_type.clone(), &self.ctx.t_string(), true)
+                        .0
+                } else {
+                    value
+                };
+                let temporary = self.temp();
+                prefix.push(format!("{temporary} = {}", value.at(js::P_ASSIGN)));
+                let value = Js::prim(temporary);
+                if argument.name.is_none() {
+                    positional = Some(value);
+                } else {
+                    default_value = Some((value, value_type));
+                }
+            }
+            let mut call_args = vec![positional?.into_at(js::P_ASSIGN)];
+            if let Some((value, value_type)) = default_value {
+                let value = self.coerce_with(value, value_type, &ty, true).0;
+                call_args.push(format!("{{defaultValue: {}}}", value.at(js::P_ASSIGN)));
+            }
+            prefix.push(format!(
+                "{}.{}({})",
+                self.class_ref(class),
+                static_member_name(constructor),
+                call_args.join(", ")
+            ));
+            return Some((Js::prim(format!("({})", prefix.join(", "))), ty));
+        }
+        let last_positional = arguments
+            .args
+            .iter()
+            .rposition(|argument| argument.name.is_none());
+        let mut prefix = Vec::new();
+        for (index, argument) in arguments.args.iter().enumerate() {
+            if argument.name.is_some() && last_positional.is_some_and(|last| index < last) {
+                prefix.push(self.emit_expr(argument.value, None).0.into_at(js::P_ASSIGN));
+            }
+        }
+        self.m.use_sdk("core");
+        let message = js::string_literal(&format!(
+            "{name}.{constructor} can only be used as a const constructor"
+        ));
+        prefix.push(format!(
+            "dart.throw(new core.UnsupportedError.new({message}))"
+        ));
+        Some((Js::prim(format!("({})", prefix.join(", "))), ty))
+    }
+
+    /// A known UTF-16 name can contain unpaired surrogates. Such a name
+    /// cannot match the UTF-8 command-line declarations, but is still constant.
+    fn environment_name(&self, arguments: &ast::Arguments) -> Option<Option<String>> {
+        let first = arguments
+            .args
+            .iter()
+            .find(|argument| argument.name.is_none())?;
+        let value = self.ctx.compilation_constant(self.unit, first.value)?;
+        Some(String::from_utf16(value.as_text()?).ok())
+    }
+
+    /// Value of a constant environment constructor under this compilation's
+    /// declarations; ordinary invocations use the patched SDK runtime.
     pub fn environment_constant(
         &mut self,
         class: ClassId,
         arguments: &ast::Arguments,
     ) -> Option<(Js, Ty)> {
         let (default_js, ty) = if Some(class) == self.ctx.bool_ {
-            ("false".to_string(), self.ctx.t_bool())
+            ("false", self.ctx.t_bool())
         } else if Some(class) == self.ctx.int_ {
-            ("0".to_string(), self.ctx.t_int())
+            ("0", self.ctx.t_int())
         } else if Some(class) == self.ctx.string_ {
-            ("\"\"".to_string(), self.ctx.t_string())
+            ("\"\"", self.ctx.t_string())
         } else {
             return None;
         };
-        // `dart.library.x` is declared (`"true"`) for every library the
-        // platform supports.
-        if (Some(class) == self.ctx.bool_ || Some(class) == self.ctx.string_)
-            && let Some(first) = arguments.args.iter().find(|a| a.name.is_none())
-            && let ExprKind::String(lit) = &self.expr(first.value).kind
-            && let Some(text) = lit.constant_value()
-            && let Some(library) = text.as_str().and_then(|t| t.strip_prefix("dart.library."))
-            && crate::SUPPORTED_DART_LIBRARIES
-                .get()
-                .is_some_and(|s| s.contains(library))
+        let name = self.environment_name(arguments)?;
+        if let Some(environment) = &self.ctx.program.compilation_environment {
+            if let Some(name) = name.as_deref() {
+                let value = if Some(class) == self.ctx.bool_ {
+                    environment.boolean(name).map(|value| value.to_string())
+                } else if Some(class) == self.ctx.int_ {
+                    environment.integer(name).map(|value| match value {
+                        dartforge_elements::environment::EnvironmentInteger::Native(value) => {
+                            value.to_string()
+                        }
+                        dartforge_elements::environment::EnvironmentInteger::JavaScript(value) => {
+                            value.to_string()
+                        }
+                    })
+                } else {
+                    environment.get(name).map(js::string_literal)
+                };
+                if let Some(value) = value {
+                    return Some((Js::prim(value), ty));
+                }
+            }
+        } else if (Some(class) == self.ctx.bool_ || Some(class) == self.ctx.string_)
+            && name
+                .as_deref()
+                .and_then(|name| name.strip_prefix("dart.library."))
+                .is_some_and(|library| self.ctx.program.supported_sdk_libraries.contains(library))
         {
-            let value = if Some(class) == self.ctx.bool_ {
-                "true"
-            } else {
-                "\"true\""
-            };
-            return Some((Js::prim(value.to_string()), ty));
+            return Some((
+                Js::prim(if Some(class) == self.ctx.bool_ {
+                    "true"
+                } else {
+                    "\"true\""
+                }),
+                ty,
+            ));
         }
-        let default_arg = arguments
-            .args
-            .iter()
-            .find(|a| {
-                a.name
-                    .as_ref()
-                    .is_some_and(|n| self.name(n.sym) == "defaultValue")
-            })
-            .map(|a| a.value);
-        let Some(arg) = default_arg else {
-            return Some((Js::prim(default_js), ty));
-        };
-        let (js, jty) = self.emit_expr(arg, Some(&ty));
-        // Only fold when the default is already a literal; any other form falls
-        // into the normal path (and the program is not valid Dart anyway).
-        let literal = matches!(js.code.as_str(), "true" | "false")
-            || js.code.starts_with('"')
-            || js
-                .code
-                .chars()
-                .all(|c| c.is_ascii_digit() || c == '.' || c == '-');
-        if literal && !js.code.is_empty() {
-            return Some((js, jty));
-        }
-        None
+        let default_arg = arguments.args.iter().find(|argument| {
+            argument
+                .name
+                .as_ref()
+                .is_some_and(|name| self.name(name.sym) == "defaultValue")
+        });
+        Some(match default_arg {
+            Some(argument) => self.emit_expr(argument.value, Some(&ty)),
+            None => (Js::prim(default_js), ty),
+        })
     }
 
     fn finish_ctor_call(
@@ -7593,6 +7781,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         else {
             return None;
         };
+        if name == "new" {
+            name.clear();
+        }
         let key = if name.is_empty() {
             self.ctx.empty_sym
         } else {

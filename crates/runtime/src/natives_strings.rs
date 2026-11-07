@@ -297,15 +297,11 @@ pub extern "C" fn dartforge_native_DartForge_string_equals_object(this: i64, oth
 /// line terminator, like the VM's `print` (a lone surrogate becomes U+FFFD).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_DartForge_print(line: i64) {
-    use std::io::Write;
-    let mut bytes = if line == 0 {
-        b"null".to_vec()
+    if line == 0 {
+        print_line(b"null".to_vec());
     } else {
-        with_string(line, |t| t.to_vm_utf8())
-    };
-    bytes.push(b'\n');
-    let mut out = crate::console::stdout();
-    let _ = out.write_all(&bytes);
+        with_string(line, |t| print_string(t));
+    }
 }
 
 /// The (non-null) `Ref` strings of `list[start..end)`, in order.

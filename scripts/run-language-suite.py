@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Runs the Dart SDK's tests/language suite on the VM, DDC, dart2wasm or DartForge
+"""Runs the Dart SDK's tests/language suite on the VM, DDC, dart2js, dart2wasm or DartForge
 (JS, WebAssembly or native AOT).
 
 The suite is the one of a Dart SDK source checkout at a tag (3.6.2 by
@@ -12,8 +12,9 @@ markers, `// [analyzer]`, `// [cfe]` or `// [web]` annotations), outside
 usage:
   run-language-suite.py setup --checkout DIR [--tag 3.6.2] [--meta DIR] [--collection DIR]
   run-language-suite.py setup --packages-only [--checkout DIR] [--tag 3.6.2] [--meta DIR] [--collection DIR]
-  run-language-suite.py vm|dartaot|ddc|dart2wasm|forge|wasm|native|jit [--jobs N] [--out NAME]
-        [--list FILE] [--ref NAME] [--alt NAME] [filter...]
+  run-language-suite.py vm|dartaot|ddc|dart2js|dart2wasm|forge|jsprod|wasm|native|jit [--jobs N] [--out NAME]
+        [--list FILE] [--ref NAME] [--alt NAME] [--js-level -O1|-O2]
+        [--stack-trace none|symbolic] [filter...]
   run-language-suite.py compare [--forge|--native|--wasm|--dartaot] [--ref NAME] [--alt NAME] OLD NEW
         (by result name: regressions, fixes and the moves between "equal" and
          "rejected by both"; --wasm also accepts dart2wasm's results)
@@ -22,7 +23,22 @@ A tool's results go to <work>/results/<name>.json as {test: {code, out, err}};
 the other tools compare against the VM's reference (`--ref`, default
 `vm.json`; `--alt`, dart2wasm's for `wasm`, default `dart2wasm.json`) and
 write <name>.fail.txt. With filters or `--list` only those programs run and
-the results merge into an existing <name>.json.
+the results merge into an existing <name>.json. Each invocation writes a
+<name>.journal.jsonl and <name>.run.json with its selected and completed counts;
+the result snapshot is checkpointed every 50 completions. Failures return exit 1,
+including VM compile/runtime failures; empty selections and invalid options are errors.
+Stdout and stderr tails are retained. Identity hashes are not normalized.
+An exit-zero asynchronous test must print `unittest-suite-success` after
+requesting completion with `unittest-suite-wait-for-done`, as required by
+the SDK test runner. An incomplete test fails without changing its raw status.
+
+`jsprod` runs the separate production compiler (`JSPROD`, default
+target/release/dartforge-jsprod), using its own SDK and checks enabled. Both
+`jsprod` and `dart2js` use `--js-level` (default -O2; only -O1 and -O2 are
+accepted). A successful result equal to dart2js, but different from the VM,
+is counted separately. A shared runtime failure is not accepted by that rule.
+`native --stack-trace symbolic` explicitly enables symbolic traces; without
+the option the CLI/environment default applies. Record profiles separately.
 
 Packages: the suite's `.dart_tool/package_config.json` has `expect`,
 `async_helper` and `tests`, and also `meta` (`pkg/meta`: the three
@@ -99,7 +115,7 @@ target/language-suite), DART_SDK (default: `dart` on PATH), NODE (default:
 `node` on PATH), FORGE (default target/release/dartforge), WASM_RUN (default
 dartforge-wasm-run next to FORGE).
 """
-import json, os, re, subprocess, sys, hashlib, shutil, tarfile, io, concurrent.futures as cf
+import json, os, re, subprocess, sys, hashlib, shutil, tarfile, io, time, concurrent.futures as cf
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.environ.get("DARTFORGE_LANG_WORK", os.path.join(ROOT, "target", "language-suite"))
@@ -117,6 +133,9 @@ DART_SDK = _dart_sdk()
 DART = os.path.join(DART_SDK, "bin", "dart")
 NODE = os.environ.get("NODE") or shutil.which("node") or "node"
 FORGE = os.environ.get("FORGE", os.path.join(ROOT, "target", "release", "dartforge"))
+JSPROD = os.environ.get("JSPROD", os.path.join(ROOT, "target", "release", "dartforge-jsprod"))
+JS_LEVEL = "-O2"
+STACK_TRACE = None
 WASM_RUN = os.environ.get("WASM_RUN", os.path.join(os.path.dirname(FORGE), "dartforge-wasm-run"))
 WORK = os.path.join(HERE, "work")
 RES = os.path.join(HERE, "results")
@@ -213,6 +232,47 @@ def run(cmd, cwd, timeout=TIMEOUT):
         return -999, "", "timeout"
 
 
+def compile_failure(code, out, err):
+    """Retain the actual compiler status, including crashes and timeouts."""
+    return {"code": -1000, "compile_code": code, "out": "",
+            "err": ("[compile] %d " % code + out + err)[-2000:]}
+
+
+JS_PRELUDE = ("globalThis.self = Object.create(globalThis);\n"
+              "self.scheduleImmediate = (f) => { Promise.resolve().then(f); };\n"
+              "require('./main.js');\n")
+
+
+def production_js(test, official=False):
+    """Compile and run both production backends under the same Node host."""
+    d = work_dir("dart2js" if official else "jsprod", test)
+    js = os.path.join(d, "main.js")
+    packages = os.path.join(SDK, ".dart_tool/package_config.json")
+    if official:
+        cmd = [DART, "compile", "js", JS_LEVEL, "--packages=" + packages]
+        cmd += experiment_flags(test) + [test, "-o", js]
+    else:
+        cmd = [JSPROD, test, "-o", js, JS_LEVEL, "--own-sdk", "--sdk",
+               os.path.join(DART_SDK, "lib"), "--packages", packages]
+        cmd += forge_experiment_flags(test)
+    c, o, e = run(cmd, SDK, 300)
+    if c != 0 or not os.path.exists(js):
+        return compile_failure(c, o, e)
+    # CJS keeps browser shims out of generated source and supports async tests.
+    with open(os.path.join(d, "run.cjs"), "w", encoding="utf-8") as f:
+        f.write(JS_PRELUDE)
+    c, o, e = run([NODE, "run.cjs"], d)
+    return {"code": c, "out": o, "err": e[-2000:]}
+
+
+def dart2js(test):
+    return production_js(test, official=True)
+
+
+def jsprod(test):
+    return production_js(test)
+
+
 def exported_name(js):
     for line in js.splitlines():
         if line.startswith("export {"):
@@ -241,7 +301,7 @@ def dartaot(test):
     c, o, e = run([DART, "compile", "exe"] + experiment_flags(test)
                   + ["--packages=" + os.path.join(SDK, ".dart_tool/package_config.json"), test, "-o", exe], SDK, 300)
     if c != 0 or not os.path.exists(exe):
-        return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
+        return compile_failure(c, o, e)
     c, o, e = run([exe], d)
     return {"code": c, "out": o, "err": e[-2000:]}
 
@@ -250,7 +310,7 @@ def forge(test):
     d = work_dir("forge", test)
     c, o, e = run([FORGE, "compile-js", test, "-o", d, "--packages", os.path.join(SDK, ".dart_tool/package_config.json")] + forge_experiment_flags(test), SDK, 120)
     if c != 0 or not os.path.exists(os.path.join(d, "main.mjs")):
-        return {"code": -1000, "out": "", "err": ("[compile] %d " % c + e)[-2000:]}
+        return compile_failure(c, o, e)
     c, o, e = run([NODE, "main.mjs"], d)
     return {"code": c, "out": o, "err": e[-2000:]}
 
@@ -260,7 +320,7 @@ def wasm(test):
     module = os.path.join(d, "main.wasm")
     c, o, e = run([FORGE, "compile-wasm", test, "-o", module, "--packages", os.path.join(SDK, ".dart_tool/package_config.json")] + forge_experiment_flags(test), SDK, 300)
     if c != 0 or not os.path.exists(module):
-        return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
+        return compile_failure(c, o, e)
     if os.path.exists(os.path.join(d, "main.mjs")):
         c, o, e = run([NODE, os.path.join(ROOT, "runtime", "wasm", "run_node.mjs"), module], d)
     else:
@@ -280,9 +340,10 @@ def native(test):
     # As `dart compile exe`: asserts off, like the VM run of vm.json.
     d = work_dir("native", test)
     exe = os.path.join(d, "main.exe" if sys.platform == "win32" else "main")
-    c, o, e = run([FORGE, "aot", test, exe, "--optimize", "--packages", os.path.join(SDK, ".dart_tool/package_config.json")] + forge_experiment_flags(test), SDK, 300)
+    flags = ["--stack-trace", STACK_TRACE] if STACK_TRACE is not None else []
+    c, o, e = run([FORGE, "aot", test, exe, "--optimize", "--packages", os.path.join(SDK, ".dart_tool/package_config.json")] + flags + forge_experiment_flags(test), SDK, 300)
     if c != 0 or not os.path.exists(exe):
-        return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
+        return compile_failure(c, o, e)
     c, o, e = run([exe], d)
     return {"code": c, "out": o, "err": e[-2000:]}
 
@@ -292,7 +353,7 @@ def dart2wasm(test):
     module = os.path.join(d, "main.wasm")
     c, o, e = run([DART, "compile", "wasm"] + experiment_flags(test) + [test, "-o", module], SDK, 300)
     if c != 0:
-        return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
+        return compile_failure(c, o, e)
     c, o, e = run([NODE, os.path.join(ROOT, "runtime", "wasm", "run_dart2wasm.mjs"), os.path.join(d, "main.mjs"), module], d)
     return {"code": c, "out": o, "err": e[-2000:]}
 
@@ -308,6 +369,12 @@ def same(a, b):
     return a["code"] == b["code"] and a["out"] == b["out"]
 
 
+def incomplete_async(r):
+    """Detect exit-zero tests missing the SDK async-helper completion signal."""
+    return (r["code"] == 0 and "unittest-suite-wait-for-done" in r["out"]
+            and "unittest-suite-success" not in r["out"])
+
+
 def fails_like(vm_r, d2w, r):
     """The VM's output up to an uncaught error dart2wasm also reports."""
     msg = lambda x: (x["err"].splitlines()[1:2] or [None])[0]
@@ -317,7 +384,7 @@ def fails_like(vm_r, d2w, r):
 
 def default_alt(tool):
     """The web reference of a tool: dart2wasm for `wasm`, DDC for `forge`."""
-    return {"wasm": "dart2wasm", "forge": "ddc"}.get(tool, "dart2wasm")
+    return {"wasm": "dart2wasm", "forge": "ddc", "jsprod": "dart2js"}.get(tool, "dart2wasm")
 
 
 def first_difference(a, b):
@@ -358,11 +425,21 @@ def matches(tool, test, r, ref, alt):
     to compile, 254, that the tool refuses too: `forge`, `wasm`, `native` and
     `dartaot`), `passes` (the test passes where the VM fails one of its
     expectations), or None (a failure)."""
-    if test in ref and same(r, ref[test]):
+    if incomplete_async(r):
+        return None
+    if r["code"] < 0 or r.get("compile_code", 1) <= 0:
+        # A compile refusal is considered below; infrastructure failures never match.
+        if r["code"] != -1000 or r.get("compile_code", 1) <= 0:
+            return None
+    # A successful dart2js reference cannot be matched by a failing VM run.
+    # Shared VM failures are not evidence for the production JS contract.
+    if tool == "jsprod" and test in alt and alt[test]["code"] == 0 and r["code"] != 0:
+        return None
+    if test in ref and ref[test]["code"] >= 0 and same(r, ref[test]):
         return "vm"
     if test in ref and vm_fails_expectation(ref[test], r):
         return "passes"
-    if tool in ("forge", "wasm", "native", "dartaot") and test in ref and ref[test]["code"] == 254 and r["code"] == -1000:
+    if tool in ("forge", "wasm", "native", "dartaot", "dart2js", "jsprod") and test in ref and ref[test]["code"] == 254 and r["code"] == -1000 and r.get("compile_code", 1) != 101:
         return "rejected"
     # `jit` compiles and runs in one process: a refusal exits like a compile
     # error of `dartforge` (1) with no output, after the VM refused too.
@@ -374,6 +451,8 @@ def matches(tool, test, r, ref, alt):
             return "dart2wasm"
     if tool == "forge" and test in alt and test in ref and same_divergence(ref[test], alt[test], r):
         return "ddc"
+    if tool == "jsprod" and test in alt and test in ref and r["code"] == 0 and not r["err"].strip() and same(r, alt[test]) and not alt[test]["err"].strip():
+        return "dart2js"
     return None
 
 
@@ -386,7 +465,7 @@ def ddc(test):
                    "--packages=" + os.path.join(SDK, ".dart_tool/package_config.json")]
                   + experiment_flags(test) + ["-o", js, test], SDK, 120)
     if c != 0:
-        return {"code": -1000, "out": "", "err": ("[compile] %d " % c + o + e)[-2000:]}
+        return compile_failure(c, o, e)
     sdkjs = os.path.join(ROOT, "runtime", "ddc", "dart_sdk.js")
     shutil.copy(sdkjs, os.path.join(d, "dart_sdk.js"))
     src = open(js).read().replace("from 'dart_sdk.js'", "from './dart_sdk.js'")
@@ -519,7 +598,7 @@ def compare(old, new, tool="forge", ref_name="vm", alt_name=None):
     a = json.load(open(os.path.join(RES, old + ".json")))
     b = json.load(open(os.path.join(RES, new + ".json")))
     alt_path = os.path.join(RES, (alt_name or default_alt(tool)) + ".json")
-    alt = json.load(open(alt_path)) if tool in ("wasm", "forge") and os.path.exists(alt_path) else {}
+    alt = json.load(open(alt_path)) if tool in ("wasm", "forge", "jsprod") and os.path.exists(alt_path) else {}
     moves = {}
     for t in vm:
         ka, kb = kind(tool, t, a, vm, alt), kind(tool, t, b, vm, alt)
@@ -536,8 +615,36 @@ def compare(old, new, tool="forge", ref_name="vm", alt_name=None):
         if "failure" not in (ka, kb):
             print("%s -> %s: %s" % (ka, kb, sorted(ts)))
 
-def main():
-    args = sys.argv[1:]
+def write_json(path, value):
+    """Replace a checkpoint only after its complete JSON has been written."""
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as f:
+        json.dump(value, f, indent=0, sort_keys=True)
+    os.replace(temporary, path)
+
+
+def read_json(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def file_hash(path):
+    """Hash an available input without requiring unrelated backend tools."""
+    if not os.path.isfile(path):
+        return None
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def main(argv=None):
+    global JS_LEVEL, STACK_TRACE
+    JS_LEVEL, STACK_TRACE = "-O2", None
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args:
+        raise ValueError("expected a tool or setup/compare")
     tool = args.pop(0)
     if tool == "setup":
         return setup(args)
@@ -554,7 +661,7 @@ def main():
     args = rest
     if tool == "compare":
         kind_ = "forge"
-        if args[0] in ("--forge", "--native", "--wasm", "--dartaot", "--jit"):
+        if args[0] in ("--forge", "--native", "--wasm", "--dartaot", "--jit", "--jsprod", "--dart2js"):
             kind_ = args.pop(0)[2:]
         return compare(args[0], args[1], kind_, ref_name, alt_name)
     jobs = 8
@@ -571,25 +678,87 @@ def main():
             listed = True
         elif a == "--out":
             out = args.pop(0)
+        elif a == "--js-level":
+            JS_LEVEL = args.pop(0)
+            if JS_LEVEL not in ("-O1", "-O2") or tool not in ("jsprod", "dart2js"):
+                raise ValueError("--js-level requires jsprod/dart2js and -O1 or -O2")
+        elif a == "--stack-trace":
+            STACK_TRACE = args.pop(0)
+            if STACK_TRACE not in ("none", "symbolic") or tool != "native":
+                raise ValueError("--stack-trace requires native and none or symbolic")
+        elif a.startswith("-"):
+            raise ValueError("unknown option: " + a)
         else:
             filters.append(a)
-    tests = [l.strip() for l in open(lst) if l.strip()]
+    with open(lst, encoding="utf-8") as f:
+        tests = [l.strip() for l in f if l.strip()]
     if filters:
         tests = [t for t in tests if any(f in t for f in filters)]
+    if jobs < 1 or not tests or len(tests) != len(set(tests)):
+        raise ValueError("expected positive jobs and a nonempty list of unique tests")
     fn = {"vm": vm, "dartaot": dartaot, "ddc": ddc, "forge": forge, "wasm": wasm, "native": native,
-          "dart2wasm": dart2wasm, "jit": jit}[tool]
+          "dart2wasm": dart2wasm, "jit": jit, "dart2js": dart2js, "jsprod": jsprod}[tool]
     os.makedirs(RES, exist_ok=True)
     path = os.path.join(RES, out + ".json")
-    results = json.load(open(path)) if os.path.exists(path) and (filters or listed) else {}
-    ref = json.load(open(os.path.join(RES, ref_name + ".json"))) if tool != "vm" else {}
+    results = read_json(path) if os.path.exists(path) and (filters or listed) else {}
+    ref = read_json(os.path.join(RES, ref_name + ".json")) if tool != "vm" else {}
     alt_path = os.path.join(RES, (alt_name or default_alt(tool)) + ".json")
-    alt = json.load(open(alt_path)) if tool in ("wasm", "forge") and os.path.exists(alt_path) else {}
-    with cf.ThreadPoolExecutor(jobs) as ex:
-        for t, r in zip(tests, ex.map(fn, tests)):
-            results[t] = r
-            if matches(tool, t, r, ref, alt):
-                shutil.rmtree(os.path.join(WORK, tool, hashlib.md5(t.encode()).hexdigest()[:12]), ignore_errors=True)
-    json.dump(results, open(path, "w"), indent=0, sort_keys=True)
+    alt = read_json(alt_path) if tool in ("wasm", "forge", "jsprod") and os.path.exists(alt_path) else {}
+    if tool != "vm" and any(t not in ref for t in tests):
+        raise ValueError("the VM reference does not cover the selected tests")
+    if tool == "jsprod" and any(t not in alt for t in tests):
+        raise ValueError("jsprod requires a complete dart2js reference (--alt)")
+    profile = {"tool": tool, "jsLevel": JS_LEVEL if tool in ("jsprod", "dart2js") else None,
+               "stackTrace": STACK_TRACE or os.environ.get("DARTFORGE_STACK_TRACE") if tool == "native" else None,
+               "dart": DART, "dartHash": file_hash(DART),
+               "compiler": JSPROD if tool == "jsprod" else FORGE,
+               "compilerHash": file_hash(JSPROD if tool == "jsprod" else FORGE),
+               "node": NODE, "nodeHash": file_hash(shutil.which(NODE) or NODE),
+               "runnerHash": file_hash(__file__),
+               "packagesHash": file_hash(os.path.join(SDK, ".dart_tool/package_config.json")),
+               "referenceHash": file_hash(os.path.join(RES, ref_name + ".json")) if tool != "vm" else None,
+               "alternateHash": file_hash(alt_path) if alt else None}
+    if tool == "jsprod":
+        alt_status_path = os.path.join(RES, (alt_name or default_alt(tool)) + ".run.json")
+        alt_status = read_json(alt_status_path) if os.path.exists(alt_status_path) else {}
+        alt_profile = alt_status.get("profile", {})
+        fields = ("jsLevel", "dartHash", "nodeHash", "packagesHash")
+        if (alt_status.get("state") != "complete" or alt_profile.get("tool") != "dart2js"
+                or any(alt_profile.get(key) != profile[key] for key in fields)
+                or alt_status.get("resultHash") != file_hash(alt_path)):
+            raise ValueError("dart2js reference must be complete and use the same SDK, host and JS level")
+    status_path = os.path.join(RES, out + ".run.json")
+    if results:
+        previous = read_json(status_path) if os.path.exists(status_path) else {}
+        if previous.get("profile") != profile:
+            raise ValueError("refusing to merge different or unrecorded profiles; choose a new --out")
+    status = {"state": "running", "profile": profile, "selected": tests, "completed": [],
+              "started": time.time(), "jobs": jobs}
+    write_json(status_path, status)
+    try:
+        with open(os.path.join(RES, out + ".journal.jsonl"), "w", encoding="utf-8") as journal:
+            with cf.ThreadPoolExecutor(jobs) as ex:
+                pending = {ex.submit(fn, t): t for t in tests}
+                for future in cf.as_completed(pending):
+                    t = pending[future]
+                    r = future.result()
+                    results[t] = r
+                    status["completed"].append(t)
+                    journal.write(json.dumps({"test": t, "result": r}) + "\n")
+                    journal.flush()
+                    if matches(tool, t, r, ref, alt):
+                        shutil.rmtree(os.path.join(WORK, tool, hashlib.md5(t.encode()).hexdigest()[:12]), ignore_errors=True)
+                    if len(status["completed"]) % 50 == 0:
+                        write_json(path, results)
+                        write_json(status_path, status)
+                        print("%s: %d/%d completed" % (tool, len(status["completed"]), len(tests)), flush=True)
+    except BaseException:
+        status["state"] = "interrupted"
+        write_json(path, results)
+        write_json(status_path, status)
+        raise
+    write_json(path, results)
+    bad = [t for t in tests if results[t]["code"] != 0 or incomplete_async(results[t])] if tool == "vm" else []
     if tool != "vm":
         kinds = {t: matches(tool, t, results[t], ref, alt) for t in tests}
         ok = [t for t in tests if kinds[t]]
@@ -600,7 +769,9 @@ def main():
             print("%s: %d only equal to dart2wasm" % (tool, count("dart2wasm")))
         if tool == "forge":
             print("%s: %d with DDC's own divergence from the VM" % (tool, count("ddc")))
-        if tool in ("forge", "wasm", "native", "dartaot", "jit"):
+        if tool == "jsprod":
+            print("%s: %d only equal to successful dart2js" % (tool, count("dart2js")))
+        if tool in ("forge", "wasm", "native", "dartaot", "jit", "jsprod", "dart2js"):
             print("%s: %d rejected by both (the VM refuses them too)" % (tool, count("rejected")))
         print("%s: %d passing where the VM fails an expectation" % (tool, count("passes")))
         for t in tests:
@@ -613,6 +784,15 @@ def main():
         if filters:
             for t in bad:
                 print("FAIL", t, results[t]["code"], ref.get(t, {}).get("code"), (results[t]["err"] or "").strip().splitlines()[:1])
+    else:
+        print("vm: %d/%d complete successfully; %d compile/runtime/protocol failures" % (len(tests) - len(bad), len(tests), len(bad)))
+    status.update(state="complete", finished=time.time(), failures=bad, exitCode=1 if bad else 0,
+                  resultHash=file_hash(path))
+    write_json(status_path, status)
+    return status["exitCode"]
 
 if __name__ == "__main__":
-    main()
+    try:
+        sys.exit(main())
+    except (ValueError, IndexError, KeyError) as error:
+        sys.exit("invalid invocation: " + str(error))

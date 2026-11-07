@@ -41,8 +41,46 @@ pub(crate) struct Swap {
     scope: Option<ProbedScope>,
 }
 
+/// Analyzer presentation follows the configured SDK, independently of a
+/// library's language version and the compiler's current language ceiling.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum DisplayReference {
+    /// SDK 3.6 and reduced SDK fixtures without a version file.
+    #[default]
+    Legacy,
+    /// SDK 3.13 exposes synthetic accessors and explicit hover library text.
+    Current,
+}
+
+impl DisplayReference {
+    /// Reads the installed SDK version, never `SdkLayout::current_version`.
+    pub(crate) fn for_sdk(sdk: &dartforge_elements::sdk::SdkLayout) -> Self {
+        Self::for_sdk_lib(&sdk.root)
+    }
+
+    /// Presentation of the configured SDK library directory, cached by the
+    /// transport when it selects an SDK rather than reread for every hover.
+    pub(crate) fn for_sdk_lib(lib: &std::path::Path) -> Self {
+        lib.parent()
+            .and_then(|root| std::fs::read_to_string(root.join("version")).ok())
+            .map_or(Self::Legacy, |version| Self::parse(&version))
+    }
+
+    fn parse(version: &str) -> Self {
+        let mut parts = version.trim().split('.');
+        let major = parts.next().and_then(|part| part.parse::<u32>().ok());
+        let minor = parts.next().and_then(|part| part.parse::<u32>().ok());
+        if matches!((major, minor), (Some(major), Some(minor)) if (major, minor) >= (3, 13)) {
+            Self::Current
+        } else {
+            Self::Legacy
+        }
+    }
+}
+
 /// Program, types and bodies of one request.
 pub(crate) struct Query {
+    pub(crate) display_reference: DisplayReference,
     pub program: Program,
     pub names: Interner,
     pub table: TypeTable,
@@ -57,6 +95,67 @@ pub(crate) struct Query {
 }
 
 impl Query {
+    /// Metadata flags follow the resolved core declaration, including typedef
+    /// constructors. They describe the recovered element even for an invalid
+    /// argument list; a constant instance alias is a different annotation.
+    pub(crate) fn has_deprecated_metadata(
+        &self,
+        unit: UnitId,
+        metadata: &[dartforge_frontend::ast::Annotation],
+    ) -> bool {
+        metadata.iter().any(|annotation| {
+            let Some(element) = dartforge_types::annotations::annotation_element(
+                &self.program,
+                &self.names,
+                unit,
+                annotation,
+            ) else {
+                return false;
+            };
+            let prefixed = annotation.name.first().is_some_and(|name| {
+                matches!(
+                    self.program
+                        .lookup_in_unit(unit, name.sym)
+                        .and_then(|b| b.getter),
+                    Some(Element::Prefix(..))
+                )
+            });
+            let class_segment = usize::from(prefixed);
+            if let Element::Variable(variable) = element {
+                let declaration = self.program.variable(variable);
+                // `@core.deprecated()` is still marked by the official server
+                // despite its invalid call; an unresolved member is not.
+                return annotation.name.len() == class_segment + 1
+                    && self.names.resolve(declaration.name) == "deprecated"
+                    && self.program.library(declaration.library).uri == "dart:core";
+            }
+            let class = match element {
+                Element::Class(class) => class,
+                Element::Typedef(alias) => {
+                    let target = self.outline.typedefs[alias.0 as usize].target_type;
+                    let Type::Interface { class, .. } = self.table.get(target) else {
+                        return false;
+                    };
+                    *class
+                }
+                _ => return false,
+            };
+            let declaration = self.program.class(class);
+            if self.names.resolve(declaration.name) != "Deprecated"
+                || self.program.library(declaration.library).uri != "dart:core"
+                || annotation.name.len() > class_segment + 2
+            {
+                return false;
+            }
+            // Deprecated.extend describes migration compatibility and does not
+            // mark an element deprecated. Unknown constructors are not flags.
+            annotation
+                .name
+                .get(class_segment + 1)
+                .is_none_or(|name| self.names.resolve(name.sym) == "new")
+        })
+    }
+
     /// Resolves the outline and infers the bodies of `libraries`.
     ///
     /// `register_locals` enables the local declarations table (rename); `probe`
@@ -84,6 +183,7 @@ impl Query {
             (bodies, scope)
         };
         Self {
+            display_reference: DisplayReference::default(),
             program,
             names,
             table,
@@ -201,8 +301,15 @@ impl Query {
     /// The same query over the same program, with the bodies of other libraries
     /// (the Flutter colors widen the list).
     pub fn reinfer(self, libraries: &[LibraryId]) -> Self {
-        let Query { program, names, .. } = self;
-        Query::infer(program, names, libraries, true, None)
+        let Query {
+            program,
+            names,
+            display_reference,
+            ..
+        } = self;
+        let mut query = Query::infer(program, names, libraries, true, None);
+        query.display_reference = display_reference;
+        query
     }
 
     /// Text of a type as Dart writes it. `DartType.getDisplayString()` (without

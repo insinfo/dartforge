@@ -316,8 +316,8 @@ fn with_context(
         crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
             .with_source_sdk();
     if packages.is_some() {
-        context =
-            context.with_source_sdk_and_ids(crate::sdk_module::sdk_class_ids(&sdk.root).unwrap());
+        context = context
+            .with_source_sdk_and_ids(crate::sdk_module::sdk_class_ids(&sdk.root, None).unwrap());
     }
     action(&mut context);
 }

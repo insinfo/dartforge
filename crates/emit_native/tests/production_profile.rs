@@ -30,6 +30,7 @@ fn compile(entry: &Path, exe: &Path, flags: DartFlags) {
                 packages: None,
                 timings: false,
                 optimize: true,
+                defines: Vec::new(),
                 language_version: None,
                 experiments: Vec::new(),
                 debug: false,
@@ -83,6 +84,7 @@ void main() {
   print('profile: ${const bool.fromEnvironment("dart.vm.profile", defaultValue: true)}');
   print('text: ${const String.fromEnvironment("dart.vm.product", defaultValue: "absent")}');
 }
+
 "#,
     )
     .unwrap();
@@ -90,14 +92,74 @@ void main() {
     compile(&entry, &production, DartFlags::PRODUCTION);
     assert_eq!(
         run(&production),
-        "assert skipped\nevaluated: 0\nbox built\nproduct: true\nhas product: true\nprofile: false\ntext: true\n"
+        "assert skipped\nevaluated: 0\nbox built\nproduct: true\nhas product: true\nprofile: true\ntext: true\n"
     );
     let development = dir.path().join("development.exe");
     compile(&entry, &development, DartFlags::DEVELOPMENT);
     assert_eq!(
         run(&development),
-        "AssertionError: message true\nevaluated: 2\nbox refused\nproduct: false\nhas product: true\nprofile: false\ntext: false\n"
+        "AssertionError: message true\nevaluated: 2\nbox refused\nproduct: false\nhas product: true\nprofile: true\ntext: false\n"
     );
+}
+
+#[test]
+#[ignore = "requires the Dart 3.6.2 oracle and source-built native SDK"]
+fn declaration_presence_and_conditional_imports_match_the_oracle_profile() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../emit_js/tests/programs/environment_presence.dart");
+    let oracle = PathBuf::from(
+        std::env::var_os("DARTFORGE_DART_SDK").expect("Dart 3.6.2 oracle SDK"),
+    )
+    .join(if cfg!(windows) {
+        "bin/dart.exe"
+    } else {
+        "bin/dart"
+    });
+    for (name, flags) in [
+        ("development", DartFlags::DEVELOPMENT),
+        ("production", DartFlags::PRODUCTION),
+    ] {
+        let reference = directory.path().join(format!("reference-{name}.exe"));
+        let output = if flags.product {
+            let result = std::process::Command::new(&oracle)
+                .args(["compile", "exe"])
+                .arg(&source)
+                .arg("-o")
+                .arg(&reference)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            std::process::Command::new(&reference).output().unwrap()
+        } else {
+            std::process::Command::new(&oracle)
+                .arg("--enable-asserts")
+                .arg(&source)
+                .output()
+                .unwrap()
+        };
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        let expected = String::from_utf8(output.stdout)
+            .unwrap()
+            .replace("\r\n", "\n");
+        assert!(expected.ends_with(if flags.product {
+            "default import\ndefault import\n"
+        } else {
+            "default import\nmirrors import\n"
+        }));
+        let ours = directory.path().join(format!("ours-{name}.exe"));
+        compile(&source, &ours, flags);
+        assert_eq!(run(&ours), expected, "{name}");
+    }
 }
 
 /// `Platform.operatingSystem` folds to the target and travels into the
@@ -137,6 +199,7 @@ fn platform_constant_prunes_the_other_backends() {
                     packages: None,
                     timings: false,
                     optimize: true,
+                    defines: Vec::new(),
                     language_version: None,
                     experiments: Vec::new(),
                     debug: false,

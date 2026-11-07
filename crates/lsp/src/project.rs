@@ -94,8 +94,14 @@ pub(crate) struct Project {
 /// [`Project::unit_paths`].
 pub(crate) type UnitPaths = std::collections::HashMap<PathBuf, UnitId>;
 
-/// The direct subtypes of each class through the index relations.
-pub(crate) type WrittenSubtypes = std::collections::HashMap<ClassId, Vec<ClassId>>;
+/// Written subtype edges, with implicit `Object` edges deferred until a walk
+/// reaches `Object`. Ordinary member families do not need those edges or the
+/// referenced-name trees they require from unrelated units.
+#[derive(Clone, Default)]
+pub(crate) struct WrittenSubtypes {
+    direct: std::collections::HashMap<ClassId, Vec<ClassId>>,
+    object: std::sync::OnceLock<Vec<ClassId>>,
+}
 
 /// The comments of a unit with the size of the text they came from.
 pub(crate) type ReadComments = (usize, std::sync::Arc<Vec<dartdoc::Comment>>);
@@ -118,6 +124,9 @@ pub(crate) struct UnitOccurrences {
     /// identifier, an access's name or an instance creation's constructor
     /// name ([`Project::identify`]).
     pub(crate) expression_names: std::collections::HashMap<(usize, usize), ast::ExprId>,
+    /// Call target → constructor of the first resolved constructor call in
+    /// arena order. Shared targets keep the same choice as a linear search.
+    pub(crate) constructor_calls: std::collections::HashMap<ast::ExprId, FunctionElementId>,
 }
 
 /// What a unit cites of constructor parameters ([`Project::unit_parameter_uses`]).
@@ -652,8 +661,20 @@ impl Project {
             return;
         }
         extras.sort();
-        self.query.infer_libraries(&extras);
+        self.infer_libraries(&extras);
         self.libraries.extend(extras);
+    }
+
+    /// Infers bodies after discarding occurrence and name facts computed from
+    /// the earlier tables, including facts obtained before first inference.
+    /// The caller still chooses which libraries are searched for occurrences.
+    pub(crate) fn infer_libraries(&mut self, libraries: &[LibraryId]) {
+        for &library in libraries {
+            for &unit in &self.program().library(library).units {
+                self.forget_unit(unit);
+            }
+        }
+        self.query.infer_libraries(libraries);
     }
 }
 
@@ -800,7 +821,8 @@ fn load_project_with(
     if !infer_project {
         list.clear();
     }
-    let query = Query::infer(program, names, &list, true, None);
+    let mut query = Query::infer(program, names, &list, true, None);
+    query.display_reference = crate::query::DisplayReference::for_sdk(sdk);
     Some(Project {
         query,
         root,
@@ -826,7 +848,8 @@ pub(crate) fn load_library(
     let file = uri_file(uri)?;
     let (program, names, unit) = crate::semantic::load(sdk, uri, text, Some(documents))?;
     let lib = program.unit(unit).library;
-    let query = Query::infer(program, names, &[lib], true, None);
+    let mut query = Query::infer(program, names, &[lib], true, None);
+    query.display_reference = crate::query::DisplayReference::for_sdk(sdk);
     Some(Project {
         query,
         root: project_root(&file),
@@ -992,8 +1015,8 @@ impl Project {
             }))
         };
         // References in expressions: the first one whose name is the word.
-        let first = self
-            .unit_occurrences(unit)
+        let occurrences = self.unit_occurrences(unit);
+        let first = occurrences
             .expression_names
             .get(&(name_.start, name_.end))
             .copied();
@@ -1031,7 +1054,7 @@ impl Project {
             }
             // `A.name(…)` and `A(…)` without `new`: the constructor resolution is on
             // the call, not on its target.
-            let constructor = call_constructor(ast, bodies, id);
+            let constructor = occurrences.constructor_calls.get(&id).copied();
             if matches!(bodies.get_resolved(id), None | Some(Resolved::Dynamic))
                 && constructor.is_none()
                 && let Some(f) =
@@ -2836,7 +2859,23 @@ impl Project {
     ) -> Vec<(UnitId, Span)> {
         let word = self.target_word(target);
         let mut v = Vec::new();
-        for u in self.units_in(filter) {
+        // A documentation reference resolves a local or type parameter only
+        // in its own unit's documented declaration. Qualified paths resolve
+        // library elements and members, never another unit's local scope.
+        // Named parameter overrides are searched separately by local_occurrences.
+        let units = match target {
+            Target::Local { unit, .. } | Target::TypeParameter { unit, .. } => {
+                if self.libraries.contains(&self.program().unit(*unit).library)
+                    && filter.is_none_or(|f| f.contains(unit))
+                {
+                    vec![*unit]
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => self.units_in(filter),
+        };
+        for u in units {
             let source = &self.program().unit(u).source;
             if !source.contains('[') || word.as_deref().is_some_and(|w| !source.contains(w)) {
                 continue;
@@ -2978,6 +3017,11 @@ impl Project {
         let bodies = &self.query.bodies.units[u.0 as usize];
         let mut index = UnitOccurrences::default();
         for (i, e) in unit.ast.exprs.iter().enumerate() {
+            if let ExprKind::Call { target, .. } = &e.kind
+                && let Some(Resolved::Constructor(f)) = bodies.get_resolved(ast::ExprId(i as u32))
+            {
+                index.constructor_calls.entry(*target).or_insert(*f);
+            }
             let s = match &e.kind {
                 ExprKind::Identifier(n) => n.span,
                 ExprKind::Property { name, .. } => name.span,
@@ -3490,10 +3534,11 @@ impl Project {
         let Some(bodies) = self.query.bodies.units.get(u.0 as usize) else {
             return output;
         };
+        let occurrences = self.unit_occurrences(u);
         for (i, e) in ast.exprs.iter().enumerate() {
             let id = ast::ExprId(i as u32);
             let resolved = bodies.get_resolved(id);
-            let call = call_constructor(ast, bodies, id);
+            let call = occurrences.constructor_calls.get(&id).copied();
             let mut candidates: Vec<FunctionElementId> = Vec::new();
             if let Some(Resolved::Constructor(g)) = resolved {
                 candidates.push(*g);
@@ -4053,7 +4098,11 @@ impl Project {
                             {
                                 let id = ast::ExprId(i as u32);
                                 let r = bodies.get_resolved(id).cloned().or_else(|| {
-                                    call_constructor(ast, bodies, id).map(Resolved::Constructor)
+                                    self.unit_occurrences(unit)
+                                        .constructor_calls
+                                        .get(&id)
+                                        .copied()
+                                        .map(Resolved::Constructor)
                                 });
                                 Some((r, name.sym))
                             }
@@ -4474,13 +4523,14 @@ impl Project {
             return old;
         }
         let set: HashSet<ClassId> = moved.iter().copied().collect();
-        for v in old.values_mut() {
+        old.object.take();
+        for v in old.direct.values_mut() {
             v.retain(|c| !set.contains(c));
         }
         let mut touched: HashSet<ClassId> = HashSet::new();
         for sub in moved {
-            for s in self.written_supertypes(sub) {
-                let v = old.entry(s).or_default();
+            for s in self.written_supertypes_with(sub, false) {
+                let v = old.direct.entry(s).or_default();
                 if !v.contains(&sub) {
                     v.push(sub);
                     touched.insert(s);
@@ -4488,11 +4538,11 @@ impl Project {
             }
         }
         for s in touched {
-            if let Some(v) = old.get_mut(&s) {
+            if let Some(v) = old.direct.get_mut(&s) {
                 v.sort_unstable();
             }
         }
-        old.retain(|_, v| !v.is_empty());
+        old.direct.retain(|_, v| !v.is_empty());
         old
     }
 
@@ -4501,14 +4551,60 @@ impl Project {
             std::collections::HashMap::new();
         for i in 0..self.program().classes.len() {
             let sub = ClassId(i as u32);
-            for s in self.written_supertypes(sub) {
+            for s in self.written_supertypes_with(sub, false) {
                 let v = m.entry(s).or_default();
                 if !v.contains(&sub) {
                     v.push(sub);
                 }
             }
         }
-        m
+        WrittenSubtypes {
+            direct: m,
+            object: Default::default(),
+        }
+    }
+
+    /// Direct index subtypes of `c`, including the implicit edges only when
+    /// `c` is `Object`. The cached lists keep the original class order.
+    pub(crate) fn written_subtypes_of<'g>(
+        &self,
+        c: ClassId,
+        graph: &'g WrittenSubtypes,
+    ) -> &'g [ClassId] {
+        if Some(c) != self.query.core.object_class {
+            return graph.direct.get(&c).map_or(&[], Vec::as_slice);
+        }
+        graph.object.get_or_init(|| {
+            let mut children = graph.direct.get(&c).cloned().unwrap_or_default();
+            for i in 0..self.program().classes.len() {
+                let sub = ClassId(i as u32);
+                if self.implicit_object_supertype(sub) == Some(c) {
+                    children.push(sub);
+                }
+            }
+            children.sort_unstable();
+            children.dedup();
+            children
+        })
+    }
+
+    /// The implicit `Object` relation written into the analyzer's index.
+    fn implicit_object_supertype(&self, c: ClassId) -> Option<ClassId> {
+        let p = self.program();
+        let d = p.class(c).decl?;
+        let unit = p.unit(d.unit);
+        let object = self.query.core.object_class?;
+        let DeclKind::Class(x) = &unit.ast.decl(d.decl).kind else {
+            return None;
+        };
+        (x.extends.is_none()
+            && !x.mixin_application
+            && c != object
+            && (unit.library == p.class(object).library
+                || (unit.role != dartforge_elements::model::UnitRole::Patch
+                    && unit.source.contains("Object")
+                    && self.unit_referenced_names(d.unit).contains("Object"))))
+        .then_some(object)
     }
 
     /// The classes of which `c` is a direct subtype in the index
@@ -4518,6 +4614,10 @@ impl Project {
     /// the subtype search finds (in the files that cite `Object` and in those
     /// of its library). Empty for a class without a declaration.
     pub(crate) fn written_supertypes(&self, c: ClassId) -> Vec<ClassId> {
+        self.written_supertypes_with(c, true)
+    }
+
+    fn written_supertypes_with(&self, c: ClassId, implicit_object: bool) -> Vec<ClassId> {
         let p = self.program();
         let mut output = Vec::new();
         let Some(d) = p.class(c).decl else {
@@ -4527,16 +4627,7 @@ impl Project {
         let ast = &unit.ast;
         // The index's `visitClassDeclaration`: a class without `extends` has the
         // implicit `IS_EXTENDED_BY` from `Object`.
-        if let (Some(o), DeclKind::Class(x)) =
-            (self.query.core.object_class, &ast.decl(d.decl).kind)
-            && x.extends.is_none()
-            && !x.mixin_application
-            && c != o
-            && (unit.library == p.class(o).library
-                || (unit.role != dartforge_elements::model::UnitRole::Patch
-                    && unit.source.contains("Object")
-                    && self.unit_referenced_names(d.unit).contains("Object")))
-        {
+        if implicit_object && let Some(o) = self.implicit_object_supertype(c) {
             output.push(o);
         }
         let types: Vec<ast::TypeId> = match &ast.decl(d.decl).kind {
@@ -4686,7 +4777,7 @@ impl Project {
                     // `appendAllSubtypes`: DFS through the direct subtypes.
                     let mut stack = vec![x];
                     while let Some(y) = stack.pop() {
-                        for &s in direct.get(&y).map(|v| &v[..]).unwrap_or(&[]) {
+                        for &s in self.written_subtypes_of(y, &direct) {
                             if !descent.contains(&s) {
                                 descent.push(s);
                                 stack.push(s);
@@ -4748,25 +4839,6 @@ enum Documented {
 
 /// The constructor called when `target` is the target of a call resolved to
 /// a constructor (`A(…)`, `A.name(…)`, `p.A.name(…)` without `new`).
-fn call_constructor(
-    ast: &Ast,
-    bodies: &dartforge_types::UnitBodyTypes,
-    target_: ast::ExprId,
-) -> Option<FunctionElementId> {
-    ast.exprs
-        .iter()
-        .enumerate()
-        .find_map(|(i, e)| match &e.kind {
-            ExprKind::Call { target, .. } if *target == target_ => {
-                match bodies.get_resolved(ast::ExprId(i as u32)) {
-                    Some(Resolved::Constructor(f)) => Some(*f),
-                    _ => None,
-                }
-            }
-            _ => None,
-        })
-}
-
 /// `name` is an import prefix in `lib` (and not a name of the scope).
 pub(crate) fn is_prefix(p: &Program, lib: LibraryId, name: SymbolId) -> bool {
     p.library(lib).prefixes.contains_key(&name)
@@ -4967,4 +5039,232 @@ pub(crate) fn type_parameter_declaration(
         }
     }
     best.map(|(_, d)| d)
+}
+
+#[cfg(test)]
+mod documentation_tests {
+    use super::*;
+
+    struct Directory(PathBuf);
+
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn fixture(label: &str) -> Directory {
+        let directory = Directory(Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-agent/{label}-{}",
+            std::process::id()
+        )));
+        let root = &directory.0;
+        std::fs::create_dir_all(root.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(root.join("project/lib")).unwrap();
+        std::fs::write(
+            root.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("sdk/lib/core/core.dart"),
+            "class Object {} class Type {} class Function {} class num {} class int extends num {} class String {} class bool {} class Null {}"
+        ).unwrap();
+        std::fs::write(root.join("project/pubspec.yaml"), "name: example\n").unwrap();
+        directory
+    }
+
+    #[test]
+    fn local_documentation_search_does_not_scan_other_units() {
+        let directory = fixture("local-documentation");
+        let root = &directory.0;
+        let source = "import 'b.dart';\n/// Refers to [value] and [T].\nT convert<T>(T value) { value; return value; }\nclass Base {\n/// Refers to [value].\nvoid run({int? value}) {}\n}\n";
+        let foreign = "import 'a.dart';\n/// Refers to [value] and [T].\nT other<T>(T value) => value;\nclass Child extends Base {\n/// Refers to [value].\nvoid run({int? value}) {}\n}\nvoid call(Base base) { base.run(value: 1); }\n";
+        std::fs::write(root.join("project/lib/a.dart"), source).unwrap();
+        std::fs::write(root.join("project/lib/b.dart"), foreign).unwrap();
+        let path = std::fs::canonicalize(root.join("project/lib/a.dart")).unwrap();
+        let uri = Url::from_file_path(&path).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let project = load_wide_project(&sdk, &DocumentStore::new(), &uri, None).unwrap();
+        let unit = project.uri_unit(&uri).unwrap();
+        assert!(project.units().len() >= 2);
+        for (offset, name) in [
+            (source.find("T value").unwrap() + 2, "value"),
+            (source.find("convert<T>").unwrap() + "convert<".len(), "T"),
+        ] {
+            project.comments.lock().unwrap().clear();
+            let answer = crate::semantic::references_at(&project, unit, offset).unwrap();
+            let comment = source.find(&format!("[{name}]")).unwrap() + 1;
+            assert!(
+                answer
+                    .uses
+                    .iter()
+                    .any(|(u, s)| u == &uri && s.start == comment)
+            );
+            assert!(answer.uses.iter().all(|(u, _)| u == &uri));
+            assert!(
+                project.comments.lock().unwrap().keys().all(|u| *u == unit),
+                "a local documentation search scanned another unit"
+            );
+        }
+        // Named parameters still reach the documentation of overridden
+        // parameters and argument labels in the other file.
+        let answer = crate::semantic::references_at(
+            &project,
+            unit,
+            source.find("int? value").unwrap() + "int? ".len(),
+        )
+        .unwrap();
+        let other_uri =
+            Url::from_file_path(std::fs::canonicalize(root.join("project/lib/b.dart")).unwrap())
+                .unwrap()
+                .to_string();
+        let comment = foreign.rfind("[value]").unwrap() + 1;
+        let label = foreign.find("value: 1").unwrap();
+        for offset in [comment, label] {
+            assert!(
+                answer
+                    .uses
+                    .iter()
+                    .any(|(u, s)| u == &other_uri && s.start == offset),
+                "missing cross-file named parameter reference at {offset}: {:?}",
+                answer.uses
+            );
+        }
+    }
+
+    #[test]
+    fn constructor_references_follow_first_body_inference() {
+        let directory = fixture("constructor-inference");
+        let root = &directory.0;
+        let source = "import 'other.dart'; void main() {}";
+        let other = "class Item {} Item build() => Item();";
+        std::fs::write(root.join("project/lib/main.dart"), source).unwrap();
+        std::fs::write(root.join("project/lib/other.dart"), other).unwrap();
+        let uri =
+            Url::from_file_path(std::fs::canonicalize(root.join("project/lib/main.dart")).unwrap())
+                .unwrap()
+                .to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri.clone(), 1, source.to_string());
+        let mut project = load_library(&sdk, &documents, &uri).unwrap();
+        let other_uri = Url::from_file_path(
+            std::fs::canonicalize(root.join("project/lib/other.dart")).unwrap(),
+        )
+        .unwrap()
+        .to_string();
+        let unit = project.uri_unit(&other_uri).unwrap();
+        // An outline query can precede the first inference of a dependency.
+        let end = other.rfind("Item()").unwrap() + "Item".len();
+        let has_call = |project: &Project| {
+            project.unit_constructor_uses(unit).iter().any(|(f, s)| {
+                project
+                    .program()
+                    .function(*f)
+                    .class
+                    .is_some_and(|c| project.name(project.program().class(c).name) == "Item")
+                    && *s == Span { start: end, end }
+            })
+        };
+        assert!(!has_call(&project));
+        project.widen_to("Item");
+        assert!(
+            has_call(&project),
+            "the inferred constructor call kept its pre-inference occurrence facts"
+        );
+    }
+
+    #[test]
+    fn ordinary_member_families_leave_implicit_object_relations_uncomputed() {
+        let directory = fixture("implicit-object-family");
+        let root = &directory.0;
+        let source = "import 'other.dart'; class Base { void run() {} } class Child extends Base { void run() {} }";
+        let other = "class Observer { Object? value; } class Explicit extends Object {}";
+        std::fs::write(root.join("project/lib/main.dart"), source).unwrap();
+        std::fs::write(root.join("project/lib/other.dart"), other).unwrap();
+        let uri =
+            Url::from_file_path(std::fs::canonicalize(root.join("project/lib/main.dart")).unwrap())
+                .unwrap()
+                .to_string();
+        let other_uri = Url::from_file_path(
+            std::fs::canonicalize(root.join("project/lib/other.dart")).unwrap(),
+        )
+        .unwrap()
+        .to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let project = load_wide_project(&sdk, &DocumentStore::new(), &uri, None).unwrap();
+        let class = |name| {
+            (0..project.program().classes.len())
+                .map(|i| ClassId(i as u32))
+                .find(|&c| project.name(project.program().class(c).name) == name)
+                .unwrap()
+        };
+        let base = class("Base");
+        let family = project
+            .family(Owner::Class(base), "run", false, false)
+            .unwrap();
+        assert_eq!(family.functions.len(), 2);
+        let other_unit = project.uri_unit(&other_uri).unwrap();
+        assert!(
+            !project
+                .referenced_names
+                .lock()
+                .unwrap()
+                .contains_key(&other_unit),
+            "an unrelated unit was walked for implicit Object relations"
+        );
+        let object = project.query.core.object_class.unwrap();
+        let subtypes = project.index_all_subtypes(object);
+        assert!(subtypes.contains(&class("Observer")));
+        assert!(subtypes.contains(&class("Explicit")));
+        assert!(!subtypes.contains(&base));
+        assert!(!subtypes.contains(&class("Child")));
+    }
+
+    #[test]
+    fn cached_implicit_object_subtypes_follow_body_edits_and_undo() {
+        let directory = fixture("implicit-object-edits");
+        let root = &directory.0;
+        let source = "class Plain { void run() { } }";
+        let edited = "class Plain { void run() { Object(); } }";
+        std::fs::write(root.join("project/lib/main.dart"), source).unwrap();
+        let uri =
+            Url::from_file_path(std::fs::canonicalize(root.join("project/lib/main.dart")).unwrap())
+                .unwrap()
+                .to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri.clone(), 1, source.to_owned());
+        let mut project = load_library(&sdk, &documents, &uri).unwrap();
+        let unit = project.uri_unit(&uri).unwrap();
+        let class = (0..project.program().classes.len())
+            .map(|i| ClassId(i as u32))
+            .find(|&c| project.name(project.program().class(c).name) == "Plain")
+            .unwrap();
+        let object = project.query.core.object_class.unwrap();
+        assert!(!project.index_all_subtypes(object).contains(&class));
+        for (text, expected) in [(edited, true), (source, false)] {
+            let old = project.written_subtypes();
+            assert!(
+                project
+                    .query
+                    .swap_unit(
+                        unit,
+                        text,
+                        crate::query::SwapMode::Final {
+                            inferred_bodies: true,
+                            register_locals: true,
+                        }
+                    )
+                    .is_some()
+            );
+            project.forget_unit(unit);
+            let refreshed = project.written_subtypes_after((*old).clone(), &HashSet::from([unit]));
+            *project.written_subtypes.lock().unwrap() = Some(std::sync::Arc::new(refreshed));
+            assert_eq!(
+                project.index_all_subtypes(object).contains(&class),
+                expected
+            );
+        }
+    }
 }

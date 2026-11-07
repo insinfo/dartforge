@@ -47,6 +47,7 @@ fn ir(debug_info: bool) -> Option<String> {
                 packages: None,
                 timings: false,
                 optimize: false,
+                defines: Vec::new(),
                 language_version: None,
                 experiments: Vec::new(),
                 debug: debug_info,

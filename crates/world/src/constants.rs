@@ -96,6 +96,8 @@ pub struct Constants<'a> {
     /// `JS_GET_FLAG('NAMED_SOURCE_NAMES')` of the production SDK patches: a
     /// printable function type cites a shortened named-parameter key.
     named_source_names: std::cell::Cell<bool>,
+    /// Native boundary mode has SDK declarations but no inferred SDK bodies.
+    sdk_opaque: bool,
 }
 
 impl<'a> Constants<'a> {
@@ -116,7 +118,14 @@ impl<'a> Constants<'a> {
             without_generic_functions: std::cell::Cell::new(false),
             omit_implicit_checks: std::cell::Cell::new(false),
             named_source_names: std::cell::Cell::new(false),
+            sdk_opaque: false,
         }
+    }
+
+    /// Keep SDK getters, initializers and backend-specific flags unknown.
+    pub(crate) fn with_opaque_sdk(mut self) -> Self {
+        self.sdk_opaque = true;
+        self
     }
 
     /// The optimization level omits implicit checks (`-O3`, `-O4`): the
@@ -205,6 +214,9 @@ impl<'a> Constants<'a> {
     /// emitter writes (`emit_js::own_sdk::SdkMode::flag`: DDC with sound null
     /// safety). `DARTFORGE_JSPROD_SDK_FLAGS=0` leaves them unknown here.
     fn flag(&self, u: UnitId, target: ExprId, arguments: &ast::Arguments) -> Option<Value> {
+        if self.sdk_opaque {
+            return None;
+        }
         let p = self.e.program;
         let callee = match self.resolved(u, target)? {
             Resolved::Element(Element::Function(f)) => *f,
@@ -223,9 +235,10 @@ impl<'a> Constants<'a> {
         };
         let name = lit.constant_value()?.to_string_lossy();
         match name.as_str() {
-            // The production emitter records no variance (`emit_js::own_sdk`).
+            // Keep exactly the same declaration-dependent flag as the emitter.
             "VARIANCE" => Some(Value::Bool(
-                std::env::var("DARTFORGE_JSPROD_VARIANCE").is_ok_and(|v| v == "1"),
+                self.e.outline.has_declared_class_variance(self.e.table)
+                    || std::env::var("DARTFORGE_JSPROD_VARIANCE").is_ok_and(|v| v == "1"),
             )),
             "DEV_COMPILER" | "SOUND_NULL_SAFETY" => Some(Value::Bool(true)),
             "OMIT_IMPLICIT_CHECKS" => Some(Value::Bool(self.omit_implicit_checks.get())),
@@ -573,10 +586,11 @@ impl<'a> Constants<'a> {
 
     /// The constant value of the condition `x` in the forms the world and
     /// the emitter fold (`impact::constant_condition`,
-    /// `emit_js::expr::Emitter::constant`): not a bare literal.
+    /// `emit_js::expr::Emitter::constant`), including literal booleans.
     pub fn folded_condition(&self, u: UnitId, x: ExprId) -> Option<bool> {
         match &self.e.program.unit(u).ast.expr(x).kind {
-            ExprKind::Identifier(_)
+            ExprKind::Bool(_)
+            | ExprKind::Identifier(_)
             | ExprKind::Property { .. }
             | ExprKind::Unary { .. }
             | ExprKind::Binary { .. }
@@ -732,6 +746,9 @@ impl<'a> Constants<'a> {
         let p = self.e.program;
         let var = p.variable(v);
         let r = (|| {
+            if self.sdk_opaque && p.library(var.library).is_sdk {
+                return None;
+            }
             if var.external || var.extension.is_some() {
                 return None;
             }
@@ -773,6 +790,9 @@ impl<'a> Constants<'a> {
         let p = self.e.program;
         let func = p.function(f);
         let r = (|| {
+            if self.sdk_opaque && p.library(func.library).is_sdk {
+                return None;
+            }
             if let Some(v) = func.variable
                 && func.kind == FunctionKind::ImplicitAccessor
             {
@@ -1056,4 +1076,92 @@ fn unit_params(a: &ast::Ast) -> UnitParams {
         up.writes.entry(n).or_default().push(at);
     }
     up
+}
+
+#[cfg(test)]
+mod sdk_boundary_tests {
+    use super::*;
+
+    struct OwnedDirectory(std::path::PathBuf);
+    impl Drop for OwnedDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn opaque_sdk_values_stay_unknown_while_user_getters_remain_provable() {
+        let path = std::env::temp_dir().join(format!(
+            "dartforge-opaque-sdk-constants-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let directory = OwnedDirectory(path);
+        let sdk = directory.0.join("sdk");
+        std::fs::create_dir_all(sdk.join("core")).unwrap();
+        std::fs::create_dir_all(sdk.join("async")).unwrap();
+        std::fs::write(sdk.join("libraries.json"), r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]},"async":{"uri":"async/async.dart","patches":[]}}}}"#).unwrap();
+        std::fs::write(sdk.join("core/core.dart"), "class Object {} class bool extends Object {} class String extends Object {} class Function extends Object {} bool get sdkFlag => false; final bool sdkValue = false;").unwrap();
+        std::fs::write(
+            sdk.join("async/async.dart"),
+            "class Future<T> {} class Stream<T> {}",
+        )
+        .unwrap();
+        let entry = directory.0.join("main.dart");
+        std::fs::write(&entry, "bool get userFlag => false; void main() { final a = sdkFlag; final b = sdkValue; final c = userFlag; }").unwrap();
+        let mut names = dartforge_intern::Interner::new();
+        let layout = dartforge_elements::sdk::SdkLayout::load(&sdk, "dartdevc").unwrap();
+        let program = dartforge_elements::load::load(&entry, &layout, None, &mut names).unwrap();
+        let mut table = dartforge_types::TypeTable::new();
+        let core = dartforge_types::CoreTypes::init(&mut table, &program, &names);
+        let (mut outline, _) =
+            dartforge_types::resolve_outline(&program, &names, &mut table, &core);
+        let libraries: Vec<_> = program
+            .libraries
+            .iter()
+            .enumerate()
+            .filter(|(_, library)| !library.is_sdk)
+            .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
+            .collect();
+        let (bodies, _) = dartforge_types::infer_library_bodies_with_locals(
+            &program,
+            &names,
+            &mut table,
+            &core,
+            &mut outline,
+            &libraries,
+        );
+        let input = WorldInput {
+            program: &program,
+            interner: &names,
+            table: &table,
+            outline: &outline,
+            bodies: &bodies,
+        };
+        let inspectable = Constants::new(input, true);
+        let opaque = Constants::new(input, true).with_opaque_sdk();
+        let (index, unit) = program
+            .units
+            .iter()
+            .enumerate()
+            .find(|(_, unit)| !program.library(unit.library).is_sdk)
+            .unwrap();
+        let id = UnitId(index as u32);
+        for (name, expected) in [
+            ("sdkFlag", None),
+            ("sdkValue", None),
+            ("userFlag", Some(false)),
+        ] {
+            let expr = unit.ast.exprs.iter().enumerate().find_map(|(i, expression)| {
+                matches!(&expression.kind, ExprKind::Identifier(n) if names.resolve(n.sym) == name)
+                    .then_some(ExprId(i as u32))
+            }).unwrap();
+            assert_eq!(inspectable.bool_of(id, expr), Some(false), "{name}");
+            assert_eq!(opaque.bool_of(id, expr), expected, "{name}");
+        }
+    }
 }

@@ -30,6 +30,7 @@ fn suspended_frame_resumes_old_body_after_frame_size_changes() {
                 packages: None,
                 timings: false,
                 optimize: false,
+                defines: Vec::new(),
                 language_version: None,
                 experiments: Vec::new(),
                 debug: false,

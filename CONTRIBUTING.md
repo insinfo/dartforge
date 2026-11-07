@@ -77,6 +77,14 @@ blocks exercise different paths. The prerequisite checker requires this
 corpus and checks its input/output pairs before the complete ignored-test
 suite starts.
 
+The parser Pub corpus is a separate ignored prerequisite. Set
+`DARTFORGE_PUB_CORPUS` to its directory, or populate `references/pub` in the
+workspace. Keep package subdirectories and their `pubspec.yaml` files: the
+parser uses each package's SDK constraint to select its language version.
+The prerequisite checker requires at least one `.dart` source and checks that
+all enumerated sources are readable as strict UTF-8 before a full build.
+This corpus is independent of `DARTFORGE_GZIP_CORPUS`.
+
 On macOS, standalone C-link tests also need a configured C SDK. When using an
 external LLVM Clang on PATH, set `SDKROOT` to an installed compatible macOS SDK
 and `MACOSX_DEPLOYMENT_TARGET` to an explicit supported version for the test

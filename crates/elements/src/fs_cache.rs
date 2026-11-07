@@ -31,6 +31,7 @@ enum Entry {
 #[derive(Default)]
 struct State {
     trusted: bool,
+    generation: u64,
     entries: HashMap<PathBuf, Entry>,
     canonical: HashMap<PathBuf, Option<PathBuf>>,
     stats: Stats,
@@ -60,6 +61,13 @@ fn state() -> std::sync::MutexGuard<'static, State> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// A known disk change invalidates configuration-content checks too. Kept
+/// separate from measurement counters, which do not establish freshness.
+pub(crate) fn trusted_generation() -> Option<u64> {
+    let state = state();
+    state.trusted.then_some(state.generation)
+}
+
 /// Turns the cache on (`true`) or off (`false`, which also empties it).
 ///
 /// ```
@@ -70,6 +78,7 @@ pub fn trust(on: bool) {
     let mut s = state();
     s.trusted = on;
     if !on {
+        s.generation = s.generation.wrapping_add(1);
         s.entries.clear();
         s.canonical.clear();
     }
@@ -79,6 +88,7 @@ pub fn trust(on: bool) {
 /// whole disk again.
 pub fn clear() {
     let mut s = state();
+    s.generation = s.generation.wrapping_add(1);
     s.stats.clears += 1;
     s.entries.clear();
     s.canonical.clear();

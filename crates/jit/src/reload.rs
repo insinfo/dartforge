@@ -572,6 +572,22 @@ impl JitSession {
         safepoint: Option<&mut dyn FnMut(ffi::Task)>,
         stub_materialization: StubMaterialization,
     ) -> Result<HotReloadReport, JitError> {
+        let binding = crate::environment_binding(ir)?;
+        self.check_environment_binding(&binding)?;
+        let result = self.install_generation_in_context(name, ir, safepoint, stub_materialization);
+        if result.is_ok() && binding.is_some() {
+            self.compilation_environment = binding;
+        }
+        result
+    }
+
+    fn install_generation_in_context(
+        &mut self,
+        name: &str,
+        ir: &str,
+        safepoint: Option<&mut dyn FnMut(ffi::Task)>,
+        stub_materialization: StubMaterialization,
+    ) -> Result<HotReloadReport, JitError> {
         let started = Instant::now();
         if let Some(reason) = self.poisoned.clone() {
             return Err(JitError {

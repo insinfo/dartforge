@@ -6,6 +6,152 @@
 use std::process::Command;
 
 #[test]
+#[ignore = "requires Dart 3.6.2, LLVM and the source-built SDK"]
+fn optimized_aot_ir_keeps_sdk_execution_flags_when_run_by_the_jit() {
+    use std::path::{Path, PathBuf};
+    struct Scratch(PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            if std::thread::panicking() {
+                eprintln!("failed optimized IR artifacts: {}", self.0.display());
+            } else {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+    }
+    fn execute(directory: &Path, name: &str, command: &mut Command) -> Vec<u8> {
+        command.env_remove("DARTFORGE_SDK_DLL");
+        let result = command.output().unwrap();
+        std::fs::write(directory.join(format!("{name}.stdout")), &result.stdout).unwrap();
+        std::fs::write(directory.join(format!("{name}.stderr")), &result.stderr).unwrap();
+        std::fs::write(
+            directory.join(format!("{name}.status")),
+            format!("{}\n", result.status),
+        )
+        .unwrap();
+        assert!(
+            result.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        result.stdout
+    }
+    let target = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"));
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let scratch = Scratch(
+        target
+            .join("test-artifacts")
+            .join(format!("optimized-ir-{}-{stamp}", std::process::id())),
+    );
+    std::fs::create_dir_all(&scratch.0).unwrap();
+    let source = scratch.0.join("main.dart");
+    std::fs::write(
+        &source,
+        r#"
+import 'dart:async';
+import 'dart:convert';
+Future<void> main(List<String> args) async {
+  var assertions = false;
+  assert(assertions = true);
+  print(assertions ? 'asserts on' : 'asserts off');
+  print(const String.fromEnvironment('tag', defaultValue: 'absent'));
+  print(String.fromEnvironment('tag', defaultValue: 'absent'));
+  final values = List<int>.generate(4, (i) => i + 1);
+  print(jsonEncode(values.map((value) => value * 3).toList()));
+  try { (values as dynamic).add('wrong'); } on TypeError { print('checked'); }
+  print(await Future<int>.value(values.fold<int>(0, (sum, value) => sum + value)));
+  print(args.join('|'));
+}
+"#,
+    )
+    .unwrap();
+    let sdk = PathBuf::from(std::env::var_os("DARTFORGE_DART_SDK").expect("Dart 3.6.2 oracle SDK"));
+    let dart = sdk.join(if cfg!(windows) {
+        "bin/dart.exe"
+    } else {
+        "bin/dart"
+    });
+    for assertions in [false, true] {
+        let case = scratch.0.join(if assertions {
+            "asserts-on"
+        } else {
+            "asserts-off"
+        });
+        std::fs::create_dir(&case).unwrap();
+        let exe = case.join("official.exe");
+        let mut reference = Command::new(&dart);
+        reference.args(["compile", "exe", "-Dtag=selected"]);
+        if assertions {
+            reference.arg("--enable-asserts");
+        }
+        execute(
+            &case,
+            "official-compile",
+            reference.arg(&source).arg("-o").arg(&exe),
+        );
+        let expected = execute(
+            &case,
+            "official-run",
+            Command::new(&exe).args(["-Dapplication", "value"]),
+        );
+        let expected_text = format!(
+            "asserts {}\nselected\nabsent\n[3,6,9,12]\nchecked\n10\n-Dapplication|value\n",
+            if assertions { "on" } else { "off" }
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&expected).replace("\r\n", "\n"),
+            expected_text
+        );
+        let ir = case.join("program.ll");
+        let mut emission = Command::new(env!("CARGO_BIN_EXE_dartforge"));
+        emission
+            .arg("compile-native")
+            .arg(&source)
+            .args(["--emit-ir", "--optimize", "-Dtag=selected"])
+            .arg("--sdk")
+            .arg(sdk.join("lib"))
+            .arg("-o")
+            .arg(&ir);
+        if assertions {
+            emission.arg("--enable-asserts");
+        }
+        execute(&case, "candidate-compile", &mut emission);
+        let text = std::fs::read_to_string(&ir).unwrap();
+        assert_eq!(
+            dartforge_emit_native::ir_dart_flags(&text).unwrap(),
+            Some(dartforge_emit_native::DartFlags {
+                enable_asserts: assertions,
+                product: true
+            })
+        );
+        let actual = execute(
+            &case,
+            "candidate-run",
+            Command::new(env!("CARGO_BIN_EXE_dartforge"))
+                .args(["run", "--sdk"])
+                .arg(sdk.join("lib"))
+                .arg("--ir")
+                .arg(&ir)
+                .args(["--", "-Dapplication", "value"]),
+        );
+        assert!(
+            std::fs::read(case.join("candidate-run.stderr"))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            String::from_utf8(actual).unwrap().replace("\r\n", "\n"),
+            expected_text
+        );
+    }
+}
+
+#[test]
 #[ignore = "requires the full LLVM distribution and source-built SDK DLL"]
 fn explicit_sdk_selects_the_jit_library_in_run_reload_and_restart() {
     struct Scratch(std::path::PathBuf);
@@ -247,4 +393,68 @@ fn absent_package_configuration_matches_vm_despite_inherited_selection() {
         );
     }
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+#[ignore = "requires LLVM and the source-built SDK"]
+fn environment_definitions_reach_run_reload_and_restart_without_eating_main_arguments() {
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = Scratch(std::env::temp_dir().join(format!(
+        "dartforge-cli-definitions-{}-{stamp}",
+        std::process::id()
+    )));
+    std::fs::create_dir(&directory.0).unwrap();
+    let source = directory.0.join("main.dart");
+    std::fs::write(&source, "void main(List<String> args) { print(const String.fromEnvironment('tag')); print(String.fromEnvironment('tag')); print(args.join('|')); }").unwrap();
+    for mode in ["run", "reload", "restart"] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dartforge"));
+        command.arg(if mode == "run" { "run" } else { "reload" });
+        command.args(["-Dtag=old", "--define", "tag=selected"]);
+        command.arg(&source);
+        if mode != "run" {
+            command.arg("--once");
+        }
+        if mode == "restart" {
+            command.arg("--restart");
+        }
+        if mode != "run" {
+            command.arg("--");
+        }
+        let output = command
+            .args(["-Dtag=application", "--define", "also-application"])
+            .env_remove("DARTFORGE_SDK_DLL")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{mode}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .replace("\r\n", "\n"),
+            "selected\nselected\n-Dtag=application|--define|also-application\n",
+            "{mode}"
+        );
+    }
+}
+
+#[test]
+fn ir_execution_rejects_new_definitions_before_reading_the_ir() {
+    let output = Command::new(env!("CARGO_BIN_EXE_dartforge"))
+        .args(["run", "-Dtag=value", "--ir", "missing-context.ll"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("already encoded in LLVM IR"));
 }

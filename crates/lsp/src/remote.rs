@@ -28,6 +28,8 @@ use dartforge_diagnostics::Span;
 /// receives it (the document is [`QueryRequest::uri`]).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) enum Call {
+    /// Document symbols with metadata resolved against the current overlays.
+    Symbols,
     Hover {
         offset: usize,
     },
@@ -103,6 +105,11 @@ pub(crate) struct QueryRequest {
 pub(crate) enum Answer {
     /// Its program is not of the documents' texts, or it has no program.
     Unavailable,
+    /// Resolved document outline over the current resident program.
+    Symbols(Vec<serde_json::Value>),
+    /// Intermediate reply: the retained program lacks current query inputs.
+    /// The same query remains pending while the worker reloads its open files.
+    NeedsAnalysis,
     Hover(Option<Hover>),
     Definition(Option<(String, Option<Span>)>),
     Location(Option<(String, Span)>),
@@ -118,8 +125,9 @@ pub(crate) enum Answer {
     Flag(Option<bool>),
     Actions(Vec<crate::CodeAction>),
     Completion(Option<crate::Completion>),
-    /// Hexadecimal encoded index (empty: none could be made).
-    Records(String),
+    /// Encoded index bytes (empty: none could be made). The resident transport
+    /// sends these after its JSON header, without hexadecimal copies.
+    Records(Vec<u8>),
 }
 
 /// The resident answers library queries (`DARTFORGE_LSP_RESIDENT_QUERIES`, on
@@ -180,6 +188,7 @@ pub(crate) fn run(
         return Answer::Completion(analyzer.completion(documents, uri, offset));
     }
     match *call {
+        Call::Symbols => Answer::Symbols(analyzer.symbols_in(documents, uri)),
         Call::Hover { offset } => {
             Answer::Hover(analyzer.hover_in_workspace(uri, &text, offset, documents))
         }
@@ -283,6 +292,7 @@ fn answer_over(
     request: &QueryRequest,
     root: &std::path::Path,
 ) -> (crate::project::Project, Option<Answer>) {
+    project.query.display_reference = analyzer.display_reference;
     // Every open document the program has must have its text: a later edit
     // (of this package or another's) is not in it yet.
     for (uri, _, text) in &request.documents {
@@ -296,8 +306,21 @@ fn answer_over(
         return (project, None);
     };
     if let Call::Records { files } = &request.call {
-        let answer = records_over(&mut project, files, root);
+        // Closed dependents still need fresh semantic relations after an API
+        // edit. Eagerly identifying every token there only builds optional
+        // query caches; the queried and open files keep those shortcuts.
+        let identifier_files: Vec<_> = std::iter::once(request.uri.as_str())
+            .chain(request.documents.iter().map(|(uri, _, _)| uri.as_str()))
+            .filter_map(|uri| project.uri_unit(uri))
+            .filter_map(|unit| project.program().unit(unit).path.as_deref())
+            .map(dartforge_elements::generated::key)
+            .collect();
+        let answer = records_over(&mut project, files, root, &identifier_files);
         return (project, Some(answer));
+    }
+    if matches!(request.call, Call::Symbols) {
+        let symbols = crate::symbol_metadata::for_project(&project, unit);
+        return (project, Some(Answer::Symbols(symbols)));
     }
     let lib = project.program().unit(unit).library;
     let mut wanted = vec![lib];
@@ -313,7 +336,7 @@ fn answer_over(
     missing.sort();
     missing.dedup();
     if !missing.is_empty() {
-        project.query.infer_libraries(&missing);
+        project.infer_libraries(&missing);
         project.libraries.extend(missing);
     }
     if matches!(request.call, Call::Colors) {
@@ -338,11 +361,12 @@ fn records_over(
     project: &mut crate::project::Project,
     files: &[std::path::PathBuf],
     root: &std::path::Path,
+    identifier_files: &[std::path::PathBuf],
 ) -> Answer {
     let mut libraries = Vec::new();
     for f in files {
         let Some(u) = project.file_unit(f) else {
-            return Answer::Records(String::new());
+            return Answer::Records(Vec::new());
         };
         let lib = project.program().unit(u).library;
         if !libraries.contains(&lib) {
@@ -357,9 +381,156 @@ fn records_over(
     missing.sort();
     missing.dedup();
     if !missing.is_empty() {
-        project.query.infer_libraries(&missing);
+        project.infer_libraries(&missing);
         project.libraries.extend(missing);
     }
-    let bytes = crate::reference_index::records_of_project(project, &libraries, root);
-    Answer::Records(crate::typed::to_hex(&bytes))
+    let bytes =
+        crate::reference_index::records_of_project(project, &libraries, root, identifier_files);
+    Answer::Records(bytes)
+}
+
+#[cfg(test)]
+mod record_cache_tests {
+    use super::*;
+    use crate::reference_index::{IdentFact, ReferenceIndex};
+    use std::path::{Path, PathBuf};
+
+    struct Fixture(PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn dependent_records_keep_relations_without_closed_identifier_caches() {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-agent/record-query-cache-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(directory.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(directory.join("project/lib")).unwrap();
+        let fixture = Fixture(dartforge_elements::generated::key(
+            &std::fs::canonicalize(directory).unwrap(),
+        ));
+        let base = &fixture.0;
+        std::fs::write(
+            base.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(base.join("sdk/lib/core/core.dart"), "class Object {} class Type {} class Function {} class num {} class int extends num {} class String {} class bool {} class Null {} void print(Object? value) {}").unwrap();
+        let root = base.join("project");
+        std::fs::write(root.join("pubspec.yaml"), "name: records\n").unwrap();
+        let sources = [
+            (
+                "api.dart",
+                "class Box { int value = 0; void work(int n, {int named = 0}) {} } Box makeBox() => Box();",
+            ),
+            (
+                "caller.dart",
+                "import 'api.dart'; part 'shared.dart'; void call() { final box = makeBox(); box.work(1, named: 2); print(box.value); }",
+            ),
+            (
+                "closed.dart",
+                "import 'api.dart'; void closed() { final box = makeBox(); box.work(3); print(box.value); }",
+            ),
+            (
+                "shared.dart",
+                "part of 'caller.dart'; void shared() { final box = makeBox(); box.work(4); }",
+            ),
+        ];
+        let mut documents = DocumentStore::new();
+        let mut paths = Vec::new();
+        for (name, text) in sources {
+            let path = root.join("lib").join(name);
+            std::fs::write(&path, text).unwrap();
+            if name == "api.dart" || name == "caller.dart" {
+                documents.open(
+                    url::Url::from_file_path(&path).unwrap().to_string(),
+                    1,
+                    text.to_owned(),
+                );
+            }
+            paths.push(path);
+        }
+        let sdk = crate::semantic::load_sdk(&base.join("sdk/lib")).unwrap();
+        let uri = url::Url::from_file_path(&paths[1]).unwrap().to_string();
+        let mut full = crate::reference_index::build(&sdk, &documents, &uri).unwrap();
+        let before = full.encode();
+        let project = crate::project::load_project(&sdk, &documents, &uri).unwrap();
+        let request = QueryRequest {
+            sdk_lib: sdk.root.clone(),
+            uri,
+            documents: documents
+                .uris()
+                .map(|uri| (uri.to_owned(), 1, documents.get(uri).unwrap().to_owned()))
+                .collect(),
+            call: Call::Records {
+                files: paths.clone(),
+            },
+        };
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        let (_, answer) = answer_over(project, &mut analyzer, &documents, &request, &root);
+        let Some(Answer::Records(bytes)) = answer else {
+            panic!("resident did not record the libraries")
+        };
+        let part = ReferenceIndex::decode(&bytes).unwrap();
+        for path in &paths {
+            assert_eq!(
+                full.describe(path),
+                part.describe(path),
+                "relations changed: {path:?}"
+            );
+            let record = part.file(path).unwrap();
+            if path == &paths[0] || path == &paths[1] {
+                assert!(!record.idents.is_empty(), "open file lost its cache");
+                assert!(
+                    !record.prepares.is_empty(),
+                    "open file lost rename preparation"
+                );
+            } else {
+                assert!(
+                    record.idents.is_empty()
+                        && record.facts.is_empty()
+                        && record.prepares.is_empty()
+                        && record.prepare_facts.is_empty(),
+                    "closed file eagerly rebuilt optional caches: {path:?}"
+                );
+            }
+        }
+        let targets: Vec<_> = full
+            .records()
+            .filter(|record| !record.frozen)
+            .flat_map(|record| record.facts.iter())
+            .filter_map(|fact| {
+                if let IdentFact::Target(target) = fact {
+                    Some(target.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut refreshed = ReferenceIndex::decode(&before).unwrap();
+        refreshed.merge(part);
+        let mut refreshed = ReferenceIndex::decode(&refreshed.encode()).unwrap();
+        let mut answered = 0;
+        for target in targets {
+            let expected = full.references(&target);
+            let actual = refreshed.references(&target);
+            match (expected, actual) {
+                (Ok(expected), Ok(actual)) => {
+                    assert_eq!(actual, expected);
+                    answered += 1;
+                }
+                (Err(expected), Err(actual)) => {
+                    assert_eq!(format!("{actual:?}"), format!("{expected:?}"))
+                }
+                (expected, actual) => {
+                    panic!("reference availability changed: {expected:?} -> {actual:?}")
+                }
+            }
+        }
+        assert!(answered >= 3, "no meaningful reference targets compared");
+    }
 }

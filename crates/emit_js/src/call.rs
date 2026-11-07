@@ -871,8 +871,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.ctx.t_string(),
                 );
             }
-            "noSuchMethod" if !user && arguments.args.len() == 1 => {
-                let (a, _) = self.emit_expr(arguments.args[0].value, None);
+            "noSuchMethod"
+                if !user
+                    && arguments.type_args.is_empty()
+                    && arguments.args.len() == 1
+                    && arguments.args[0].name.is_none() =>
+            {
+                // Native receivers (including null) use the original invocation
+                // in their error, while malformed calls need normal dispatch.
+                let invocation = self.ctx.invocation_.map(Ty::iface);
+                let (a, _) = self.emit_expr(arguments.args[0].value, invocation.as_ref());
                 return (
                     Js::prim(format!("dart.noSuchMethod({}, {})", recv.code, a.code)),
                     Ty::Dynamic,
@@ -1608,9 +1616,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         arguments: &ast::Arguments,
         expected: Option<&Ty>,
     ) -> (Js, Ty) {
-        // Environment constant called as a static (`X.fromEnvironment(...)`
-        // without `const`): the value is the same, evaluated at compile time.
-        if name == "fromEnvironment" {
+        // Constructor-shaped calls in constant initializers read the same
+        // immutable declarations as explicit constant constructor syntax.
+        if !self.in_const {
+            if let Some(result) = self.environment_unsupported(c, name, arguments) {
+                return result;
+            }
+        }
+        if self.in_const && name == "fromEnvironment" {
             if let Some(r) = self.environment_constant(c, arguments) {
                 return r;
             }

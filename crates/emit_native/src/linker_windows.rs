@@ -158,8 +158,10 @@ pub const IMPORTS: &[(&str, &[&str])] = &[
             "RtlLookupFunctionEntry",
             "RtlUnwindEx",
             "RtlVirtualUnwind",
+            "SetConsoleCP",
             "SetConsoleCtrlHandler",
             "SetConsoleMode",
+            "SetConsoleOutputCP",
             "SetCurrentDirectoryW",
             "SetEnvironmentVariableW",
             "SetFileAttributesW",
@@ -321,6 +323,11 @@ pub const IMPORTS: &[(&str, &[&str])] = &[
             "_tzset",
             "_get_timezone",
             // zlib (`gz*`) and `ring`, compiled with `cl.exe`.
+            // Core print follows the CRT stdout text/binary mode.
+            "__acrt_iob_func",
+            "fflush",
+            "fwrite",
+            "_setmode",
             "__stdio_common_vsprintf",
             "_close",
             "_lseeki64",

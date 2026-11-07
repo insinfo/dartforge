@@ -5,23 +5,27 @@
 // SAFETY: the name is reserved by the compiler and there is exactly one definition.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_print_i64(value: i64) {
-    println!("{value}");
+    print_line(format!("{value}").into_bytes());
 }
 
 /// Prints the boolean represented by byte 0 or 1 in the LLVM contract.
 // SAFETY: reserved symbol; u8 avoids passing an invalid Rust bool through the ABI.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_print_bool(value: u8) {
-    println!("{}", value != 0);
+    print_line(if value != 0 {
+        b"true".to_vec()
+    } else {
+        b"false".to_vec()
+    });
 }
 
 /// Prints a 64-bit floating point value (double).
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_print_f64(value: f64) {
     if value.fract() == 0.0 && !value.is_infinite() && !value.is_nan() {
-        println!("{value:.1}");
+        print_line(format!("{value:.1}").into_bytes());
     } else {
-        println!("{value}");
+        print_line(format!("{value}").into_bytes());
     }
 }
 
@@ -30,18 +34,175 @@ pub extern "C" fn dartforge_print_f64(value: f64) {
 /// (`Dart_CopyUTF8EncodingOfString` → `Utf8::Encode`), written as bytes (NUL
 /// included).
 fn print_string(t: crate::text::TextRef<'_>) {
-    use std::io::Write;
-    let mut bytes = t.to_vm_utf8();
+    print_line(t.to_vm_utf8());
+}
+
+/// Writes `print` through the Windows CRT text/binary descriptor, as the VM
+/// does. `File_OpenStdio(1)` switches that descriptor to binary; raw `dart:io`
+/// writes already bypass text conversion. Other targets use one host write.
+/// The owned VM UTF-8 buffer excludes the terminator, which is appended in place.
+fn print_line(mut bytes: Vec<u8>) {
     bytes.push(b'\n');
+    use std::io::Write;
     let mut out = crate::console::stdout();
-    let _ = out.write_all(&bytes);
+    #[cfg(windows)]
+    {
+        unsafe extern "C" {
+            fn __acrt_iob_func(index: u32) -> *mut std::ffi::c_void;
+            fn fwrite(
+                data: *const u8,
+                size: usize,
+                count: usize,
+                stream: *mut std::ffi::c_void,
+            ) -> usize;
+            fn fflush(stream: *mut std::ffi::c_void) -> i32;
+        }
+        // Preserve preceding Rust-buffered output before using CRT stdout.
+        let _ = out.flush();
+        // SAFETY: index 1 is the CRT's stdout FILE; the byte slice is valid
+        // during fwrite. Match Builtin_PrintString, including NULs and flush.
+        unsafe {
+            let stream = __acrt_iob_func(1);
+            let _ = fwrite(bytes.as_ptr(), 1, bytes.len(), stream);
+            let _ = fflush(stream);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = out.write_all(&bytes);
+    }
+}
+
+#[cfg(windows)]
+mod windows_print_console {
+    //! Configures UTF-8 and virtual-terminal output during the program, then
+    //! restores inherited console settings on return, exit or Ctrl+C.
+    use std::sync::Mutex;
+    type Handle = *mut std::ffi::c_void;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetConsoleCP() -> u32;
+        fn GetConsoleOutputCP() -> u32;
+        fn SetConsoleCP(page: u32) -> i32;
+        fn SetConsoleOutputCP(page: u32) -> i32;
+        fn GetStdHandle(which: u32) -> Handle;
+        fn GetConsoleMode(handle: Handle, mode: *mut u32) -> i32;
+        fn SetConsoleMode(handle: Handle, mode: u32) -> i32;
+        fn SetConsoleCtrlHandler(
+            handler: Option<unsafe extern "system" fn(u32) -> i32>,
+            add: i32,
+        ) -> i32;
+    }
+    /// The inherited configuration; saved handles remain owned by the process.
+    struct Saved {
+        input_cp: u32,
+        output_cp: u32,
+        modes: Vec<(usize, u32)>,
+        handler: bool,
+    }
+    /// Nested entries share a single saved console configuration.
+    struct State {
+        users: usize,
+        saved: Option<Saved>,
+    }
+    static STATE: Mutex<State> = Mutex::new(State {
+        users: 0,
+        saved: None,
+    });
+    /// Restores inherited settings after the final owning entry returns.
+    pub(super) struct Guard;
+    /// Acquires console settings for an entry, sharing them with nested entries.
+    pub(super) fn enter() -> Guard {
+        let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+        if state.users == 0 {
+            // SAFETY: these Win32 queries and configuration calls borrow the
+            // process console; no handle is transferred or closed.
+            let mut saved = unsafe {
+                let input_cp = GetConsoleCP();
+                let output_cp = GetConsoleOutputCP();
+                if input_cp != 0 && input_cp != 65001 {
+                    SetConsoleCP(65001);
+                }
+                if output_cp != 0 && output_cp != 65001 {
+                    SetConsoleOutputCP(65001);
+                }
+                Saved {
+                    input_cp,
+                    output_cp,
+                    modes: Vec::new(),
+                    handler: false,
+                }
+            };
+            for which in [-11_i32, -12] {
+                // SAFETY: the OS validates inherited standard handles; failed
+                // queries (redirected streams) leave that stream unchanged.
+                unsafe {
+                    let handle = GetStdHandle(which as u32);
+                    let mut mode = 0;
+                    if GetConsoleMode(handle, &mut mode) != 0
+                        && mode & 4 == 0
+                        && SetConsoleMode(handle, mode | 4) != 0
+                    {
+                        saved.modes.push((handle as usize, mode));
+                    }
+                }
+            }
+            // SAFETY: the callback has the OS ABI and static lifetime.
+            saved.handler = unsafe { SetConsoleCtrlHandler(Some(on_control), 1) != 0 };
+            state.saved = Some(saved);
+        }
+        state.users += 1;
+        Guard
+    }
+    /// Restores the console before forwarding Ctrl+C to the inherited handler.
+    unsafe extern "system" fn on_control(event: u32) -> i32 {
+        if event == 0 {
+            restore();
+        }
+        0 // Keep the inherited/default Ctrl+C handler.
+    }
+    /// Takes the saved configuration once; later guard drops become no-ops.
+    fn restore_locked(state: &mut State) {
+        state.users = 0;
+        if let Some(saved) = state.saved.take() {
+            // SAFETY: saved handles remain owned by the process; a handle that
+            // the application closed is rejected by SetConsoleMode.
+            unsafe {
+                for (handle, mode) in saved.modes {
+                    SetConsoleMode(handle as Handle, mode);
+                }
+                if saved.input_cp != 0 {
+                    SetConsoleCP(saved.input_cp);
+                }
+                if saved.output_cp != 0 {
+                    SetConsoleOutputCP(saved.output_cp);
+                }
+                if saved.handler {
+                    SetConsoleCtrlHandler(Some(on_control), 0);
+                }
+            }
+        }
+    }
+    /// Restores settings for termination paths that bypass Rust destructors.
+    pub(super) fn restore() {
+        restore_locked(&mut STATE.lock().unwrap_or_else(|error| error.into_inner()));
+    }
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let mut state = STATE.lock().unwrap_or_else(|error| error.into_inner());
+            state.users = state.users.saturating_sub(1);
+            if state.users == 0 {
+                restore_locked(&mut state);
+            }
+        }
+    }
 }
 
 /// Prints any managed object by its handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_print_handle(handle: i64) {
     if handle == 0 {
-        println!("null");
+        print_line(b"null".to_vec());
         return;
     }
     let t = HEAP.with(|heap| describe_string(&heap.borrow(), handle));
@@ -57,7 +218,7 @@ fn format_double(d: f64) -> String {
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_print_string(handle: i64) {
     if handle == 0 {
-        println!("null");
+        print_line(b"null".to_vec());
         return;
     }
     HEAP.with(|heap| {

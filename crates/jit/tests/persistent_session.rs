@@ -160,6 +160,7 @@ fn persistent_session_measurement() {
                 packages: None,
                 timings: false,
                 optimize: false,
+                defines: Vec::new(),
                 language_version: None,
                 experiments: Vec::new(),
                 debug: false,

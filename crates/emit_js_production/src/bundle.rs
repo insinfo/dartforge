@@ -268,6 +268,11 @@ pub fn assemble(sdk: &str, modules: &[Module], entry: &str, preamble: &str) -> S
         }
         out.push_str("})();\n");
     }
+    // Shell hosts supply their own event loop, including simulated timers.
+    // The protocol property is reserved by the property minifier.
+    out.push_str("if (typeof self['dartMainRunner'] === 'function') {\n  self['dartMainRunner'](function () { return ");
+    out.push_str(entry);
+    out.push_str("; }, []);\n} else\n");
     out.push_str(entry);
     out.push_str(";\n");
     out

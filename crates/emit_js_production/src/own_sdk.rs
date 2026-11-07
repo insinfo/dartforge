@@ -191,7 +191,10 @@ impl SignatureNames {
 /// (`var $n = dartx.n` or `dartx.n` itself), which also go into
 /// [`SignatureNames::symbols`].
 fn dynamic_names(texts: &[(String, String)]) -> SignatureNames {
-    let mut out: HashSet<String> = HashSet::new();
+    // The runtime may invoke an object's `call` after loading a getter or
+    // field. User text only names that getter, so its selectors cannot prove
+    // the call signature dead. The world already retains callable bodies.
+    let mut out = HashSet::from(["call".to_string()]);
     let mut symbols: HashSet<String> = HashSet::new();
     for (_, t) in texts {
         let (r, w) = crate::sdk::signature_selectors_by_kind(t);
@@ -393,6 +396,7 @@ fn fixed_point(
     // (`DARTFORGE_JSPROD_RECORDS_GATE=0` assumes they may exist).
     let mut opm = dartforge_world::Options {
         include_sdk: true,
+        preserve_constant_conditions: false,
         without_asserts: !op.asserts,
         without_records: std::env::var("DARTFORGE_JSPROD_RECORDS_GATE").map_or(true, |v| v != "0"),
         // `DARTFORGE_JSPROD_LEGACY_GATE=0` assumes legacy types may exist.
@@ -720,7 +724,7 @@ fn named_keys_in_recipes(
     }
     impl<'a> Visit<'a> for V<'_, '_> {
         fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
-            let v = it.value.as_str();
+            let Some(v) = it.value.as_str() else { return };
             scan(v, self.shortened, self.out);
             if v.contains('"') {
                 for piece in v.split('"') {
@@ -767,7 +771,7 @@ fn cites_generic_function_type(text: &str) -> bool {
     struct V(bool);
     impl<'a> Visit<'a> for V {
         fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
-            self.0 |= cites(it.value.as_str());
+            self.0 |= it.value.as_str().is_some_and(cites);
         }
         fn visit_template_literal(&mut self, it: &oxc_ast::ast::TemplateLiteral<'a>) {
             for q in &it.quasis {
@@ -868,7 +872,13 @@ fn targets_function_type(text: &str) -> bool {
                 && let [_, Argument::CallExpression(_)] = &it.arguments[..]
                 && let Some(e) = it.arguments[1].as_expression()
                 && let Some(l) = signature_literal(e)
-                && l.value.bytes().filter(|&c| c == b'(').count() == 1
+                && l.value
+                    .as_bytes()
+                    .iter()
+                    .copied()
+                    .filter(|&c| c == b'(')
+                    .count()
+                    == 1
             {
                 self.signatures.insert(l.span.start);
             }
@@ -885,7 +895,13 @@ fn targets_function_type(text: &str) -> bool {
                         e => Some(e),
                     };
                     if let Some(l) = value.and_then(signature_literal)
-                        && l.value.bytes().filter(|&c| c == b'(').count() == 1
+                        && l.value
+                            .as_bytes()
+                            .iter()
+                            .copied()
+                            .filter(|&c| c == b'(')
+                            .count()
+                            == 1
                     {
                         self.signatures.insert(l.span.start);
                     }
@@ -894,7 +910,7 @@ fn targets_function_type(text: &str) -> bool {
             oxc_ast_visit::walk::walk_call_expression(self, it);
         }
         fn visit_string_literal(&mut self, it: &oxc_ast::ast::StringLiteral<'a>) {
-            let v = it.value.as_str();
+            let Some(v) = it.value.as_str() else { return };
             if function_type_recipe(v.as_bytes()) {
                 if !self.signatures.contains(&it.span.start) {
                     if !self.target && std::env::var("DARTFORGE_JSPROD_TRACE").is_ok() {
@@ -1161,6 +1177,7 @@ pub fn emit(
     a: &dartforge_emit_js::Analysis<'_>,
     op: Options,
 ) -> Result<(EmittedWithSdk, Option<WorldReport>), String> {
+    crate::validate_weak_references(a)?;
     if !op.prune_user {
         let mut e = a.emit_with_sdk(None)?;
         strip_unused(&mut e);

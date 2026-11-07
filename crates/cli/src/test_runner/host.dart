@@ -197,9 +197,10 @@ Future<void> _execute(List<String> args) async {
   _Runner? runner;
   StreamSubscription? signals;
   try {
-    signals = StreamGroup.merge(
-            [ProcessSignal.sigterm.watch(), ProcessSignal.sigint.watch()])
-        .listen((signal) async {
+    signals = StreamGroup.merge([
+      if (!Platform.isWindows) ProcessSignal.sigterm.watch(),
+      ProcessSignal.sigint.watch()
+    ]).listen((signal) async {
       await signals?.cancel();
       await runner?.close();
     });

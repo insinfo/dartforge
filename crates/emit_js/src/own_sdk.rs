@@ -29,6 +29,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 type FieldVirtuality = (
     HashMap<ClassId, HashSet<dartforge_intern::SymbolId>>,
     HashSet<ClassId>,
+    HashMap<ClassId, HashSet<dartforge_intern::SymbolId>>,
 );
 
 /// A call that DDC resolves at compile time, without calling any function.
@@ -127,6 +128,82 @@ pub fn needs_library_uri(ctx: &Ctx, c: ClassId) -> bool {
     repeated.contains(&p.class(c).name)
 }
 
+/// Cache declared and synthetic accessors before choosing field storage.
+fn field_virtuality<'a>(ctx: &Ctx, sdk: &'a SdkMode) -> &'a FieldVirtuality {
+    let p = ctx.program;
+    sdk.virtuality.get_or_init(|| {
+        let mut desc: HashMap<ClassId, HashSet<dartforge_intern::SymbolId>> = HashMap::new();
+        let mut mixins: HashSet<ClassId> = HashSet::new();
+        // Synthetic noSuchMethod accessors are emitted after fields and are
+        // absent from instance_members. A final field must not use their
+        // public property as its constructor storage.
+        let mut forwarders: HashMap<ClassId, HashSet<dartforge_intern::SymbolId>> = HashMap::new();
+        for (i, k) in p.classes.iter().enumerate() {
+            let c = ClassId(i as u32);
+            if !k.modifiers.abstract_
+                && k.kind != dartforge_elements::model::ClassKind::Mixin
+                && !ctx.libs[k.library.0 as usize].is_sdk
+                && ctx.has_user_nsm(c)
+            {
+                for (name, kind) in ctx.unimplemented_abstract(c) {
+                    if matches!(
+                        kind,
+                        crate::ctx::MemberKind::Getter(_) | crate::ctx::MemberKind::Setter(_)
+                    ) && let Some(name) = ctx.interner.lookup(&name)
+                    {
+                        forwarders.entry(c).or_default().insert(name);
+                    }
+                }
+            }
+        }
+        for (i, k) in p.classes.iter().enumerate() {
+            mixins.extend(k.mixin_classes.iter().copied());
+            // The ancestors of `k` through the superclass and the applied mixins.
+            let mut seen: HashSet<ClassId> = HashSet::new();
+            let mut stack: Vec<ClassId> = k
+                .supertype_class
+                .into_iter()
+                .chain(k.mixin_classes.iter().copied())
+                .collect();
+            while let Some(a) = stack.pop() {
+                if a.0 as usize == i || !seen.insert(a) {
+                    continue;
+                }
+                desc.entry(a).or_default().extend(
+                    k.instance_members.keys().copied().chain(
+                        forwarders
+                            .get(&ClassId(i as u32))
+                            .into_iter()
+                            .flatten()
+                            .copied(),
+                    ),
+                );
+                let ka = p.class(a);
+                stack.extend(ka.supertype_class);
+                stack.extend(ka.mixin_classes.iter().copied());
+            }
+        }
+        (desc, mixins, forwarders)
+    })
+}
+
+/// Private noSuchMethod accessors collide only within their declaring library.
+pub(crate) fn private_nsm_field_conflict(
+    ctx: &Ctx,
+    c: ClassId,
+    name: dartforge_intern::SymbolId,
+) -> bool {
+    let Some(sdk) = ctx.sdk.as_ref() else {
+        return false;
+    };
+    let (_, _, forwarders) = field_virtuality(ctx, sdk);
+    forwarders.iter().any(|(&k, names)| {
+        names.contains(&name)
+            && ctx.lib_of_class(k) == ctx.lib_of_class(c)
+            && (k == c || ctx.as_super(&ctx.this_ty(k), c).is_some())
+    })
+}
+
 /// A public instance field that no class of the program overrides and that does
 /// not override an inherited concrete member: in the production profile (closed
 /// world) it becomes a plain property of the object, without the `get`/`set` pair
@@ -147,40 +224,25 @@ pub fn non_virtual_field(ctx: &Ctx, c: ClassId, name: dartforge_intern::SymbolId
     {
         return false;
     }
-    let (desc, mixins) = s.virtuality.get_or_init(|| {
-        let mut desc: HashMap<ClassId, HashSet<dartforge_intern::SymbolId>> = HashMap::new();
-        let mut mixins: HashSet<ClassId> = HashSet::new();
-        for (i, k) in p.classes.iter().enumerate() {
-            mixins.extend(k.mixin_classes.iter().copied());
-            // The ancestors of `k` through the superclass and the applied mixins.
-            let mut seen: HashSet<ClassId> = HashSet::new();
-            let mut stack: Vec<ClassId> = k
-                .supertype_class
-                .into_iter()
-                .chain(k.mixin_classes.iter().copied())
-                .collect();
-            while let Some(a) = stack.pop() {
-                if a.0 as usize == i || !seen.insert(a) {
-                    continue;
-                }
-                desc.entry(a)
-                    .or_default()
-                    .extend(k.instance_members.keys().copied());
-                let ka = p.class(a);
-                stack.extend(ka.supertype_class);
-                stack.extend(ka.mixin_classes.iter().copied());
-            }
-        }
-        (desc, mixins)
-    });
+    let (desc, mixins, forwarders) = field_virtuality(ctx, s);
     if mixins.contains(&c) {
+        return false;
+    }
+    if forwarders
+        .get(&c)
+        .is_some_and(|names| names.contains(&name))
+    {
         return false;
     }
     let text = ctx.interner.resolve(name);
     let setter = ctx.interner.lookup(&format!("{text}_="));
     let has = |k: ClassId| {
         let m = &p.class(k).instance_members;
-        m.contains_key(&name) || setter.is_some_and(|s| m.contains_key(&s))
+        m.contains_key(&name)
+            || setter.is_some_and(|s| m.contains_key(&s))
+            || forwarders
+                .get(&k)
+                .is_some_and(|names| names.contains(&name))
     };
     // Overridden by a descendant.
     if desc
@@ -2101,12 +2163,12 @@ pub fn emit_intrinsic(
         }
         Intrinsic::GetFlag => {
             let name = constant_string(e, *pos.first()?)?;
-            // Production: no type parameter declares a variance (the
-            // emitter records none), so `VARIANCE`'s paths reduce to the
-            // covariant one (`DARTFORGE_JSPROD_VARIANCE=1` keeps DDC's value;
-            // the world folds the same, `dartforge_world::Constants`).
+            // Omit variance-aware RTI only when no class declares variance.
+            // The world's constants model uses the same semantic predicate;
+            // the override can retain this machinery for diagnostic controls.
             let v = if name == "VARIANCE"
                 && e.ctx.production()
+                && !e.ctx.outline.has_declared_class_variance(e.ctx.table)
                 && std::env::var("DARTFORGE_JSPROD_VARIANCE").map_or(true, |v| v != "1")
             {
                 false
@@ -2443,13 +2505,15 @@ pub fn bootstrap(ctx: &Ctx, dartx: &BTreeSet<String>, late_fields: bool) -> Stri
     if late_fields {
         // `late` without an initializer (`module.rs`, `late_fields`): the same
         // `get`/`set` pair the class would write, defined once per field.
-        out.push_str("dart.lateFields = function(p, fin, outros) {
-  for (const [o, f] of [[fin, true], [outros, false]]) {
+        // A present storage property can contain null; absence is the only
+        // uninitialized state, including for a late final field.
+        out.push_str("dart.lateFields = function(p, fin, others) {
+  for (const [o, f] of [[fin, true], [others, false]]) {
     for (const k of typeof o == 'string' ? (o ? o.split(' ') : []) : Reflect.ownKeys(o)) {
       const n = typeof o == 'string' ? '' : o[k] || '', s = Symbol(n);
       Object.defineProperty(p, k, {
-        get() { let t = this[s]; return t == null ? dart.throw(new _internal.LateError.fieldNI(n)) : t; },
-        set: f ? function(v) { if (this[s] != null) dart.throw(new _internal.LateError.fieldAI(n)); this[s] = v; } : function(v) { this[s] = v; },
+        get() { return Object.prototype.hasOwnProperty.call(this, s) ? this[s] : dart.throw(new _internal.LateError.fieldNI(n)); },
+        set: f ? function(v) { if (Object.prototype.hasOwnProperty.call(this, s)) dart.throw(new _internal.LateError.fieldAI(n)); this[s] = v; } : function(v) { this[s] = v; },
         configurable: true
       });
     }

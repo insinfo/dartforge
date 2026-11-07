@@ -311,12 +311,6 @@ pub struct Emitted {
 
 /// The analyzed program (elements, outline, bodies), handed to callers compiling
 /// in the production profile so they can compute the closed world before emitting.
-/// The `dart:` libraries the `dartdevc` profile of the loaded SDK supports:
-/// the `dart.library.*` environment declarations (`bool.fromEnvironment`),
-/// consistent with the conditional imports the loader selected.
-pub static SUPPORTED_DART_LIBRARIES: std::sync::OnceLock<std::collections::HashSet<String>> =
-    std::sync::OnceLock::new();
-
 pub struct Analysis<'a> {
     pub program: &'a Program,
     pub interner: &'a Interner,
@@ -727,13 +721,13 @@ pub fn compile_with_options<R>(
     };
     let mut sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
     language.apply(&mut sdk);
-    let _ = SUPPORTED_DART_LIBRARIES.set(
-        sdk.libraries
-            .iter()
-            .filter(|(_, l)| l.supported)
-            .map(|(name, _)| name.clone())
-            .collect(),
-    );
+    dartforge_elements::environment::CompilationEnvironment::new(
+        dartforge_elements::environment::EnvironmentTarget::JavaScript,
+        &sdk,
+        false,
+        &language.defines,
+    )?
+    .install(&mut sdk);
     // The production profile compiles the SDK too: the patches that drop
     // dynamic dispatch from the runtime (`sdk_patches`).
     if infer_sdk && std::env::var("DARTFORGE_JSPROD_SDK_PATCHES").map_or(true, |v| v != "0") {
@@ -969,11 +963,20 @@ pub fn compile_with_options<R>(
         dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
     rel.phase("outline (types)", t);
     let t = Instant::now();
+    let user_libraries: Vec<_> = program
+        .libraries
+        .iter()
+        .enumerate()
+        .filter(|(_, library)| !library.is_sdk)
+        .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
+        .collect();
+    // Constant legality needs the identities of local reads and constructor
+    // parameters, even when emission can resolve them in its own scopes.
     let (bodies, body_diags) = if infer_sdk {
         let all: Vec<dartforge_elements::model::LibraryId> = (0..program.libraries.len() as u32)
             .map(dartforge_elements::model::LibraryId)
             .collect();
-        dartforge_types::infer_library_bodies(
+        dartforge_types::infer_library_bodies_with_locals(
             &program,
             &interner,
             &mut table,
@@ -982,7 +985,14 @@ pub fn compile_with_options<R>(
             &all,
         )
     } else {
-        dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline)
+        dartforge_types::infer_library_bodies_with_locals(
+            &program,
+            &interner,
+            &mut table,
+            &core,
+            &mut outline,
+            &user_libraries,
+        )
     };
     rel.phase("body inference", t);
     // Language errors of the 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §3)
@@ -998,6 +1008,32 @@ pub fn compile_with_options<R>(
             eprintln!("error: {d}");
         }
         return Err(format!("{} compilation error(s)", errors.len()));
+    }
+    // As in the native frontend, invalid constants must be refused before
+    // pruning. SDK constants remain opaque; their public declarations still
+    // determine constructor legality.
+    let t = Instant::now();
+    let inferred = user_libraries.iter().copied().collect();
+    let constant_diags = dartforge_types::const_eval::verify(
+        &program,
+        &interner,
+        &mut table,
+        &core,
+        &outline,
+        &bodies,
+        &inferred,
+        &user_libraries,
+    );
+    rel.phase("constant verification", t);
+    let constant_errors: Vec<_> = constant_diags
+        .iter()
+        .filter(|(_, d)| d.severity == dartforge_diagnostics::Severity::Error)
+        .collect();
+    if !constant_errors.is_empty() {
+        for (unit, diagnostic) in &constant_errors {
+            eprintln!("error: {}: {diagnostic}", program.unit_path(*unit));
+        }
+        return Err(format!("{} constant error(s)", constant_errors.len()));
     }
     rel.outline_warnings = outline_diags.len();
     rel.body_warnings = body_diags.len();

@@ -76,6 +76,12 @@ pub struct LoadTimes {
 pub struct Program {
     /// Timings of the load sub-phases (filled in by `load_lenient`).
     pub times: LoadTimes,
+    /// Supported `dart:` libraries in this load's SDK layout, including libraries
+    /// the entry does not import. Environment queries must not reuse another
+    /// compilation's SDK profile from process-global state.
+    pub supported_sdk_libraries: HashSet<String>,
+    /// Immutable declarations for compiler constant evaluation; absent in analysis.
+    pub compilation_environment: Option<std::sync::Arc<crate::environment::CompilationEnvironment>>,
     pub units: Vec<Unit>,
     pub libraries: Vec<Library>,
     pub classes: Vec<ClassElement>,

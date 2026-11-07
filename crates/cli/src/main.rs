@@ -131,7 +131,7 @@ fn main() -> ExitCode {
 
 /// `compile-js`: the whole pipeline and the writing of the ES modules into the given directory.
 fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--language-version x.y] [--enable-experiment=a,b]";
+    let usage = "usage: dartforge compile-js <input.dart> -o <dir> [--sdk <lib>] [--packages <package_config.json>] [--timings] [-Dname=value] [--language-version x.y] [--enable-experiment=a,b]";
     let mut input: Option<PathBuf> = None;
     let mut out: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;

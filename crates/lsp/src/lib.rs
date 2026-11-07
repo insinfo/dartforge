@@ -55,6 +55,7 @@ mod fuzzy_matcher;
 mod hierarchy;
 mod ignore_diagnostic;
 mod index;
+mod index_edit;
 mod inlay_hints;
 mod insert;
 mod known_libraries;
@@ -86,6 +87,7 @@ mod signature;
 mod snippets;
 mod sort_members;
 mod structure;
+mod symbol_metadata;
 mod symbols;
 pub mod transport;
 mod typed;
@@ -177,6 +179,25 @@ pub struct Hover {
     /// `package:x/y.dart`, `dart:core`, or the path relative to the project root
     /// for a file outside `lib/`.
     pub library: Option<String>,
+    /// The class, mixin, enum or extension type declaring a resolved member.
+    /// Inherited members name their declaration's owner, not the receiver's
+    /// type. Top-level elements, locals and extension members have no class.
+    /// This semantic label lets modern clients render the enclosing type
+    /// without recovering it from a formatted signature.
+    ///
+    /// ```
+    /// let hover = dartforge_lsp::Hover {
+    ///     range: dartforge_diagnostics::Span { start: 0, end: 5 },
+    ///     description: "int get value".into(),
+    ///     ty: Some("int".into()),
+    ///     documentation: None,
+    ///     library: Some("package:example/model.dart".into()),
+    ///     declaring_type: Some("Model".into()),
+    /// };
+    /// assert_eq!(hover.declaring_type.as_deref(), Some("Model"));
+    /// ```
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declaring_type: Option<String>,
 }
 
 /// Response of `textDocument/references`: the declaration (when its location
@@ -401,6 +422,22 @@ pub trait Analyzer {
     /// Syntactic symbols of the document, without keeping the tree between edits.
     fn symbols(&mut self, _uri: &str, _text: &str) -> Vec<serde_json::Value> {
         Vec::new()
+    }
+
+    /// Lists symbols using the current open documents, including import overlays.
+    /// The default keeps the analyzer's syntactic symbol implementation.
+    ///
+    /// ```
+    /// use dartforge_lsp::{Analyzer, DocumentStore, SyntacticAnalyzer};
+    /// let mut documents = DocumentStore::new();
+    /// documents.open("file:///a.dart".into(), 1, "class Example {}".into());
+    /// let symbols = SyntacticAnalyzer::new().symbols_in(&documents, "file:///a.dart");
+    /// assert_eq!(symbols[0]["name"], "Example");
+    /// ```
+    fn symbols_in(&mut self, documents: &DocumentStore, uri: &str) -> Vec<serde_json::Value> {
+        documents
+            .get(uri)
+            .map_or_else(Vec::new, |text| self.symbols(uri, text))
     }
 
     /// Conservative definition of the position in the text: URI and selection
@@ -1086,11 +1123,14 @@ impl Analyzer for SyntacticAnalyzer {
                 ty: ty.static_type,
                 documentation: None,
                 library: None,
+                declaring_type: None,
             }),
         }
     }
 
     fn project_configuration_changed(&mut self) {
+        // Configuration notifications can preserve dates and lengths.
+        dartforge_elements::fs_cache::clear();
         self.configs.clear();
         self.patterns.clear();
     }
@@ -1137,6 +1177,7 @@ impl Analyzer for SyntacticAnalyzer {
             ty,
             documentation: None,
             library: None,
+            declaring_type: None,
         })
     }
 

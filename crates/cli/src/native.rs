@@ -187,7 +187,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     // The CLI option selects ARC; an inherited environment does not change the default.
     set_memory_policy("tracing")?;
     set_subsystem("console")?;
-    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--enable-asserts] [--debug] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--sdk <lib>] [--packages <package_config.json>] [--language-version x.y] [--enable-experiment=a,b]
+    let usage = "usage: dartforge aot <input.dart> <output.exe> [--optimize] [--enable-asserts] [--debug] [--timings] [--cpu x86-64|x86-64-v2|x86-64-v3|x86-64-v4|native] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--sdk <lib>] [--packages <package_config.json>] [-Dname=value] [--language-version x.y] [--enable-experiment=a,b]
   --target <triple> --target-bundle <directory>  cross compilation (see export-target)
   --optimize        production: asserts off and dart.vm.product true (dart compile exe)
   --enable-asserts  keeps the asserts on with --optimize (dart compile exe --enable-asserts)";
@@ -209,7 +209,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
     while let Some(flag) = flags.next() {
         match flag.to_str() {
             Some("--optimize") => optimize = true,
-            Some("--language-version" | "--enable-experiment") => {
+            Some("--language-version" | "--enable-experiment" | "--define" | "-D") => {
                 let value = flags.next().and_then(|v| v.to_str()).ok_or(usage)?;
                 language.read_option(
                     flag.to_str().unwrap_or_default(),
@@ -218,7 +218,9 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
             }
             Some(option)
                 if option.starts_with("--language-version=")
-                    || option.starts_with("--enable-experiment=") =>
+                    || option.starts_with("--enable-experiment=")
+                    || option.starts_with("--define=")
+                    || option.starts_with("-D") =>
             {
                 language.read_option(option, &mut std::iter::empty::<&str>())?;
             }
@@ -324,6 +326,7 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
                     packages: packages.as_deref(),
                     timings,
                     optimize,
+                    defines: language.defines.clone(),
                     language_version: language.current_version,
                     experiments: language.experiments,
                     debug,
@@ -346,7 +349,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
     set_memory_policy("tracing")?;
     set_subsystem("console")?;
     use dartforge_elements::sdk::LanguageOptions;
-    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--enable-asserts] [--debug] [--cpu <cpu>] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [--language-version x.y] [--enable-experiment=a,b]
+    let usage = "usage: dartforge compile-native <input.dart> -o <output.exe> [--sdk <lib>] [--packages <package_config.json>] [--timings] [--optimize] [--enable-asserts] [--debug] [--cpu <cpu>] [--exceptions check|tables] [--memory tracing|arc] [--subsystem console|gui] [--dartforge-contracts verify|ignore] [--stack-trace symbolic|none] [-Dname=value] [--language-version x.y] [--enable-experiment=a,b]
        dartforge compile-native <input.dart> --emit-ir -o <output.ll> [--digest] [...]
        dartforge compile-native <input.dart> --digest [...]
   --target <triple> --target-bundle <directory>  cross compilation (see export-target)
@@ -465,14 +468,16 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             Some(option) if option.starts_with("--stack-trace=") => {
                 set_stack_trace(&option["--stack-trace=".len()..])?;
             }
-            Some("--language-version" | "--enable-experiment") => {
+            Some("--language-version" | "--enable-experiment" | "--define" | "-D") => {
                 let value = it.next().and_then(|v| v.to_str()).ok_or(usage)?;
                 language
                     .read_option(a.to_str().unwrap_or_default(), &mut std::iter::once(value))?;
             }
             Some(option)
                 if option.starts_with("--language-version=")
-                    || option.starts_with("--enable-experiment=") =>
+                    || option.starts_with("--enable-experiment=")
+                    || option.starts_with("--define=")
+                    || option.starts_with("-D") =>
             {
                 language.read_option(option, &mut std::iter::empty::<&str>())?;
             }
@@ -519,6 +524,7 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                     packages: p2.as_deref(),
                     timings,
                     optimize,
+                    defines: language.defines.clone(),
                     language_version: language.current_version,
                     experiments: language.experiments,
                     debug,
@@ -554,7 +560,7 @@ const NATIVE_ONLY_OPTIONS: [&str; 5] = [
 /// (`select_destination`); the pipeline is `compile-native`'s, without the
 /// options of a native executable.
 pub fn run_compile_wasm(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let usage = "usage: dartforge compile-wasm <input.dart> -o <module.wasm> [--optimize] [--enable-asserts] [--debug] [--timings] [--exceptions check|tables] [--sdk <lib>] [--packages <package_config.json>] [--dartforge-contracts verify|ignore] [--language-version x.y] [--enable-experiment=a,b]
+    let usage = "usage: dartforge compile-wasm <input.dart> -o <module.wasm> [--optimize] [--enable-asserts] [--debug] [--timings] [--exceptions check|tables] [--sdk <lib>] [--packages <package_config.json>] [--dartforge-contracts verify|ignore] [-Dname=value] [--language-version x.y] [--enable-experiment=a,b]
        dartforge compile-wasm <input.dart> --emit-ir -o <output.ll> [--digest] [...]
   WebAssembly over a 32-bit linear memory with DartForge's own collector, no
   WasmGC (the wasm32-linear profile); the module runs in browsers and in
@@ -629,6 +635,7 @@ fn emit_native_ir(command: IrEmission) -> Outcome {
                     packages: packages.as_deref(),
                     timings,
                     optimize,
+                    defines: language.defines.clone(),
                     language_version: language.current_version,
                     experiments: language.experiments,
                     debug,

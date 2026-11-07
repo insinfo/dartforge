@@ -64,7 +64,8 @@ jobs:
         include:
           - os: windows-latest
             name: windows-x64
-          - os: ubuntu-latest
+          # Match the host ABI required by the official LLVM 22.1.8 linkers.
+          - os: ubuntu-24.04
             name: linux-x64
           - os: macos-latest
             name: macos-arm64

@@ -749,10 +749,10 @@ impl<'a> LlvmEmitter<'a> {
     /// usual signature, so every address taken (method tables, closures, the
     /// runtime's callbacks) still works without the runtime knowing; only the
     /// direct calls of Dart code that already holds `%ctx` use `f$cx`. The
-    /// production SDK modules emit the same pairs, so a direct call to a
+    /// source SDK modules emit the same pairs, so a direct call to a
     /// `df.dart$3a…` function of another module uses it too.
     ///
-    /// Only for the production AOT of tracing memory on the shadow stack (with
+    /// Used by production AOT and source SDK libraries with tracing memory on the shadow stack (with
     /// exceptions by check or by tables), outside WebAssembly; elsewhere the request
     /// is ignored. With tables, a call with a landing pad becomes an `invoke` of the
     /// same `f$cx` (`Self::make_invoke`).
@@ -3930,11 +3930,19 @@ impl<'a> LlvmEmitter<'a> {
         } else {
             ""
         };
+        // LLVM can inline a small Dart body into its context adapter. A tail
+        // call from that adapter would then discard the body before the runtime
+        // captures its return address, losing the source frame from the trace.
+        let trace = if self.vm_stack_trace.is_some() {
+            " \"disable-tail-calls\"=\"true\""
+        } else {
+            ""
+        };
         let symbol = &func.symbol;
         if self.context_in_parameter {
             writeln!(
                 self.out,
-                "define {linkage}{ret_ty} @{symbol}({params}){optsize}{frame}{comdat} {{\n\
+                "define {linkage}{ret_ty} @{symbol}({params}){optsize}{frame}{trace}{comdat} {{\n\
                  \x20 %ctx = call ptr @dartforge_context()\n\
                  \x20 {call}call {ret_ty} @{symbol}$cx({with_context})\n\
                  \x20 {ret}\n\
@@ -3950,7 +3958,7 @@ impl<'a> LlvmEmitter<'a> {
             };
             writeln!(
                 self.out,
-                "define {linkage}{ret_ty} @{symbol}$cx({with_context}) alwaysinline{optsize}{frame}{own_comdat} {{\n\
+                "define {linkage}{ret_ty} @{symbol}$cx({with_context}) alwaysinline{optsize}{frame}{trace}{own_comdat} {{\n\
                  \x20 {call}call {ret_ty} @{symbol}({params})\n\
                  \x20 {ret}\n\
                  }}\n"
@@ -6251,9 +6259,17 @@ impl<'a> LlvmEmitter<'a> {
             return;
         };
         let by_tables = self.module.table_exceptions;
+        // Keep a small Dart main out of the embedder entry. Its own context
+        // adapter prevents tail calls, but an inlined body would inherit the
+        // embedder's policy and could lose its source frame during capture.
+        let trace = if self.vm_stack_trace.is_some() {
+            " noinline"
+        } else {
+            ""
+        };
         let n = self.module.entry_params.min(2);
         if n == 0 {
-            writeln!(self.out, "  {}", entry_call(by_tables, &entry, &[])).unwrap();
+            writeln!(self.out, "  {}{trace}", entry_call(by_tables, &entry, &[])).unwrap();
             return;
         }
         writeln!(
@@ -6266,7 +6282,7 @@ impl<'a> LlvmEmitter<'a> {
         } else {
             &["i64 %df.args", "i64 0"]
         };
-        writeln!(self.out, "  {}", entry_call(by_tables, &entry, args)).unwrap();
+        writeln!(self.out, "  {}{trace}", entry_call(by_tables, &entry, args)).unwrap();
     }
 
     /// The call-site attribute of an `invoke` from code outside `gc` (a port, a

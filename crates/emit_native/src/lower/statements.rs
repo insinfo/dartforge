@@ -182,7 +182,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     {
                         self.local_const_keys.insert(sym, (k, init_id));
                     }
-                    let init_op = if late_local {
+                    let elided = var.initializer.is_some_and(|expr| {
+                        self.ctx
+                            .world
+                            .as_ref()
+                            .is_some_and(|world| world.elided_const_initializer(self.unit_id, expr))
+                    });
+                    let init_op = if elided && ty.is_vector() {
+                        self.emit(
+                            Instruction::Simd {
+                                op: OpSimd::Zero,
+                                args: Vec::new(),
+                            },
+                            ty,
+                        )
+                    } else if late_local || elided {
                         Self::zero_value(ty)
                     } else if ty.is_vector() {
                         // Unboxed SIMD: the initializer as a vector, or zero
@@ -368,7 +382,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 let sym = var.name.sym;
                                 let ty = self.local_repr_of(var.name.span.start);
                                 let late_local = var_list.late;
-                                let init_op = if late_local {
+                                let elided = var.initializer.is_some_and(|expr| {
+                                    self.ctx.world.as_ref().is_some_and(|world| {
+                                        world.elided_const_initializer(self.unit_id, expr)
+                                    })
+                                });
+                                let init_op = if elided && ty.is_vector() {
+                                    self.emit(
+                                        Instruction::Simd {
+                                            op: OpSimd::Zero,
+                                            args: Vec::new(),
+                                        },
+                                        ty,
+                                    )
+                                } else if late_local || elided {
                                     Self::zero_value(ty)
                                 } else if let Some(init_id) = var.initializer {
                                     let op = self.lower_expr(ast, init_id);
@@ -935,6 +962,53 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // runs normally and the exception comes back at the end, unless it
             // leaves through `return`/`break`/`continue`/`throw`, which discard it).
             let saved = self.pending_exception();
+            // A finally may catch another exception before resuming this one.
+            // Keep the original trace as a rooted value across that body. Normal
+            // entries must not allocate a trace merely to leave it unused.
+            let saved_trace = if self.ctx.stack_trace {
+                let pending = self.emit(
+                    Instruction::ICmp(
+                        ICmpOp::Eq,
+                        Operand::Val(reason_phi),
+                        Operand::Constant(Constant::Int(2)),
+                    ),
+                    Type::I1,
+                );
+                let capture = self.new_block();
+                let normal = self.new_block();
+                let resume = self.new_block();
+                self.terminate(Terminator::CondBranch {
+                    cond: pending,
+                    then_block: capture,
+                    else_block: normal,
+                });
+                self.set_block(capture);
+                let trace = self.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_stack_trace_get".to_string(),
+                        args: Vec::new(),
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                );
+                let captured = self.current_block;
+                self.terminate(Terminator::Branch(resume));
+                self.set_block(normal);
+                self.terminate(Terminator::Branch(resume));
+                self.set_block(resume);
+                Some(self.emit(
+                    Instruction::Phi {
+                        incoming: vec![
+                            (captured, trace),
+                            (normal, Operand::Constant(Constant::Null)),
+                        ],
+                        ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ))
+            } else {
+                None
+            };
             self.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_exception_clear".to_string(),
@@ -1008,7 +1082,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.route_return(ret_op);
 
                 self.set_block(b_exc);
-                self.emit_throw_value(saved, None);
+                self.emit_throw_value(saved, saved_trace);
                 // Under ARC the throw ends at the guard: the branch leaves from it.
                 let b_exc = self.current_block;
                 // The exception goes up to the innermost handler: the current exception

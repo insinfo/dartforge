@@ -42,6 +42,7 @@ const JS_PROTOCOL: &[&str] = &[
     "get",
     "set",
     "handleEvent",
+    "dartMainRunner",
     "caller",
     "callee",
     "arguments",

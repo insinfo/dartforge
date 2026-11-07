@@ -32,7 +32,11 @@ impl<'a> Visit<'a> for Count {
     fn visit_string_literal(&mut self, it: &StringLiteral<'a>) {
         let n = it.span.size() as usize;
         self.n_strings += 1;
-        let v = it.value.as_str();
+        let Some(v) = it.value.as_str() else {
+            self.strings_other += n;
+            *self.by_string.entry(format!("{:?}", it.value)).or_default() += n;
+            return;
+        };
         if v.starts_with('{') && v.contains("\":") {
             self.strings_json += n;
         } else if v.contains('|') && !v.contains(' ') {

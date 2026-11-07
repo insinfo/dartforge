@@ -2791,7 +2791,9 @@ impl<'a> Engine<'a> {
     /// unit `u`: the constructor invocation (`@C(…)`, `@C.n(…)`, `@p.C(…)`,
     /// `@p.C.n(…)`, with the type arguments that inference recorded for the
     /// argument list) or the variable read (`@x`, `@p.x`, `@C.x`). `None` when it
-    /// does not resolve or is not constant.
+    /// does not resolve or is not constant. Constructor aliases retain their
+    /// target class and explicit type substitution; an unavailable generic
+    /// alias instantiation remains unknown.
     pub fn evaluate_annotation(&mut self, u: UnitId, m: &ast::Annotation) -> Option<Value> {
         let lib = self.program.unit(u).library;
         if let Some(offset) = self
@@ -2821,7 +2823,7 @@ impl<'a> Engine<'a> {
                 None,
             ),
             [a, b] => match self.program.lookup_in_unit(u, *a).and_then(|x| x.getter) {
-                Some(el @ Element::Class(_)) => (Some(el), Some(*b)),
+                Some(el @ (Element::Class(_) | Element::Typedef(_))) => (Some(el), Some(*b)),
                 _ => (
                     self.program
                         .lookup_prefixed_in_unit(u, *a, *b)
@@ -2837,9 +2839,47 @@ impl<'a> Engine<'a> {
             ),
             _ => (None, None),
         };
-        match (tgt?, &m.arguments) {
+        // A constructor alias denotes the target class with the alias's type
+        // substitution, rather than a class whose name happens to match it.
+        let (target, alias_type) = match tgt? {
+            Element::Typedef(td) if m.arguments.is_some() => {
+                let alias = &self.outline.typedefs[td.0 as usize];
+                let explicit = m
+                    .type_args
+                    .iter()
+                    .map(|node| {
+                        self.body
+                            .units
+                            .get(u.0 as usize)?
+                            .annotation_types
+                            .get(node)
+                            .copied()
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                if explicit.len() != alias.type_params.len() {
+                    // Do not invent an instantiation when inference did not
+                    // record one for a generic alias with omitted arguments.
+                    return None;
+                }
+                let map = alias.type_params.iter().copied().zip(explicit).collect();
+                let typ = crate::ops::substitute(alias.target_type, &map, self.table);
+                let Type::Interface {
+                    class,
+                    nullable: false,
+                    ..
+                } = self.table.get(typ)
+                else {
+                    return None;
+                };
+                (Element::Class(*class), Some(typ))
+            }
+            target => (target, None),
+        };
+        match (target, &m.arguments) {
             (Element::Class(c), Some(args)) => {
-                let the_key = mem.or_else(|| self.interner.lookup(""))?;
+                let the_key = mem
+                    .filter(|name| self.interner.resolve(*name) != "new")
+                    .or_else(|| self.interner.lookup(""))?;
                 let f = *self.program.class(c).constructors.get(&the_key)?;
                 let n = self.program.class(c).type_params.len();
                 let args_list: Vec<TypeId> = match self
@@ -2851,10 +2891,12 @@ impl<'a> Engine<'a> {
                     Some(v) if v.len() == n => v.to_vec(),
                     _ => vec![self.core.dynamic_; n],
                 };
-                let typ = self.table.intern(Type::Interface {
-                    class: c,
-                    args: args_list.into_boxed_slice(),
-                    nullable: false,
+                let typ = alias_type.unwrap_or_else(|| {
+                    self.table.intern(Type::Interface {
+                        class: c,
+                        args: args_list.into_boxed_slice(),
+                        nullable: false,
+                    })
                 });
                 let error = ErrorAt {
                     unit: u,
@@ -3569,7 +3611,7 @@ impl<'a> Engine<'a> {
             return Constant::Value(self.unknown(typ));
         };
         if fe.factory
-            || !self.the_inferred.contains(&fe.library)
+            || (!self.the_inferred.contains(&fe.library) && !self.structural_core_pragma(f))
             || fe.kind == FunctionKind::SyntheticConstructor
                 && self.program.class(k).kind == ClassKind::MixinApplication
         {
@@ -3729,6 +3771,81 @@ impl<'a> Engine<'a> {
         Some((g, t))
     }
 
+    /// Core pragma's two field formals need no SDK body inference. A changed
+    /// body, initializer, default or inheritance keeps the constructor opaque.
+    fn structural_core_pragma(&self, f: FunctionElementId) -> bool {
+        let function = self.program.function(f);
+        let Some(class) = function.class else {
+            return false;
+        };
+        let declaration = self.program.class(class);
+        if Some(function.library) != self.core.core_library
+            || self.interner.resolve(declaration.name) != "pragma"
+            || !function.const_
+            || function.external
+            || function.factory
+            || declaration.supertype_class != self.core.object_class
+            || !declaration.type_params.is_empty()
+            || !self.outline.classes[class.0 as usize].mixins.is_empty()
+            || declaration.fields.len() != 2
+        {
+            return false;
+        }
+        let FunctionRef::Constructor { unit, member } = function.node else {
+            return false;
+        };
+        let ast::MemberKind::Constructor(constructor) = &self.ast(unit).member(member).kind else {
+            return false;
+        };
+        if !matches!(constructor.body, ast::FunctionBody::Empty)
+            || !constructor.initializers.is_empty()
+            || constructor.redirect.is_some()
+            || constructor.parameters.len() != 2
+        {
+            return false;
+        }
+        for (parameter, (name, kind)) in constructor.parameters.iter().zip([
+            ("name", ast::ParameterKind::Required),
+            ("options", ast::ParameterKind::Optional),
+        ]) {
+            if !parameter.this_
+                || parameter.super_
+                || parameter.kind != kind
+                || parameter.default_value.is_some()
+                || parameter
+                    .name
+                    .is_none_or(|n| self.interner.resolve(n.sym) != name)
+            {
+                return false;
+            }
+        }
+        declaration.fields.iter().all(|&field| {
+            let variable = self.program.variable(field);
+            if !variable.final_
+                || variable.static_
+                || variable.late
+                || !matches!(self.interner.resolve(variable.name), "name" | "options")
+            {
+                return false;
+            }
+            let VariableRef::Field {
+                unit,
+                member,
+                index,
+            } = variable.node
+            else {
+                return false;
+            };
+            match &self.ast(unit).member(member).kind {
+                ast::MemberKind::Field(fields) => fields
+                    .variables
+                    .get(index)
+                    .is_some_and(|f| f.initializer.is_none()),
+                _ => false,
+            }
+        })
+    }
+
     /// `evaluateFactoryConstructorCall`.
     fn call_factory(
         &mut self,
@@ -3763,6 +3880,51 @@ impl<'a> Engine<'a> {
             if !ok {
                 return exception(self);
             }
+            // Analyzer loads deliberately keep declarations unknown. Compiler
+            // loads share the immutable context used by conditional imports.
+            if let Some(environment) = &self.program.compilation_environment {
+                let Some(text) = first.and_then(Value::as_text) else {
+                    return Constant::Value(self.unknown(typ));
+                };
+                let name = String::from_utf16(text).ok();
+                let declared = name.as_deref().and_then(|name| environment.get(name));
+                if cls == self.core.string_class {
+                    if let Some(value) = declared {
+                        return Constant::Value(Value::new(
+                            typ,
+                            InstanceState::Str(Some(the_text(value))),
+                        ));
+                    }
+                } else if cls == self.core.bool_class {
+                    if let Some(value) = name.as_deref().and_then(|name| environment.boolean(name))
+                    {
+                        return Constant::Value(Value::new(typ, InstanceState::Bool(Some(value))));
+                    }
+                } else if cls == self.core.int_class {
+                    if let Some(value) = name.as_deref().and_then(|name| environment.integer(name))
+                    {
+                        // The shared evaluator stores i64. Leave larger web
+                        // numbers unknown rather than folding with native bits.
+                        return Constant::Value(match value.exact_integer() {
+                            Some(value) => Value::new(typ, InstanceState::Int(Some(value))),
+                            None => self.unknown(typ),
+                        });
+                    }
+                } else {
+                    return Constant::Value(self.unknown(typ));
+                }
+                if let Some((_, value, _)) = named_args.first() {
+                    return Constant::Value(value.clone());
+                }
+                let state = if cls == self.core.string_class {
+                    InstanceState::Str(Some(the_text("")))
+                } else if cls == self.core.bool_class {
+                    InstanceState::Bool(Some(false))
+                } else {
+                    InstanceState::Int(Some(0))
+                };
+                return Constant::Value(Value::new(typ, state));
+            }
             return Constant::Value(self.unknown(typ));
         }
         if of_core
@@ -3770,6 +3932,14 @@ impl<'a> Engine<'a> {
             && cls.is_some()
             && cls == self.core.bool_class
         {
+            if let Some(environment) = &self.program.compilation_environment {
+                let known = first.and_then(Value::as_text).map(|text| {
+                    String::from_utf16(text)
+                        .ok()
+                        .is_some_and(|name| environment.get(&name).is_some())
+                });
+                return Constant::Value(Value::bool_(self.core, known));
+            }
             return Constant::Value(Value::bool_(self.core, None));
         }
         if of_core

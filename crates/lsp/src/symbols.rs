@@ -4,7 +4,8 @@
 use dartforge_diagnostics::Span;
 use dartforge_frontend::LibraryFeatures;
 use dartforge_frontend::ast::{
-    Ast, DeclKind, DirectiveKind, ExprKind, MemberKind, Name, StmtKind, TypeKind, TypedefKind,
+    Annotation, Ast, DeclKind, DirectiveKind, ExprKind, MemberKind, Name, StmtKind, TypeKind,
+    TypedefKind, Variable,
 };
 use dartforge_intern::Interner;
 use serde_json::{Value, json};
@@ -46,7 +47,17 @@ pub(super) fn for_document(text: &str, features: LibraryFeatures) -> Vec<Value> 
                 let mut children = e
                     .constants
                     .iter()
-                    .map(|c| symbol(text, &lines, &names, c.name, c.span, 22, Vec::new()))
+                    .map(|c| {
+                        symbol(
+                            text,
+                            &lines,
+                            &names,
+                            c.name,
+                            without_metadata(text, c.span, &c.metadata, c.name),
+                            22,
+                            Vec::new(),
+                        )
+                    })
                     .collect::<Vec<_>>();
                 children.extend(member_symbols(
                     text,
@@ -57,7 +68,13 @@ pub(super) fn for_document(text: &str, features: LibraryFeatures) -> Vec<Value> 
                     tests,
                 ));
                 output.push(symbol(
-                    text, &lines, &names, e.name, decl.span, 10, children,
+                    text,
+                    &lines,
+                    &names,
+                    e.name,
+                    without_metadata(text, decl.span, &decl.metadata, e.name),
+                    10,
+                    children,
                 ));
                 continue;
             }
@@ -92,7 +109,7 @@ pub(super) fn for_document(text: &str, features: LibraryFeatures) -> Vec<Value> 
                         &lines,
                         &names,
                         variable.name,
-                        decl.span,
+                        variable_span(&parsed.ast, variable),
                         13,
                         Vec::new(),
                     ));
@@ -109,11 +126,82 @@ pub(super) fn for_document(text: &str, features: LibraryFeatures) -> Vec<Value> 
             }
             None => Vec::new(),
         };
-        output.push(symbol(
-            text, &lines, &names, name, decl.span, kind, children,
-        ));
+        let mut value = symbol(
+            text,
+            &lines,
+            &names,
+            name,
+            without_metadata(text, decl.span, &decl.metadata, name),
+            kind,
+            children,
+        );
+        match &decl.kind {
+            DeclKind::Function(f) => {
+                let function = parsed.ast.function(*f);
+                add_detail(
+                    &mut value,
+                    &parsed.ast,
+                    text,
+                    &names,
+                    function.parameters.as_deref(),
+                );
+                // The top-level getter outline carries an empty detail,
+                // unlike a getter declared inside a type.
+                if function.kind == dartforge_frontend::ast::FunctionKind::Getter {
+                    value["detail"] = json!("");
+                }
+            }
+            DeclKind::Typedef(alias) => {
+                let parameters = match &alias.kind {
+                    TypedefKind::Legacy { parameters, .. } => Some(&parameters[..]),
+                    TypedefKind::Alias(ty) => match &parsed.ast.ty(*ty).kind {
+                        TypeKind::Function { parameters, .. } => Some(&parameters[..]),
+                        _ => None,
+                    },
+                };
+                add_detail(&mut value, &parsed.ast, text, &names, parameters);
+            }
+            _ => {}
+        }
+        output.push(value);
     }
     output
+}
+
+/// A declared variable excludes shared modifiers, its type and separators.
+/// Parenthesized initializers retain their complete expression span.
+fn variable_span(ast: &Ast, variable: &Variable) -> Span {
+    Span {
+        start: variable.name.span.start,
+        end: variable
+            .initializer
+            .map_or(variable.name.span.end, |value| ast.expr(value).span.end),
+    }
+}
+
+/// The analyzer excludes annotations and intervening comments from outlines.
+/// Reuse the common lexer over only the prefix before the name, never the
+/// declaration body. Recovery keeps the original range for an invalid prefix.
+fn without_metadata(text: &str, span: Span, metadata: &[Annotation], name: Name) -> Span {
+    let Some(last) = metadata.last() else {
+        return span;
+    };
+    let start = last.span.end;
+    let Some(prefix) = text.get(start..name.span.start) else {
+        return span;
+    };
+    let Ok(tokens) = dartforge_frontend::lexer::lex(prefix) else {
+        return span;
+    };
+    // With only trivia before an inferred name or constructor, the EOF token
+    // starts exactly at the declared name.
+    let start = tokens
+        .first()
+        .map_or(name.span.start, |token| start + token.span.start);
+    Span {
+        start,
+        end: span.end,
+    }
 }
 
 fn member_symbols(
@@ -137,14 +225,33 @@ fn member_symbols(
                         _ => 6,
                     };
                     let locals = local_functions(text, lines, names, ast, member.span, tests);
-                    output.push(symbol(text, lines, names, name, member.span, kind, locals));
+                    let mut value = symbol(
+                        text,
+                        lines,
+                        names,
+                        name,
+                        without_metadata(text, member.span, &member.metadata, name),
+                        kind,
+                        locals,
+                    );
+                    add_detail(&mut value, ast, text, names, func.parameters.as_deref());
+                    output.push(value);
                 }
             }
             MemberKind::Constructor(c) => {
                 // Like the Dart outline: `Class.name` (or `Class`).
                 let name = c.name.unwrap_or(c.class_name);
                 let locals = local_functions(text, lines, names, ast, member.span, tests);
-                let mut s = symbol(text, lines, names, name, member.span, 9, locals);
+                let mut s = symbol(
+                    text,
+                    lines,
+                    names,
+                    name,
+                    without_metadata(text, member.span, &member.metadata, name),
+                    9,
+                    locals,
+                );
+                add_detail(&mut s, ast, text, names, Some(&c.parameters));
                 if let Some(n) = c.name {
                     s["name"] = json!(format!(
                         "{}.{}",
@@ -161,7 +268,7 @@ fn member_symbols(
                         lines,
                         names,
                         variable.name,
-                        member.span,
+                        variable_span(ast, variable),
                         8,
                         Vec::new(),
                     ));
@@ -199,6 +306,7 @@ fn local_functions(
         name: Name,
         /// The displayed name of a test (`group("x")`); `None` for a function.
         test_only: Option<String>,
+        detail: Option<String>,
         /// A `test`: nothing inside it is included.
         leaf: bool,
     }
@@ -215,6 +323,11 @@ fn local_functions(
                 span: s.span,
                 name,
                 test_only: None,
+                detail: ast
+                    .function(*f)
+                    .parameters
+                    .as_deref()
+                    .map(|ps| dartforge_frontend::source::from_parameters(ast, text, names, ps)),
                 leaf: false,
             });
         }
@@ -255,6 +368,7 @@ fn local_functions(
                 span: e.span,
                 name: *name,
                 test_only: Some(format!("{call}(\"{description}\")")),
+                detail: None,
                 leaf: call == "test",
             });
         }
@@ -296,6 +410,9 @@ fn local_functions(
                 if item.test_only.is_some() { 6 } else { 12 },
                 children,
             );
+            if let Some(detail) = &item.detail {
+                s["detail"] = json!(detail);
+            }
             if let Some(shown) = &item.test_only {
                 s["name"] = json!(shown);
             }
@@ -305,6 +422,22 @@ fn local_functions(
     }
     let mut i = 0;
     build(text, lines, names, &found, &mut i, inside.end)
+}
+
+/// Getters have no formal parameter list; callable declarations use the
+/// common AST printer, including metadata and default-value token lexemes.
+fn add_detail(
+    value: &mut Value,
+    ast: &Ast,
+    text: &str,
+    names: &Interner,
+    parameters: Option<&[dartforge_frontend::ast::Parameter]>,
+) {
+    if let Some(parameters) = parameters {
+        value["detail"] = json!(dartforge_frontend::source::from_parameters(
+            ast, text, names, parameters
+        ));
+    }
 }
 
 fn symbol(
@@ -318,13 +451,17 @@ fn symbol(
 ) -> Value {
     let full_range = range(text, lines, span);
     let selection_range = range(text, lines, name.span);
-    json!({
+    let mut value = json!({
         "name": names.resolve(name.sym),
         "kind": kind,
+        "deprecated": false,
         "range": full_range,
         "selectionRange": selection_range,
-        "children": children,
-    })
+    });
+    if !children.is_empty() {
+        value["children"] = json!(children);
+    }
+    value
 }
 
 fn range(text: &str, lines: &LineTable, span: Span) -> Value {

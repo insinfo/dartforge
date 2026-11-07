@@ -8,6 +8,36 @@ Tracing é o padrão da CLI. Para compilar e executar fonte com ARC, use
 `DARTFORGE_MEMORY=arc` herdado não ativa ARC na CLI. Em `run`, opções depois
 do arquivo são argumentos de `main`; a opção de memória deve vir antes dele.
 
+Em 07/11, a integração v19 estende as declarações `-Dnome=valor` ao JIT
+e ao AOT. A qualificação dessa integração ainda está em andamento.
+Em `run`, passe as opções de compilação antes do arquivo; depois dele,
+os valores pertencem a `main`. Em `reload`, use `--` para separar os
+argumentos do programa. O contexto deve permanecer igual entre gerações;
+mudar definições exige reiniciar a sessão. O IR e o SDK compilado passam
+a registrar a mesma identidade, verificada antes de carregar o SDK.
+
+Para sessões com recarga, use IR produzido por `emit_reloadable_ir`. A conferência
+v19 de `compile-native --emit-ir --optimize` seguido de `run --ir` falhou:
+essa emissão usa funções `$cx` do SDK de produção, enquanto o JIT carrega
+a biblioteca de desenvolvimento. Essa falha histórica foi reproduzida
+com o executável v19 preservado antes da correção.
+
+Na v20, o artefato registra as flags de asserts e produto junto às
+declarações; a seleção do SDK pelo JIT recupera essas flags. O SDK
+compartilhado fornece as entradas de contexto e o registro antecipado
+de suas tabelas. O caminho `compile-native --emit-ir --optimize` seguido
+de `run --ir` passou na comparação com AOT oficial 3.6.2, com asserts
+ligados e desligados, incluindo JSON, erro de tipo, `await` e argumentos.
+Uma repetição independente identificou as duas bibliotecas SDK carregadas.
+Isso valida os casos medidos, sem estabelecer compatibilidade arbitrária
+entre SDKs. Artefatos antigos sem flags exigem o SDK original explícito
+ou nova emissão. A rodada completa da fonte v20 ainda está pendente.
+
+Os números de desempenho publicados em
+[`RELATORIO-JIT-VS-DART-VM.md`](../RELATORIO-JIT-VS-DART-VM.md) continuam
+sendo da v12, medida nos dois hosts físicos. As mudanças posteriores
+não constituem uma nova medição nem comprovam ganho de velocidade.
+
 | | Desenvolvimento (`crates/jit`) | Produção (`crates/emit_native`, feature `native`) |
 | --- | --- | --- |
 | Comando | `dartforge run <entrada.dart>`, `dartforge reload <entrada.dart> [--restart]` | `dartforge aot <entrada.dart> <saida.exe>` |
@@ -808,14 +838,19 @@ compilação fria:
 ## Medição por fase
 
 No mesmo espírito de `LinkStats` e de [DESEMPENHO.md](DESEMPENHO.md): cada
-intervalo é cronometrado no próprio trecho, nunca por subtração, e `total` é pelo
-menos a soma das fases.
+intervalo é cronometrado no próprio trecho, nunca por subtração. Os intervalos
+totais incluem suas fases internas; não devem ser somados novamente com elas.
 
 | Campo Rust | Campo JSON de `dartforge run --timings` | Intervalo medido |
 | --- | --- | --- |
-| — | `frontend_ns` | Carga do grafo, análise e emissão do IR |
-| `JitReport::session` | `session_ns` | `LLVMOrcCreateLLJIT` e publicação dos 18 símbolos de runtime |
-| `ModuleReport::parse_ir` | `parse_ir_ns` | `LLVMParseIRInContext2` e construção do `ThreadSafeModule` |
+| — | `prepare_ir_ns` | Preparo completo do IR, incluindo a thread de emissão e geração de fontes; com `--ir`, leitura do arquivo |
+| `EmissionTimes::frontend` | `frontend_ns` | Carga do grafo, análise e seleção dos IDs do SDK; fase interna do preparo |
+| `EmissionTimes::hir` | `hir_ns` | Conversão para HIR; fase interna do preparo |
+| `EmissionTimes::llvm_ir` | `llvm_ir_ns` | Emissão do IR LLVM textual; fase interna do preparo |
+| — | `sdk_library_ns` | Seleção/verificação dos artefatos nativos do SDK e sua compilação quando ausentes; após o preparo do IR |
+| `JitReport::session` | `session_ns` | Criação da sessão, carga do SDK e publicação dos símbolos de runtime |
+| `ModuleReport::total` | `module_total_ns` | Incorporação completa do módulo, incluindo verificações, registro de callbacks e metadados |
+| `ModuleReport::parse_ir` | `parse_ir_ns` | Análise do IR, verificações e construção do `ThreadSafeModule`; parte de `module_total_ns` |
 | `ModuleReport::add_module` | `add_module_ns` | `LLVMOrcLLJITAddLLVMIRModuleWithRT` |
 | `EntryReport::lookup` | `lookup_ns` | `LLVMOrcLLJITLookup`, **incluindo a geração de código sob demanda** |
 | `EntryReport::execute` | `execute_ns` | Execução de `@dartforge_entry`, do `call` ao retorno |
@@ -824,10 +859,19 @@ menos a soma das fases.
 
 A linha que mais engana é `lookup_ns`. No ORCv2 um módulo só é compilado quando
 algum de seus símbolos é procurado: o primeiro `lookup` de uma sessão carrega
-toda a geração de código, e `execute_ns` mede apenas a execução do que já está
-materializado. Comparar `execute_ns` do JIT com o tempo de processo do AOT seria
-comparar coisas diferentes — o número comparável com o AOT é a soma
-`session + parse_ir + add_module + lookup + execute`.
+a geração de código necessária, e `execute_ns` mede a chamada da entrada.
+O registro de callbacks também pode materializar código durante a incorporação
+do módulo. Por isso, `parse_ir_ns + add_module_ns` pode ser menor que
+`module_total_ns`.
+
+`jit_total_ns` inclui sessão, incorporação do módulo, lookup, execução e
+destruição. O preparo do IR e a seleção dos artefatos do SDK acontecem antes
+dele. A soma `prepare_ir_ns + sdk_library_ns + jit_total_ns` ainda não é o
+tempo do processo: não inclui, por exemplo, o lançamento pelo sistema e todo
+o processamento inicial do CLI. Para comparar início e processo completo
+com a VM ou AOT, use um cronômetro externo com a mesma fronteira para ambos.
+`execute_ns` também inclui o trabalho do programa; não é o tempo até sua
+primeira saída.
 
 Tempos incluem escalonamento do sistema; não são tempos exclusivos de CPU.
 

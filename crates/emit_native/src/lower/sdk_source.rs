@@ -2153,14 +2153,25 @@ fn generate_throwing_stub(
     unit: UnitId,
     symbol: &str,
     fid: usize,
+    owner: ClassId,
 ) {
     let name_str = ctx.symbol_name(ctx.program.functions[fid].name).to_string();
     let mut b = FnBuilder::new(ctx, unit, symbol.to_string(), name_str.clone(), Type::Ref);
+    // This error belongs to the generated forwarder in the implementing
+    // class, rather than to the private interface member in another library.
+    let class = ctx.program.class(owner);
+    if let Some(declaration) = class.decl {
+        let ast = &ctx.program.unit(unit).ast;
+        b.mark_position(ast, ast.decl(declaration.decl).span.start);
+    }
     b.add_param("this".to_string(), Type::Ref);
     b.add_param_vector(DartEntryVector::Arguments);
     b.add_param_vector(DartEntryVector::Descriptor);
     b.declare_arc_uniform_return();
     b.throw_nsm(&name_str);
+    if let Some(info) = b.func.debug_info.as_mut() {
+        info.user_name = Some(format!("{}.{}", ctx.symbol_name(class.name), name_str));
+    }
     if !b.is_terminated() {
         b.terminate(Terminator::Return(Some(Operand::Constant(Constant::Null))));
     }
@@ -3196,7 +3207,7 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                         crate::context::escape_str(&selector)
                     );
                     if private_member_inaccessible(ctx, cid, fid) {
-                        generate_throwing_stub(ctx, module, decl.unit, &symbol, fid);
+                        generate_throwing_stub(ctx, module, decl.unit, &symbol, fid, cid);
                     } else {
                         generate_nsm_forwarder(ctx, module, decl.unit, &symbol, fid, ty);
                     }

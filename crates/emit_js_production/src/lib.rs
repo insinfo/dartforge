@@ -336,6 +336,7 @@ pub fn emit_with_world(
     index: &sdk::SdkIndex,
     op: Options,
 ) -> Result<(dartforge_emit_js::Emitted, Option<WorldReport>), String> {
+    validate_weak_references(a)?;
     if !op.prune_user {
         return Ok((a.emit(None)?, None));
     }
@@ -566,6 +567,36 @@ pub fn assemble_with_index(
         index: None,
         prune_time,
     }
+}
+
+/// Validate the constant weak-reference contract before any liveness pruning.
+fn validate_weak_references(a: &dartforge_emit_js::Analysis<'_>) -> Result<(), String> {
+    let mut table = a.table.clone();
+    let inferred = a
+        .program
+        .libraries
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| !l.is_sdk)
+        .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
+        .collect();
+    let weak = dartforge_types::static_weak_references::normalize(
+        a.program, a.interner, &mut table, a.core, a.outline, a.bodies, &inferred,
+    );
+    if weak.issues.is_empty() {
+        return Ok(());
+    }
+    Err(weak
+        .issues
+        .iter()
+        .map(|(unit, offset, code)| {
+            format!(
+                "{}:{offset}: invalid static weak reference: {code}",
+                a.program.unit(*unit).uri
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 #[cfg(test)]

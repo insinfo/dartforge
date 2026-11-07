@@ -501,6 +501,13 @@ fn load_lenient_(
         Layout::FrozenFirst(f) => (Program::default(), Some(f), None, None, None),
         Layout::Onto(base, at, reorder, previous) => (*base, None, Some(at), reorder, previous),
     };
+    program.supported_sdk_libraries = sdk
+        .libraries
+        .iter()
+        .filter(|(_, library)| library.supported)
+        .map(|(name, _)| name.clone())
+        .collect();
+    program.compilation_environment = sdk.compilation_environment.clone();
     let mut uri_to_library: HashMap<String, LibraryId> = program
         .libraries
         .iter()
@@ -1775,9 +1782,14 @@ fn evaluate_configuration(
     {
         let lib_name = interner.resolve(config.test[2].sym);
         let supported = sdk.library(lib_name).is_some_and(|l| l.supported);
+        // Unsupported libraries have no declaration; absence does not equal
+        // the string "false" (including libraries unknown to the layout).
+        if !supported {
+            return false;
+        }
         if let Some(expected_val) = &config.value {
             if let Some(val_str) = string_lit_value(expected_val) {
-                return (val_str == "true") == supported;
+                return val_str == "true";
             }
         }
         return supported;
@@ -1979,7 +1991,7 @@ mod conditional_import_context_tests {
     }
 
     #[test]
-    fn compiler_profile_support_remains_unchanged() {
+    fn compiler_profile_declares_only_supported_libraries() {
         let mut sdk = SdkLayout::default();
         sdk.libraries.insert(
             "io".into(),
@@ -2007,8 +2019,60 @@ mod conditional_import_context_tests {
         assert_eq!(selected("dart.library.html", &sdk), "primary.dart");
         assert_eq!(
             selected("dart.library.html == 'false'", &sdk),
-            "alternative.dart"
+            "primary.dart"
         );
+        assert_eq!(
+            selected("dart.library.missing == 'false'", &sdk),
+            "primary.dart"
+        );
+        assert_eq!(selected("dart.library.io == 'false'", &sdk), "primary.dart");
+    }
+
+    #[test]
+    fn program_support_belongs_to_each_load_including_unimported_libraries() {
+        let directory = tempfile::tempdir().unwrap();
+        let entry = directory.path().join("main.dart");
+        std::fs::write(&entry, "void main() {}\n").unwrap();
+        let mut sdk = SdkLayout::default();
+        sdk.libraries.insert(
+            "html".into(),
+            crate::sdk::SdkLibrary {
+                name: "html".into(),
+                path: PathBuf::new(),
+                patches: Vec::new(),
+                supported: true,
+            },
+        );
+        for supported in [true, false, true] {
+            sdk.libraries.get_mut("html").unwrap().supported = supported;
+            let (program, _) = load_lenient(&entry, &sdk, None, &mut Interner::new());
+            assert_eq!(program.supported_sdk_libraries.contains("html"), supported);
+            assert!(
+                program
+                    .libraries
+                    .iter()
+                    .all(|library| library.uri != "dart:html")
+            );
+        }
+    }
+
+    #[test]
+    fn sdk_cache_keys_bind_in_memory_library_support() {
+        let mut sdk = SdkLayout::default();
+        sdk.libraries.insert(
+            "html".into(),
+            crate::sdk::SdkLibrary {
+                name: "html".into(),
+                path: PathBuf::new(),
+                patches: Vec::new(),
+                supported: true,
+            },
+        );
+        let supported = crate::SdkCache::hash(&sdk, "dartdevc");
+        sdk.libraries.get_mut("html").unwrap().supported = false;
+        assert_ne!(supported, crate::SdkCache::hash(&sdk, "dartdevc"));
+        sdk.libraries.get_mut("html").unwrap().supported = true;
+        assert_eq!(supported, crate::SdkCache::hash(&sdk, "dartdevc"));
     }
 
     #[test]

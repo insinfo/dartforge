@@ -29,6 +29,24 @@ executar; o executor recusa o que o portão recusa.
 - No máximo uma memória e uma tabela; páginas iniciais limitadas pela política.
 - A seção `target_features` é só informativa: a prova é a validação.
 
+### Execução em Node com `exnref` desativado por padrão
+
+O motor JS também precisa habilitar as features do perfil. Na validação
+Windows com **Node 24.14.1**, um módulo válido foi recusado antes da execução
+com `Invalid opcode 0x1f (enable with --experimental-wasm-exnref)`. O mesmo
+módulo executou com sucesso e preservou os bytes de saída ao habilitar a
+feature:
+
+```sh
+node --experimental-wasm-exnref runtime/wasm/run_node.mjs main.wasm
+```
+
+Essa opção configura o motor Node; não altera o módulo nem a ABI. O runner
+`run_node.mjs` sai com código 2 quando o motor recusa o módulo antes de
+executá-lo. Esse resultado deve permanecer separado de uma trap ou de uma
+exceção Dart. Ao registrar uma validação, inclua a versão do Node e as flags
+usadas; a mera presença do executável não prova suporte às features.
+
 ## Exports exigidos
 
 | export | tipo | contrato |

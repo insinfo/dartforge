@@ -118,6 +118,19 @@ impl SdkCache {
         };
         mix(&FORMAT.to_le_bytes());
         mix(target.as_bytes());
+        if let Some(environment) = &sdk.compilation_environment {
+            mix(b"compilation-environment-v1");
+            mix(environment.identity().as_bytes());
+        }
+        // Selection semantics and support are part of the load context even
+        // when a caller adjusts a layout without rewriting libraries.json.
+        mix(b"sdk-library-declaration-presence-v1");
+        let mut libraries: Vec<_> = sdk.libraries.iter().collect();
+        libraries.sort_by(|a, b| a.0.cmp(b.0));
+        for (name, library) in libraries {
+            mix(name.as_bytes());
+            mix(&[u8::from(library.supported)]);
+        }
         // Preserve the historical compiler key for the implicit profile. The
         // analyzer's explicit empty context is distinct from a declared false
         // variable and cannot reuse cached conditional SDK dependencies.

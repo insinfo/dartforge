@@ -499,6 +499,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     fn lower_expr_internal(&mut self, ast: &ast::Ast, expr_id: ExprId) -> Operand {
         let expr = ast.expr(expr_id);
+        // A normalized intrinsic has no ordinary call or strong argument edge.
+        // Emit the canonical tear-off only when another use kept its body live.
+        if let Some((target, live)) = self
+            .ctx
+            .world
+            .as_ref()
+            .and_then(|world| world.weak_reference(self.unit_id, expr_id))
+        {
+            return if live {
+                self.function_tearoff(target.0 as usize)
+            } else {
+                Operand::Constant(Constant::Null)
+            };
+        }
         // The mark of a dynamic invocation (`dynamic_invocation.rs`).
         self.note_dynamic_expression(ast, expr_id);
         // Canonical `const` (P3).

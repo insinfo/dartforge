@@ -3529,7 +3529,7 @@ void main() {{
             let options = dartforge_emit_native::CompileOptions {
                 contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                 sdk: sdk.as_deref(), packages: None, timings: false, optimize: false,
-                language_version: None, experiments: Vec::new(), debug: false,
+                defines: Vec::new(), language_version: None, experiments: Vec::new(), debug: false,
                 generator: None, cpu: None,
             };
             let original = dartforge_emit_native::emit_reloadable_ir(&source, &options, None).unwrap();
@@ -3603,7 +3603,7 @@ mod call_trampoline_lifetime_tests {
             let options = dartforge_emit_native::CompileOptions {
                 contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                 sdk: sdk.as_deref(), packages: None, timings: false, optimize: false,
-                language_version: None, experiments: Vec::new(), debug: false,
+                defines: Vec::new(), language_version: None, experiments: Vec::new(), debug: false,
                 generator: None, cpu: None,
             };
             let sdk_dll = dartforge_emit_native::sdk_module::source_sdk_dll().unwrap();

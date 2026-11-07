@@ -21,6 +21,7 @@ use url::Url;
 pub struct SemanticAnalyzer {
     syntactic: SyntacticAnalyzer,
     sdk: Option<SdkLayout>,
+    pub(crate) display_reference: crate::query::DisplayReference,
     /// The last loaded program, reused while nothing changed.
     pub(crate) session: crate::session::Session,
     /// The wide load of the non-local searches (`references`, `implementation`:
@@ -37,8 +38,9 @@ pub struct SemanticAnalyzer {
     /// The binary that runs the reference searches that do not fit
     /// ([`Analyzer::search_in_child_processes`]); `None`: in this process.
     search_exe: Option<std::path::PathBuf>,
-    /// The resolved-reference index of the project, once built
-    /// ([`crate::reference_index`]).
+    /// The resolved-reference index of the active search project, once built
+    /// ([`crate::reference_index`]). Switching roots drops it before loading
+    /// the next project's cache, retaining at most one decoded index.
     reference_index: Option<crate::reference_index::ReferenceIndex>,
     /// A build of the index running in a child: the project root and the
     /// channel of its encoded index (`None`: it failed).
@@ -65,7 +67,16 @@ pub struct SemanticAnalyzer {
     resident_records: Option<std::sync::Arc<crate::typed::ResidentRecords>>,
     /// The project files whose resident record came with another API than the
     /// index's record had: their dependents are recorded again.
-    index_api_changed: Vec<std::path::PathBuf>,
+    index_declaration_changes: Vec<std::path::PathBuf>,
+    /// Files still requiring records after a failed refresh. An edited
+    /// resident record may already be merged, so comparing text alone can no
+    /// longer recover its importers on the next request.
+    index_refresh_pending: Vec<std::path::PathBuf>,
+    /// External records built from unsaved text. Their disk text must be
+    /// checked again after closing the corresponding document.
+    index_external_overlays: Vec<std::path::PathBuf>,
+    /// Bounded previous open texts, used only to prove selective API refreshes.
+    index_edits: crate::index_edit::Sources,
     /// The summaries of the known libraries (export namespace) of `ImportLibrary`.
     known: crate::known_libraries::LibraryIndex,
     /// The current `maxCompletionItems`.
@@ -87,7 +98,12 @@ impl SemanticAnalyzer {
     /// assert_eq!(a.session_stats().loaded, 0);
     /// ```
     pub fn new(sdk: Option<SdkLayout>) -> Self {
+        let display_reference = sdk.as_ref().map_or(
+            crate::query::DisplayReference::default(),
+            crate::query::DisplayReference::for_sdk,
+        );
         Self {
+            display_reference,
             syntactic: SyntacticAnalyzer::new(),
             sdk,
             session: crate::session::Session::new(),
@@ -102,7 +118,10 @@ impl SemanticAnalyzer {
             index_disk_dirty: true,
             over_budget: Default::default(),
             resident_records: None,
-            index_api_changed: Vec::new(),
+            index_declaration_changes: Vec::new(),
+            index_refresh_pending: Vec::new(),
+            index_external_overlays: Vec::new(),
+            index_edits: Default::default(),
             known: Default::default(),
             completion_max: crate::completion::MAX_PATTERN,
             not_imported_in_completion: true,
@@ -404,8 +423,13 @@ impl SemanticAnalyzer {
     ) -> Option<Hover> {
         if let Some(project) = self.library(documents, uri)
             && let Some(unit) = project.uri_unit(uri)
-            && let Ok(Some(d)) = project.identify(unit, offset)
-            && let Some(h) = project.hover(unit, &d)
+            && let Some(h) = project.constructor_hover(unit, offset).or_else(|| {
+                project
+                    .identify(unit, offset)
+                    .ok()
+                    .flatten()
+                    .and_then(|d| project.hover(unit, &d))
+            })
         {
             return Some(h);
         }
@@ -616,7 +640,8 @@ impl SemanticAnalyzer {
         let Some(sdk) = self.sdk.as_ref() else {
             return false;
         };
-        self.reference_index = crate::reference_index::build(sdk, documents, uri);
+        let index = crate::reference_index::build(sdk, documents, uri);
+        self.replace_reference_index(index);
         self.reference_index.is_some()
     }
 
@@ -1070,8 +1095,20 @@ pub(crate) fn references_at(
     unit: UnitId,
     offset: usize,
 ) -> Option<References> {
+    let d = project.identify(unit, offset).ok()??;
+    references_identified(project, unit, offset, &d)
+}
+
+/// [`references_at`] with the resolution already obtained from this project's
+/// current state at the same unit and offset (the reference index records
+/// several facts at each identifier).
+pub(crate) fn references_identified(
+    project: &crate::project::Project,
+    unit: UnitId,
+    offset: usize,
+    d: &crate::project::Denoted,
+) -> Option<References> {
     {
-        let d = project.identify(unit, offset).ok()??;
         if let crate::project::Target::Prefix { library, name } = d.target {
             let (declaration, uses) = project.prefix_references(unit, offset, library, name)?;
             let mut uses: Vec<(String, Span)> = uses
@@ -1086,14 +1123,14 @@ pub(crate) fn references_at(
                 ..Default::default()
             });
         }
-        let declaration = project.declaration_to_references(&d);
+        let declaration = project.declaration_to_references(d);
         let declarations = project.declarations(&d.target);
         // Non-local search: only the candidate files of `_addResults`
         // (docs/LSP-ESPECIFICACAO.md §11.2), including Dart's gaps (factory
         // redirection, operators outside the library).
         let candidates = project.search_name(&d.target).map(|name| {
             let mut units: Vec<UnitId> = declarations.iter().map(|(u, _, _)| *u).collect();
-            if let Some((u, _)) = project.declaration(&d) {
+            if let Some((u, _)) = project.declaration(d) {
                 units.push(u);
             }
             units.dedup();
@@ -1253,6 +1290,28 @@ impl Analyzer for SemanticAnalyzer {
         self.syntactic.symbols(uri, text)
     }
 
+    fn symbols_in(&mut self, documents: &DocumentStore, uri: &str) -> Vec<serde_json::Value> {
+        let Some(text) = documents.get(uri) else {
+            return Vec::new();
+        };
+        // A declaration without annotations cannot acquire deprecation from
+        // an owner's annotation. Keep ordinary outlines on the parse-only path.
+        if !text.contains('@') {
+            return self.syntactic.symbols(uri, text);
+        }
+        if let Some(crate::remote::Answer::Symbols(symbols)) =
+            self.remote(documents, uri, crate::remote::Call::Symbols)
+        {
+            return symbols;
+        }
+        if let Some(library) = self.library(documents, uri)
+            && let Some(unit) = library.uri_unit(uri)
+        {
+            return crate::symbol_metadata::for_project(&library, unit);
+        }
+        self.syntactic.symbols(uri, text)
+    }
+
     fn definition(
         &mut self,
         uri: &str,
@@ -1315,6 +1374,10 @@ impl Analyzer for SemanticAnalyzer {
     }
 
     fn closed_document(&mut self, uri: &str) {
+        if let Some(path) = crate::project::uri_file(uri) {
+            self.index_edits
+                .remove(&dartforge_elements::generated::key(&path));
+        }
         self.syntactic.closed_document(uri);
         self.session.invalidate();
         self.wide_session.invalidate();
@@ -1336,6 +1399,9 @@ impl Analyzer for SemanticAnalyzer {
     fn disk_changed(&mut self, paths: &[std::path::PathBuf]) {
         if !paths.is_empty() {
             self.index_disk_dirty = true;
+            if let Some(records) = &self.resident_records {
+                records.invalidate();
+            }
             self.session.disk_changed();
             self.wide_session.disk_changed();
         }
@@ -1347,10 +1413,7 @@ impl Analyzer for SemanticAnalyzer {
     }
 
     fn project_configuration_changed(&mut self) {
-        self.reference_index = None;
-        if let Some(r) = &self.resident_records {
-            r.want(None);
-        }
+        self.replace_reference_index(None);
         self.index_build = None;
         self.index_failed.clear();
         self.syntactic.project_configuration_changed();
@@ -1370,6 +1433,10 @@ impl Analyzer for SemanticAnalyzer {
     }
 
     fn document_closed_at(&mut self, documents: &DocumentStore, uri: &str) {
+        if let Some(path) = crate::project::uri_file(uri) {
+            self.index_edits
+                .remove(&dartforge_elements::generated::key(&path));
+        }
         self.syntactic.closed_document(uri);
         if self.incremental {
             self.session.close(documents, uri);
@@ -2242,23 +2309,21 @@ fn index_cache_path(root: &std::path::Path, sdk: &std::path::Path) -> Option<std
     )
 }
 
-/// The index of `root` kept by an earlier session, when the SDK and package
-/// files it recorded have the same dates and sizes (the project's files are
-/// refreshed before each search).
+/// The index of `root` kept by an earlier session, when its SDK and package
+/// records match the current disk or overlays. Unchanged dates and sizes
+/// avoid reading disk-backed text; project files are refreshed before search.
 fn load_cached_index(
     root: &std::path::Path,
     sdk: &std::path::Path,
+    documents: &DocumentStore,
+    entry: &std::path::Path,
 ) -> Option<crate::reference_index::ReferenceIndex> {
     let bytes = crate::memory::file_bytes(&index_cache_path(root, sdk)?)?;
     let index = crate::reference_index::ReferenceIndex::decode(&bytes)?;
-    if index.root != root {
+    if index.root != root || !index.package_configuration_current(entry) {
         return None;
     }
-    let unchanged = index.records().filter(|r| r.frozen).all(|r| {
-        let (modified, length) = crate::reference_index::file_date(&r.path);
-        modified == r.modified && length == Some(u64::from(r.length))
-    });
-    unchanged.then_some(index)
+    (!external_records_changed(&index, documents, &[], &[], true)).then_some(index)
 }
 
 /// How long a search waits for the resident's record of an edited document
@@ -2294,6 +2359,29 @@ fn changed_text(
     (!same).then_some(Some(text))
 }
 
+/// External files are normally frozen, but another open project can edit
+/// them. A changed dependency requires a fresh complete index: refreshing
+/// just the active project's records would leave foreign declarations and
+/// transitive dependency facts resolved against the former text.
+fn external_records_changed(
+    index: &crate::reference_index::ReferenceIndex,
+    documents: &DocumentStore,
+    open_files: &[std::path::PathBuf],
+    external_overlays: &[std::path::PathBuf],
+    check_disk: bool,
+) -> bool {
+    if check_disk {
+        return index
+            .records()
+            .any(|r| r.frozen && changed_text(r, documents).is_some());
+    }
+    open_files.iter().chain(external_overlays).any(|path| {
+        index
+            .file(dartforge_elements::generated::key_of(path).as_ref())
+            .is_some_and(|r| r.frozen && changed_text(r, documents).is_some())
+    })
+}
+
 impl SemanticAnalyzer {
     /// The documents as the children receive them.
     fn document_list(documents: &DocumentStore) -> Vec<(String, i32, String)> {
@@ -2309,43 +2397,113 @@ impl SemanticAnalyzer {
             .collect()
     }
 
+    /// Replaces the complete active index, resetting refresh state belonging
+    /// to its former root. A returning project must check closed files on
+    /// disk even when another project's last scan is recent.
+    fn replace_reference_index(&mut self, index: Option<crate::reference_index::ReferenceIndex>) {
+        if let Some(records) = &self.resident_records {
+            records.want(index.as_ref().map(|index| index.root.clone()));
+        }
+        self.index_external_overlays = index
+            .iter()
+            .flat_map(|index| index.records())
+            .filter(|r| r.frozen && !r.disk)
+            .map(|r| r.path.clone())
+            .collect();
+        self.reference_index = index;
+        self.index_edits.clear();
+        self.index_declaration_changes.clear();
+        self.index_refresh_pending.clear();
+        self.index_disk_check = None;
+        self.index_disk_dirty = true;
+    }
+
     /// The reference index of the project of `uri`, ready and of the current
     /// texts: the built one (a build that finished, or the cache of an earlier
     /// session) with its stale project files recorded again. Without one, a
     /// build starts in a child and the search goes on without it.
     fn ready_index(&mut self, documents: &DocumentStore, uri: &str) -> bool {
-        let Some(root) = crate::project::uri_file(uri).map(|f| crate::project::project_root(&f))
-        else {
+        let Some(file) = crate::project::uri_file(uri) else {
             return false;
         };
-        if let Some((building, receiver)) = &self.index_build
-            && let Ok(bytes) = receiver.try_recv()
-        {
-            let building = building.clone();
-            self.index_build = None;
-            match bytes.and_then(|b| crate::reference_index::ReferenceIndex::decode(&b)) {
-                Some(index) => self.reference_index = Some(index),
-                None => {
-                    self.index_failed.insert(building);
-                }
-            }
-        }
+        let root = crate::project::project_root(&file);
         if self
             .reference_index
             .as_ref()
             .is_some_and(|i| i.root != root)
         {
-            return false;
+            self.replace_reference_index(None);
+        }
+        let completed = self.index_build.as_ref().and_then(|(building, receiver)| {
+            use std::sync::mpsc::TryRecvError;
+            match receiver.try_recv() {
+                Ok(bytes) => Some((building.clone(), bytes)),
+                Err(TryRecvError::Disconnected) => Some((building.clone(), None)),
+                Err(TryRecvError::Empty) => None,
+            }
+        });
+        if let Some((building, bytes)) = completed {
+            self.index_build = None;
+            if bytes.is_none() {
+                self.index_failed.insert(building);
+            } else if building == root && self.reference_index.is_none() {
+                match bytes
+                    .and_then(|b| crate::reference_index::ReferenceIndex::decode(&b))
+                    .filter(|index| index.root == root)
+                {
+                    Some(index) => self.replace_reference_index(Some(index)),
+                    None => {
+                        self.index_failed.insert(building);
+                    }
+                }
+            }
+            // A completed build of another root already saved its cache.
+            // Do not decode it or replace the current project's live index.
+        }
+        // Reuse this canonical snapshot in the refresh below. Resolving the
+        // same URI twice repeats filesystem work on every indexed request.
+        let open_files: Vec<_> = documents
+            .uris()
+            .filter_map(crate::project::uri_file)
+            .collect();
+        let whole = self.index_disk_dirty
+            || self
+                .index_disk_check
+                .is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(30));
+        if whole
+            && self
+                .reference_index
+                .as_ref()
+                .is_some_and(|index| !index.package_configuration_current(&file))
+        {
+            // A periodic check can discover a package-map change even without
+            // a watcher. Invalidate the semantic sessions as well as the index.
+            self.project_configuration_changed();
+        }
+        if self.reference_index.as_ref().is_some_and(|index| {
+            external_records_changed(
+                index,
+                documents,
+                &open_files,
+                &self.index_external_overlays,
+                whole,
+            )
+        }) {
+            self.replace_reference_index(None);
+            if self.search_exe.is_none() {
+                let rebuilt = self
+                    .sdk
+                    .as_ref()
+                    .and_then(|sdk| crate::reference_index::build(sdk, documents, uri));
+                self.replace_reference_index(rebuilt);
+            }
         }
         if self.reference_index.is_none() {
-            let (Some(exe), Some(sdk)) = (self.search_exe.clone(), self.sdk.as_ref()) else {
+            let Some(sdk) = self.sdk.as_ref() else {
                 return false;
             };
-            if self.index_build.is_some() || self.index_failed.contains(&root) {
-                return false;
-            }
             crate::memory::log("before the index's cache");
-            if let Some(index) = load_cached_index(&root, &sdk.root) {
+            if let Some(index) = load_cached_index(&root, &sdk.root, documents, &file) {
                 if crate::memory::logging() {
                     let census: Vec<String> = index
                         .census()
@@ -2354,9 +2512,15 @@ impl SemanticAnalyzer {
                         .collect();
                     eprintln!("[dartforge-lsp] index census (MiB): {}", census.join(", "));
                 }
-                self.reference_index = Some(index);
+                self.replace_reference_index(Some(index));
                 crate::memory::log("after the index's cache");
             } else {
+                let Some(exe) = self.search_exe.clone() else {
+                    return false;
+                };
+                if self.index_build.is_some() || self.index_failed.contains(&root) {
+                    return false;
+                }
                 let request = IndexRequest {
                     sdk_lib: sdk.root.clone(),
                     uri: uri.to_string(),
@@ -2380,7 +2544,7 @@ impl SemanticAnalyzer {
         if let Some(r) = &self.resident_records {
             r.want(Some(root));
         }
-        self.refresh_index(documents, uri)
+        self.refresh_index(documents, uri, &open_files, whole || self.index_disk_dirty)
     }
 
     /// Puts the resident's records of the edited files into `index`, waiting
@@ -2390,15 +2554,33 @@ impl SemanticAnalyzer {
         &mut self,
         documents: &DocumentStore,
         index: &mut crate::reference_index::ReferenceIndex,
-    ) {
+        changes: &mut Vec<crate::index_edit::DeclarationChange>,
+    ) -> std::collections::HashSet<std::path::PathBuf> {
+        let mut fresh = std::collections::HashSet::new();
         let Some(records) = self.resident_records.clone() else {
-            return;
+            return fresh;
         };
         let started = std::time::Instant::now();
         let deadline = started + RECORD_WAIT;
         let mut state = records.lock();
+        if state.ready.is_empty() && state.pending.is_empty() {
+            return fresh;
+        }
+        let current = self
+            .sdk
+            .as_ref()
+            .and_then(|sdk| crate::typed::RecordContext::current(&sdk.root, documents));
         loop {
-            for bytes in std::mem::take(&mut state.ready) {
+            for batch in std::mem::take(&mut state.ready) {
+                if Some(&batch.context) != current.as_ref() {
+                    if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
+                        eprintln!(
+                            "[dartforge-lsp] reference index: discarded superseded resident records"
+                        );
+                    }
+                    continue;
+                }
+                let bytes = batch.bytes;
                 if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
                     eprintln!(
                         "[dartforge-lsp] reference index: resident records ({} bytes) after {} us",
@@ -2419,16 +2601,27 @@ impl SemanticAnalyzer {
                     );
                 }
                 for r in part.records() {
-                    if index
-                        .file(&r.path)
-                        .is_none_or(|old| old.api != r.api || r.api.is_none())
-                    {
-                        self.index_api_changed.push(r.path.clone());
+                    if index.file(&r.path).is_none_or(|old| {
+                        old.stamp != r.stamp || old.api != r.api || r.api.is_none()
+                    }) {
+                        self.index_declaration_changes.push(r.path.clone());
+                        if self.index_refresh_pending.is_empty()
+                            && let Some(old) = index.file(&r.path)
+                            && let Some(text) = documents.get(&r.uri)
+                            && let Some(change) = self.index_edits.change(old, text)
+                        {
+                            changes.push(change);
+                        }
                     }
+                    self.index_edits.remember(r, documents);
+                    fresh.insert(r.path.clone());
                 }
                 index.merge(part);
             }
-            let waiting = state.pending.iter().any(|(path, (stamp, _))| {
+            let waiting = state.pending.iter().any(|(path, (stamp, id))| {
+                if current.is_none() || state.contexts.get(id) != current.as_ref() {
+                    return false;
+                }
                 let current = url::Url::from_file_path(path).ok().and_then(|u| {
                     documents
                         .get(u.as_str())
@@ -2438,135 +2631,25 @@ impl SemanticAnalyzer {
             });
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             if !waiting || left.is_zero() {
-                return;
+                return fresh;
             }
             state = records.wait(state, left);
         }
     }
 
-    /// Records again the project files whose record is not of their current
-    /// text, the new ones, and the dependents of those whose API changed; drops
-    /// the deleted ones. The document's library is recorded from the bounded
-    /// session; anything else in a child (or here, without a child binary).
-    fn refresh_index(&mut self, documents: &DocumentStore, uri: &str) -> bool {
+    /// Refreshes complete libraries covering `again`, reporting which records
+    /// already contain current foreign positions. Failure leaves the caller's
+    /// full pending set in place, including any records merged earlier.
+    fn record_index_files(
+        &mut self,
+        index: &mut crate::reference_index::ReferenceIndex,
+        documents: &DocumentStore,
+        uri: &str,
+        again: &[std::path::PathBuf],
+    ) -> Option<std::collections::HashSet<std::path::PathBuf>> {
         use dartforge_elements::generated::key;
-        let Some(mut index) = self.reference_index.take() else {
-            return false;
-        };
-        self.absorb_resident_records(documents, &mut index);
         let root = index.root.clone();
-        // The whole project is compared with the disk after the watcher reported
-        // a change, or when the last comparison is more than 30 s old (the
-        // resident's rule for its scan); otherwise only the open documents.
-        let whole = self.index_disk_dirty
-            || self
-                .index_disk_check
-                .is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(30));
-        if whole {
-            self.index_disk_dirty = false;
-            self.index_disk_check = Some(std::time::Instant::now());
-        }
-        let open_files: Vec<std::path::PathBuf> = documents
-            .uris()
-            .filter_map(crate::project::uri_file)
-            .collect();
-        let open_paths: std::collections::HashSet<std::path::PathBuf> =
-            open_files.iter().map(|f| key(f)).collect();
-        let mut current: std::collections::HashSet<std::path::PathBuf> = if whole {
-            crate::project::project_files(&root)
-                .iter()
-                .map(|p| key(p))
-                .collect()
-        } else {
-            Default::default()
-        };
-        for f in &open_files {
-            if f.starts_with(&root) && f.extension().is_some_and(|e| e == "dart") {
-                current.insert(key(f));
-            }
-        }
-        let mut stale: Vec<std::path::PathBuf> = Vec::new();
-        let mut api_changed: Vec<std::path::PathBuf> = Vec::new();
-        let mut removed: Vec<std::path::PathBuf> = Vec::new();
-        // Without a comparison of the whole project, only the open documents'
-        // records are looked at.
-        let recorded: Vec<std::path::PathBuf> = if whole {
-            index.project_paths()
-        } else {
-            open_paths
-                .iter()
-                .filter(|p| index.file(p).is_some_and(|r| !r.frozen))
-                .cloned()
-                .collect()
-        };
-        for path in &recorded {
-            let Some(r) = index.file(path) else { continue };
-            if !whole && !open_paths.contains(path) {
-                continue;
-            }
-            // A file of the program outside the project's walk (the generated
-            // ones under `.dart_tool/build`) is gone only when it is gone from disk.
-            if !current.contains(path) && !open_paths.contains(path) && !path.is_file() {
-                removed.push(path.clone());
-                continue;
-            }
-            match changed_text(r, documents) {
-                None => {}
-                Some(None) => removed.push(path.clone()),
-                Some(Some(text)) => {
-                    if dartforge_elements::incremental::api_signature(&text) != r.api
-                        || r.api.is_none()
-                    {
-                        api_changed.push(path.clone());
-                    }
-                    stale.push(path.clone());
-                }
-            }
-        }
-        for path in &current {
-            if index.file(path).is_some() {
-                continue;
-            }
-            let text = url::Url::from_file_path(path)
-                .ok()
-                .and_then(|u| documents.get(u.as_str()).map(str::to_string))
-                .or_else(|| std::fs::read_to_string(path).ok());
-            let stamp = text.as_deref().map(crate::reference_index::text_stamp);
-            if stamp.is_some() && index.absent.get(path) == stamp.as_ref() {
-                continue;
-            }
-            stale.push(path.clone());
-        }
-        api_changed.extend(removed.iter().cloned());
-        api_changed.append(&mut self.index_api_changed);
-        let mut again: Vec<std::path::PathBuf> = stale.clone();
-        let dependents = if api_changed.is_empty() {
-            Vec::new()
-        } else {
-            index.dependents(&api_changed)
-        };
-        for d in dependents {
-            if !again.contains(&d) && !removed.contains(&d) {
-                again.push(d);
-            }
-        }
-        for path in &removed {
-            index.remove(path);
-        }
-        if again.is_empty() {
-            self.reference_index = Some(index);
-            return true;
-        }
-        let debug = std::env::var_os("DARTFORGE_LSP_DEBUG").is_some();
-        if debug {
-            for p in stale.iter().take(3) {
-                eprintln!("[dartforge-lsp] reference index: stale {}", p.display());
-            }
-            for p in removed.iter().take(3) {
-                eprintln!("[dartforge-lsp] reference index: removed {}", p.display());
-            }
-        }
-        let started = std::time::Instant::now();
+        let mut fresh = std::collections::HashSet::new();
         // The document's library, from the session when it covers them all: the
         // session keeps it for the next edits. A library that does not fit in the
         // session's budget is recorded in a child instead (a load here would leave
@@ -2578,20 +2661,20 @@ impl SemanticAnalyzer {
         // The resident's program has the document's library (and usually the
         // rest of the package): it records them without a load here.
         if !held
-            && let Some(crate::remote::Answer::Records(hex)) = self.remote(
+            && let Some(crate::remote::Answer::Records(bytes)) = self.remote(
                 documents,
                 uri,
                 crate::remote::Call::Records {
-                    files: again.clone(),
+                    files: again.to_vec(),
                 },
             )
-            && let Some(mut part) = crate::typed::from_hex(&hex)
-                .and_then(|b| crate::reference_index::ReferenceIndex::decode(&b))
+            && let Some(mut part) = crate::reference_index::ReferenceIndex::decode(&bytes)
             && again.iter().all(|a| part.file(a).is_some())
         {
             if let Some(sdk) = &self.sdk {
                 index.adopt_sdk_locations(&mut part, &key(&sdk.root));
             }
+            fresh.extend(part.records().map(|r| r.path.clone()));
             index.merge(part);
             done = true;
         }
@@ -2621,6 +2704,7 @@ impl SemanticAnalyzer {
                 };
                 let records =
                     crate::reference_index::Builder.library(&library, lib, &root, &mut tables);
+                fresh.extend(records.iter().map(|r| r.path.clone()));
                 index.put(records);
                 done = true;
             }
@@ -2629,46 +2713,268 @@ impl SemanticAnalyzer {
             self.over_budget.insert(f);
         }
         if !done {
-            let Some(sdk) = self.sdk.as_ref() else {
-                self.reference_index = Some(index);
-                return false;
-            };
+            let sdk = self.sdk.as_ref()?;
             let built = match self.search_exe.clone() {
                 Some(exe) => {
                     let request = IndexRequest {
                         sdk_lib: sdk.root.clone(),
                         uri: uri.to_string(),
                         documents: Self::document_list(documents),
-                        files: Some(again.clone()),
+                        files: Some(again.to_vec()),
                     };
                     run_index_child(&exe, &request)
                         .and_then(|b| crate::reference_index::ReferenceIndex::decode(&b))
                 }
-                None => crate::reference_index::build_files(sdk, documents, uri, &again),
+                None => crate::reference_index::build_files(sdk, documents, uri, again),
             };
-            let Some(built) = built else {
-                // The index stays as it was; the search goes on without it.
-                self.reference_index = Some(index);
-                return false;
-            };
-            for path in &again {
+            let built = built?;
+            for path in again {
                 if built.file(path).is_none() {
                     // Not a unit of the load (a part without its library): it is
                     // no candidate of the search either.
                     index.remove(path);
                 }
             }
+            fresh.extend(built.records().map(|r| r.path.clone()));
             index.merge(built);
+        }
+        for path in &fresh {
+            if let Some(record) = index.file(path) {
+                self.index_edits.remember(record, documents);
+            }
+        }
+        Some(fresh)
+    }
+
+    /// Records again the project files whose record is not of their current
+    /// text, the new ones, and dependents whose lookup or foreign ranges may change; drops
+    /// the deleted ones. The document's library is recorded from the bounded
+    /// session; anything else in a child (or here, without a child binary).
+    fn refresh_index(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        open_files: &[std::path::PathBuf],
+        whole: bool,
+    ) -> bool {
+        use dartforge_elements::generated::key;
+        let Some(mut index) = self.reference_index.take() else {
+            return false;
+        };
+        let had_pending = !self.index_refresh_pending.is_empty();
+        let mut changes = Vec::new();
+        let mut fresh = self.absorb_resident_records(documents, &mut index, &mut changes);
+        let root = index.root.clone();
+        // The whole project is compared with the disk after the watcher reported
+        // a change, or when the last comparison is more than 30 s old (the
+        // resident's rule for its scan); otherwise only the open documents.
+        if whole {
+            self.index_disk_dirty = false;
+            self.index_disk_check = Some(std::time::Instant::now());
+        }
+        let open_paths: std::collections::HashSet<std::path::PathBuf> =
+            open_files.iter().map(|f| key(f)).collect();
+        let mut current: std::collections::HashSet<std::path::PathBuf> = if whole {
+            crate::project::project_files(&root)
+                .iter()
+                .map(|p| key(p))
+                .collect()
+        } else {
+            Default::default()
+        };
+        for f in open_files {
+            if f.starts_with(&root) && f.extension().is_some_and(|e| e == "dart") {
+                current.insert(key(f));
+            }
+        }
+        let mut stale: Vec<std::path::PathBuf> = Vec::new();
+        let mut declaration_changed: Vec<std::path::PathBuf> = Vec::new();
+        let mut removed: Vec<std::path::PathBuf> = Vec::new();
+        // Without a comparison of the whole project, only the open documents'
+        // records are looked at.
+        let recorded: Vec<std::path::PathBuf> = if whole {
+            index.project_paths()
+        } else {
+            open_paths
+                .iter()
+                .filter(|p| index.file(p).is_some_and(|r| !r.frozen))
+                .cloned()
+                .collect()
+        };
+        for path in &recorded {
+            let Some(r) = index.file(path) else { continue };
+            if !whole && !open_paths.contains(path) {
+                continue;
+            }
+            // A file of the program outside the project's walk (the generated
+            // ones under `.dart_tool/build`) is gone only when it is gone from disk.
+            if !current.contains(path) && !open_paths.contains(path) && !path.is_file() {
+                removed.push(path.clone());
+                continue;
+            }
+            match changed_text(r, documents) {
+                None => {}
+                Some(None) => removed.push(path.clone()),
+                Some(Some(text)) => {
+                    // Even an unchanged API can move declaration byte ranges in
+                    // records of callers whose own source did not change.
+                    declaration_changed.push(path.clone());
+                    if !had_pending && let Some(change) = self.index_edits.change(r, &text) {
+                        changes.push(change);
+                    }
+                    stale.push(path.clone());
+                }
+            }
+        }
+        for path in &current {
+            if index.file(path).is_some() {
+                continue;
+            }
+            let text = url::Url::from_file_path(path)
+                .ok()
+                .and_then(|u| documents.get(u.as_str()).map(str::to_string))
+                .or_else(|| std::fs::read_to_string(path).ok());
+            let stamp = text.as_deref().map(crate::reference_index::text_stamp);
+            if stamp.is_some() && index.absent.get(path) == stamp.as_ref() {
+                continue;
+            }
+            stale.push(path.clone());
+        }
+        declaration_changed.extend(removed.iter().cloned());
+        declaration_changed.append(&mut self.index_declaration_changes);
+        declaration_changed.sort();
+        declaration_changed.dedup();
+        let mut again: Vec<std::path::PathBuf> = stale.clone();
+        let dependents = if declaration_changed.is_empty() {
+            Vec::new()
+        } else {
+            index.dependents(&declaration_changed)
+        };
+        for d in dependents {
+            if !again.contains(&d) && !removed.contains(&d) {
+                again.push(d);
+            }
+        }
+        for path in &self.index_refresh_pending {
+            if !again.contains(path)
+                && !removed.contains(path)
+                && (open_paths.contains(path) || path.is_file())
+            {
+                again.push(path.clone());
+            }
+        }
+        // Keep the expanded set, including importers of removed libraries,
+        // until every requested record has been refreshed successfully.
+        self.index_refresh_pending = again.clone();
+        for path in &removed {
+            index.remove(path);
+        }
+        if again.is_empty() {
+            self.reference_index = Some(index);
+            return true;
+        }
+        if !had_pending
+            && removed.is_empty()
+            && changes.len() == 1
+            && declaration_changed.len() == 1
+        {
+            let change = changes.pop().expect("one proven source delta");
+            if change.path == declaration_changed[0]
+                && stale.iter().all(|path| path == &change.path)
+                && change.proves_unaffected(&index, documents)
+            {
+                if !change.owner_is_fresh(&index, &fresh)
+                    && let Some(recorded) = self.record_index_files(
+                        &mut index,
+                        documents,
+                        uri,
+                        std::slice::from_ref(&change.path),
+                    )
+                {
+                    fresh.extend(recorded);
+                }
+                if change.owner_is_fresh(&index, &fresh)
+                    && index.relocate_foreign_declarations(&change.path, change.edit, &fresh)
+                {
+                    if std::env::var_os("DARTFORGE_LSP_DEBUG").is_some() {
+                        eprintln!(
+                            "[dartforge-lsp] reference index: retained {} dependents after relocating declarations",
+                            again.len()
+                        );
+                    }
+                    self.reference_index = Some(index);
+                    self.index_refresh_pending.clear();
+                    return true;
+                }
+            }
+        }
+        if again
+            .iter()
+            .any(|path| index.file(path).is_some_and(|r| r.frozen))
+        {
+            // The narrow load does not include unimported package libraries.
+            // Replacing only the project's records would omit their uses of
+            // a declaration whose kind or signature just changed.
+            let built = self.sdk.as_ref().and_then(|sdk| {
+                if self.index_build.is_some() {
+                    return None;
+                }
+                match self.search_exe.as_ref() {
+                    Some(exe) => run_index_child(
+                        exe,
+                        &IndexRequest {
+                            sdk_lib: sdk.root.clone(),
+                            uri: uri.to_string(),
+                            documents: Self::document_list(documents),
+                            files: None,
+                        },
+                    )
+                    .and_then(|bytes| crate::reference_index::ReferenceIndex::decode(&bytes)),
+                    None => crate::reference_index::build(sdk, documents, uri),
+                }
+            });
+            if let Some(built) = built {
+                drop(index);
+                self.replace_reference_index(Some(built));
+                if let Some(index) = &self.reference_index {
+                    for path in &declaration_changed {
+                        if let Some(record) = index.file(path) {
+                            self.index_edits.remember(record, documents);
+                        }
+                    }
+                }
+                return true;
+            }
+            self.reference_index = Some(index);
+            return false;
+        }
+        let debug = std::env::var_os("DARTFORGE_LSP_DEBUG").is_some();
+        if debug {
+            for p in stale.iter().take(3) {
+                eprintln!("[dartforge-lsp] reference index: stale {}", p.display());
+            }
+            for p in removed.iter().take(3) {
+                eprintln!("[dartforge-lsp] reference index: removed {}", p.display());
+            }
+        }
+        let started = std::time::Instant::now();
+        if self
+            .record_index_files(&mut index, documents, uri, &again)
+            .is_none()
+        {
+            self.reference_index = Some(index);
+            return false;
         }
         if debug {
             eprintln!(
-                "[dartforge-lsp] reference index: {} files recorded again ({} with a changed API) in {} ms",
+                "[dartforge-lsp] reference index: {} files recorded again ({} with changed declarations or positions) in {} ms",
                 again.len(),
-                api_changed.len(),
+                declaration_changed.len(),
                 started.elapsed().as_millis()
             );
         }
         self.reference_index = Some(index);
+        self.index_refresh_pending.clear();
         true
     }
 }
@@ -2710,5 +3016,922 @@ impl SemanticAnalyzer {
             .into_iter()
             .filter_map(|(u, s)| Some((project.unit_uri(u)?, s)))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod index_refresh_tests {
+    use super::*;
+    use crate::typed::{RecordBatch, RecordContext, ResidentRecords};
+    use dartforge_elements::sdk::SdkLayout;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+
+    struct Directory(PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    struct CachedIndex(PathBuf);
+    impl CachedIndex {
+        fn save(index: &crate::reference_index::ReferenceIndex, sdk: &SdkLayout) -> Self {
+            use std::io::Write;
+            let path = index_cache_path(&index.root, &sdk.root).unwrap();
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .unwrap();
+            let cached = Self(path);
+            file.write_all(&index.encode()).unwrap();
+            cached
+        }
+    }
+    impl Drop for CachedIndex {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    fn fixture(label: &str) -> Directory {
+        let directory = Directory(Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-agent/{label}-{}",
+            std::process::id()
+        )));
+        let root = &directory.0;
+        std::fs::create_dir_all(root.join("sdk/lib/core")).unwrap();
+        std::fs::create_dir_all(root.join("project/lib")).unwrap();
+        std::fs::write(
+            root.join("sdk/lib/libraries.json"),
+            r#"{"dartdevc":{"libraries":{"core":{"uri":"core/core.dart","patches":[]}}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("sdk/lib/core/core.dart"),
+            "class Object {} class Type {} class Function {} class num {} class int extends num {} class String {} class bool {} class Null {}",
+        )
+        .unwrap();
+        std::fs::write(root.join("project/pubspec.yaml"), "name: example\n").unwrap();
+        directory
+    }
+
+    #[test]
+    fn cached_indexes_follow_project_switches_and_recheck_disk() {
+        let directory = fixture("switch-project-index");
+        let root = &directory.0;
+        let original = "void target() {}";
+        let caller = "import 'a.dart'; void run() { target(); }";
+        std::fs::write(root.join("project/lib/a.dart"), original).unwrap();
+        std::fs::write(root.join("project/lib/b.dart"), caller).unwrap();
+        std::fs::create_dir_all(root.join("other/lib")).unwrap();
+        std::fs::write(root.join("other/pubspec.yaml"), "name: other\n").unwrap();
+        std::fs::write(root.join("other/lib/a.dart"), original).unwrap();
+        let a = std::fs::canonicalize(root.join("project/lib/a.dart")).unwrap();
+        let b = std::fs::canonicalize(root.join("project/lib/b.dart")).unwrap();
+        let other = std::fs::canonicalize(root.join("other/lib/a.dart")).unwrap();
+        let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+        let uri_b = url::Url::from_file_path(&b).unwrap().to_string();
+        let uri_other = url::Url::from_file_path(&other).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri_a.clone(), 1, original.to_string());
+        documents.open(uri_other.clone(), 1, original.to_string());
+        let first = crate::reference_index::build(&sdk, &documents, &uri_a).unwrap();
+        let second = crate::reference_index::build(&sdk, &documents, &uri_other).unwrap();
+        let _first_cache = CachedIndex::save(&first, &sdk);
+        let _second_cache = CachedIndex::save(&second, &sdk);
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        analyzer.reference_index = Some(first);
+        analyzer.search_exe = Some(root.join("missing-index-child"));
+        let offset = original.find("target").unwrap();
+        let first_answer = analyzer
+            .indexed_references(&documents, &uri_a, offset)
+            .unwrap()
+            .unwrap();
+        assert!(first_answer.uses.iter().any(|(uri, _)| uri == &uri_b));
+        let other_answer = analyzer
+            .indexed_references(&documents, &uri_other, offset)
+            .expect("another project's ready index was permanently excluded")
+            .unwrap();
+        assert_eq!(
+            other_answer.declaration,
+            Some((uri_other.clone(), Span { start: 5, end: 11 }))
+        );
+        assert!(other_answer.uses.iter().all(|(uri, _)| uri != &uri_b));
+        // A closed caller changes while another project's index is active.
+        // Returning must scan its disk even within the previous scan's 30 s.
+        let changed = format!("// shifted caller\n{caller}");
+        std::fs::write(&b, &changed).unwrap();
+        analyzer.search_exe = None;
+        let returned = analyzer
+            .indexed_references(&documents, &uri_a, offset)
+            .unwrap()
+            .unwrap();
+        let start = changed.find("target").unwrap();
+        assert!(returned.uses.contains(&(
+            uri_b,
+            Span {
+                start,
+                end: start + 6,
+            },
+        )));
+    }
+
+    #[test]
+    fn another_projects_build_does_not_block_or_replace_cached_answers() {
+        let directory = fixture("other-project-index-build");
+        let root = &directory.0;
+        let text = "void target() {}";
+        std::fs::write(root.join("project/lib/a.dart"), text).unwrap();
+        std::fs::create_dir_all(root.join("other/lib")).unwrap();
+        std::fs::write(root.join("other/pubspec.yaml"), "name: other\n").unwrap();
+        std::fs::write(root.join("other/lib/a.dart"), text).unwrap();
+        let a = std::fs::canonicalize(root.join("project/lib/a.dart")).unwrap();
+        let b = std::fs::canonicalize(root.join("other/lib/a.dart")).unwrap();
+        let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+        let uri_b = url::Url::from_file_path(&b).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri_a.clone(), 1, text.to_string());
+        documents.open(uri_b.clone(), 1, text.to_string());
+        let first = crate::reference_index::build(&sdk, &documents, &uri_a).unwrap();
+        let second = crate::reference_index::build(&sdk, &documents, &uri_b).unwrap();
+        let _first_cache = CachedIndex::save(&first, &sdk);
+        let _second_cache = CachedIndex::save(&second, &sdk);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        analyzer.search_exe = Some(root.join("missing-index-child"));
+        analyzer.index_build = Some((first.root.clone(), receiver));
+        let offset = text.find("target").unwrap();
+        for completed in [false, true] {
+            if completed {
+                sender.send(Some(first.encode())).unwrap();
+            }
+            let answer = analyzer
+                .indexed_references(&documents, &uri_b, offset)
+                .expect("another project's build blocked or replaced a cached answer")
+                .unwrap();
+            assert_eq!(
+                answer.declaration,
+                Some((uri_b.clone(), Span { start: 5, end: 11 }))
+            );
+        }
+        let returned = analyzer
+            .indexed_references(&documents, &uri_a, offset)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            returned.declaration,
+            Some((uri_a, Span { start: 5, end: 11 }))
+        );
+    }
+
+    #[test]
+    fn dependency_overlays_and_their_close_refresh_foreign_declarations() {
+        let directory = fixture("dependency-overlay-index");
+        let root = &directory.0;
+        let original = "int target() => 0;";
+        let caller = "import '../../other/lib/a.dart'; final value = target;";
+        std::fs::create_dir_all(root.join("other/lib")).unwrap();
+        std::fs::write(root.join("other/pubspec.yaml"), "name: other\n").unwrap();
+        std::fs::write(root.join("other/lib/a.dart"), original).unwrap();
+        std::fs::write(root.join("project/lib/b.dart"), caller).unwrap();
+        let config = root.join("other/.dart_tool/package_config.json");
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        std::fs::write(
+            config,
+            serde_json::to_vec(&serde_json::json!({
+                "configVersion": 2,
+                "packages": [{
+                    "name": "example",
+                    "rootUri": "../../project/",
+                    "packageUri": "lib/",
+                    "languageVersion": "3.6"
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let a = dartforge_elements::config::canonicalize(&root.join("other/lib/a.dart")).unwrap();
+        let b = dartforge_elements::config::canonicalize(&root.join("project/lib/b.dart")).unwrap();
+        let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+        let uri_b = url::Url::from_file_path(&b).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri_a.clone(), 1, original.to_string());
+        documents.open(uri_b.clone(), 1, caller.to_string());
+        let index = crate::reference_index::build(&sdk, &documents, &uri_b).unwrap();
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        analyzer.replace_reference_index(Some(index));
+        for (version, text, start, end) in [
+            (2, "int get target => 0;", 8, 14),
+            (3, "// moved\nint target() => 0;", 13, 19),
+            (4, "int get target=>0;", 8, 14),
+        ] {
+            documents.update(&uri_a, version, text.to_string());
+            let answer = analyzer
+                .indexed_references(&documents, &uri_b, caller.find("target").unwrap())
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                answer.declaration,
+                Some((uri_a.clone(), Span { start, end }))
+            );
+        }
+        let sdk = analyzer.sdk.as_ref().unwrap();
+        let index = analyzer.reference_index.as_ref().unwrap();
+        let project_root = index.root.clone();
+        let _cache = CachedIndex::save(index, sdk);
+        assert!(load_cached_index(&project_root, &sdk.root, &documents, &b).is_some());
+        documents.close(&uri_a);
+        assert!(load_cached_index(&project_root, &sdk.root, &documents, &b).is_none());
+        let answer = analyzer
+            .indexed_references(&documents, &uri_b, caller.find("target").unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            answer.declaration,
+            Some((uri_a, Span { start: 4, end: 10 }))
+        );
+        // From the dependency's own root, the caller is a frozen package.
+        // Changing the declaration kind must keep that external use too.
+        let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+        let index =
+            crate::reference_index::build(analyzer.sdk.as_ref().unwrap(), &documents, &uri_a)
+                .unwrap();
+        assert!(index.file(&b).is_some_and(|r| r.frozen));
+        analyzer.replace_reference_index(Some(index));
+        documents.open(uri_a.clone(), 6, "int get target=>0;".to_string());
+        let answer = analyzer
+            .indexed_references(&documents, &uri_a, 8)
+            .unwrap()
+            .unwrap();
+        assert!(
+            answer.uses.iter().any(|(uri, _)| uri == &uri_b),
+            "an API refresh omitted the dependent in another package"
+        );
+    }
+
+    #[test]
+    fn closed_dependency_disk_changes_refresh_foreign_declarations() {
+        let directory = fixture("closed-dependency-index");
+        let root = &directory.0;
+        let original = "int target() => 0;";
+        let caller = "import '../../other/lib/a.dart'; final value = target;";
+        std::fs::create_dir_all(root.join("other/lib")).unwrap();
+        std::fs::write(root.join("other/pubspec.yaml"), "name: other\n").unwrap();
+        std::fs::write(root.join("other/lib/a.dart"), original).unwrap();
+        std::fs::write(root.join("project/lib/b.dart"), caller).unwrap();
+        let a = std::fs::canonicalize(root.join("other/lib/a.dart")).unwrap();
+        let b = std::fs::canonicalize(root.join("project/lib/b.dart")).unwrap();
+        let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+        let uri_b = url::Url::from_file_path(&b).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri_b.clone(), 1, caller.to_string());
+        let index = crate::reference_index::build(&sdk, &documents, &uri_b).unwrap();
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        analyzer.replace_reference_index(Some(index));
+        let offset = caller.find("target").unwrap();
+        analyzer
+            .indexed_references(&documents, &uri_b, offset)
+            .unwrap();
+        for (watcher, text, start, end) in [
+            (true, "int get target => 0;", 8, 14),
+            (false, "// moved\nint target() => 0;", 13, 19),
+        ] {
+            std::fs::write(&a, text).unwrap();
+            if watcher {
+                analyzer.disk_changed(std::slice::from_ref(&a));
+            } else {
+                analyzer.index_disk_check =
+                    Some(std::time::Instant::now() - std::time::Duration::from_secs(31));
+            }
+            let answer = analyzer
+                .indexed_references(&documents, &uri_b, offset)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                answer.declaration,
+                Some((uri_a.clone(), Span { start, end })),
+                "the closed dependency's disk text was not checked"
+            );
+        }
+        // An identical rewrite must retain the complete index even when a
+        // watcher reports it; rebuilding through this child would fail.
+        std::fs::write(&a, "// moved\nint target() => 0;").unwrap();
+        analyzer.disk_changed(std::slice::from_ref(&a));
+        analyzer.search_exe = Some(root.join("missing-index-child"));
+        assert!(
+            analyzer
+                .indexed_references(&documents, &uri_b, offset)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn cached_indexes_follow_package_configuration_changes() {
+        let directory = fixture("configured-reference-index");
+        let root = &directory.0;
+        for (name, text) in [
+            ("old", "int target() => 0;"),
+            ("new", "int get target => 0;"),
+        ] {
+            std::fs::create_dir_all(root.join(name).join("lib")).unwrap();
+            std::fs::write(root.join(name).join("lib/dep.dart"), text).unwrap();
+        }
+        let caller = "import 'package:dep/dep.dart'; final value = target;";
+        std::fs::write(root.join("project/lib/main.dart"), caller).unwrap();
+        let config = root.join("project/.dart_tool/package_config.json");
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        let configure = |name: &str| {
+            std::fs::write(
+                &config,
+                serde_json::to_vec(&serde_json::json!({
+                    "configVersion": 2,
+                    "packages": [{
+                        "name": "dep",
+                        "rootUri": format!("../../{name}/"),
+                        "packageUri": "lib/",
+                        "languageVersion": "3.6"
+                    }]
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        };
+        configure("old");
+        let configuration_metadata = std::fs::metadata(&config).unwrap();
+        let configuration_time = configuration_metadata.modified().unwrap();
+        let configuration_stamp =
+            dartforge_elements::unit_cache::FileStamp::of(&configuration_metadata);
+        // A config restored by another tool can keep its old date and size.
+        let preserve_metadata = || {
+            std::fs::File::options()
+                .write(true)
+                .open(&config)
+                .unwrap()
+                .set_times(std::fs::FileTimes::new().set_modified(configuration_time))
+                .unwrap();
+            assert_eq!(
+                dartforge_elements::unit_cache::FileStamp::of(&std::fs::metadata(&config).unwrap()),
+                configuration_stamp
+            );
+        };
+        let main = std::fs::canonicalize(root.join("project/lib/main.dart")).unwrap();
+        let old = std::fs::canonicalize(root.join("old/lib/dep.dart")).unwrap();
+        let new = std::fs::canonicalize(root.join("new/lib/dep.dart")).unwrap();
+        let uri = url::Url::from_file_path(&main).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri.clone(), 1, caller.to_string());
+        let index = crate::reference_index::build(&sdk, &documents, &uri).unwrap();
+        let _cache = CachedIndex::save(&index, &sdk);
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        let offset = caller.find("target").unwrap();
+        let before = analyzer
+            .semantic_references(&documents, &uri, offset)
+            .unwrap();
+        assert_eq!(
+            before.declaration,
+            Some((
+                url::Url::from_file_path(&old).unwrap().to_string(),
+                Span { start: 4, end: 10 }
+            ))
+        );
+        configure("old");
+        analyzer.project_configuration_changed();
+        analyzer.search_exe = Some(root.join("missing-index-child"));
+        assert!(
+            analyzer
+                .indexed_references(&documents, &uri, offset)
+                .expect("an identical configuration rewrite discarded the cache")
+                .is_some()
+        );
+        analyzer.search_exe = None;
+        configure("new");
+        preserve_metadata();
+        analyzer.project_configuration_changed();
+        let changed = analyzer
+            .semantic_references(&documents, &uri, offset)
+            .unwrap();
+        assert_eq!(
+            changed.declaration,
+            Some((
+                url::Url::from_file_path(&new).unwrap().to_string(),
+                Span { start: 8, end: 14 }
+            )),
+            "the cache reused the previous package map"
+        );
+        let index = crate::reference_index::build(analyzer.sdk.as_ref().unwrap(), &documents, &uri)
+            .unwrap();
+        analyzer.replace_reference_index(Some(index));
+        configure("old");
+        preserve_metadata();
+        analyzer.index_disk_check =
+            Some(std::time::Instant::now() - std::time::Duration::from_secs(31));
+        let restored = analyzer
+            .semantic_references(&documents, &uri, offset)
+            .unwrap();
+        assert_eq!(restored.declaration, before.declaration);
+        let nested = root.join("project/lib/.dart_tool/package_config.json");
+        std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+        std::fs::write(
+            &nested,
+            serde_json::to_vec(&serde_json::json!({
+                "configVersion": 2,
+                "packages": [{
+                    "name": "dep",
+                    "rootUri": "../../../new/",
+                    "packageUri": "lib/",
+                    "languageVersion": "3.6"
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        analyzer.project_configuration_changed();
+        let overridden = analyzer
+            .semantic_references(&documents, &uri, offset)
+            .unwrap();
+        assert_eq!(overridden.declaration, changed.declaration);
+        std::fs::remove_file(nested).unwrap();
+        analyzer.project_configuration_changed();
+        let inherited = analyzer
+            .semantic_references(&documents, &uri, offset)
+            .unwrap();
+        assert_eq!(inherited.declaration, before.declaration);
+    }
+
+    #[test]
+    fn a_failed_refresh_keeps_dependents_pending() {
+        let directory = fixture("pending-index-refresh");
+        let root = &directory.0;
+        let original = "void target() {}";
+        let caller = "import 'a.dart'; void run() { target(); }";
+        std::fs::write(root.join("project/lib/a.dart"), original).unwrap();
+        std::fs::write(root.join("project/lib/b.dart"), caller).unwrap();
+        let a = std::fs::canonicalize(root.join("project/lib/a.dart")).unwrap();
+        let b = std::fs::canonicalize(root.join("project/lib/b.dart")).unwrap();
+        let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+        let uri_b = url::Url::from_file_path(&b).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri_a.clone(), 1, original.to_string());
+        documents.open(uri_b.clone(), 1, caller.to_string());
+        let index = crate::reference_index::build(&sdk, &documents, &uri_a).unwrap();
+        documents.update(&uri_a, 2, "void renamed() {}".to_string());
+        let edited =
+            crate::reference_index::build_files(&sdk, &documents, &uri_a, std::slice::from_ref(&a))
+                .unwrap();
+        let records = Arc::new(ResidentRecords::default());
+        records.lock().ready.push(RecordBatch {
+            bytes: edited.encode(),
+            context: RecordContext::current(&sdk.root, &documents).unwrap(),
+        });
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        analyzer.reference_index = Some(index);
+        analyzer.resident_records = Some(records);
+        analyzer.over_budget.insert(b);
+        analyzer.search_exe = Some(root.join("missing-index-child"));
+        let offset = caller.find("target").unwrap();
+        // The resident supplies the edited file, but rebuilding its importer
+        // fails. Both requests must fall back to the current, unresolved call.
+        assert!(
+            analyzer
+                .semantic_references(&documents, &uri_b, offset)
+                .is_none()
+        );
+        assert!(
+            analyzer
+                .semantic_references(&documents, &uri_b, offset)
+                .is_none(),
+            "a failed refresh made stale dependent records queryable"
+        );
+        analyzer.search_exe = None;
+        let repaired = caller.replace("target", "renamed");
+        documents.update(&uri_b, 2, repaired.clone());
+        let references = analyzer
+            .semantic_references(&documents, &uri_b, repaired.find("renamed").unwrap())
+            .unwrap();
+        assert_eq!(
+            references.declaration,
+            Some((uri_a, Span { start: 5, end: 12 }))
+        );
+        assert!(references.uses.iter().any(|(uri, _)| uri == &uri_b));
+    }
+
+    #[test]
+    fn a_superseded_context_does_not_replace_current_references() {
+        let directory = fixture("superseded-record-context");
+        let root = &directory.0;
+        let original = "int target() => 0;";
+        let caller = "import 'a.dart'; final value = target;";
+        std::fs::write(root.join("project/lib/a.dart"), original).unwrap();
+        std::fs::write(root.join("project/lib/b.dart"), caller).unwrap();
+        let a = std::fs::canonicalize(root.join("project/lib/a.dart")).unwrap();
+        let b = std::fs::canonicalize(root.join("project/lib/b.dart")).unwrap();
+        let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+        let uri_b = url::Url::from_file_path(&b).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri_a.clone(), 1, original.to_string());
+        documents.open(uri_b.clone(), 1, caller.to_string());
+        let index = crate::reference_index::build(&sdk, &documents, &uri_a).unwrap();
+        documents.update(&uri_a, 2, "int get target => 0;".to_string());
+        let stale =
+            crate::reference_index::build_files(&sdk, &documents, &uri_b, std::slice::from_ref(&b))
+                .unwrap();
+        // The caller's text is identical, but this batch resolved it while
+        // another open document exposed a different API.
+        let context = RecordContext::current(&sdk.root, &documents).unwrap();
+        documents.update(&uri_a, 3, original.to_string());
+        let records = Arc::new(ResidentRecords::default());
+        records.lock().ready.push(RecordBatch {
+            bytes: stale.encode(),
+            context,
+        });
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        analyzer.reference_index = Some(index);
+        analyzer.resident_records = Some(records);
+        let references = analyzer
+            .semantic_references(&documents, &uri_b, caller.find("target").unwrap())
+            .unwrap();
+        assert_eq!(
+            references.declaration,
+            Some((uri_a, Span { start: 4, end: 10 })),
+            "a caller's unchanged text hid the stale context of its records"
+        );
+    }
+
+    #[test]
+    fn a_restored_context_keeps_the_complete_index_usable() {
+        let directory = fixture("restored-record-context");
+        let root = &directory.0;
+        let original = "void target() {}";
+        let caller = "import 'a.dart'; void run() { target(); }";
+        std::fs::write(root.join("project/lib/a.dart"), original).unwrap();
+        std::fs::write(root.join("project/lib/b.dart"), caller).unwrap();
+        let a = std::fs::canonicalize(root.join("project/lib/a.dart")).unwrap();
+        let b = std::fs::canonicalize(root.join("project/lib/b.dart")).unwrap();
+        let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+        let uri_b = url::Url::from_file_path(&b).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri_a.clone(), 1, original.to_string());
+        documents.open(uri_b.clone(), 1, caller.to_string());
+        let index = crate::reference_index::build(&sdk, &documents, &uri_a).unwrap();
+        let records = Arc::new(ResidentRecords::default());
+        for (version, text) in [(2, "void renamed() {}"), (3, original)] {
+            documents.update(&uri_a, version, text.to_string());
+            let part = crate::reference_index::build_files(
+                &sdk,
+                &documents,
+                &uri_a,
+                std::slice::from_ref(&a),
+            )
+            .unwrap();
+            records.lock().ready.push(RecordBatch {
+                bytes: part.encode(),
+                context: RecordContext::current(&sdk.root, &documents).unwrap(),
+            });
+        }
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        analyzer.reference_index = Some(index);
+        analyzer.resident_records = Some(records);
+        analyzer.over_budget.insert(b);
+        analyzer.search_exe = Some(root.join("missing-index-child"));
+        let references = analyzer
+            .indexed_references(&documents, &uri_b, caller.find("target").unwrap())
+            .expect("a superseded batch unnecessarily invalidated a complete current index")
+            .unwrap();
+        assert_eq!(
+            references.declaration,
+            Some((uri_a, Span { start: 5, end: 11 }))
+        );
+        assert!(references.uses.iter().any(|(uri, _)| uri == &uri_b));
+    }
+    #[test]
+    fn unchanged_api_edits_relocate_foreign_declarations() {
+        let directory = fixture("unchanged-api-relocation");
+        let root = &directory.0;
+        let original = "int helper() { return 0; }\r\nint target() => 1;\r\n";
+        let caller = "import 'a.dart'; final value = target;";
+        std::fs::write(root.join("project/lib/a.dart"), original).unwrap();
+        std::fs::write(root.join("project/lib/b.dart"), caller).unwrap();
+        let a = dartforge_elements::config::canonicalize(&root.join("project/lib/a.dart")).unwrap();
+        let b = dartforge_elements::config::canonicalize(&root.join("project/lib/b.dart")).unwrap();
+        let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+        let uri_b = url::Url::from_file_path(&b).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri_a.clone(), 1, original.to_string());
+        documents.open(uri_b.clone(), 1, caller.to_string());
+        let index = crate::reference_index::build(&sdk, &documents, &uri_a).unwrap();
+        let records = Arc::new(ResidentRecords::default());
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        analyzer.resident_records = Some(records.clone());
+        analyzer.replace_reference_index(Some(index));
+        analyzer.search_exe = Some(root.join("missing-index-child"));
+        analyzer.over_budget.insert(b.clone());
+        let comment = original.replace("int target", "// 🧭 moved\r\nint target");
+        let body = original.replace("return 0;", "final value = 0;\r\n  return value;");
+        for (version, text) in [(2, comment), (3, body), (4, original.to_string())] {
+            assert_eq!(
+                dartforge_elements::incremental::api_signature(&text),
+                dartforge_elements::incremental::api_signature(original)
+            );
+            documents.update(&uri_a, version, text.clone());
+            let part = crate::reference_index::build_files(
+                analyzer.sdk.as_ref().unwrap(),
+                &documents,
+                &uri_a,
+                std::slice::from_ref(&a),
+            )
+            .unwrap();
+            records.lock().ready.push(RecordBatch {
+                bytes: part.encode(),
+                context: RecordContext::current(&analyzer.sdk.as_ref().unwrap().root, &documents)
+                    .unwrap(),
+            });
+            let answer = analyzer
+                .indexed_references(&documents, &uri_b, caller.find("target").unwrap())
+                .expect("a body/comment edit forced the unavailable broad index child")
+                .unwrap();
+            let start = text.find("target").unwrap();
+            assert_eq!(
+                answer.declaration,
+                Some((
+                    uri_a.clone(),
+                    Span {
+                        start,
+                        end: start + 6
+                    }
+                ))
+            );
+            let line = text[..start].bytes().filter(|c| *c == b'\n').count() as u32;
+            assert_eq!(answer.declaration_range, Some((line, 4, line, 10)));
+        }
+    }
+
+    #[test]
+    fn isolated_function_edits_relocate_foreign_ranges_across_unsaved_changes() {
+        let directory = fixture("selective-api-relocation");
+        let root = &directory.0;
+        let original = "// 🧭\r\nint target() => 0;\r\n";
+        let caller = "import 'a.dart'; final value = target;";
+        std::fs::write(root.join("project/lib/a.dart"), original).unwrap();
+        std::fs::write(root.join("project/lib/b.dart"), caller).unwrap();
+        let a = dartforge_elements::config::canonicalize(&root.join("project/lib/a.dart")).unwrap();
+        let b = dartforge_elements::config::canonicalize(&root.join("project/lib/b.dart")).unwrap();
+        let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+        let uri_b = url::Url::from_file_path(&b).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri_a.clone(), 1, original.to_string());
+        documents.open(uri_b.clone(), 1, caller.to_string());
+        let index = crate::reference_index::build(&sdk, &documents, &uri_a).unwrap();
+        let records = Arc::new(ResidentRecords::default());
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        analyzer.resident_records = Some(records.clone());
+        analyzer.replace_reference_index(Some(index));
+        assert_eq!(
+            records.lock().wanted.as_ref(),
+            analyzer.reference_index.as_ref().map(|index| &index.root)
+        );
+        analyzer.search_exe = Some(root.join("missing-index-child"));
+        analyzer.over_budget.insert(b.clone());
+        let first = original.replace("int target", "int unused() => 1;\r\nint target");
+        let second = first.replace("int target", "String another() => '';\r\nint target");
+        let third = original.replace("int target", "String another() => '';\r\nint target");
+        for (version, text) in [
+            (2, first),
+            (3, second),
+            (4, third),
+            (5, original.to_string()),
+        ] {
+            documents.update(&uri_a, version, text.clone());
+            // A resident can refresh an unchanged caller too. Its current
+            // foreign ranges must not be translated a second time.
+            let files = if version == 3 {
+                vec![a.clone(), b.clone()]
+            } else {
+                vec![a.clone()]
+            };
+            let part = crate::reference_index::build_files(
+                analyzer.sdk.as_ref().unwrap(),
+                &documents,
+                &uri_a,
+                &files,
+            )
+            .unwrap();
+            records.lock().ready.push(RecordBatch {
+                bytes: part.encode(),
+                context: RecordContext::current(&analyzer.sdk.as_ref().unwrap().root, &documents)
+                    .unwrap(),
+            });
+            let answer = analyzer
+                .indexed_references(&documents, &uri_b, caller.find("target").unwrap())
+                .expect("an isolated unused function forced the unavailable broad index child")
+                .unwrap();
+            let start = text.find("target").unwrap();
+            assert_eq!(
+                answer.declaration,
+                Some((
+                    uri_a.clone(),
+                    Span {
+                        start,
+                        end: start + 6
+                    }
+                ))
+            );
+            let line = text[..start].bytes().filter(|c| *c == b'\n').count() as u32;
+            assert_eq!(answer.declaration_range, Some((line, 4, line, 10)));
+            assert!(answer.uses.iter().any(|(uri, _)| uri == &uri_b));
+        }
+    }
+
+    #[test]
+    fn an_isolated_function_edit_refreshes_only_its_owner_before_relocating_callers() {
+        let directory = fixture("selective-owner-refresh");
+        let root = &directory.0;
+        let original = "int target() => 0;";
+        let caller = "import 'a.dart'; final value = target;";
+        std::fs::write(root.join("project/lib/a.dart"), original).unwrap();
+        std::fs::write(root.join("project/lib/b.dart"), caller).unwrap();
+        let a = dartforge_elements::config::canonicalize(&root.join("project/lib/a.dart")).unwrap();
+        let b = dartforge_elements::config::canonicalize(&root.join("project/lib/b.dart")).unwrap();
+        let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+        let uri_b = url::Url::from_file_path(&b).unwrap().to_string();
+        let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+        let mut documents = DocumentStore::new();
+        documents.open(uri_a.clone(), 1, original.to_string());
+        documents.open(uri_b.clone(), 1, caller.to_string());
+        let index = crate::reference_index::build(&sdk, &documents, &uri_a).unwrap();
+        let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+        analyzer.replace_reference_index(Some(index));
+        drop(analyzer.library(&documents, &uri_a).unwrap());
+        analyzer.search_exe = Some(root.join("missing-index-child"));
+        let text = format!("int unused() => 1;\n{original}");
+        documents.update(&uri_a, 2, text.clone());
+        let answer = analyzer
+            .indexed_references(&documents, &uri_a, text.find("target").unwrap())
+            .expect("the owner's fresh library did not avoid a broad child rebuild")
+            .unwrap();
+        assert!(answer.uses.iter().any(|(uri, _)| uri == &uri_b));
+        let from_caller = analyzer
+            .indexed_references(&documents, &uri_b, caller.find("target").unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(from_caller.declaration, answer.declaration);
+    }
+
+    #[test]
+    fn unresolved_and_documented_names_do_not_enter_selective_api_refresh() {
+        for (label, caller, part) in [
+            ("unresolved", "import 'a.dart'; final value = added;", false),
+            (
+                "documentation",
+                "import 'a.dart'; /// Refers to [added].\nvoid run() {}",
+                false,
+            ),
+            ("part", "import 'a.dart'; final value = target;", true),
+        ] {
+            let directory = fixture(&format!("selective-name-{label}"));
+            let root = &directory.0;
+            let original = if part {
+                "part 'c.dart'; int target() => 0;"
+            } else {
+                "int target() => 0;"
+            };
+            if part {
+                std::fs::write(
+                    root.join("project/lib/c.dart"),
+                    "part of 'a.dart'; final result = added;",
+                )
+                .unwrap();
+            }
+            std::fs::write(root.join("project/lib/a.dart"), original).unwrap();
+            std::fs::write(root.join("project/lib/b.dart"), caller).unwrap();
+            let a =
+                dartforge_elements::config::canonicalize(&root.join("project/lib/a.dart")).unwrap();
+            let b =
+                dartforge_elements::config::canonicalize(&root.join("project/lib/b.dart")).unwrap();
+            let uri_a = url::Url::from_file_path(&a).unwrap().to_string();
+            let uri_b = url::Url::from_file_path(&b).unwrap().to_string();
+            let sdk = SdkLayout::load(&root.join("sdk/lib"), "dartdevc").unwrap();
+            let mut documents = DocumentStore::new();
+            documents.open(uri_a.clone(), 1, original.to_string());
+            documents.open(uri_b.clone(), 1, caller.to_string());
+            let index = crate::reference_index::build(&sdk, &documents, &uri_a).unwrap();
+            let mut analyzer = SemanticAnalyzer::new(Some(sdk));
+            analyzer.replace_reference_index(Some(index));
+            drop(analyzer.library(&documents, &uri_a).unwrap());
+            analyzer.search_exe = Some(root.join("missing-index-child"));
+            let text = original.replace("int target", "int added() => 1;\nint target");
+            documents.update(&uri_a, 2, text.clone());
+            assert!(
+                matches!(
+                    analyzer.indexed_references(&documents, &uri_a, text.find("target").unwrap()),
+                    Err(crate::reference_index::Miss::Unsupported(_))
+                ),
+                "a {label} name was ignored when retaining its dependent"
+            );
+            analyzer.search_exe = None;
+            let complete = analyzer
+                .indexed_references(&documents, &uri_a, text.find("added").unwrap())
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                complete.declaration,
+                Some((
+                    uri_a.clone(),
+                    Span {
+                        start: text.find("added").unwrap(),
+                        end: text.find("added").unwrap() + 5
+                    }
+                ))
+            );
+            assert!(analyzer.index_refresh_pending.is_empty());
+            if label == "unresolved" {
+                assert!(complete.uses.iter().any(|(uri, _)| uri == &uri_b));
+            }
+        }
+    }
+
+    #[test]
+    fn opening_a_record_without_identifier_facts_uses_current_library_fallback() {
+        let directory = fixture("index-open-without-facts");
+        let base = &directory.0;
+        let api = "class Item { int field = 1; void work() {} } Item makeItem() => Item();";
+        let caller = "import 'api.dart'; void call() { makeItem().work(); }";
+        let closed = "// 🧭\r\nimport 'api.dart';\r\nvoid closed() {\r\n final value = makeItem();\r\n value.work();\r\n print(value.field);\r\n}\r\n";
+        let root = base.join("project/lib");
+        for (name, text) in [
+            ("api.dart", api),
+            ("caller.dart", caller),
+            ("closed.dart", closed),
+        ] {
+            std::fs::write(root.join(name), text).unwrap();
+        }
+        let uri_api = url::Url::from_file_path(root.join("api.dart"))
+            .unwrap()
+            .to_string();
+        let path = dartforge_elements::generated::key(
+            &std::fs::canonicalize(root.join("closed.dart")).unwrap(),
+        );
+        let uri = url::Url::from_file_path(&path).unwrap().to_string();
+        let mut documents = DocumentStore::new();
+        documents.open(uri_api.clone(), 1, api.to_owned());
+        let sdk = SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap();
+        let mut index = crate::reference_index::build(&sdk, &documents, &uri_api).unwrap();
+        let before = index.encode();
+        let mut record = index.file(&path).unwrap().clone();
+        assert!(!record.facts.is_empty());
+        record.idents.clear();
+        record.facts.clear();
+        record.prepares.clear();
+        record.prepare_facts.clear();
+        index.put(vec![record]);
+        let mut cached = SemanticAnalyzer::new(Some(
+            SdkLayout::load(&base.join("sdk/lib"), "dartdevc").unwrap(),
+        ));
+        cached.replace_reference_index(crate::reference_index::ReferenceIndex::decode(&before));
+        let mut deferred = SemanticAnalyzer::new(Some(sdk));
+        deferred.replace_reference_index(crate::reference_index::ReferenceIndex::decode(
+            &index.encode(),
+        ));
+        documents.open(uri.clone(), 1, closed.to_owned());
+        for name in ["makeItem", "work", "field", "value"] {
+            let offset = closed.rfind(name).unwrap() + 1;
+            let expected = cached.references_in(&documents, &uri, offset).unwrap();
+            let actual = deferred.references_in(&documents, &uri, offset).unwrap();
+            assert_eq!(actual.declaration, expected.declaration, "{name}");
+            assert_eq!(actual.uses, expected.uses, "{name}");
+            assert_eq!(
+                deferred.prepare_rename(&documents, &uri, offset),
+                cached.prepare_rename(&documents, &uri, offset),
+                "rename {name}"
+            );
+        }
+        assert!(
+            deferred.index_answers.1 > 0,
+            "library fallback was not exercised"
+        );
+        assert!(
+            deferred
+                .reference_index
+                .as_ref()
+                .unwrap()
+                .file(&path)
+                .unwrap()
+                .facts
+                .is_empty(),
+            "test unexpectedly rebuilt the optional caches"
+        );
     }
 }

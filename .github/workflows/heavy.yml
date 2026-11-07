@@ -688,7 +688,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # The official LLVM 22.1.8 linkers require libxml2.so.2, which
+          # Ubuntu 26.04 no longer provides. Keep their supported host ABI.
+          - os: ubuntu-24.04
             name: Linux x86-64
             floor: 225
           - os: macos-latest

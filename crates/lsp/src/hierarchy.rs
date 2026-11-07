@@ -532,7 +532,7 @@ impl Project {
         let mut output = Vec::new();
         let mut stack = vec![c];
         while let Some(x) = stack.pop() {
-            for &s in direct.get(&x).map(|v| &v[..]).unwrap_or(&[]) {
+            for &s in self.written_subtypes_of(x, &direct) {
                 if s != c && seen.insert(s) {
                     output.push(s);
                     stack.push(s);

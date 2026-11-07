@@ -692,6 +692,29 @@ fn lower_function_application(
     let start = module.functions.len();
     let symbol = members::application_symbol(ctx, f_idx, application);
     lower_one_function(ctx, module, f_idx, application);
+    let element = &ctx.program.functions[f_idx];
+    if ctx.stack_trace
+        && matches!(
+            element.kind,
+            FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+        )
+        && let Some(class) = element.class
+    {
+        let class = ctx.symbol_name(ctx.program.class(class).name);
+        let member = ctx.symbol_name(element.name);
+        let name = if member.is_empty() {
+            format!("new {class}")
+        } else {
+            format!("new {class}.{member}")
+        };
+        for function in &mut module.functions[start..] {
+            if function.symbol == symbol
+                && let Some(info) = function.debug_info.as_mut()
+            {
+                info.user_name = Some(name.clone());
+            }
+        }
+    }
     // The patch supplies the body, while the public SDK declaration can supply
     // the request. A prohibition wins if both declarations carry a request.
     let public = ctx

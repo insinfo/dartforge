@@ -45,7 +45,7 @@
 use crate::{Analyzer, SyntacticAnalyzer};
 use dartforge_diagnostics::Diagnostic;
 use dartforge_parity::analysis::{Engine, is_part, key};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -135,7 +135,9 @@ struct State {
     /// queries ([`crate::remote`]) when no resident runs: after the first
     /// analysis of a package (which runs in a process of its own), or when a
     /// query found none.
-    warm: BTreeSet<PathBuf>,
+    /// A true value also refreshes an existing resident whose current program
+    /// no longer includes a query's document after a selective analysis.
+    warm: std::collections::BTreeMap<PathBuf, bool>,
     /// Package being analyzed now.
     running: Option<PathBuf>,
     /// Packages of `dirty` that only `.dart` files changed on the disk made
@@ -184,6 +186,43 @@ struct State {
     /// as many notifications, and one analysis follows the wave
     /// ([`DISK_QUIET`]).
     disk_at: Option<Instant>,
+}
+
+impl State {
+    /// Keeps a required refresh when an ordinary warm request is coalesced.
+    fn request_warm(&mut self, root: PathBuf, refresh: bool) {
+        self.warm
+            .entry(root)
+            .and_modify(|required| *required |= refresh)
+            .or_insert(refresh);
+    }
+
+    /// Uses the worker's existing root spelling. Queries canonicalize file
+    /// URIs, while didOpen may retain a symlink or lexical directory alias.
+    /// Ambiguous aliases keep the existing local fallback.
+    fn warm_root(&self, file: &Path) -> Option<PathBuf> {
+        let root = package_root(file, &self.folders);
+        if self
+            .documents
+            .values()
+            .any(|document| document.root == root)
+        {
+            return Some(root);
+        }
+        let canonical = dartforge_elements::config::canonicalize(&root).ok()?;
+        let mut found = None;
+        for document in self.documents.values() {
+            if dartforge_elements::config::canonicalize(&document.root)
+                .is_ok_and(|path| path == canonical)
+            {
+                if found.as_ref().is_some_and(|path| path != &document.root) {
+                    return None;
+                }
+                found = Some(document.root.clone());
+            }
+        }
+        found
+    }
 }
 
 /// How long the disk must stay quiet after a change, without an editor change
@@ -259,8 +298,63 @@ pub(crate) struct RecordState {
     /// ([`crate::reference_index::text_stamp`]) of the text they come from
     /// and the id of the resident's analysis that makes them.
     pub(crate) pending: HashMap<PathBuf, (u64, u64)>,
-    /// The encoded indexes made and not taken yet.
-    pub(crate) ready: Vec<Vec<u8>>,
+    /// The encoded indexes and their complete open-document context.
+    pub(crate) ready: Vec<RecordBatch>,
+    pub(crate) contexts: HashMap<u64, RecordContext>,
+    epoch: u64,
+    next: u64,
+}
+
+impl RecordState {
+    fn next_id(&mut self) -> u64 {
+        self.next = self.next.wrapping_add(1);
+        self.next
+    }
+
+    fn invalidate(&mut self) {
+        self.epoch = self.epoch.wrapping_add(1);
+        self.pending.clear();
+        self.contexts.clear();
+        self.ready.clear();
+    }
+}
+
+/// A record's own text does not identify the API its imports exposed when
+/// it was resolved. Keep all open overlays, including other packages.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct RecordContext {
+    sdk_lib: PathBuf,
+    texts: BTreeMap<PathBuf, u64>,
+}
+
+impl RecordContext {
+    pub(crate) fn current(sdk_lib: &Path, documents: &crate::DocumentStore) -> Option<Self> {
+        let mut texts = BTreeMap::new();
+        for uri in documents.uris() {
+            let Some(path) = crate::project::uri_file(uri)
+                .filter(|p| p.extension().is_some_and(|e| e == "dart"))
+            else {
+                continue;
+            };
+            let stamp = crate::reference_index::text_stamp(documents.get(uri)?);
+            if texts
+                .insert(key(&path), stamp)
+                .is_some_and(|old| old != stamp)
+            {
+                // Two URIs expose conflicting overlays of the same file.
+                return None;
+            }
+        }
+        Some(Self {
+            sdk_lib: key(sdk_lib),
+            texts,
+        })
+    }
+}
+
+pub(crate) struct RecordBatch {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) context: RecordContext,
 }
 
 impl ResidentRecords {
@@ -287,7 +381,16 @@ impl ResidentRecords {
         let mut state = self.lock();
         if state.wanted != root {
             state.wanted = root;
+            state.invalidate();
+            self.changed.notify_all();
         }
+    }
+
+    /// A disk or configuration change invalidates the context of records
+    /// already queued and jobs selected before the change.
+    pub(crate) fn invalidate(&self) {
+        self.lock().invalidate();
+        self.changed.notify_all();
     }
 
     /// The edited documents of an analysis of the package at `root` whose
@@ -298,26 +401,42 @@ impl ResidentRecords {
         root: &Path,
         open: &[(String, i32, PathBuf, Arc<str>)],
         changed: &BTreeSet<PathBuf>,
-    ) -> Vec<PathBuf> {
+    ) -> (Vec<PathBuf>, u64) {
         let state = self.lock();
         let Some(project) = &state.wanted else {
-            return Vec::new();
+            return (Vec::new(), state.epoch);
         };
         if !(root.starts_with(project) || project.starts_with(root)) {
-            return Vec::new();
+            return (Vec::new(), state.epoch);
         }
-        open.iter()
+        let paths = open
+            .iter()
             .map(|o| key(&o.2))
             .filter(|k| changed.contains(k) && k.starts_with(project))
-            .collect()
+            .collect();
+        (paths, state.epoch)
     }
 
     /// The resident's analysis `id` makes the records of `job`.
-    fn started(&self, job: &Job, id: u64) {
-        if job.records.is_empty() {
-            return;
-        }
+    fn started(&self, job: &Job) -> u64 {
         let mut state = self.lock();
+        // The sequence spans resident restarts: a late old reader must not
+        // attach its records to a new job with the same process-local id.
+        let id = state.next_id();
+        if job.records.is_empty() || job.records_epoch != state.epoch || state.wanted.is_none() {
+            return id;
+        }
+        state.contexts.insert(
+            id,
+            RecordContext {
+                sdk_lib: key(&job.sdk_lib),
+                texts: job
+                    .texts
+                    .iter()
+                    .map(|(p, t)| (p.clone(), crate::reference_index::text_stamp(t)))
+                    .collect(),
+            },
+        );
         for (_, _, path, text) in &job.open {
             let k = key(path);
             if job.records.contains(&k) {
@@ -326,12 +445,14 @@ impl ResidentRecords {
                     .insert(k, (crate::reference_index::text_stamp(text), id));
             }
         }
+        id
     }
 
     /// The records of the resident's analysis `id` will not come.
     fn abandoned(&self, id: u64) {
         let mut state = self.lock();
         state.pending.retain(|_, (_, i)| *i != id);
+        state.contexts.remove(&id);
         self.changed.notify_all();
     }
 
@@ -340,10 +461,15 @@ impl ResidentRecords {
     fn arrived(&self, id: u64, hex: &str) {
         let mut state = self.lock();
         state.pending.retain(|_, (_, i)| *i != id);
-        if let Some(bytes) = from_hex(hex)
+        if let Some(context) = state.contexts.remove(&id)
+            && let Some(bytes) = from_hex(hex)
             && !bytes.is_empty()
         {
-            state.ready.push(bytes);
+            // Unconsumed records have not changed the index. It can rebuild
+            // any omitted units from their current texts, so keep only one
+            // batch instead of accumulating an editing history until a query.
+            state.ready.clear();
+            state.ready.push(RecordBatch { bytes, context });
         }
         self.changed.notify_all();
     }
@@ -352,6 +478,7 @@ impl ResidentRecords {
     fn gone(&self) {
         let mut state = self.lock();
         state.pending.clear();
+        state.contexts.clear();
         self.changed.notify_all();
         drop(state);
         self.detach();
@@ -399,7 +526,7 @@ impl ResidentRecords {
     /// package of `file` (it starts one when none runs); false when none can
     /// come (the analyses run in this process, the resident is off, the worker
     /// is paused or nothing of that package is open).
-    fn warm(&self, file: &Path) -> bool {
+    fn warm(&self, file: &Path, refresh: bool) -> bool {
         let Some(worker) = self.worker.get().and_then(std::sync::Weak::upgrade) else {
             return false;
         };
@@ -410,11 +537,10 @@ impl ResidentRecords {
         if e.process.is_none() || e.paused || e.shutdown || resident_budget() == 0 {
             return false;
         }
-        let root = package_root(file, &e.folders);
-        if !e.documents.values().any(|d| d.root == root) {
+        let Some(root) = e.warm_root(file) else {
             return false;
-        }
-        e.warm.insert(root);
+        };
+        e.request_warm(root, refresh);
         worker.1.notify_all();
         true
     }
@@ -442,7 +568,7 @@ impl ResidentRecords {
             if !asked {
                 asked = true;
                 drop(q);
-                if !self.warm(file) {
+                if !self.warm(file, false) {
                     return None;
                 }
                 continue;
@@ -473,6 +599,19 @@ impl ResidentRecords {
         }
         loop {
             if let Some(a) = q.answers.remove(&id) {
+                if matches!(a, crate::remote::Answer::NeedsAnalysis) {
+                    // The resident keeps this id deferred. Ask the worker for
+                    // all current open inputs without holding the query lock;
+                    // its analysis will complete this same query and deadline.
+                    drop(q);
+                    let requested = self.warm(file, true);
+                    q = self.queries();
+                    if !requested {
+                        q.waiting.remove(&id);
+                        return None;
+                    }
+                    continue;
+                }
                 q.waiting.remove(&id);
                 crate::memory::trace("query answered");
                 return Some(a);
@@ -878,7 +1017,7 @@ fn work(
             }
             if e.dirty.is_empty()
                 && !e.scan
-                && let Some(root) = e.warm.pop_first()
+                && let Some((root, refresh)) = e.warm.pop_first()
             {
                 // A resident with the open documents of `root`, for the queries.
                 let open: Vec<(String, i32, PathBuf, Arc<str>)> = e
@@ -888,7 +1027,11 @@ fn work(
                     .map(|(u, d)| (u.clone(), d.version, d.path.clone(), d.text.clone()))
                     .collect();
                 let process = e.process.clone();
-                if open.is_empty() || resident.is_some() || process.is_none() || budget == 0 {
+                if open.is_empty()
+                    || (resident.is_some() && !refresh)
+                    || process.is_none()
+                    || budget == 0
+                {
                     continue;
                 }
                 let texts: HashMap<PathBuf, Arc<str>> = e
@@ -922,6 +1065,7 @@ fn work(
                     in_workspace,
                     all: false,
                     records: Vec::new(),
+                    records_epoch: 0,
                     changed: BTreeSet::new(),
                     context: package.into_iter().filter(|a| !excluded(a)).collect(),
                     config,
@@ -1039,6 +1183,10 @@ fn work(
         if reset || all {
             memos.remove(&root);
             listed.remove(&root);
+            // A full/configuration analysis may run in a disposable process.
+            // Its old resident must not keep the previous package resolution
+            // or trusted filesystem cache for a later query refresh.
+            resident = None;
         }
         let of_package = if in_workspace {
             package_files(&mut listed, &root, &changed)
@@ -1057,7 +1205,7 @@ fn work(
         // The first analysis of a package runs in a process of its own: no
         // records come from it.
         let wanted = if all {
-            Vec::new()
+            (Vec::new(), 0)
         } else {
             records.wanted_for(&root, &plan.open, &changed)
         };
@@ -1070,7 +1218,8 @@ fn work(
             config,
             in_workspace,
             all,
-            records: wanted,
+            records: wanted.0,
+            records_epoch: wanted.1,
             changed,
             context: plan.package,
         });
@@ -1185,7 +1334,7 @@ fn work(
             // The first analysis of a package ran in a process of its own: the
             // resident loads the open documents for the queries it answers.
             if job.all && resident.is_none() && crate::remote::enabled() {
-                e.warm.insert(root.clone());
+                e.request_warm(root.clone(), false);
             }
             sinal.notify_all();
         }
@@ -1239,6 +1388,9 @@ struct Job {
     /// server has no index.
     #[serde(default)]
     records: Vec<PathBuf>,
+    /// The parent-side record invalidation epoch when this job was selected.
+    #[serde(default)]
+    records_epoch: u64,
 }
 
 /// The hidden argument that makes the `dartforge-lsp` binary a child analysis
@@ -1492,6 +1644,51 @@ struct Response {
     /// The answer to a [`Request::Query`] (its id is the query's).
     #[serde(default)]
     answer: Option<crate::remote::Answer>,
+    /// A records query's raw payload follows the JSON line, with this exact
+    /// byte length. Its answer contains an empty records marker in the header.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    record_bytes: Option<usize>,
+}
+
+/// Writes one response and its optional binary records payload as one frame.
+fn write_response(
+    out: &mut impl std::io::Write,
+    response: &Response,
+    payload: Option<&[u8]>,
+) -> bool {
+    if response.record_bytes != payload.map(<[u8]>::len) {
+        return false;
+    }
+    serde_json::to_writer(&mut *out, response).is_ok()
+        && out.write_all(b"\n").is_ok()
+        && payload.is_none_or(|bytes| out.write_all(bytes).is_ok())
+        && out.flush().is_ok()
+}
+
+/// Reads a whole frame before the response is delivered to its waiting query.
+/// Binary records can contain newlines and are never parsed as JSON text.
+fn read_response(input: &mut impl std::io::BufRead) -> Option<Response> {
+    let mut line = String::new();
+    if input.read_line(&mut line).ok()? == 0 {
+        return None;
+    }
+    let mut response: Response = serde_json::from_str(&line).ok()?;
+    if let Some(length) = response.record_bytes {
+        let Some(crate::remote::Answer::Records(bytes)) = response.answer.as_mut() else {
+            return None;
+        };
+        if !bytes.is_empty()
+            || response.records.is_some()
+            || response.results.is_some()
+            || response.memory.is_some()
+        {
+            return None;
+        }
+        bytes.try_reserve_exact(length).ok()?;
+        bytes.resize(length, 0);
+        input.read_exact(bytes).ok()?;
+    }
+    Some(response)
 }
 
 /// What the resident process keeps
@@ -1541,7 +1738,6 @@ struct ResidentChild {
     input: Arc<Mutex<std::io::BufWriter<std::process::ChildStdin>>>,
     records: Arc<ResidentRecords>,
     output: mpsc::Receiver<Response>,
-    next: u64,
     /// When the last analysis ended.
     used: Instant,
 }
@@ -1564,12 +1760,8 @@ impl ResidentChild {
         let owner = Arc::clone(records);
         let records = Arc::clone(records);
         std::thread::spawn(move || {
-            use std::io::BufRead;
-            for line in std::io::BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                let Ok(response) = serde_json::from_str::<Response>(&line) else {
-                    break;
-                };
+            let mut input = std::io::BufReader::new(stdout);
+            while let Some(response) = read_response(&mut input) {
                 if let Some(hex) = &response.records {
                     records.arrived(response.id, hex);
                     continue;
@@ -1589,7 +1781,6 @@ impl ResidentChild {
             input,
             records: owner,
             output,
-            next: 0,
             used: Instant::now(),
         })
     }
@@ -1614,9 +1805,7 @@ impl ResidentChild {
         cancelled: &dyn Fn() -> bool,
         records: &ResidentRecords,
     ) -> Option<Vec<Result>> {
-        self.next += 1;
-        let id = self.next;
-        records.started(job, id);
+        let id = records.started(job);
         if !self.send(&Sent::Analyze { id, job }) {
             records.abandoned(id);
             return None;
@@ -1657,8 +1846,7 @@ impl ResidentChild {
     /// The process's memory measure ([`Request::Measure`]); `None` when it
     /// does not answer within a few minutes.
     fn measure(&mut self) -> Option<ResidentMemory> {
-        self.next += 1;
-        let id = self.next;
+        let id = self.records.lock().next_id();
         if !self.send(&Sent::Measure { id }) {
             return None;
         }
@@ -1865,21 +2053,29 @@ struct ResidentLoop {
 
 impl ResidentLoop {
     fn write(&mut self, response: &Response) -> bool {
-        use std::io::Write;
-        serde_json::to_writer(&mut self.out, response).is_ok()
-            && self.out.write_all(b"\n").is_ok()
-            && self.out.flush().is_ok()
+        write_response(&mut self.out, response, None)
     }
 
     fn respond(&mut self, id: u64, answer: crate::remote::Answer) -> bool {
         crate::memory::trace("resident query answered");
-        self.write(&Response {
-            id,
-            results: None,
-            memory: None,
-            records: None,
-            answer: Some(answer),
-        })
+        let (answer, bytes) = match answer {
+            crate::remote::Answer::Records(bytes) => {
+                (crate::remote::Answer::Records(Vec::new()), Some(bytes))
+            }
+            answer => (answer, None),
+        };
+        write_response(
+            &mut self.out,
+            &Response {
+                id,
+                results: None,
+                memory: None,
+                records: None,
+                answer: Some(answer),
+                record_bytes: bytes.as_ref().map(Vec::len),
+            },
+            bytes.as_deref(),
+        )
     }
 
     /// Answers the query now, or defers it until an analysis brings its texts.
@@ -1899,7 +2095,10 @@ impl ResidentLoop {
             None => {
                 self.deferred
                     .push((id, query, Instant::now() + QUERY_DEFER));
-                true
+                // A completed selective analysis may retain only the edited
+                // library. No later analysis is otherwise scheduled to bring
+                // the queried consumer back. Wake the parent worker now.
+                self.respond(id, crate::remote::Answer::NeedsAnalysis)
             }
         }
     }
@@ -1958,6 +2157,7 @@ impl ResidentLoop {
             memory: Some(memory),
             records: None,
             answer: None,
+            record_bytes: None,
         })
     }
 
@@ -2057,6 +2257,7 @@ impl ResidentLoop {
             memory: None,
             records: None,
             answer: None,
+            record_bytes: None,
         });
         written.then_some(completed)
     }
@@ -2100,6 +2301,7 @@ impl ResidentLoop {
                 memory: None,
                 records: Some(made.map(|b| to_hex(&b)).unwrap_or_default()),
                 answer: None,
+                record_bytes: None,
             };
             if !self.write(&response) {
                 return false;
@@ -2649,6 +2851,7 @@ fn split(job: &Job, priority: &BTreeSet<PathBuf>) -> Option<(Job, Job)> {
         changed: job.changed.clone(),
         context: job.context.clone(),
         records: Vec::new(),
+        records_epoch: job.records_epoch,
     };
     let (mut first, mut rest) = (half(open_first, others_first), half(open_rest, others_rest));
     let in_first = |r: &PathBuf| first.open.iter().any(|o| key(&o.2) == *r);
@@ -2983,4 +3186,287 @@ pub(crate) fn analyzer_sdk<A: Analyzer>(analyzer: &A) -> Option<PathBuf> {
         return None;
     }
     analyzer.sdk_for_diagnostics()
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::{Response, read_response, write_response};
+    use crate::remote::Answer;
+    use std::io::{BufReader, Cursor};
+
+    fn response(id: u64, answer: Answer, record_bytes: Option<usize>) -> Response {
+        Response {
+            id,
+            results: None,
+            memory: None,
+            records: None,
+            answer: Some(answer),
+            record_bytes,
+        }
+    }
+
+    #[test]
+    fn binary_records_preserve_message_boundaries() {
+        for bytes in [b"".as_slice(), b"\0\xff\n{\"id\":99}\n"] {
+            let mut wire = Vec::new();
+            assert!(write_response(
+                &mut wire,
+                &response(7, Answer::Records(Vec::new()), Some(bytes.len())),
+                Some(bytes),
+            ));
+            assert!(write_response(
+                &mut wire,
+                &response(8, Answer::Unavailable, None),
+                None,
+            ));
+            // Split both the JSON headers and raw bytes across small reads.
+            let mut input = BufReader::with_capacity(3, Cursor::new(wire));
+            let first = read_response(&mut input).expect("records frame");
+            assert_eq!(first.id, 7);
+            assert!(matches!(first.answer, Some(Answer::Records(ref actual)) if actual == bytes));
+            let next = read_response(&mut input).expect("next JSON frame");
+            assert_eq!(next.id, 8);
+            assert!(matches!(next.answer, Some(Answer::Unavailable)));
+            assert!(read_response(&mut input).is_none());
+        }
+    }
+
+    #[test]
+    fn truncated_binary_records_are_not_delivered() {
+        let mut wire = Vec::new();
+        assert!(write_response(
+            &mut wire,
+            &response(7, Answer::Records(Vec::new()), Some(4)),
+            Some(b"data"),
+        ));
+        wire.pop();
+        assert!(read_response(&mut Cursor::new(wire)).is_none());
+    }
+
+    #[test]
+    fn binary_header_requires_an_empty_records_marker() {
+        for answer in [Answer::Unavailable, Answer::Records(vec![1])] {
+            let header = response(7, answer, Some(1));
+            let mut wire = Vec::new();
+            assert!(write_response(&mut wire, &header, Some(b"x")));
+            assert!(read_response(&mut Cursor::new(wire)).is_none());
+        }
+        assert!(!write_response(
+            &mut Vec::new(),
+            &response(7, Answer::Records(Vec::new()), Some(4)),
+            Some(b"x"),
+        ));
+    }
+}
+
+#[cfg(test)]
+mod warm_query_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "dartforge-resident-warm-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&root).unwrap();
+            std::fs::create_dir(root.join("nested")).unwrap();
+            std::fs::write(root.join("pubspec.yaml"), "name: warm_query_test\n").unwrap();
+            Self(root)
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn open(state: &mut State, root: &Path, name: &str) {
+        let path = root.join(name);
+        state.documents.insert(
+            name.to_string(),
+            Document {
+                version: 1,
+                text: Arc::from("void main() {}"),
+                path,
+                root: root.to_path_buf(),
+            },
+        );
+    }
+
+    #[test]
+    fn refresh_is_not_downgraded_by_an_ordinary_warm_request() {
+        let mut state = State::default();
+        let root = PathBuf::from("project");
+        state.request_warm(root.clone(), true);
+        state.request_warm(root.clone(), false);
+        assert_eq!(state.warm.pop_first(), Some((root.clone(), true)));
+        state.request_warm(root.clone(), false);
+        assert_eq!(state.warm.pop_first(), Some((root, false)));
+    }
+
+    #[test]
+    fn canonical_query_warms_the_existing_lexical_alias_for_an_unsaved_file() {
+        let fixture = Fixture::new();
+        let canonical = dartforge_elements::config::canonicalize(&fixture.0).unwrap();
+        let alias = fixture.0.join("nested/..");
+        let mut state = State::default();
+        open(&mut state, &alias, "unsaved.dart");
+        assert!(!canonical.join("unsaved.dart").exists());
+        assert_eq!(
+            state.warm_root(&canonical.join("unsaved.dart")),
+            Some(alias)
+        );
+    }
+
+    #[test]
+    fn a_query_cannot_warm_an_unrelated_package() {
+        let first = Fixture::new();
+        let other = Fixture::new();
+        let mut state = State::default();
+        open(&mut state, &first.0, "main.dart");
+        assert_eq!(state.warm_root(&other.0.join("main.dart")), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn canonical_query_warms_the_existing_symbolic_alias() {
+        let fixture = Fixture::new();
+        let canonical = dartforge_elements::config::canonicalize(&fixture.0).unwrap();
+        let alias = fixture.0.join("nested/alias");
+        std::os::unix::fs::symlink(&canonical, &alias).unwrap();
+        let mut state = State::default();
+        open(&mut state, &alias, "main.dart");
+        assert_eq!(state.warm_root(&canonical.join("main.dart")), Some(alias));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn distinct_open_aliases_do_not_choose_an_arbitrary_package_context() {
+        let fixture = Fixture::new();
+        let canonical = dartforge_elements::config::canonicalize(&fixture.0).unwrap();
+        let first = fixture.0.join("nested/first");
+        let second = fixture.0.join("nested/second");
+        std::os::unix::fs::symlink(&canonical, &first).unwrap();
+        std::os::unix::fs::symlink(&canonical, &second).unwrap();
+        let mut state = State::default();
+        open(&mut state, &first, "first.dart");
+        open(&mut state, &second, "second.dart");
+        assert_eq!(state.warm_root(&canonical.join("unsaved.dart")), None);
+    }
+}
+
+#[cfg(test)]
+mod record_context_tests {
+    use super::*;
+
+    fn job(records: &ResidentRecords) -> Job {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let path = root.join("record_context.dart");
+        let text: Arc<str> = Arc::from("int value = 0;");
+        let uri = url::Url::from_file_path(&path).unwrap().to_string();
+        let open = vec![(uri, 1, path.clone(), text.clone())];
+        records.want(Some(root.clone()));
+        let (wanted, epoch) = records.wanted_for(&root, &open, &BTreeSet::from([key(&path)]));
+        assert_eq!(wanted.len(), 1);
+        Job {
+            sdk_lib: root.join("sdk/lib"),
+            root,
+            open,
+            others: Vec::new(),
+            texts: HashMap::from([(key(&path), text)]),
+            config: AnalysisConfiguration {
+                all: false,
+                all_types: Vec::new(),
+                excluded: Vec::new(),
+            },
+            in_workspace: true,
+            all: false,
+            changed: BTreeSet::from([key(&path)]),
+            context: vec![path],
+            records: wanted,
+            records_epoch: epoch,
+        }
+    }
+
+    #[test]
+    fn invalidation_rejects_running_and_previously_selected_jobs() {
+        let records = ResidentRecords::default();
+        let old = job(&records);
+        let running = records.started(&old);
+        assert_eq!(records.lock().contexts.len(), 1);
+        records.invalidate();
+        records.arrived(running, &to_hex(b"old records"));
+        let selected = records.started(&old);
+        records.arrived(selected, &to_hex(b"selected before invalidation"));
+        assert!(records.lock().ready.is_empty());
+        assert!(records.lock().pending.is_empty());
+        let fresh = job(&records);
+        let id = records.started(&fresh);
+        records.arrived(id, &to_hex(b"current records"));
+        assert_eq!(records.lock().ready.len(), 1);
+        for _ in 0..64 {
+            let id = records.started(&fresh);
+            records.arrived(id, &to_hex(b"latest records"));
+        }
+        assert_eq!(records.lock().ready.len(), 1);
+        assert_eq!(records.lock().ready[0].bytes, b"latest records");
+        records.want(None);
+        assert!(records.lock().ready.is_empty());
+        let id = records.started(&fresh);
+        records.arrived(id, &to_hex(b"old project"));
+        assert!(records.lock().ready.is_empty());
+    }
+
+    #[test]
+    fn a_late_old_resident_cannot_supply_a_new_job() {
+        let records = ResidentRecords::default();
+        let job = job(&records);
+        let old = records.started(&job);
+        records.gone();
+        let new = records.started(&job);
+        assert_ne!(old, new);
+        records.arrived(old, &to_hex(b"old resident"));
+        assert!(records.lock().ready.is_empty());
+        records.arrived(new, &to_hex(b"new resident"));
+        assert_eq!(records.lock().ready[0].bytes, b"new resident");
+    }
+
+    #[test]
+    fn records_require_every_open_dart_overlay_and_the_same_sdk() {
+        let records = ResidentRecords::default();
+        let mut job = job(&records);
+        let foreign = job.root.join("other_package/foreign.dart");
+        let foreign_uri = url::Url::from_file_path(&foreign).unwrap().to_string();
+        job.texts
+            .insert(key(&foreign), Arc::from("int target = 1;"));
+        let mut documents = crate::DocumentStore::new();
+        documents.open(job.open[0].0.clone(), 1, job.open[0].3.to_string());
+        documents.open(foreign_uri.clone(), 1, "int target = 1;".to_string());
+        let id = records.started(&job);
+        records.arrived(id, &to_hex(b"records"));
+        let batch = records.lock().ready.pop().unwrap();
+        let matches = |documents: &crate::DocumentStore, sdk: &Path| {
+            RecordContext::current(sdk, documents).as_ref() == Some(&batch.context)
+        };
+        assert!(matches(&documents, &job.sdk_lib));
+        assert!(!matches(&documents, &job.sdk_lib.join("other")));
+        documents.update(&foreign_uri, 2, "int target = 2;".to_string());
+        assert!(!matches(&documents, &job.sdk_lib));
+        documents.close(&foreign_uri);
+        assert!(!matches(&documents, &job.sdk_lib));
+        documents.open(foreign_uri.clone(), 3, "int target = 1;".to_string());
+        let yaml = url::Url::from_file_path(job.root.join("pubspec.yaml"))
+            .unwrap()
+            .to_string();
+        documents.open(yaml, 1, "name: example".to_string());
+        assert!(matches(&documents, &job.sdk_lib));
+        let alias = foreign_uri.replace("foreign.dart", "%66oreign.dart");
+        documents.open(alias, 1, "int target = 99;".to_string());
+        assert!(RecordContext::current(&job.sdk_lib, &documents).is_none());
+    }
 }

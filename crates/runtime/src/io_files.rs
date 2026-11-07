@@ -1214,6 +1214,16 @@ pub extern "C" fn dartforge_native_File_Open(_ns: i64, raw: i64, mode: i64) -> i
 /// `File_OpenStdio`: the file of standard input/output `fd`.
 #[unsafe(no_mangle)]
 pub extern "C" fn dartforge_native_File_OpenStdio(fd: i64) -> i64 {
+    #[cfg(windows)]
+    if fd == 1 || fd == 2 {
+        unsafe extern "C" {
+            fn _setmode(fd: i32, mode: i32) -> i32;
+        }
+        // SAFETY: these are the inherited CRT stdout/stderr descriptors.
+        // Match the VM's File::OpenStdio (`_O_BINARY`), including its effect on
+        // subsequent core `print` calls. Opening stderr must not alter stdout.
+        let _ = unsafe { _setmode(fd as i32, 0x8000) };
+    }
     NativeFile::new(default_descriptor(fd))
 }
 

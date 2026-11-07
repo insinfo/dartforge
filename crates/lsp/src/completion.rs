@@ -1079,20 +1079,6 @@ impl Collector {
     }
 }
 
-/// The names of the annotations (the last segment) of a metadata list.
-fn annotation_names(query: &Query, ms: &[ast::Annotation]) -> Vec<String> {
-    ms.iter()
-        .filter_map(|m| m.name.last().map(|n| query.name(n.sym).to_string()))
-        .collect()
-}
-
-/// `@deprecated`/`@Deprecated(...)` among the metadata.
-fn has_deprecated(query: &Query, ms: &[ast::Annotation]) -> bool {
-    annotation_names(query, ms)
-        .iter()
-        .any(|n| n == "deprecated" || n == "Deprecated")
-}
-
 /// `hasDeprecated` of a top-level element.
 fn element_deprecated(query: &Query, el: Element) -> bool {
     let p = &query.program;
@@ -1109,7 +1095,9 @@ fn element_deprecated(query: &Query, el: Element) -> bool {
         },
         Element::Prefix(..) => None,
     };
-    decl.is_some_and(|d| has_deprecated(query, &p.unit(d.unit).ast.decl(d.decl).metadata))
+    decl.is_some_and(|d| {
+        query.has_deprecated_metadata(d.unit, &p.unit(d.unit).ast.decl(d.decl).metadata)
+    })
 }
 
 /// `hasOrInheritsDeprecated` of a function, method, accessor or constructor:
@@ -1124,26 +1112,29 @@ fn function_deprecated(query: &Query, f: FunctionElementId) -> bool {
                 a.members
                     .iter()
                     .find(|m| matches!(m.kind, ast::MemberKind::Method(x) if x == function))
-                    .map(|m| has_deprecated(query, &m.metadata))
+                    .map(|m| query.has_deprecated_metadata(unit, &m.metadata))
                     .or_else(|| {
                         a.decls
                             .iter()
                             .find(|d| matches!(d.kind, ast::DeclKind::Function(x) if x == function))
-                            .map(|d| has_deprecated(query, &d.metadata))
+                            .map(|d| query.has_deprecated_metadata(unit, &d.metadata))
                     })
                     .unwrap_or(false)
             }
             dartforge_elements::model::FunctionRef::Constructor { unit, member } => {
-                has_deprecated(query, &p.unit(unit).ast.member(member).metadata)
+                query.has_deprecated_metadata(unit, &p.unit(unit).ast.member(member).metadata)
             }
             dartforge_elements::model::FunctionRef::None => {
                 match p.function(f).variable.map(|v| p.variable(v).node) {
                     Some(dartforge_elements::model::VariableRef::Field {
                         unit, member, ..
-                    }) => has_deprecated(query, &p.unit(unit).ast.member(member).metadata),
+                    }) => query
+                        .has_deprecated_metadata(unit, &p.unit(unit).ast.member(member).metadata),
                     Some(dartforge_elements::model::VariableRef::TopLevel {
                         unit, decl, ..
-                    }) => has_deprecated(query, &p.unit(unit).ast.decl(decl).metadata),
+                    }) => {
+                        query.has_deprecated_metadata(unit, &p.unit(unit).ast.decl(decl).metadata)
+                    }
                     Some(dartforge_elements::model::VariableRef::EnumConstant {
                         unit,
                         decl,
@@ -1152,7 +1143,7 @@ fn function_deprecated(query: &Query, f: FunctionElementId) -> bool {
                         ast::DeclKind::Enum(e) => e
                             .constants
                             .get(index)
-                            .is_some_and(|k| has_deprecated(query, &k.metadata)),
+                            .is_some_and(|k| query.has_deprecated_metadata(unit, &k.metadata)),
                         _ => false,
                     },
                     _ => false,

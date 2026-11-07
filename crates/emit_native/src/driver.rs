@@ -9,6 +9,9 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct NativeDriverOptions {
+    /// Declarations matching the IR and the selected SDK artifact namespace.
+    pub compilation_environment:
+        Option<std::sync::Arc<dartforge_elements::environment::CompilationEnvironment>>,
     pub clang: PathBuf,
     pub optimize: bool,
     pub timings: bool,
@@ -27,6 +30,7 @@ pub struct NativeDriverOptions {
 impl Default for NativeDriverOptions {
     fn default() -> Self {
         Self {
+            compilation_environment: None,
             clang: std::env::var_os("DARTFORGE_CLANG").map_or_else(default_clang, PathBuf::from),
             optimize: false,
             timings: false,
@@ -110,6 +114,23 @@ pub fn compile_and_link(
     output: &Path,
     options: &NativeDriverOptions,
 ) -> Result<LinkTimes, String> {
+    if crate::ir_dart_flags(llvm_ir)?.is_some_and(|flags| flags != options.flags) {
+        return Err("link options do not match the SDK execution flags recorded in LLVM IR".into());
+    }
+    let recorded_environment = crate::ir_environment(llvm_ir)?;
+    if let Some(explicit) = &options.compilation_environment
+        && recorded_environment
+            .as_ref()
+            .is_some_and(|recorded| recorded != explicit.as_ref())
+    {
+        return Err(
+            "link options do not match the compilation environment recorded in LLVM IR".into(),
+        );
+    }
+    let environment = options
+        .compilation_environment
+        .as_deref()
+        .or(recorded_environment.as_ref());
     crate::linker_windows::Subsystem::from_environment()?;
     let wasm = crate::target::is_wasm();
     // A program with the source SDK (P5c): the entry calls the registration of the
@@ -125,8 +146,13 @@ pub fn compile_and_link(
         } else {
             crate::sdk_module::SdkProfile::Development
         };
-        let sdk =
-            crate::sdk_module::compiled_sdk_for(&dir, &options.clang, profile, options.flags)?;
+        let sdk = crate::sdk_module::compiled_sdk_for(
+            &dir,
+            &options.clang,
+            profile,
+            options.flags,
+            environment,
+        )?;
         if let Some(t) = sdk.cold
             && options.timings
         {

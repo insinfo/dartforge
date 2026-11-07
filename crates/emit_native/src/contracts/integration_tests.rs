@@ -18,7 +18,7 @@ fn canonical_requests_fail_closed_and_ignore_is_explicit() {
         std::fs::write(&entry, "import 'package:dartforge/src/annotations.dart'; int f(@NoEscape() Object value) => 3; @Realtime() int g(int value) => value + 1; void main() { print(g(f(1))); }").unwrap();
         let mut options = CompileOptions {
             contracts: ContractMode::Verify, sdk: Some(crate::sdk_tests()), packages: Some(&config),
-            timings: false, optimize: false, language_version: None, experiments: vec![],
+            timings: false, optimize: false, defines: Vec::new(), language_version: None, experiments: vec![],
             debug: false, generator: None, cpu: None,
         };
         let error = emit_ir(&entry, &options).unwrap_err();
@@ -61,7 +61,7 @@ fn matching_annotation_names_in_other_libraries_have_no_authority() {
         std::fs::write(&entry, "library dartforge.src.annotations; class Realtime { const Realtime(); } @Realtime() int f() => 3; void main() { print(f()); }").unwrap();
         let options = CompileOptions {
             contracts: ContractMode::Verify, sdk: Some(crate::sdk_tests()), packages: None,
-            timings: false, optimize: false, language_version: None, experiments: vec![],
+            timings: false, optimize: false, defines: Vec::new(), language_version: None, experiments: vec![],
             debug: false, generator: None, cpu: None,
         };
         let ir = emit_ir(&entry, &options).unwrap();

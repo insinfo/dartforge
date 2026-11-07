@@ -47,6 +47,7 @@ fn selected_sdk_wrapper_survives_conflicting_discovery_and_warm_cache() {
                     packages: None,
                     timings: false,
                     optimize: true,
+                    defines: Vec::new(),
                     language_version: None,
                     experiments: Vec::new(),
                     debug: false,

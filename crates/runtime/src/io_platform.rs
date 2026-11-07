@@ -839,6 +839,8 @@ pub extern "C" fn dartforge_native_Process_Exit(status: i64) {
     use std::io::Write;
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
+    #[cfg(windows)]
+    windows_print_console::restore();
     std::process::exit(status as i32);
 }
 

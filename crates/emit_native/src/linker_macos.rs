@@ -1006,7 +1006,9 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
     // The guard removes the retained objects on both success and failure.
     let retained = if l.lto
         && arch == Arch::Arm64
-        && (crate::target::table_exceptions()? || crate::target::roots_by_maps()?)
+        && (crate::target::table_exceptions()?
+            || crate::target::roots_by_maps()?
+            || crate::target::symbolic_stack_trace()?)
     {
         let parent = l
             .exit

@@ -499,7 +499,7 @@ mod tests_mod {
             let options = dartforge_emit_native::CompileOptions {
                 contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                 sdk: sdk.as_deref(), packages: None, timings: false, optimize: false,
-                language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None,
+                defines: Vec::new(), language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None,
             };
             let before = dartforge_emit_native::emit_reloadable_ir(&entry, &options, None).unwrap();
             let old = ir_layouts(&before.text);
@@ -536,7 +536,7 @@ mod tests_mod {
             let options = dartforge_emit_native::CompileOptions {
                 contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                 sdk: sdk.as_deref(), packages: None, timings: false, optimize: false,
-                language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None,
+                defines: Vec::new(), language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None,
             };
             let before = dartforge_emit_native::emit_reloadable_ir(&entry, &options, None).unwrap();
             std::fs::write(&entry, before_source.replace("a.Foo value = a.Foo()", "b.Foo value = b.Foo()")).unwrap();

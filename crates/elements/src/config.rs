@@ -114,6 +114,19 @@ pub fn canonicalize(path: &Path) -> std::io::Result<PathBuf> {
     crate::fs_cache::canonicalize(path)
 }
 
+/// Resolves directory links through the nearest existing ancestor, retaining
+/// missing child directories for a package's first unsaved source file.
+fn canonical_package_directory(path: &Path) -> PathBuf {
+    for ancestor in path.ancestors() {
+        if let Ok(resolved) = canonicalize(ancestor)
+            && let Ok(relative) = path.strip_prefix(ancestor)
+        {
+            return resolved.join(relative);
+        }
+    }
+    path.to_path_buf()
+}
+
 impl PackageConfig {
     /// The first of [`PackageConfig::package_dirs`] whose directory contains
     /// `canonical` (they are longest first, so the innermost one), with the
@@ -229,46 +242,62 @@ impl PackageConfig {
 
     /// Loads and validates the `.dart_tool/package_config.json` v2 file.
     ///
-    /// A file loaded before comes from a cache of the process while its date
-    /// and size, and whether the `build_runner` generated directory exists,
-    /// are the same: reading it canonicalizes every package directory (one
-    /// system call each), and a long LSP session reads it at every analysis.
+    /// Content and package directory identities are rechecked after a disk
+    /// invalidation, even when the configuration's date and bytes are unchanged:
+    /// a directory link may now name another package. While
+    /// [`crate::fs_cache::trust`] establishes an unchanged disk, the same
+    /// filesystem generation reuses the parsed map and resolved directories.
+    /// [`crate::fs_cache::clear`] and [`crate::fs_cache::forget`] invalidate it.
     ///
     /// # Errors
     /// Returns a message on I/O failure, invalid JSON or a `configVersion`
     /// other than 2.
     pub fn load(path: &Path) -> Result<Self, String> {
-        type Cache = HashMap<PathBuf, (crate::unit_cache::FileStamp, bool, PackageConfig)>;
+        type Cache = HashMap<
+            PathBuf,
+            (
+                crate::unit_cache::FileStamp,
+                bool,
+                Option<u64>,
+                PackageConfig,
+            ),
+        >;
         static CACHE: std::sync::OnceLock<std::sync::Mutex<Cache>> = std::sync::OnceLock::new();
         let stamp = crate::unit_cache::FileStamp::read(path);
+        let generation = crate::fs_cache::trusted_generation();
         let generated = path
             .parent()
             .is_some_and(|d| crate::fs_cache::is_dir(&d.join("build").join("generated")));
         let cache = CACHE.get_or_init(Default::default);
-        if let Some(stamp) = stamp
-            && let Some((s, g, c)) = cache
+        if generation.is_some()
+            && let Some(stamp) = stamp
+            && let Some((s, g, epoch, c)) = cache
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .get(path)
             && *s == stamp
             && *g == generated
+            && *epoch == generation
         {
             return Ok(c.clone());
         }
-        let loaded = Self::load_uncached(path)?;
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("could not read {}: {e}", path.display()))?;
+        let loaded = Self::load_text(path, &text)?;
         if let Some(stamp) = stamp {
             cache
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .insert(path.to_path_buf(), (stamp, generated, loaded.clone()));
+                .insert(
+                    path.to_path_buf(),
+                    (stamp, generated, generation, loaded.clone()),
+                );
         }
         Ok(loaded)
     }
 
-    fn load_uncached(path: &Path) -> Result<Self, String> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| format!("could not read {}: {e}", path.display()))?;
-        let json: serde_json::Value = serde_json::from_str(&text)
+    fn load_text(path: &Path, text: &str) -> Result<Self, String> {
+        let json: serde_json::Value = serde_json::from_str(text)
             .map_err(|e| format!("invalid JSON in {}: {e}", path.display()))?;
 
         if json.get("configVersion").and_then(|v| v.as_u64()) != Some(2) {
@@ -324,6 +353,15 @@ impl PackageConfig {
                 .join(&normalized_pkg)
                 .map_err(|e| format!("invalid packageUri in '{name}': {e}"))?;
 
+            // Package files share the canonical directory identity of entry files
+            // and editor overlays. Resolve directory links once per configuration;
+            // existing and unsaved children then use the same lexical base.
+            let package_uri = package_uri
+                .to_file_path()
+                .ok()
+                .and_then(|path| Url::from_directory_path(canonical_package_directory(&path)).ok())
+                .unwrap_or(package_uri);
+
             let version_text = entry.get("languageVersion").and_then(|v| v.as_str());
             let language_version = version_text.and_then(LanguageVersion::parse);
             let invalid_language_version = version_text
@@ -360,8 +398,9 @@ impl PackageConfig {
         let mut package_dirs: Vec<(String, PathBuf)> = packages
             .values()
             .filter_map(|pkg| {
+                // The URL already uses the resolved package directory, also
+                // when a suffix exists only in the editor's overlay.
                 let dir = pkg.package_uri.to_file_path().ok()?;
-                let dir = canonicalize(&dir).unwrap_or(dir);
                 Some((pkg.name.clone(), dir))
             })
             .collect();
@@ -494,5 +533,90 @@ mod verbatim_tests {
         }
         let long = format!(r"\\?\E:\{}", "a".repeat(300));
         assert_eq!(plain(&long), long);
+    }
+}
+
+#[cfg(test)]
+mod cache_invalidation_tests {
+    use super::{PackageConfig, canonicalize};
+    use std::path::PathBuf;
+
+    struct Directory(PathBuf);
+
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn preserved_stamps_are_rechecked_after_disk_invalidations() {
+        let directory = Directory(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-agent/package-config-epoch-{}",
+            std::process::id()
+        )));
+        let root = &directory.0;
+        for name in ["first", "other"] {
+            std::fs::create_dir_all(root.join(name).join("lib")).unwrap();
+            std::fs::write(root.join(name).join("lib/value.dart"), "int value = 0;").unwrap();
+        }
+        let path = root.join(".dart_tool/package_config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let configure = |name: &str, version: u32| {
+            std::fs::write(
+                &path,
+                serde_json::to_vec(&serde_json::json!({
+                    "configVersion": version,
+                    "packages": [{"name": "dep", "rootUri": format!("../{name}/"), "packageUri": "lib/"}]
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        };
+        configure("first", 2);
+        let metadata = std::fs::metadata(&path).unwrap();
+        let stamp = crate::unit_cache::FileStamp::of(&metadata);
+        let preserve = || {
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_times(std::fs::FileTimes::new().set_modified(metadata.modified().unwrap()))
+                .unwrap();
+            assert_eq!(
+                crate::unit_cache::FileStamp::of(&std::fs::metadata(&path).unwrap()),
+                stamp
+            );
+        };
+        let target = |config: &PackageConfig| {
+            config
+                .resolve_package_uri("package:dep/value.dart")
+                .unwrap()
+        };
+        let first = canonicalize(&root.join("first/lib/value.dart")).unwrap();
+        let other = canonicalize(&root.join("other/lib/value.dart")).unwrap();
+        crate::fs_cache::trust(false);
+        assert_eq!(target(&PackageConfig::load(&path).unwrap()), first);
+        configure("other", 2);
+        preserve();
+        assert_eq!(target(&PackageConfig::load(&path).unwrap()), other);
+        crate::fs_cache::trust(true);
+        assert_eq!(target(&PackageConfig::load(&path).unwrap()), other);
+        configure("first", 2);
+        preserve();
+        crate::fs_cache::forget(std::slice::from_ref(&path));
+        assert_eq!(target(&PackageConfig::load(&path).unwrap()), first);
+        configure("other", 3);
+        preserve();
+        crate::fs_cache::clear();
+        assert!(
+            PackageConfig::load(&path)
+                .unwrap_err()
+                .contains("configVersion")
+        );
+        configure("first", 2);
+        preserve();
+        crate::fs_cache::trust(false);
+        assert_eq!(target(&PackageConfig::load(&path).unwrap()), first);
     }
 }

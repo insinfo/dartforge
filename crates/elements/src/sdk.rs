@@ -34,6 +34,8 @@ pub struct SdkLayout {
     /// retains compiler-profile library support; `Some(empty)` declares none,
     /// as the analyzer does. An absent variable never equals the string false.
     pub conditional_import_variables: Option<HashMap<String, String>>,
+    /// Known compiler declarations; `None` preserves analyzer unknown values.
+    pub compilation_environment: Option<std::sync::Arc<crate::environment::CompilationEnvironment>>,
     /// The tool's **current** language version: that of a library without a
     /// marker and outside a package, and the ceiling of the markers
     /// (`docs/VERSOES-LINGUAGEM.md`, D2). Default 3.13; the CLI changes it with
@@ -58,11 +60,13 @@ pub struct SdkLayout {
 }
 
 /// Command-line language options: `--language-version x.y` (the current
-/// version, D2) and `--enable-experiment=a,b`.
+/// version, D2), `--enable-experiment=a,b` and compiler `-Dname=value`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LanguageOptions {
     pub current_version: Option<LanguageVersion>,
     pub experiments: Vec<Feature>,
+    /// Ordered `name=value` definitions, resolved according to the backend.
+    pub defines: Vec<String>,
 }
 
 impl LanguageOptions {
@@ -71,13 +75,28 @@ impl LanguageOptions {
     ///
     /// # Errors
     /// A version not in the `x.y` format, above the current one or below 2.12,
-    /// and an unknown experiment (a released one,
+    /// a missing declaration after `--define` or `-D`, and an unknown experiment (a released one,
     /// [`Feature::RELEASED_AT_FLOOR`], is accepted and changes nothing).
     pub fn read_option<'a>(
         &mut self,
         arg: &str,
         rest: &mut impl Iterator<Item = &'a str>,
     ) -> Result<bool, String> {
+        if arg == "--define" || arg == "-D" {
+            self.defines.push(
+                rest.next()
+                    .ok_or("--define requires name=value")?
+                    .to_string(),
+            );
+            return Ok(true);
+        }
+        if let Some(value) = arg
+            .strip_prefix("--define=")
+            .or_else(|| arg.strip_prefix("-D"))
+        {
+            self.defines.push(value.to_string());
+            return Ok(true);
+        }
         if arg == "--language-version" || arg.starts_with("--language-version=") {
             let value = match arg.split_once('=') {
                 Some((_, v)) => v.to_string(),
@@ -158,6 +177,7 @@ impl SdkLayout {
             root: lib_dir.to_path_buf(),
             libraries,
             conditional_import_variables: None,
+            compilation_environment: None,
             current_version: LanguageVersion::CURRENT,
             experiments: Vec::new(),
             replacements: HashMap::new(),
@@ -245,6 +265,7 @@ impl SdkLayout {
             root: lib_dir.to_path_buf(),
             libraries,
             conditional_import_variables: None,
+            compilation_environment: None,
             current_version: LanguageVersion::CURRENT,
             experiments: Vec::new(),
             replacements: HashMap::new(),

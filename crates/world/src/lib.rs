@@ -39,6 +39,7 @@ mod params;
 
 pub use constants::{Constants, ParamKey};
 
+use dartforge_elements::model::UnitId;
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program,
     VariableId, VariableRef,
@@ -253,6 +254,10 @@ pub struct Statistics {
 
 /// The result: what is live.
 pub struct World {
+    preserve_constant_conditions: bool,
+    constant_asserts_disabled: bool,
+    elided_const_initializers: HashSet<(UnitId, dartforge_frontend::ast::ExprId)>,
+    weak_calls: HashMap<(UnitId, dartforge_frontend::ast::ExprId), FunctionElementId>,
     classes: Vec<ClassLevel>,
     functions: Vec<bool>,
     variables: Vec<bool>,
@@ -314,6 +319,26 @@ fn prototype_chains(p: &dartforge_elements::model::Program, classes: &[ClassLeve
 }
 
 impl World {
+    /// A proven constant initializer with no runtime reads.
+    pub fn elided_const_initializer(
+        &self,
+        unit: UnitId,
+        expr: dartforge_frontend::ast::ExprId,
+    ) -> bool {
+        self.elided_const_initializers.contains(&(unit, expr))
+    }
+
+    /// The target of a normalized weak use, without keeping it alive.
+    pub fn weak_reference(
+        &self,
+        unit: UnitId,
+        expr: dartforge_frontend::ast::ExprId,
+    ) -> Option<(FunctionElementId, bool)> {
+        self.weak_calls
+            .get(&(unit, expr))
+            .map(|&f| (f, self.is_live_function(f)))
+    }
+
     /// The parameters proved always `null`: the emitter hands them to its
     /// [`Constants`] ([`Constants::set_null_params`]) so it folds the same
     /// conditions the world did.
@@ -429,6 +454,9 @@ pub struct Options {
     /// `dart2js`): their bodies are not traversed, and the conditions that
     /// only they changed become constants (`constants.rs`).
     pub without_asserts: bool,
+    /// Keep evaluations of proven constant conditions reachable when the backend
+    /// executes them rather than replacing their expressions with literals.
+    pub preserve_constant_conditions: bool,
     /// No record value or record type exists at run time (assumed, then
     /// checked: [`World::records_seen`]). The `dart:_rti` branches for the
     /// record kind fold away (`constants.rs`).
@@ -858,6 +886,44 @@ fn has_str_num(e: &WorldInput<'_>) -> bool {
     })
 }
 
+/// Compute the world using already validated weak-reference edges.
+///
+/// The edges must refer to this exact program and body table. An empty set
+/// keeps ordinary strong calls, as required by the native JIT; a production
+/// backend supplies its normalized intrinsic calls. This avoids resolving
+/// annotations a second time after the backend has already validated them.
+///
+/// ```
+/// use dartforge_elements::model::Program;
+/// use dartforge_intern::Interner;
+/// use dartforge_types::{CoreTypes, TypeTable, resolve_outline};
+/// use dartforge_types::resolved::BodyTypes;
+/// use dartforge_types::static_weak_references::WeakReferences;
+/// use dartforge_world::{Options, Roots, WorldInput, compute_with_weak_references};
+/// let program = Program::default();
+/// let mut names = Interner::new();
+/// names.intern("_");
+/// let mut table = TypeTable::new();
+/// let core = CoreTypes::init(&mut table, &program, &names);
+/// let (outline, _) = resolve_outline(&program, &names, &mut table, &core);
+/// let bodies = BodyTypes::default();
+/// let input = WorldInput { program: &program, interner: &names,
+///     table: &table, outline: &outline, bodies: &bodies };
+/// let world = compute_with_weak_references(input, &Roots::default(),
+///     WeakReferences::default(), Options::default());
+/// assert_eq!(world.stats.live_functions, 0);
+/// ```
+pub fn compute_with_weak_references(
+    e: WorldInput<'_>,
+    roots: &Roots,
+    weak: dartforge_types::static_weak_references::WeakReferences,
+    options: Options,
+) -> World {
+    let mut computation = Computation::configured(Engine::with_weak_references(e, weak), options);
+    computation.seed(roots);
+    computation.engine.finish()
+}
+
 /// Like [`compute`], with [`Options`].
 pub fn compute_with(e: WorldInput<'_>, r: &Roots, op: Options) -> World {
     let mut c = Computation::new(e, op);
@@ -876,7 +942,15 @@ pub struct Computation<'a> {
 
 impl<'a> Computation<'a> {
     pub fn new(e: WorldInput<'a>, op: Options) -> Computation<'a> {
-        let mut m = Engine::new(e);
+        Self::configured(Engine::new(e), op)
+    }
+
+    fn configured(mut m: Engine<'a>, op: Options) -> Computation<'a> {
+        let e = m.e;
+        m.preserve_constant_conditions = op.preserve_constant_conditions;
+        if !op.include_sdk && op.preserve_constant_conditions {
+            m.constants = Some(Constants::new(e, op.without_asserts).with_opaque_sdk());
+        }
         if op.include_sdk {
             m.include_sdk = true;
             m.natives = native_classes(&e);
@@ -1008,7 +1082,16 @@ pub enum Inconsistency {
 pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inconsistency> {
     // Recompute in a new engine, seeded with the finished world, and compare:
     // if the engine finds anything new, the world was not a fixed point.
-    let mut m = Engine::new(e);
+    let weak = dartforge_types::static_weak_references::WeakReferences {
+        calls: world.weak_calls.clone(),
+        elided_const_initializers: world.elided_const_initializers.clone(),
+        ..Default::default()
+    };
+    let mut m = Engine::with_weak_references(e, weak);
+    m.preserve_constant_conditions = world.preserve_constant_conditions;
+    if world.preserve_constant_conditions && !world.include_sdk {
+        m.constants = Some(Constants::new(e, world.constant_asserts_disabled).with_opaque_sdk());
+    }
     if world.include_sdk {
         m.include_sdk = true;
         m.natives = native_classes(&e);
@@ -1132,7 +1215,11 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
 const NO_OWNER: ClassId = ClassId(u32::MAX);
 
 pub(crate) struct Engine<'a> {
+    weak_constructor_targets: HashSet<FunctionElementId>,
+    pub(crate) elided_const_initializers: HashSet<(UnitId, dartforge_frontend::ast::ExprId)>,
+    pub(crate) weak_calls: HashMap<(UnitId, dartforge_frontend::ast::ExprId), FunctionElementId>,
     pub(crate) e: WorldInput<'a>,
+    pub(crate) preserve_constant_conditions: bool,
     classes: Vec<ClassLevel>,
     fn_live: Vec<bool>,
     var_live: Vec<bool>,
@@ -1373,6 +1460,28 @@ fn opens_foreign(p: &dartforge_elements::model::Program, f: FunctionElementId) -
 impl<'a> Engine<'a> {
     fn new(e: WorldInput<'a>) -> Engine<'a> {
         let p = e.program;
+        let weak = {
+            let mut table = e.table.clone();
+            let core = dartforge_types::CoreTypes::init(&mut table, p, e.interner);
+            let inferred = p
+                .libraries
+                .iter()
+                .enumerate()
+                .filter(|(_, l)| !l.is_sdk)
+                .map(|(i, _)| LibraryId(i as u32))
+                .collect();
+            dartforge_types::static_weak_references::normalize(
+                p, e.interner, &mut table, &core, e.outline, e.bodies, &inferred,
+            )
+        };
+        Self::with_weak_references(e, weak)
+    }
+
+    fn with_weak_references(
+        e: WorldInput<'a>,
+        weak: dartforge_types::static_weak_references::WeakReferences,
+    ) -> Engine<'a> {
+        let p = e.program;
         let mut universal: HashSet<String> = HashSet::new();
         universal.insert("call".into());
         // The `Object` members come from the element model, not from a list.
@@ -1385,7 +1494,22 @@ impl<'a> Engine<'a> {
                 universal.insert(e.interner.resolve(p.function(*f).name).to_string());
             }
         }
+        let weak_constructor_targets = weak
+            .calls
+            .values()
+            .copied()
+            .filter(|&f| {
+                matches!(
+                    p.function(f).kind,
+                    FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+                )
+            })
+            .collect();
         Engine {
+            preserve_constant_conditions: false,
+            weak_constructor_targets,
+            weak_calls: weak.calls,
+            elided_const_initializers: weak.elided_const_initializers,
             e,
             classes: vec![ClassLevel::Dead; p.classes.len()],
             fn_live: vec![false; p.functions.len()],
@@ -1534,6 +1658,9 @@ impl<'a> Engine<'a> {
             return;
         }
         self.fn_live[i] = true;
+        if self.weak_constructor_targets.contains(&f) {
+            self.tearoff[i] = true;
+        }
         self.cause_fn[i] = Some(self.cause);
         if !self.js_errors_open
             && self.include_sdk
@@ -2220,6 +2347,14 @@ impl<'a> Engine<'a> {
                 });
                 if let Some(en) = en {
                     self.instantiate(en);
+                    // Enum mixin wrappers forward to this constructor even
+                    // though the model only exposes the Enum interface.
+                    // Its synthetic index/name arguments are not AST calls.
+                    if !class.mixin_classes.is_empty()
+                        && let Some(ctor) = self.constructor(en, "")
+                    {
+                        self.use_function_directly(ctor);
+                    }
                     for n in ["index", "_name", "toString", "_enumToString", "name"] {
                         self.new_selector_with_receiver(n, Some(en));
                     }
@@ -2684,6 +2819,13 @@ impl<'a> Engine<'a> {
             sel_cone.insert(n.clone(), v);
         }
         World {
+            preserve_constant_conditions: self.preserve_constant_conditions,
+            constant_asserts_disabled: self
+                .constants
+                .as_ref()
+                .is_some_and(Constants::without_asserts),
+            elided_const_initializers: self.elided_const_initializers.clone(),
+            weak_calls: self.weak_calls.clone(),
             classes: self.classes.clone(),
             functions: self.fn_live.clone(),
             variables: self.var_live.clone(),
@@ -2781,6 +2923,13 @@ impl<'a> Engine<'a> {
             sel_cone.insert(n, v);
         }
         World {
+            preserve_constant_conditions: self.preserve_constant_conditions,
+            constant_asserts_disabled: self
+                .constants
+                .as_ref()
+                .is_some_and(Constants::without_asserts),
+            elided_const_initializers: self.elided_const_initializers,
+            weak_calls: self.weak_calls,
             classes: self.classes,
             functions: self.fn_live,
             variables: self.var_live,

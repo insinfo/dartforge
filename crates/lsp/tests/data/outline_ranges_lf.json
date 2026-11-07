@@ -1,0 +1,851 @@
+[
+  {
+    "deprecated": false,
+    "kind": 19,
+    "name": "Stamp",
+    "range": {
+      "end": {
+        "character": 32,
+        "line": 2
+      },
+      "start": {
+        "character": 0,
+        "line": 2
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 13,
+        "line": 2
+      },
+      "start": {
+        "character": 8,
+        "line": 2
+      }
+    }
+  },
+  {
+    "children": [
+      {
+        "deprecated": true,
+        "detail": "()",
+        "kind": 9,
+        "name": "Holder",
+        "range": {
+          "end": {
+            "character": 25,
+            "line": 6
+          },
+          "start": {
+            "character": 16,
+            "line": 6
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 22,
+            "line": 6
+          },
+          "start": {
+            "character": 16,
+            "line": 6
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "detail": "()",
+        "kind": 9,
+        "name": "Holder.named",
+        "range": {
+          "end": {
+            "character": 31,
+            "line": 7
+          },
+          "start": {
+            "character": 16,
+            "line": 7
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 28,
+            "line": 7
+          },
+          "start": {
+            "character": 23,
+            "line": 7
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "kind": 8,
+        "name": "first",
+        "range": {
+          "end": {
+            "character": 45,
+            "line": 8
+          },
+          "start": {
+            "character": 20,
+            "line": 8
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 25,
+            "line": 8
+          },
+          "start": {
+            "character": 20,
+            "line": 8
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "kind": 8,
+        "name": "second",
+        "range": {
+          "end": {
+            "character": 53,
+            "line": 8
+          },
+          "start": {
+            "character": 47,
+            "line": 8
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 53,
+            "line": 8
+          },
+          "start": {
+            "character": 47,
+            "line": 8
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "kind": 8,
+        "name": "lateField",
+        "range": {
+          "end": {
+            "character": 40,
+            "line": 9
+          },
+          "start": {
+            "character": 31,
+            "line": 9
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 40,
+            "line": 9
+          },
+          "start": {
+            "character": 31,
+            "line": 9
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "kind": 8,
+        "name": "values",
+        "range": {
+          "end": {
+            "character": 59,
+            "line": 10
+          },
+          "start": {
+            "character": 39,
+            "line": 10
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 45,
+            "line": 10
+          },
+          "start": {
+            "character": 39,
+            "line": 10
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "kind": 8,
+        "name": "empty",
+        "range": {
+          "end": {
+            "character": 76,
+            "line": 10
+          },
+          "start": {
+            "character": 61,
+            "line": 10
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 66,
+            "line": 10
+          },
+          "start": {
+            "character": 61,
+            "line": 10
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "kind": 7,
+        "name": "oldGetter",
+        "range": {
+          "end": {
+            "character": 43,
+            "line": 11
+          },
+          "start": {
+            "character": 16,
+            "line": 11
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 33,
+            "line": 11
+          },
+          "start": {
+            "character": 24,
+            "line": 11
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "detail": "(int value)",
+        "kind": 7,
+        "name": "oldSetter",
+        "range": {
+          "end": {
+            "character": 59,
+            "line": 12
+          },
+          "start": {
+            "character": 16,
+            "line": 12
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 29,
+            "line": 12
+          },
+          "start": {
+            "character": 20,
+            "line": 12
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "detail": "()",
+        "kind": 6,
+        "name": "externalMethod",
+        "range": {
+          "end": {
+            "character": 47,
+            "line": 13
+          },
+          "start": {
+            "character": 16,
+            "line": 13
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 44,
+            "line": 13
+          },
+          "start": {
+            "character": 30,
+            "line": 13
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "detail": "(int value, {String name = 'x'})",
+        "kind": 6,
+        "name": "method",
+        "range": {
+          "end": {
+            "character": 62,
+            "line": 14
+          },
+          "start": {
+            "character": 16,
+            "line": 14
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 27,
+            "line": 14
+          },
+          "start": {
+            "character": 21,
+            "line": 14
+          }
+        }
+      }
+    ],
+    "deprecated": true,
+    "kind": 5,
+    "name": "Holder",
+    "range": {
+      "end": {
+        "character": 1,
+        "line": 15
+      },
+      "start": {
+        "character": 0,
+        "line": 5
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 21,
+        "line": 5
+      },
+      "start": {
+        "character": 15,
+        "line": 5
+      }
+    }
+  },
+  {
+    "children": [
+      {
+        "deprecated": true,
+        "kind": 8,
+        "name": "helper",
+        "range": {
+          "end": {
+            "character": 30,
+            "line": 17
+          },
+          "start": {
+            "character": 20,
+            "line": 17
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 26,
+            "line": 17
+          },
+          "start": {
+            "character": 20,
+            "line": 17
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "detail": "()",
+        "kind": 6,
+        "name": "tag",
+        "range": {
+          "end": {
+            "character": 40,
+            "line": 18
+          },
+          "start": {
+            "character": 16,
+            "line": 18
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 26,
+            "line": 18
+          },
+          "start": {
+            "character": 23,
+            "line": 18
+          }
+        }
+      }
+    ],
+    "deprecated": true,
+    "kind": 5,
+    "name": "Helpers",
+    "range": {
+      "end": {
+        "character": 1,
+        "line": 19
+      },
+      "start": {
+        "character": 14,
+        "line": 16
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 27,
+        "line": 16
+      },
+      "start": {
+        "character": 20,
+        "line": 16
+      }
+    }
+  },
+  {
+    "children": [
+      {
+        "deprecated": true,
+        "kind": 10,
+        "name": "oldValue",
+        "range": {
+          "end": {
+            "character": 24,
+            "line": 21
+          },
+          "start": {
+            "character": 16,
+            "line": 21
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 24,
+            "line": 21
+          },
+          "start": {
+            "character": 16,
+            "line": 21
+          }
+        }
+      },
+      {
+        "deprecated": false,
+        "kind": 10,
+        "name": "currentValue",
+        "range": {
+          "end": {
+            "character": 14,
+            "line": 22
+          },
+          "start": {
+            "character": 2,
+            "line": 22
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 14,
+            "line": 22
+          },
+          "start": {
+            "character": 2,
+            "line": 22
+          }
+        }
+      },
+      {
+        "deprecated": true,
+        "kind": 7,
+        "name": "code",
+        "range": {
+          "end": {
+            "character": 38,
+            "line": 23
+          },
+          "start": {
+            "character": 16,
+            "line": 23
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 28,
+            "line": 23
+          },
+          "start": {
+            "character": 24,
+            "line": 23
+          }
+        }
+      }
+    ],
+    "deprecated": true,
+    "kind": 10,
+    "name": "Choice",
+    "range": {
+      "end": {
+        "character": 1,
+        "line": 24
+      },
+      "start": {
+        "character": 14,
+        "line": 20
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 25,
+        "line": 20
+      },
+      "start": {
+        "character": 19,
+        "line": 20
+      }
+    }
+  },
+  {
+    "children": [
+      {
+        "deprecated": true,
+        "kind": 7,
+        "name": "doubled",
+        "range": {
+          "end": {
+            "character": 44,
+            "line": 26
+          },
+          "start": {
+            "character": 16,
+            "line": 26
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 31,
+            "line": 26
+          },
+          "start": {
+            "character": 24,
+            "line": 26
+          }
+        }
+      }
+    ],
+    "deprecated": true,
+    "kind": 3,
+    "name": "Extra",
+    "range": {
+      "end": {
+        "character": 1,
+        "line": 27
+      },
+      "start": {
+        "character": 14,
+        "line": 25
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 29,
+        "line": 25
+      },
+      "start": {
+        "character": 24,
+        "line": 25
+      }
+    }
+  },
+  {
+    "children": [
+      {
+        "deprecated": true,
+        "kind": 7,
+        "name": "oldValue",
+        "range": {
+          "end": {
+            "character": 51,
+            "line": 29
+          },
+          "start": {
+            "character": 16,
+            "line": 29
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 32,
+            "line": 29
+          },
+          "start": {
+            "character": 24,
+            "line": 29
+          }
+        }
+      }
+    ],
+    "deprecated": true,
+    "kind": 3,
+    "name": "Identifier",
+    "range": {
+      "end": {
+        "character": 1,
+        "line": 30
+      },
+      "start": {
+        "character": 14,
+        "line": 28
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 39,
+        "line": 28
+      },
+      "start": {
+        "character": 29,
+        "line": 28
+      }
+    }
+  },
+  {
+    "deprecated": true,
+    "detail": "(int value)",
+    "kind": 5,
+    "name": "Callback",
+    "range": {
+      "end": {
+        "character": 58,
+        "line": 31
+      },
+      "start": {
+        "character": 14,
+        "line": 31
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 30,
+        "line": 31
+      },
+      "start": {
+        "character": 22,
+        "line": 31
+      }
+    }
+  },
+  {
+    "deprecated": true,
+    "kind": 13,
+    "name": "top",
+    "range": {
+      "end": {
+        "character": 41,
+        "line": 32
+      },
+      "start": {
+        "character": 18,
+        "line": 32
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 21,
+        "line": 32
+      },
+      "start": {
+        "character": 18,
+        "line": 32
+      }
+    }
+  },
+  {
+    "deprecated": true,
+    "kind": 13,
+    "name": "other",
+    "range": {
+      "end": {
+        "character": 48,
+        "line": 32
+      },
+      "start": {
+        "character": 43,
+        "line": 32
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 48,
+        "line": 32
+      },
+      "start": {
+        "character": 43,
+        "line": 32
+      }
+    }
+  },
+  {
+    "deprecated": true,
+    "kind": 13,
+    "name": "topValues",
+    "range": {
+      "end": {
+        "character": 53,
+        "line": 33
+      },
+      "start": {
+        "character": 30,
+        "line": 33
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 39,
+        "line": 33
+      },
+      "start": {
+        "character": 30,
+        "line": 33
+      }
+    }
+  },
+  {
+    "deprecated": true,
+    "detail": "",
+    "kind": 7,
+    "name": "topGetter",
+    "range": {
+      "end": {
+        "character": 39,
+        "line": 34
+      },
+      "start": {
+        "character": 14,
+        "line": 34
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 31,
+        "line": 34
+      },
+      "start": {
+        "character": 22,
+        "line": 34
+      }
+    }
+  },
+  {
+    "deprecated": true,
+    "detail": "(int value)",
+    "kind": 7,
+    "name": "topSetter",
+    "range": {
+      "end": {
+        "character": 55,
+        "line": 35
+      },
+      "start": {
+        "character": 14,
+        "line": 35
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 27,
+        "line": 35
+      },
+      "start": {
+        "character": 18,
+        "line": 35
+      }
+    }
+  },
+  {
+    "children": [
+      {
+        "deprecated": false,
+        "detail": "(int value)",
+        "kind": 12,
+        "name": "local",
+        "range": {
+          "end": {
+            "character": 32,
+            "line": 37
+          },
+          "start": {
+            "character": 2,
+            "line": 37
+          }
+        },
+        "selectionRange": {
+          "end": {
+            "character": 11,
+            "line": 37
+          },
+          "start": {
+            "character": 6,
+            "line": 37
+          }
+        }
+      }
+    ],
+    "deprecated": true,
+    "detail": "(int value)",
+    "kind": 12,
+    "name": "topFunction",
+    "range": {
+      "end": {
+        "character": 1,
+        "line": 38
+      },
+      "start": {
+        "character": 14,
+        "line": 36
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 30,
+        "line": 36
+      },
+      "start": {
+        "character": 19,
+        "line": 36
+      }
+    }
+  },
+  {
+    "deprecated": false,
+    "detail": "()",
+    "kind": 12,
+    "name": "main",
+    "range": {
+      "end": {
+        "character": 14,
+        "line": 39
+      },
+      "start": {
+        "character": 0,
+        "line": 39
+      }
+    },
+    "selectionRange": {
+      "end": {
+        "character": 9,
+        "line": 39
+      },
+      "start": {
+        "character": 5,
+        "line": 39
+      }
+    }
+  }
+]

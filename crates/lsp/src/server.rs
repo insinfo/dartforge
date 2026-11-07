@@ -201,6 +201,9 @@ pub struct Server<A = SyntacticAnalyzer> {
     /// The client accepts the `DocumentSymbol` tree (LSP 3.10+).
     hierarchical_symbols: bool,
     hover_markdown: bool,
+    /// Hover library presentation follows the selected SDK, independent of
+    /// background diagnostics and the source package's language version.
+    hover_display: crate::query::DisplayReference,
     /// The client accepts `prepareRename` (`rename.prepareSupport`).
     prepare_rename: bool,
     /// The client accepts `WorkspaceEdit.documentChanges` (edits with the
@@ -451,6 +454,10 @@ impl Default for Server<SyntacticAnalyzer> {
 impl<A: Analyzer> Server<A> {
     /// Creates the server with an arbitrary analyzer (the semantic seam).
     pub fn with_analyzer(analyzer: A) -> Self {
+        let hover_display = analyzer.sdk_for_diagnostics().as_deref().map_or(
+            Default::default(),
+            crate::query::DisplayReference::for_sdk_lib,
+        );
         Self {
             documents: DocumentStore::new(),
             analyzer,
@@ -463,6 +470,7 @@ impl<A: Analyzer> Server<A> {
             code: 1,
             hierarchical_symbols: false,
             hover_markdown: false,
+            hover_display,
             prepare_rename: false,
             versioned_changes: false,
             edits_snippet: false,
@@ -575,6 +583,7 @@ impl<A: Analyzer> Server<A> {
         let report = self.sdk_report.get_or_insert_with(Default::default);
         match result {
             Ok(lib) => {
+                self.hover_display = crate::query::DisplayReference::for_sdk_lib(&lib);
                 report.chosen = Some(dartforge_elements::sdk_discovery::FoundSdk {
                     version: dartforge_elements::sdk_discovery::sdk_version(&lib),
                     lib,
@@ -1841,9 +1850,8 @@ impl<A: Analyzer> Server<A> {
                     .and_then(|p| p.get("textDocument"))
                     .and_then(|d| d.get("uri"))
                     .and_then(Value::as_str);
-                let mut symbols = uri
-                    .and_then(|u| self.documents.get(u).map(|t| (u, t.to_string())))
-                    .map_or_else(Vec::new, |(u, t)| self.analyzer.symbols(u, &t));
+                let mut symbols =
+                    uri.map_or_else(Vec::new, |u| self.analyzer.symbols_in(&self.documents, u));
                 for s in &mut symbols {
                     adjust_kinds(s, self.symbol_kinds.as_deref());
                 }
@@ -2008,7 +2016,20 @@ impl<A: Analyzer> Server<A> {
                             value.push_str(&format!("Type: `{t}`\n\n"));
                         }
                         if let Some(b) = &hover.library {
-                            value.push_str(&format!("*{b}*\n\n"));
+                            match self.hover_display {
+                                crate::query::DisplayReference::Legacy => {
+                                    value.push_str(&format!("*{b}*\n\n"));
+                                }
+                                crate::query::DisplayReference::Current => {
+                                    if let Some(owner) = &hover.declaring_type {
+                                        value.push_str(&format!(
+                                            "Declared in `{owner}` in *{b}*.\n\n"
+                                        ));
+                                    } else {
+                                        value.push_str(&format!("Declared in *{b}*.\n\n"));
+                                    }
+                                }
+                            }
                         }
                         if let Some(d) = &hover.documentation {
                             value.push_str(&format!("---\n{d}\n"));
@@ -5071,6 +5092,9 @@ fn flatten_symbols(symbol: &Value, uri: &str, parent: Option<&str>, output: &mut
     });
     if let Some(parent) = parent {
         plan["containerName"] = json!(parent);
+    }
+    if let Some(deprecated) = symbol.get("deprecated") {
+        plan["deprecated"] = deprecated.clone();
     }
     output.push(plan);
     if let Some(children) = symbol.get("children").and_then(Value::as_array) {

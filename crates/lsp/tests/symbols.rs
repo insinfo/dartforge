@@ -143,6 +143,14 @@ fn enum_includes_constants_and_members() {
 
 #[test]
 fn workspace_search_uses_only_open_revisions_and_stable_order() {
+    // File URIs need a drive on Windows; these documents stay in memory.
+    let root = std::env::temp_dir().join(format!("dartforge-open-symbols-{}", std::process::id()));
+    let a = url::Url::from_file_path(root.join("a.dart"))
+        .unwrap()
+        .to_string();
+    let z = url::Url::from_file_path(root.join("z.dart"))
+        .unwrap()
+        .to_string();
     let mut server = Server::new();
     server.receive(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}));
     let start = server.pump();
@@ -151,8 +159,8 @@ fn workspace_search_uses_only_open_revisions_and_stable_order() {
         true
     );
     for (uri, text) in [
-        ("file:///z.dart", "class Caixa { void carregar() {} }"),
-        ("file:///a.dart", "void carregarDados() {}"),
+        (z.as_str(), "class Caixa { void carregar() {} }"),
+        (a.as_str(), "void carregarDados() {}"),
     ] {
         server.receive(
             json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
@@ -173,10 +181,9 @@ fn workspace_search_uses_only_open_revisions_and_stable_order() {
             .unwrap()
             .iter()
             .filter(|s| {
-                matches!(
-                    s["location"]["uri"].as_str(),
-                    Some("file:///a.dart" | "file:///z.dart")
-                )
+                s["location"]["uri"]
+                    .as_str()
+                    .is_some_and(|uri| uri == a || uri == z)
             })
             .cloned()
             .collect()
@@ -189,13 +196,13 @@ fn workspace_search_uses_only_open_revisions_and_stable_order() {
     let items = open(&response[0]);
     assert_eq!(items.len(), 2);
     assert_eq!(items[0]["name"], "carregarDados()");
-    assert_eq!(items[0]["location"]["uri"], "file:///a.dart");
+    assert_eq!(items[0]["location"]["uri"], a);
     assert_eq!(items[1]["name"], "carregar()");
     assert_eq!(items[1]["containerName"], "Caixa");
 
     server.receive(
         json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{
-            "textDocument":{"uri":"file:///a.dart"}
+            "textDocument":{"uri":a}
         }}),
     );
     server.pump();
@@ -203,4 +210,56 @@ fn workspace_search_uses_only_open_revisions_and_stable_order() {
         "params":{"query":"car"}}));
     let response = server.pump();
     assert_eq!(open(&response[0]).len(), 1);
+}
+
+#[test]
+fn symbol_details_use_ast_parameters_and_follow_edits() {
+    let source = "/* 🧭 */ class Box<T> {\r\n  Box();\r\n  Box.named(int value, {required String title});\r\n  int get getter => 1;\r\n  set setter(int value) {}\r\n  void method<U>(int first, [String second = 'x)y']) {}\r\n}\r\nvoid outside<T>(\r\n  List<T> /* comment */ values, {\r\n  String text = \"a(b)\", required int count,\r\n}) { void local(int value) {} }\r\n";
+    let uri = "file:///symbol_details.dart";
+    let mut server = Server::new();
+    server.receive(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "capabilities":{"textDocument":{"documentSymbol":{"hierarchicalDocumentSymbolSupport":true}}}
+    }}));
+    server.pump();
+    server.receive(
+        json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+            "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":source}
+        }}),
+    );
+    server.pump();
+    for (id, text) in [
+        (2, source.to_string()),
+        (3, source.replace("'x)y'", "'updated)'")),
+    ] {
+        if id == 3 {
+            server.receive(
+                json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{
+                    "textDocument":{"uri":uri,"version":2},"contentChanges":[{"text":text}]
+                }}),
+            );
+            server.pump();
+        }
+        server.receive(json!({"jsonrpc":"2.0","id":id,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":uri}}}));
+        let response = server.pump();
+        let symbols = response[0]["result"].as_array().unwrap();
+        let members = symbols[0]["children"].as_array().unwrap();
+        assert!(symbols[0].get("detail").is_none());
+        assert_eq!(members[0]["detail"], "()");
+        assert_eq!(members[1]["detail"], "(int value, {required String title})");
+        assert!(members[2].get("detail").is_none());
+        assert_eq!(members[3]["detail"], "(int value)");
+        assert_eq!(
+            members[4]["detail"],
+            if id == 2 {
+                "(int first, [String second = 'x)y'])"
+            } else {
+                "(int first, [String second = 'updated)'])"
+            }
+        );
+        assert_eq!(
+            symbols[1]["detail"],
+            "(List<T> values, {String text = \"a(b)\", required int count})"
+        );
+        assert_eq!(symbols[1]["children"][0]["detail"], "(int value)");
+    }
 }

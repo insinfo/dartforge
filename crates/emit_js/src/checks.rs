@@ -406,8 +406,7 @@ fn pragma_value(ctx: &Ctx, unit: UnitId, x: ExprId, depth: u32) -> Option<String
 /// The value on the web of the constant conditions that choose a platform's
 /// pragma: literals, `!`, constants, `identical(a, b)` of number literals
 /// (`identical(1, 1.0)` is true in JavaScript) and
-/// `bool.fromEnvironment(name)` (only the `dart.library.*` the platform
-/// supports are declared).
+/// `bool.fromEnvironment(name)` under this compilation's declarations.
 fn bool_value(ctx: &Ctx, unit: UnitId, x: ExprId, depth: u32) -> Option<bool> {
     if depth > 16 {
         return None;
@@ -447,16 +446,31 @@ fn bool_value(ctx: &Ctx, unit: UnitId, x: ExprId, depth: u32) -> Option<bool> {
                         && matches!(&a.expr(*target).kind,
                             ExprKind::Identifier(b) if ctx.interner.resolve(b.sym) == "bool") =>
                 {
+                    if ctx.program.compilation_environment.is_some() {
+                        return match ctx.compilation_constant(unit, x)?.state {
+                            dartforge_types::const_eval::value::InstanceState::Bool(value) => value,
+                            _ => None,
+                        };
+                    }
                     let first = arguments.args.iter().find(|a| a.name.is_none())?;
                     let ExprKind::String(lit) = &a.expr(first.value).kind else {
                         return None;
                     };
                     let name = lit.constant_value()?.to_string_lossy();
-                    Some(name.strip_prefix("dart.library.").is_some_and(|l| {
-                        crate::SUPPORTED_DART_LIBRARIES
-                            .get()
-                            .is_some_and(|s| s.contains(l))
-                    }))
+                    if name.strip_prefix("dart.library.").is_some_and(|library| {
+                        ctx.program.supported_sdk_libraries.contains(library)
+                    }) {
+                        return Some(true);
+                    }
+                    match arguments.args.iter().find(|argument| {
+                        argument
+                            .name
+                            .as_ref()
+                            .is_some_and(|name| ctx.interner.resolve(name.sym) == "defaultValue")
+                    }) {
+                        Some(argument) => bool_value(ctx, unit, argument.value, depth + 1),
+                        None => Some(false),
+                    }
                 }
                 _ => None,
             }

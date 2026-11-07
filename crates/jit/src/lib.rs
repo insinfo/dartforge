@@ -221,6 +221,8 @@ pub struct JitSession {
     reloadables: Vec<reload::Reloadable>,
     /// Reason why the session stopped accepting reloads, if any.
     poisoned: Option<String>,
+    /// Bound only after successful program publication; helpers do not change it.
+    compilation_environment: Option<Option<String>>,
     /// Session identity, so that a [`StableEntry`] does not cross sessions.
     id: u64,
     /// Source SDK (P5c/P5d, docs/NATIVO-PLANO.md §7.9): the names the SDK DLL
@@ -265,6 +267,30 @@ struct Module {
 }
 
 impl JitSession {
+    fn check_environment_binding(&self, binding: &Option<Option<String>>) -> Result<(), JitError> {
+        let Some(expected) = binding else {
+            return Ok(());
+        };
+        if let Some(current) = &self.compilation_environment
+            && current != expected
+        {
+            return Err(JitError::new(
+                "environment",
+                "compilation environment changed within the JIT session",
+                "restart the session".into(),
+            ));
+        }
+        if let Some(dll) = &self.sdk_dll
+            && let Some(identity) = expected
+        {
+            dartforge_abi::compilation_environment::validate_sdk_identity(dll, Some(identity))
+                .map_err(|detail| {
+                    JitError::new("environment", "source SDK context mismatch", detail)
+                })?;
+        }
+        Ok(())
+    }
+
     /// In the session with a DLL, only the names actually published from the DLL count
     /// as runtime. The `RUNTIME_SYMBOLS` set belongs to the embedded session.
     fn is_known_external(&self, name: &str) -> bool {
@@ -310,6 +336,7 @@ impl JitSession {
             modules: Vec::new(),
             reloadables: Vec::new(),
             poisoned: None,
+            compilation_environment: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             sdk_externals: std::collections::HashSet::new(),
             sdk_data: std::collections::HashSet::new(),
@@ -400,6 +427,7 @@ impl JitSession {
             modules: Vec::new(),
             reloadables: Vec::new(),
             poisoned: None,
+            compilation_environment: None,
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             sdk_externals: names.into_iter().collect(),
             sdk_data: std::collections::HashSet::new(),
@@ -417,8 +445,11 @@ impl JitSession {
     /// [`JitSession::new_for_ir`] with the source SDK library given explicitly;
     /// `None` falls back to `DARTFORGE_SDK_DLL`.
     pub fn new_for_ir_with(ir: &str, sdk: Option<&std::path::Path>) -> Result<Self, JitError> {
+        let binding = environment_binding(ir)?;
         if !ir_uses_source_sdk(ir) {
-            return Self::new();
+            let mut session = Self::new()?;
+            session.compilation_environment = binding;
+            return Ok(session);
         }
         let dll = sdk
             .map(|p| p.as_os_str().to_owned())
@@ -439,7 +470,19 @@ impl JitSession {
                 Some(r[i..f].to_string())
             })
             .collect();
-        Self::new_with_sdk(std::path::Path::new(&dll), &used_count)
+        if let Some(Some(identity)) = &binding {
+            dartforge_abi::compilation_environment::validate_sdk_identity(
+                std::path::Path::new(&dll),
+                Some(identity),
+            )
+            .map_err(|detail| {
+                JitError::new("environment", "source SDK context mismatch", detail)
+            })?;
+        }
+        let mut session = Self::new_with_sdk(std::path::Path::new(&dll), &used_count)?;
+        session.check_environment_binding(&binding)?;
+        session.compilation_environment = binding;
+        Ok(session)
     }
 
     /// This session's runtime comes from the source SDK DLL.
@@ -593,6 +636,21 @@ impl JitSession {
         ir: &str,
         export_only: Option<&[&str]>,
     ) -> Result<ModuleReport, JitError> {
+        let binding = environment_binding(ir)?;
+        self.check_environment_binding(&binding)?;
+        let result = self.add_ir_module_in_context(name, ir, export_only);
+        if result.is_ok() && binding.is_some() {
+            self.compilation_environment = binding;
+        }
+        result
+    }
+
+    fn add_ir_module_in_context(
+        &mut self,
+        name: &str,
+        ir: &str,
+        export_only: Option<&[&str]>,
+    ) -> Result<ModuleReport, JitError> {
         let started = Instant::now();
         let phase = Instant::now();
         let parsed = ffi::parse_module(name, ir)
@@ -687,6 +745,18 @@ impl JitSession {
     /// Divergent target (`layout`), unknown external (`symbols`) or refusal
     /// by LLVM (`add-module`, for example a duplicate symbol).
     pub fn add_compiled_module(
+        &mut self,
+        module: &CompiledModule,
+    ) -> Result<ModuleReport, JitError> {
+        self.check_environment_binding(&module.compilation_environment)?;
+        let result = self.add_compiled_module_in_context(module);
+        if result.is_ok() && module.compilation_environment.is_some() {
+            self.compilation_environment = module.compilation_environment.clone();
+        }
+        result
+    }
+
+    fn add_compiled_module_in_context(
         &mut self,
         module: &CompiledModule,
     ) -> Result<ModuleReport, JitError> {
@@ -938,6 +1008,17 @@ impl JitSession {
     }
 }
 
+fn environment_binding(ir: &str) -> Result<Option<Option<String>>, JitError> {
+    let environment =
+        dartforge_abi::compilation_environment::ir_identity(ir).map_err(|detail| {
+            JitError::new("environment", "invalid compilation environment", detail)
+        })?;
+    let program = environment.is_some()
+        || ir.contains("@df.area = ")
+        || ir.contains(&format!("@{ENTRY_SYMBOL}("));
+    Ok(program.then(|| environment.map(str::to_string)))
+}
+
 /// A module compiled to an object once, ready to go into sessions.
 ///
 /// It is the module cache of the persistent executor (macros and builders, a rule of
@@ -949,6 +1030,7 @@ impl JitSession {
 /// It lives in memory. Storing on disk (key = IR hash + LLVM version +
 /// runtime version) is up to the caller, with [`CompiledModule::object`].
 pub struct CompiledModule {
+    compilation_environment: Option<Option<String>>,
     name: String,
     parts: ffi::ObjectParts,
 }
@@ -981,6 +1063,7 @@ pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> 
         JitError::new(stage, "could not compile the module", detail)
     })?;
     Ok(CompiledModule {
+        compilation_environment: environment_binding(ir)?,
         name: name.to_owned(),
         parts,
     })
@@ -1085,6 +1168,132 @@ pub fn run_ir_with(ir: &str, sdk: Option<&std::path::Path>) -> Result<JitReport,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_sdk_context_is_checked_before_loading_the_library() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "dartforge-jit-context-preflight-{}-{stamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let dll = directory.join("absent-sdk.dll");
+        let ir = format!(
+            "{}context-a\ndeclare void @df.register.core()\ndefine void @dartforge_entry() {{ ret void }}\ndefine i32 @main() {{\n %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n ret i32 %r\n}}\n",
+            dartforge_abi::compilation_environment::IR_PREFIX
+        );
+        assert!(ir_uses_source_sdk(&ir));
+        let error = JitSession::new_for_ir_with(&ir, Some(&dll))
+            .err()
+            .expect("missing metadata is rejected before opening the SDK");
+        assert_eq!(error.stage, "environment");
+        std::fs::write(
+            directory.join(dartforge_abi::compilation_environment::SDK_IDENTITY_FILE),
+            "context-b",
+        )
+        .unwrap();
+        let error = JitSession::new_for_ir_with(&ir, Some(&dll))
+            .err()
+            .expect("mismatched metadata is rejected before opening the SDK");
+        assert_eq!(error.stage, "environment");
+        assert!(error.to_string().contains("do not match"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn environment_binding_distinguishes_helpers_legacy_and_current_programs() {
+        assert_eq!(
+            environment_binding("define void @helper() { ret void }").unwrap(),
+            None
+        );
+        assert_eq!(
+            environment_binding("define void @dartforge_entry() { ret void }").unwrap(),
+            Some(None)
+        );
+        let header = dartforge_abi::compilation_environment::IR_PREFIX;
+        assert_eq!(
+            environment_binding(&format!("{header}context-a\n")).unwrap(),
+            Some(Some("context-a".into()))
+        );
+        assert!(environment_binding(&format!("{header}a\n{header}b\n")).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires the configured LLVM shared library"]
+    fn environment_binding_is_transactional_for_ir_and_cached_objects() {
+        let header = dartforge_abi::compilation_environment::IR_PREFIX;
+        let ir = format!("{header}context-a\ndefine i64 @value() {{ ret i64 1 }}\n");
+        let changed = format!("{header}context-b\ndefine i64 @other() {{ ret i64 2 }}\n");
+        let invalid = format!("{header}context-b\ninvalid LLVM\n");
+        let object = compile_module("changed", &changed).unwrap();
+        let mut session = JitSession::new().unwrap();
+        assert!(session.add_ir_module("invalid", &invalid).is_err());
+        assert_eq!(session.compilation_environment, None);
+        session
+            .add_ir_module("helper", "define void @helper() { ret void }\n")
+            .unwrap();
+        assert_eq!(session.compilation_environment, None);
+        session.add_ir_module("program", &ir).unwrap();
+        assert_eq!(
+            session.compilation_environment,
+            Some(Some("context-a".into()))
+        );
+        assert_eq!(
+            session
+                .add_ir_module("changed", &changed)
+                .unwrap_err()
+                .stage,
+            "environment"
+        );
+        assert_eq!(
+            session.add_compiled_module(&object).unwrap_err().stage,
+            "environment"
+        );
+        assert_eq!(
+            session
+                .add_reloadable_module("reload", &changed)
+                .unwrap_err()
+                .stage,
+            "environment"
+        );
+        let mut independent = JitSession::new().unwrap();
+        independent.add_compiled_module(&object).unwrap();
+        assert_eq!(
+            independent.compilation_environment,
+            Some(Some("context-b".into()))
+        );
+        assert_eq!(
+            independent.add_ir_module("first", &ir).unwrap_err().stage,
+            "environment"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires the configured LLVM shared library"]
+    fn reload_rejects_context_changes_before_publishing_a_generation() {
+        let header = dartforge_abi::compilation_environment::IR_PREFIX;
+        let first = format!("{header}context-a\ndefine i64 @value() {{ ret i64 1 }}\n");
+        let next = format!("{header}context-a\ndefine i64 @value() {{ ret i64 2 }}\n");
+        let changed = format!("{header}context-b\ndefine i64 @value() {{ ret i64 3 }}\n");
+        let mut session = JitSession::new().unwrap();
+        session.add_reloadable_module("app", &first).unwrap();
+        let entry = session.stable_entry("value").unwrap();
+        assert_eq!(entry.call(&session).unwrap(), 1);
+        assert_eq!(
+            session.hot_reload("app", &changed).unwrap_err().stage,
+            "environment"
+        );
+        assert_eq!(entry.call(&session).unwrap(), 1);
+        assert_eq!(session.hot_reload("app", &next).unwrap().generation, 2);
+        assert_eq!(entry.call(&session).unwrap(), 2);
+        assert_eq!(
+            session.compilation_environment,
+            Some(Some("context-a".into()))
+        );
+    }
     #[test]
     fn registry_declaration_does_not_change_runtime_profile() {
         let without_sdk =

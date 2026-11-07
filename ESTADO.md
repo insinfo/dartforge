@@ -1,4 +1,2176 @@
-# Estado do DartForge — 2026-11-05
+# Estado do DartForge — 2026-11-07
+
+## Preparação para produção — trabalho em curso em 07/11
+
+**Revisão atual: v21 na `main`, em validação; produção geral ainda pendente.**
+
+**Fechamento de 07/11:** o Heavy remoto `42346973186`, sobre `522bdd32`,
+reprovou somente no job nativo/JIT Linux. Os 29 testes reprovados registraram
+a ausência de `libxml2.so.2` ao iniciar os linkers do LLVM 22.1.8 no novo
+runner Ubuntu 26.04. Os jobs Heavy e de empacotamento que usam esse pacote
+passam a fixar Ubuntu 24.04; a action confere também o início de cada
+linker, além do Clang. Nenhum teste ou limite de aprovação foi removido.
+Todos os workflows passaram no `actionlint` 1.7.12. A correção ainda precisa
+da execução remota; os registros do fechamento estão em
+`/Volumes/ssd_dock/tmp/dartforge-closing-2026-11-07/`.
+
+A preparação da suíte completa agora dispõe do D8 13.1.113 fixado no
+`DEPS` do SDK 3.6.2 e dos preâmbulos originais de timers e eventos. Esse
+ambiente revelou uma falha real do JS de produção v20: o programa
+iniciava um teste assíncrono e saía com código 0 sem executar os callbacks.
+O dart2js concluía o mesmo programa. A v21 passa a usar `dartMainRunner`
+quando o host fornece esse ponto de entrada e preserva o nome no
+minificador. A regressão inclui um método Dart com o mesmo nome: a
+primeira correção passava sem minificação, mas a colisão renomeava também
+o método do host. Essa tentativa reprovada foi preservada.
+
+O teste corrigido passou com e sem minificação, tanto sob o laço do SDK
+como no Node padrão. Uma repetição bruta preservou 20 processos: dois
+programas, dois modos de minificação, compiladores oficial e candidato,
+execução no D8 real e execução candidata no Node. As saídas de três ou
+quatro linhas foram idênticas, com stderr de execução vazio. O verificador
+independente passou. A fonte v21 congelada tem 27.135 entradas, manifesto
+`9816e290e7e156ac1aa7eadb9561d2a023b9857e775a5cae5a9fa18198259d36`.
+A validação completa do pacote JS terminou em 0: 180 testes aprovados,
+nenhum reprovado ou ignorado, em 56 alvos. Após o reinício do Mac, passaram
+também o Clippy rigoroso em todos os alvos, os dois exemplos de documentação
+e o build explícito da CLI. O executável final tem exatamente o hash
+`f7969ab72e677b19c61d9cd5587f6d5688379508d2e884cdc7cd7911d128e500`
+usado nos 20 processos da prova bruta. Os registros originais interrompidos
+continuam preservados; a conclusão consta em relatório separado no diretório
+do fechamento. As provas JS estão em
+`/Volumes/ssd_dock/tmp/dartforge-production-js-host-v21/`.
+Essas verificações não constituem a execução da suíte completa da linguagem
+nem uma nova medição de desempenho. A rodada completa v20 abaixo não
+valida estas mudanças posteriores da v21.
+
+**Diagnósticos da suíte, pendência identificada:** a comparação exata usa
+o `StaticError` original do SDK, com posição e mensagem, e rejeitou
+controles com mensagens ausentes ou alteradas. Dois casos web passaram
+nessa qualificação da referência; um terceiro fez o próprio dart2js
+3.6.2 encerrar com erro interno e código 253, preservado como falha.
+No candidato v20, o caso de literais web reportou 24 dos 25 erros esperados:
+o literal decimal `9223372036854775808` recebeu somente aviso de limite
+de 64 bits. Isolado dos outros erros, foi aceito pelo JS de produção,
+enquanto o dart2js o recusou. Seis processos adicionais confirmaram também
+os dois controles válidos: o mesmo número em contexto `double` e o mínimo
+inteiro negativo. A correção dessa recusa ainda está pendente; as provas
+estão em `/Volumes/ssd_dock/tmp/dartforge-production-integer-range-v22/`.
+
+Um ensaio de cinco programas do perfil completo JS também preservou
+divergências a investigar: `library/env_test` falhou em uma consulta de
+ambiente, `async/async_test` terminou com `TypeError`, uma variante inválida
+de `async*` foi aceita e o caso de literais continua sem um dos diagnósticos.
+O quinto caso diferiu nos nomes de tipos minificados impressos; essa saída
+divergente, sozinha, não prova defeito semântico. O executor mantém essas
+comparações reprovadas e separa o contrato do SDK da comparação textual.
+Não houve varredura completa nem aprovação de produção nesta etapa.
+
+**Base v20: contexto nativo e execução de IR AOT pelo JIT.**
+
+A nova etapa trata a execução de IR AOT otimizado pelo JIT. A falha de
+símbolo `$cx` foi reproduzida com o executável v19 preservado; fontes,
+IR, stdout/stderr, status e hash desse executável estão agora no SSD em
+`/Volumes/ssd_dock/tmp/dartforge-production-current-v20/baseline/`.
+A implementação v20 associa as declarações às flags de asserts/produto
+no artefato e no SDK, recupera essas flags ao selecionar a biblioteca
+JIT e emite também as entradas de contexto explícito no SDK compartilhado.
+A verificação de compilação passou. Passaram também dois testes do
+contexto e o teste do registro de tabelas. A regressão ampliada detectou
+primeiro a ausência de `df.register.sdk_tables` e depois declarações
+duplicadas de getters; ambas as tentativas e seus executáveis ficaram
+preservados. O SDK compartilhado agora fornece o registro antecipado das
+suas próprias tabelas, reutilizando as declarações existentes.
+
+Na execução corrigida, passaram os oito testes da CLI JIT. O teste novo
+executou o IR AOT otimizado com asserts ligados e desligados: JSON, erro
+de tipo, `await`, argumentos e consultas de ambiente produziram as sete
+linhas esperadas da VM em cada modo. Uma repetição independente preservou
+dez processos e identificou as bibliotecas SDK efetivamente carregadas;
+as flags selecionaram namespaces distintos. Esses resultados não
+representam nova medição de desempenho. Passaram ainda os 50 testes da
+biblioteca JIT, os dois testes de recarga de objetos/frames assíncronos e
+os quatro de perfil nativo. Passaram a formatação e os quatro exemplos
+públicos verificados nesta etapa. O Clippy rigoroso passou em todos os
+alvos dos pacotes alterados, incluindo a CLI com native/JIT.
+
+A nova validação completa no Mac começou sobre uma exportação sem Git,
+com build e caches próprios em
+`/Volumes/ssd_dock/tmp/dartforge-production-current-v20-macos/`.
+São 27.134 entradas de fonte, manifesto
+`40dd903fb275542f886c0ab01dfa2bf16d8f7f5da3ae205a17c17cace7aa8739`.
+Os 29 passos de preparação e o build dos três executáveis release
+passaram. A comparação de presença de declarações passou nos modos
+JIT, AOT e JS, com 32 linhas por modo, e foi conferida por verificador
+independente. Pré-requisitos, metadados, formatação e os dois Clippys
+rigorosos da rodada completa passaram. Os testes completos do workspace
+terminaram em 0: 3.609 aprovados, nenhum reprovado ou ignorado, em 254
+alvos. O reinício do Mac interrompeu o comando seguinte, da CLI native/JIT;
+esse comando inteiro está sendo repetido, seguido da documentação.
+Os relatórios e logs interrompidos foram preservados separadamente,
+sem converter o estado antigo «em execução» em aprovação. O build
+registrou avisos do `rust-objcopy` da ferramenta Rust, que não encontrou
+sua `libLLVM.dylib` ao remover informações de depuração; os avisos
+permanecem no log, sem supressão.
+
+A mesma fonte congelada iniciou a validação no Windows físico em
+`E:/Temp/dartforge-production-current-v20/`, com fonte, build e caches
+nativo/frontend próprios. Os nove arquivos de lançamento foram
+conferidos antes da execução; os 29 passos de preparação, o build release,
+a formatação e os dois Clippys passaram. Os testes do workspace continuam
+ativos no Windows, inclusive após a perda da conexão pelo reinício do Mac.
+Esse resultado continua separado da prova Windows
+v14 anterior.
+As provas direcionadas v20, com 227 arquivos e os dois arquivos de
+fontes conferidos, estão preservadas em
+`/Volumes/ssd_dock/tmp/dartforge-production-v20-directed-2026-11-07-evidence/`.
+O verificador dos SDKs efetivamente carregados passou também usando
+somente as cópias arquivadas dessas bibliotecas.
+
+**Executor da linguagem, suplemento posterior ao congelamento v20:**
+foi corrigida uma falsa aprovação de testes assíncronos. Com o
+`async_helper` oficial 3.6.2, um programa que chama `asyncStart()` sem
+concluir sai com código 0, mas deve reprovar pelo protocolo do SDK.
+O executor antigo aprovou esse controle; o corrigido o reprova e
+mantém o código bruto 0 no resultado e no diário. O controle que chama
+também `asyncEnd()` continua aprovado. Os 14 testes Python do executor
+e os cinco da classificação passaram. A prova usa quatro execuções
+reais da VM e as condições de protocolo extraídas do executor oficial;
+não representa uma execução completa do executor oficial nem da suíte.
+Originais e saídas estão em
+`/Volumes/ssd_dock/tmp/dartforge-language-async-protocol-v1/`.
+Esse suplemento mudou somente o script e seu teste Python. A v21
+acrescenta as mudanças JS descritas acima; a rodada completa em curso
+valida a fonte congelada v20, sem esses suplementos.
+
+A rodada completa v19 terminou com status 1: o workspace teve 3.603
+aprovados, dois reprovados e nenhum ignorado, em 254 executáveis; a CLI
+native/JIT teve 123 aprovados em 20 executáveis, sem falhas nem ignorados.
+Os demais passos, inclusive documentação, terminaram em 0. Uma falha era
+uma colisão de nomes de diretórios temporários nos testes JS concorrentes;
+a outra era a exigência antiga de rejeitar nomes constantes que o
+avaliador agora suporta. A VM oficial confirmou a validade dos três
+casos e recusou a chamada realmente não constante antes de o teste ser
+corrigido. Na `main`, o temporário usa reserva exclusiva com sequência e
+repetição em caso de colisão, e o teste nativo aceita os casos válidos e
+mantém a rejeição do inválido. Os três testes corrigidos passaram. Esses
+suplementos não alteram o resultado reprovado da fonte v19 congelada.
+A auditoria independente conferiu 866 arquivos, as 27.132 entradas da
+fonte e as contagens dos logs. Seu status 0 confirma a integridade da
+prova; o status da validação original continua sendo 1. Ainda não há
+conclusão da rodada completa da fonte v20 no Mac e no Windows.
+
+**Base v19: integração de declarações e recarga.**
+
+**Auditoria após o reinício do Mac, em 07/11 às 14:32:** a rodada completa
+v19 foi interrompida na extração da cópia de validação, antes do build.
+Nenhum processo anterior dessa rodada continua ativo. A fonte congelada
+v19, com 27.132 entradas, permanece no SSD; as provas completas Mac v18 e
+Windows v14 também foram conferidas. Os registros temporários v19 antes
+mantidos em `/tmp` não estão mais disponíveis. Assim, as menções abaixo
+a artefatos preservados dessa etapa precisam ser requalificadas; os
+resultados observados não substituem uma nova prova completa e arquivada.
+A extração incompleta foi preservada e a rodada foi retomada sobre a mesma
+fonte congelada, usando registros no SSD. Essa execução terminou com as
+duas falhas descritas acima; o arquivo completo foi preservado em
+`/Volumes/ssd_dock/tmp/dartforge-production-v19-macos-failed-2026-11-07-evidence/`.
+
+A propagação de `-D` está sendo estendida ao AOT e ao JIT, incluindo
+CLI, API, SDK compilado, catálogo de classes, identidade do IR e recarga.
+O contexto distingue os valores constantes dos consultados em execução:
+na VM 3.6.2, o JIT permite sobrescrever uma biblioteca numa consulta comum
+sem mudar sua disponibilidade constante; o AOT não transporta as definições
+do usuário para consultas comuns. Quatro execuções de referência novas,
+duas por modo, produziram 42 linhas cada, com os artefatos preservados.
+A compilação de verificação passou, assim como dois testes da identidade,
+sete do modelo e os 49 da biblioteca JIT, incluindo rejeição de contexto
+incompatível e preservação da geração anterior após recarga recusada.
+Passaram também o teste da chave do SDK com fontes externas condicionais,
+a recusa de SDK incompatível antes de carregar sua biblioteca e as duas
+comparações nativas com a VM oficial: três configurações por modo, 42
+linhas idênticas em cada execução, incluindo consultas dinâmicas,
+construtores usados como funções e efeitos dos argumentos. Os sete testes
+da CLI JIT passaram, incluindo `-D` em execução, recarga e reinício e a
+separação dos argumentos de `main`. A formatação, 18 exemplos públicos
+e o Clippy rigoroso de todos os alvos dos crates alterados, com a CLI
+native/JIT, passaram em 0. A rodada completa posterior da v19 terminou
+com as duas falhas descritas no início deste documento. Uma conferência
+direta preservou os oito processos e confirmou
+as duas formas de compilação AOT da CLI, com sete linhas idênticas à VM.
+O teste adicional de executar seu IR AOT otimizado em `run --ir` falhou:
+o programa pede funções `$cx` do SDK de produção, ausentes na biblioteca
+de desenvolvimento carregada pelo JIT. Essa falha foi preservada e a
+compatibilidade desse caminho estava pendente na v19; a correção v20
+passou nos testes direcionados descritos acima. Os testes positivos v19
+JIT usam `emit_reloadable_ir`. A CLI também
+foi corrigida para ler as opções em `reload` e preservar os argumentos
+depois do arquivo em `run`. Não há novo ganho de desempenho medido.
+
+**Base v18: declarações por compilação no JS, testes direcionados concluídos.**
+O novo contexto imutável recebe definições ordenadas `-Dnome=valor` pela
+CLI e pela API de JS, separa ausência de string vazia, preserva o último
+valor repetido e entra na identidade do cache. O carregador transporta o
+contexto até a análise de constantes. O analisador usado pelo LSP mantém
+os valores desconhecidos, mesmo quando recebe variáveis de importação.
+
+Os cinco testes do modelo, cinco do carregador e dois da análise de
+constantes passaram, assim como quatro testes nativos, dois de presença
+no JS e sete exemplos públicos do modelo.
+Passou também a comparação com dart2js 3.6.2: três compilações pela API
+com definições alternadas e uma pela CLI, incluindo nomes constantes,
+inteiros hexadecimais, arredondamento web, declarações reservadas e
+chamadas não constantes. Uma segunda comparação da CLI preservou fontes,
+executável e todas as fases brutas: três configurações tiveram saídas
+idênticas de 26 linhas, com verificador independente em 0. Os avisos de
+compilação de fontes do SDK foram preservados. Formatação e Clippy rigoroso
+de todos os alvos de `elements`, `types`, JS de produção e emissor nativo
+passaram. O primeiro filtro do carregador
+selecionou zero testes; esse resultado foi preservado, e a execução
+suplementar com o filtro correto executou os cinco testes em 0.
+
+As sondagens oficiais confirmaram que definições do usuário não escolhem
+os imports condicionais destes compiladores: o contexto de importação
+expõe o suporte às bibliotecas. No dart2js, chamadas não constantes são
+substituídas por `UnsupportedError`, preservando as expressões nomeadas
+que o frontend antecipa antes de argumentos posicionais. A implementação
+e o teste agora seguem esse comportamento observado em `-O0` e `-O2`,
+também conferido no código oficial da versão 3.6.2. O DDC segue outro
+contrato nos casos v18: antecipa valores nomeados antes dos casts da chamada.
+Uma regressão com o DDC real detectou casts antecipados em argumentos
+nomeados, que omitiam efeitos posteriores. A falha foi preservada; a
+correção passou na comparação completa de 14 linhas. A v19 acrescenta
+um nome posicional inválido antes de um argumento com efeito, para
+verificar também onde o cast interrompe a avaliação. A comparação ampliada
+com o DDC oficial passou com 17 linhas; os dois testes JS terminaram em 0.
+Na execução final da v18,
+passaram tanto esse teste de desenvolvimento como o de produção. O
+primeiro Clippy apontou a inicialização de uma opção no teste; a correção
+passou no Clippy final, sem suprimir o aviso.
+
+São **13 arquivos de fonte alterados e sete novos**, comparados à v17.
+Fonte v18 final: 27.130 entradas, manifesto
+`640f028d694b74c182ff2f354c1d44442efff3f12a12c81d23b4201e167c3877`.
+Os originais, tentativas e saídas brutas estão preservados em
+`/Volumes/ssd_dock/tmp/dartforge-production-v18-declarations-2026-11-07-evidence/`.
+A nova rodada Mac completa tem fontes, build e caches próprios em
+`/Volumes/ssd_dock/tmp/dartforge-production-current-v18-macos/`: passaram
+os 29 passos de preparação, os três releases e a comparação exata de 32
+linhas por modo com VM, AOT e JS oficiais, confirmada por verificador
+independente. A validação completa v18 passou no workspace, com 3.584
+testes em 253 executáveis, e na CLI native/JIT, com 121 em 20; ambos sem
+falhas nem ignorados. Documentação e todos os demais passos da rodada
+completa também terminaram em 0; a fonte congelada continua sendo a v18.
+No Windows físico, a validação v14 terminou em 0: 3.544 testes em 250
+executáveis do workspace e 118 em 20 da CLI native/JIT, sem falhas nem
+ignorados, além de formatação, ambos os Clippys e documentação em 0.
+O arquivo preservado teve seus 715 arquivos, três binários, 27.118 fontes
+e contagens dos logs conferidos independentemente no Mac, em 0:
+`/Volumes/ssd_dock/tmp/dartforge-production-windows-v14-complete-2026-11-07-evidence/`.
+Essa fonte Windows não inclui as mudanças v18/v19 e não representa
+uma execução da suíte completa da linguagem.
+
+Essa etapa ainda **não fecha o suporte integral a `-D`**: a propagação
+nativa/JIT e a semântica completa de constantes JS continuam pendentes.
+O avaliador compartilhado mantém desconhecidos os inteiros web que não
+consegue representar com exatidão; a emissão direta da consulta preserva
+o número web. A suíte completa da linguagem ainda não foi executada.
+
+**Base v17: coerência do perfil AOT validada nos testes direcionados.**
+Após a correção de presença, uma nova comparação mostrou que o AOT de
+produção dizia que `mirrors` estava ausente, mas ainda selecionava o ramo
+condicional que exigia essa biblioteca. O Dart oficial selecionou o ramo
+padrão; ambos os programas executaram, com saídas diferentes. O JIT
+coincidiu com a VM. Esse resultado com status 1 foi preservado em
+`/Volumes/ssd_dock/tmp/dartforge-environment-profile-import-v1/`.
+
+A v17 aplica o suporte do perfil de produção ao layout antes da carga,
+do cache e da resolução de fontes geradas. O fixture compartilhado passou
+a conferir também essa importação por perfil. São três arquivos alterados
+e um helper novo. Passaram **quatro testes nativos e dois de JS**, com o
+fixture ampliado para **34 linhas**, comparado aos modos oficiais. A
+formatação e o Clippy rigoroso de todos os alvos dos dois pacotes passaram.
+Os logs e os originais preservados estão em
+`/Volumes/ssd_dock/tmp/dartforge-production-v17-product-import-2026-11-07-evidence/`.
+Fonte v17:
+27.123 entradas, manifesto
+`245b09d03db95b2d344d6dfa6fb3dd75d94562720566ec6b286534648f1b437e`.
+A validação completa v16 terminou sobre fontes e artefatos próprios, sem
+validar esta alteração posterior da `main`. O suporte integral a `-D`
+continua aberto.
+
+**Base v16: presença de declarações corrigida, validação completa concluída no Mac.** Os candidatos anteriores divergiram do Dart 3.6.2
+nos três modos medidos: `dart.vm.profile` era declarado como falso no
+nativo, `dart.library.mirrors` ficava declarado como falso no produto e o
+JS dizia que bibliotecas disponíveis não estavam declaradas. A execução
+anterior com status 1 foi preservada. Essas declarações ausentes agora
+mantêm o valor padrão e retornam falso em `hasEnvironment`.
+
+O carregador também deixou de interpretar uma biblioteca indisponível como
+a string `false` nas importações condicionais. O JS usa o suporte a
+bibliotecas do próprio programa carregado, em vez de uma variável global
+inicializada pelo primeiro SDK do processo. O cache do SDK agora vincula
+explicitamente os nomes e os indicadores de suporte do layout.
+
+Passaram **cinco testes do carregador**, **dois de JS** e **quatro nativos**,
+incluindo comparação real com dart2js, VM e AOT oficiais, os valores de
+oito declarações e uma importação condicional, além de três compilações
+com perfis alternados no mesmo processo. A primeira adaptação do teste
+nativo inseriu o código Rust dentro de uma string Dart e terminou em
+101 (dois testes passaram e um falhou); esse resultado foi preservado.
+A execução corrigida executou os quatro testes de fato e terminou em 0.
+
+São **oito arquivos alterados e quatro novos** nesta etapa. Fonte v16:
+27.122 entradas, manifesto
+`9b00aa7644c64e9850da6e291c0e8aceae0693753cc2b01d1ad14513f0be5513`.
+Os arquivos anteriores e o índice Git foram preservados. Evidências:
+`/Volumes/ssd_dock/tmp/dartforge-production-v16-environment-presence-2026-11-07-evidence/`.
+
+A rodada Mac completa usa uma exportação congelada dessas fontes, sem
+metadados Git e com diretório de build, caches e corpora próprios. O
+checker, as **27 resoluções bloqueadas** e a geração do SDK DDC passaram;
+os três releases compilaram e os executáveis passaram na comparação exata
+com as respostas oficiais de 32 linhas por modo (JIT, AOT e JS), também
+confirmada por verificador independente. Passaram **3.568 testes/exemplos
+em 251 alvos** do workspace e **121 em 20 alvos** da CLI `native,jit`,
+sem falhas nem ignorados. Formatação, ambos os Clippys rigorosos e
+documentação privada sem avisos passaram. O processo original terminou
+em 0; o arquivo final, auditado independentemente, preserva 863 arquivos,
+os três executáveis release e as 657 entradas externas:
+`/Volumes/ssd_dock/tmp/dartforge-production-v16-macos-complete-2026-11-07-evidence/`.
+Essa rodada valida a fonte v16, não as alterações posteriores v17/v18.
+A rodada Windows v14 continua em andamento e não inclui esta correção.
+O suporte integral a `-D`, seus efeitos por backend e a suíte completa da
+linguagem continuam abertos; esta etapa corrige a base de presença.
+
+**Base v15: instrumentação JIT validada no Mac.**
+A única mudança de código desde a v14 acrescenta `prepare_ir_ns`,
+`sdk_library_ns` e `module_total_ns` ao JSON de `dartforge run --timings`;
+os perfis de emissão/GC permanecem os mesmos. O release compilou, os
+**121 testes/exemplos em 20 alvos do CLI `native,jit`** passaram, sem
+falhas nem ignorados, junto a pré-requisitos, formatação, Clippy rigoroso e
+documentação privada do CLI sem avisos. Os 12 processos de diagnóstico e
+seis controles por IR também passaram. A suíte completa do workspace da
+v13 continua como base separada; não se repetiu o workspace inteiro pela
+adição desses campos. As coortes primárias de desempenho abaixo conservam
+seus executáveis anteriores.
+
+Fonte v15: 27.118 entradas, manifesto
+`7efadf0b322e98f935c6380ac64fd9a4041b52611a873689b59a88ff1a2a5676`.
+Os arquivos anteriores e o índice Git foram preservados. Evidências finais:
+`/Volumes/ssd_dock/tmp/dartforge-production-v15-jit-timings-2026-11-07-evidence/`.
+
+**Base validada: v14; compilador idêntico à v13 validada.**
+A v13 integrada concluiu os gates Mac: **3.563 testes/exemplos em 250 alvos**
+do workspace e **121 em 20 alvos** adicionais do CLI `native,jit`, sem
+falhas nem ignorados. Os três releases, formatação, ambos os Clippys e a
+documentação rigorosa passaram. A v14 acrescentou apenas a checagem do
+corpus Pub em `scripts/check-test-prerequisites.ps1` e sua documentação em
+`CONTRIBUTING.md`. A mudança passou em **oito controles no Mac e oito no
+Windows**, além do checker integrado e das guardas de fonte/índice. O
+compilador e os binários preservados não mudaram; não houve repetição da
+suíte completa apenas por essa alteração no script.
+
+O novo checker recusa corpus ausente/vazio, arquivos ilegíveis e bytes que
+não são UTF-8; mantém a seleção por `DARTFORGE_PUB_CORPUS` ou pelo diretório
+`references/pub`. Os dois arquivos anteriores foram guardados, sem alterar
+o índice Git. Fonte v14: 27.118 entradas, manifesto
+`1dc564bd97cb0b76031c887523b9f026d2305d6074d76c69cc87da80a16bd467`.
+Evidências: `/tmp/dartforge-production-current-v14/` e
+`/Volumes/ssd_dock/tmp/dartforge-production-v14-prerequisites-2026-11-07-evidence/`.
+
+**Controles do LSP integrado concluídos no Mac:** o release `f44737bd…`
+coincidiu em **132 payloads completos** de construtores/prefixos com as
+respostas oficiais preservadas, e em **432 respostas completas de hover e
+outlines** com os servidores oficiais executados novamente. As **224
+consultas de definição/referências/rename após API** ficaram iguais antes
+e depois; seis referências do residente também coincidiram e os **368
+registros dependentes** foram atualizados em ambas as fases esperadas.
+As 128 + 24 diferenças brutas conhecidas de ordem/formato continuam com
+status 1, e a auditoria separada confirmou os conteúdos. A primeira
+adaptação parou numa assertiva de alias `/tmp` antes das consultas do
+controle de interação; foi preservada e corrigida numa nova pasta. Isso
+não alterou o produto nem reescreveu payloads esperados. A medição própria
+do release integrado também terminou, conforme a seção seguinte. Evidências:
+`/Volumes/ssd_dock/tmp/dartforge-lsp-integrated-v14-2026-11-07-evidence/`.
+
+A rodada Windows completa v12 terminou com 3.532 testes aprovados e um
+falhando por falta do corpus Pub; os 118 adicionais do CLI `native,jit`
+passaram. O suplemento forneceu os mesmos 646 arquivos do Mac (367 Dart)
+e passou nos seis testes do executável completo do corpus: 367/367 fontes
+Pub e 426/426 do SDK. Os resultados original 1 e suplementar 0 permanecem
+em `/Volumes/ssd_dock/tmp/dartforge-windows-v12-full-gates-2026-11-07-evidence/`.
+A nova rodada completa Windows v14 está em andamento em uma cópia própria
+das 27.118 fontes; o corpus Pub foi fornecido desde o início. O checker,
+as 27 resoluções de dependências bloqueadas e a geração do SDK DDC já
+passaram; os releases ainda estão sendo compilados. Essa execução não
+inclui a instrumentação CLI v15. Nenhuma aprovação geral de produção foi dada.
+
+**Medição do LSP integrado concluída no Mac:** o release `f44737bd…` foi
+comparado ao anterior `1177febd…` e ao servidor oficial 3.6.2, em três
+rodadas balanceadas, nove sessões e 81 consultas. A mediana da primeira
+busca após mudar o retorno caiu de **5.900,12 para 1.417,62 ms** e, ao
+restaurar, de **5.887,87 para 1.368,77 ms**, reduções de cerca de 76% e 77%.
+O oficial levou **12,99 e 13,20 ms**, respectivamente. O footprint em
+repouso passou de **902,77 para 858,49 MiB** após a mudança e de **946,78
+para 818,91 MiB** na restauração. A espera após edição e as consultas
+já aquecidas continuam sem ganho material.
+
+O coletor concluiu as nove sessões, limpou os caches próprios e registrou
+o verificador em código 0; uma execução independente do verificador
+confirmou novamente as guardas e os resultados. A saída da ferramenta
+perdeu o identificador da sessão original por truncamento; seu PID já não
+existia ao conferir o relatório completo. Não se atribuiu um código de
+saída do shell que não foi observado. As 27 respostas antes/depois ficaram
+integralmente iguais; os conteúdos coincidiram com o oficial. As 27
+diferenças brutas de ordem e nove de formato da definição mantêm status 1.
+Há três primeiras amostras por fase/executor, sem conclusão de cauda.
+Foram preservados **70 arquivos verificados por hash**, os binários e os
+manifestos, em
+`/Volumes/ssd_dock/tmp/dartforge-lsp-integrated-perf-v3-2026-11-07-evidence/`.
+
+**Medição anterior da proposta externa, preservada:** três rodadas balanceadas, nove
+sessões e 81 consultas; processo coletor e processo verificador encerraram
+com código 0. A proposta externa reduziu a mediana da primeira busca após
+mudar o retorno de **6.009,54 ms para 1.450,21 ms** e, ao restaurá-lo, de
+**5.997,54 ms para 1.391,96 ms** (reduções de cerca de 76% e 77%). O consumo
+mediano em repouso, em footprint físico, passou de 907,13 para 791,42 MiB
+na primeira fase e de 951,17 para 840,74 MiB na restauração. As respostas
+antes/depois coincidiram integralmente nas 27 comparações; os conteúdos
+coincidiram com o oficial. As diferenças brutas de ordem (27) e de formato
+da definição (9) continuam com status 1. O Dart oficial respondeu às
+primeiras buscas dessas fases em 13,33 e 12,85 ms: a latência da proposta
+ainda está muito acima dele. Consultas aquecidas e espera após edição não
+mostraram ganho material. São três amostras iniciais por fase/executor,
+sem conclusão de cauda. A otimização foi integrada e seus gates combinados Mac e controles
+completos de protocolo passaram. A medição do binário integrado está registrada separadamente acima;
+os valores desta seção permanecem vinculados ao artefato anterior. Evidências:
+`/tmp/dartforge-lsp-reference-lazy-facts-perf-v2/verification.json`.
+
+**Pedido atual do proprietário:** fechar as pendências do AOT nativo, medir o
+JS de produção na suíte de linguagem e corrigir paridade/latência do LSP após API.
+
+**Decisão atual: produção geral ainda não aprovada.** Os resultados abaixo
+distinguem a árvore integrada das propostas externas já testadas. Os resultados
+históricos abaixo conservam seus escopos e falhas originais.
+
+**Avaliação JIT × Dart VM solicitada pelo proprietário: matriz inicial
+concluída no macOS e no Windows**, com resultados em [RELATORIO-JIT-VS-DART-VM.md](RELATORIO-JIT-VS-DART-VM.md).
+No Mac foram **657 processos de medição**, todos com saída/checksum e verificadores
+encerrados em código 0: 486 de início/processo completo, 153 de execução,
+nove de primeiro preparo do SDK e nove de memória. Os mesmos programas
+foram executados no JIT v12/tracing e nas VMs 3.6.2 e 3.13.5, com asserts
+ligados e linguagem 3.6. Os SDKs são referências separadas.
+
+No `hello`, com cache nativo do SDK reutilizado, a primeira saída teve
+mediana de **295,23 ms no JIT**, contra **77,24 ms na VM 3.6.2** e
+**79,46 ms na VM 3.13.5**; nove processos por executor. O intervalo do JIT
+foi de 285,84 a 776,85 ms, preservando todas as amostras. Com o cache
+nativo inicialmente inexistente, o JIT levou **12,17 s** até a primeira
+saída e produziu os 42 artefatos esperados do SDK; três processos por
+executor. Nesse preparo, o máximo RSS mediano da linhagem foi de
+**1.615,63 MiB**. Esse contador é o máximo de um processo da linhagem,
+não a soma da memória da árvore nem o consumo em repouso do aplicativo.
+
+Nos **17 kernels**, o JIT ficou de **1,36× a 13,21× mais lento** que a VM
+3.6.2 nas rodadas posteriores ao aquecimento; a mediana das 17 razões foi
+**2,60×**. Os maiores gargalos foram chamadas virtuais (13,21×) e dados
+tipados mistos (5,69×). O caso `objects_in_maps` na VM 3.6.2 apresentou
+variação entre rodadas e precisa de sessão mais longa para demonstrar
+estabilidade. Os resultados não são uma estimativa de qualquer aplicação.
+
+No ensaio de 30 ciclos de retenção/liberação, com três sessões por
+executor, o footprint físico mediano inicial/final foi **90,66/105,58 MiB
+no JIT**, **108,16/158,88 MiB na VM 3.6.2** e **121,95/173,02 MiB na VM
+3.13.5**. As 549 observações em barreiras e 540 janelas de CPU passaram no
+verificador. O JIT usou menos memória nesse cenário. Isso não prova ausência
+de vazamentos em aplicações ou sessões mais longas; o preparo do SDK tem
+seu custo de memória separado. Footprint e RSS permanecem em métricas
+separadas no relatório.
+
+A preparação funcional também passou em 57 processos iniciais, 57 de
+repetições com cronômetros desligados e 19 do JIT com cache relocado. O
+protocolo de memória confirmou os 61 pontos de pausa reais. A calibração
+conferiu CPU de filhos/netos aguardados e a unidade/escopo dos contadores.
+Os dados brutos, scripts, manifesto, compilador preservado e fonte v12
+foram copiados para
+`/Volumes/ssd_dock/tmp/dartforge-jit-vs-vm-2026-11-07-evidence/`.
+
+**Windows concluído:** outros **657 processos medidos**, com os mesmos
+programas e quatro verificadores independentes em código 0. Foram 486 de
+início, 153 de execução, nove de primeiro preparo do SDK e nove de memória.
+A VM 3.6.2 foi a referência principal, e a 3.13.4 a secundária. As medições
+foram sequenciais e isoladas nesse host físico; o trabalho no Mac separado
+podia continuar. O plano registrado foi `SAMSUNG MODE`, sem alteração.
+
+No `hello`, com SDK preparado, a mediana até a primeira saída foi
+**399,80 ms no JIT**, **151,71 ms na VM 3.6.2** e **158,64 ms na VM 3.13.4**,
+nove processos por executor. O intervalo JIT foi 393,30–525,50 ms, mantendo
+todas as amostras. O primeiro preparo do SDK levou **42,34 s** até a saída
+e gerou os **52 arquivos esperados** em cada uma das três invocações JIT.
+A CPU total mediana desse preparo foi **84,17 s**, incluindo filhos. Não
+há medição de pico de RAM desse preparo Windows; o RSS de 1,58 GiB acima
+pertence ao Mac e não foi transferido de escopo.
+
+Nos 17 kernels Windows, a mediana das razões JIT/VM 3.6.2 foi **1,98×**,
+com intervalo de 0,98× a 16,56×. Dezesseis casos ficaram mais lentos, e
+`string_build` ficou próximo do empate. Os maiores desvios medidos foram
+chamadas virtuais (16,56×), async/await (15,89×), closures (8,37×), dados
+tipados mistos (6,91×) e ordenação (6,02×). **Há variação grande dentro de
+algumas sessões:** a mediana das últimas três chamadas de `list_sort` na
+VM moderna chegou a 3,53× a das primeiras três, e `async_await` na VM
+3.6.2 a cerca de 3,00×. A causa não foi isolada. Os números descrevem esta
+coorte e não demonstram throughput estável; são necessárias sessões mais
+longas e perfilamento. Nenhuma chamada foi descartada.
+
+Na memória, passaram **549 snapshots e 540 janelas de CPU**. O
+comprometimento privado mediano inicial/final da árvore foi
+**27,50/42,73 MiB no JIT**, **153,56/201,87 MiB na VM 3.6.2** e
+**170,92/221,08 MiB na VM 3.13.4**. O working set somado final foi
+55,41/204,97/232,26 MiB, respectivamente. Esses contadores são distintos
+entre si e do footprint físico do Mac. A soma de working sets pode contar
+páginas compartilhadas mais de uma vez. O JIT usou menos nesses contadores
+e nesse ensaio; isso não prova ausência de vazamentos em outros programas.
+
+O coletor incluiu os dois processos da VM moderna, `dart.exe` e
+`dartvm.exe`, após a primeira tentativa do protocolo ter parado por
+assumir um único PID. Também preservou a tentativa inicial de início com
+três observações e status 1: a guarda de timestamps recusou a atualização
+intencional da data do marcador de uso do SDK, embora todos os 52 arquivos
+continuassem byte a byte idênticos. A coorte v2 verificou os hashes após
+cada processo. Executáveis, programas, flags e rotina de captura foram
+mantidos. A calibração de alocação em filho, limpeza de subprocessos,
+CPU de descendentes e os controles dos verificadores passaram.
+
+Os dados completos Windows, incluindo as falhas preparatórias e os 1.463
+arquivos brutos da coorte de início, estão em
+`/Volumes/ssd_dock/tmp/dartforge-jit-windows-complete-2026-11-07-evidence/`.
+A análise derivada está em
+`/tmp/dartforge-jit-vs-vm-windows-v1/final-windows-assessment.json`.
+
+**Diagnóstico adicional do JIT no Mac:** duas rodadas separadas de
+12 processos passaram, com saídas completas iguais às da VM e cache
+preparado. Na primeira, o frontend do `hello` levou mediana de 132,29 ms.
+A v15 acrescenta três intervalos completos ao `--timings`; sua rodada
+própria mostrou **157,83 ms no preparo do IR**, incluindo **138,81 ms de
+frontend**, **80,01 ms na seleção/verificação dos artefatos do SDK** e
+**36,13 ms na sessão JIT completa**. Os intervalos internos não se somam
+aos totais. As primeiras observações mais lentas foram preservadas
+(938,88 ms na primeira rodada e 1.369,11 ms na segunda), sem atribuir
+causa ou declarar ganho/regressão. São três processos por programa,
+fora das coortes primárias. Passaram também seis controles funcionais
+por IR, com/sem `--timings`, incluindo erros preservados. O release v15
+compilou; seus 121 testes/exemplos do CLI passaram, sem falhas ou ignorados,
+com Clippy, formatação e documentação rigorosos. O relatório
+detalha as fronteiras, dados brutos e o aviso de unidades do resumo
+inicial. Evidências:
+`/Volumes/ssd_dock/tmp/dartforge-jit-phase-diagnostic-2026-11-07-evidence/`.
+
+A avaliação de HTTP, aplicações reais com geração de código, sessões
+mais longas e a suíte completa da linguagem no JIT permanece pendente.
+A produção geral continua sem aprovação. Próximas frentes: explicar as
+variações, perfilar despacho/callbacks/async e o custo inicial, e ampliar
+a cobertura. A rodada de 8.144 variantes da linguagem está preparada,
+sem execução completa dos compiladores; as declarações de compilação
+`-D`, necessárias ao runner oficial, ainda não são aceitas pelos três
+modos candidatos e precisam de implementação correta por compilação.
+
+O oráculo Dart 3.6.2 foi conferido em **117 combinações** de declarações,
+39 por modo VM/AOT/JS, com fontes, saídas e artefatos auditados. Bibliotecas
+indisponíveis têm declaração ausente; isso difere de declará-las como
+`false`, sobretudo em `hasEnvironment` e no valor padrão. Chamadas não
+constantes também divergiram entre os modos: VM consultou as declarações,
+AOT retornou padrões e JS lançou uma exceção em execução nos casos
+medidos. `-Dflag` sem `=` foi ignorado na VM/AOT e recusado no compilador
+JS. Esses resultados orientam a implementação por compilação; rejeições
+e exceções dos ensaios permanecem visíveis, sem virarem aprovações dos
+candidatos. Evidências:
+`/Volumes/ssd_dock/tmp/dartforge-environment-reference-analysis-v3/verification.json`.
+
+| Frente | Evidência disponível | Pendente para fechar |
+| --- | --- | --- |
+| AOT nativo | Pilhas simbólicas/hashing/GC e referências fracas passaram novamente na v12. A lista integrada terminou os 2.863 programas: 2.826/2.826 sucessos da VM também executaram no AOT, sem regressões. O reparo de stdout está integrado e os gates completos macOS passaram. | Validar a composição atual no Windows; a rodada v12 e o suplemento do corpus estão preservados. Permanecem nove diferenças brutas na lista AOT v12, com status de erro preservado. |
+| JS de produção | A lista da v12 terminou com 2.863 resultados: 2.649/2.649 programas bem-sucedidos no dart2js também executaram, dois reparos de variância e nenhuma regressão. | Permanecem 50 diferenças brutas, com status de erro preservado; o recorte de 2.863 programas não cobre todos os testes do SDK. |
+| LSP | O código integrado passou nos gates Mac e em 132 payloads de construtores/prefixos, 432 hovers/outlines, 224 consultas antes/depois de API e seis referências do residente, com conteúdos preservados. A otimização foi medida anteriormente: primeira busca caiu de cerca de 6,0 s para 1,4 s. | A composição integrada foi medida em nove sessões/81 consultas: primeira busca de 1,42/1,37 s ainda muito acima do oficial (~13 ms). Permanecem diferenças brutas de formato/ordem e a validação completa Windows está em curso. |
+
+**Histórico da integração v12, preservado como etapa anterior:**
+Entraram **40 arquivos, 17 novos**, preservando os arquivos anteriores e o
+índice Git: variância/minificador JS e classificador rigoroso, stdout e
+ciclo de vida do console nativo, metadados/outlines e atualização das
+consultas do residente LSP. A composição inclui os 20 arquivos LSP já
+qualificados juntos. Dois arquivos de runtime usam a projeção mínima de
+formatação: canonizam para o mesmo Rust testado, mas têm hashes brutos
+próprios e exigem a validação efetiva desta composição.
+As **27.115 entradas** estão congeladas, com backup prévio, manifesto e
+arquivo completo em `/tmp/dartforge-production-current-v12/`.
+Os **três releases da composição foram compilados no macOS**. Passaram a
+formatação, os 271 alvos próprios conferidos em metadados e ambos os Clippys
+rigorosos (workspace e CLI `native,jit`). A suíte completa do workspace
+encerrou com **3.552 testes/exemplos em 247 alvos**, sem falhas ou ignorados,
+na árvore v12 atual. A rodada adicional do CLI `native,jit` também terminou:
+**121 testes/exemplos em 20 alvos**, sem falhas ou ignorados. A documentação
+estrita passou. Os gates completos macOS somam **3.673 testes/exemplos em
+267 alvos**, todos aprovados; seguem os controles dirigidos dos releases e
+as duas listas de 2.863 programas. O primeiro verificador
+misturou stderr do Cargo ao JSON de metadados e parou antes dos testes;
+essa falha permanece arquivada. A rodada corrigida usa os mesmos fontes e
+binários, separa os streams e passou na regressão funcional do verificador
+(que não conta como teste do produto).
+Os sete controles dirigidos dos releases v12 terminaram com seus contratos
+selecionados aprovados: metadados, pilhas simbólicas, hashing/GC,
+referências fracas, outlines, mudanças de API e interação LSP. As
+divergências brutas conhecidas de apresentação/ordenação do LSP continuam
+arquivadas; passar nesses contratos não afirma paridade integral do protocolo.
+A lista **JS de produção `-O2` da v12 terminou os 2.863 programas**: 2.791
+iguais à VM, dois iguais ao dart2js bem-sucedido, 16 recusados pelos dois,
+quatro que passam onde a VM falha uma expectativa e **50 diferenças brutas**,
+com saída 1 preservada. Os **2.649 sucessos oficiais do dart2js também
+executaram no candidato**. A comparação pela mesma política confirmou os
+dois reparos de variância e nenhuma regressão contra a v11 ou a proposta
+release v3 qualificada. A lista **AOT com pilhas simbólicas também terminou
+os 2.863 programas**: 2.835 iguais à VM, 16 recusados pelos dois, três que
+passam onde a VM falha uma expectativa e **nove diferenças brutas**,
+mantendo saída 1. Os **2.826 programas bem-sucedidos na VM também executaram
+no AOT**, sem regressões pela mesma política de comparação. As duas listas
+integradas estão encerradas; os 2.863 programas continuam sendo um recorte
+dos 4.330 arquivos, não a execução da suíte ampliada de 8.144 variantes.
+A cópia integral Windows conferiu os mesmos 27.115 arquivos, resolveu os
+26 corpora com seus locks e gerou o SDK DDC. O lockfile ignorado da API de
+macros, ausente do arquivo de fontes Git, foi fornecido com seu hash e
+validado por `pub get --enforce-lockfile`; a tentativa inicial interrompida
+permanece com erro. Os três releases Windows também foram compilados e
+passaram formatação e ambos os Clippys rigorosos; a rodada completa do
+workspace/CLI segue em execução. O repositório Windows do proprietário
+não foi alterado.
+O filtro experimental do índice de referências foi **rejeitado e excluído**:
+as coortes de 27 e nove sessões não demonstraram ganho material.
+A coorte de 18 sessões de hover/definição não encontrou regressão material
+no perfil selecionado; a atualização do residente corrige a consulta que
+aguardava análise sem agendá-la, sem afirmar ganho geral de velocidade.
+
+O diagnóstico do release LSP com as correções combinadas confirmou a
+pendência dominante de referências: mudar/restaurar o retorno de uma API
+importada faz o residente reprocessar **368 arquivos**. O registro do
+arquivo editado chega em cerca de **180 µs**, mas o pedido dos registros
+dependentes consome **5,51–5,53 s**. As seis respostas coincidiram com as
+anteriores; o cache e os fontes permaneceram iguais. Isso localiza o custo
+na reanálise semântica ampla, sem provar ainda uma invalidação menor segura.
+A primeira tentativa do diagnóstico usou um alias de SDK diferente da chave
+do cache e foi interrompida antes das edições; seu erro foi preservado.
+Artefatos válidos em
+`/tmp/dartforge-lsp-reference-signature-diagnostic-v2/`.
+
+**Propostas posteriores à v12, ainda externas:** uma composição de **oito
+arquivos LSP, um novo**, passou em **389 testes/exemplos em 40 alvos**, sem
+falhas ou ignorados, com Rust 1.98.1, formatação, Clippy/documentação estritos
+e release. Ela reúne o rodapé Markdown do SDK moderno, o tipo que declara
+o membro e a reconstrução seletiva dos caches opcionais do índice.
+O novo campo semântico `Hover.declaring_type` tem exemplo executável e
+compatibilidade de desserialização com a forma anterior; membros herdados
+identificam a classe de origem. O perfil é atualizado quando o cliente
+seleciona outro SDK. A apresentação legada permanece igual.
+Nas sessões reais, as **432 respostas candidatas completas de hover/outline**
+coincidiram com os SDKs oficiais: 72 após mudanças de API/metadados e 360
+sobre variáveis, incluindo pacotes de linguagem 3.6 e 3.13. A sonda ampliada
+conferiu os 26 rodapés de classes, herança, construtores, mixins, enums e
+extensões; ainda encontrou **quatro diferenças brutas** de intervalo e
+assinatura em construtores genéricos. Elas continuam registradas como erro.
+
+O reparo do índice mantém a invalidação e **todas as relações semânticas**;
+evita reconstruir caches de identificação/preparação de rename em arquivos
+fechados. Os documentos abertos/consultados conservam esses caches. Duas
+regressões verificam relações/respostas após serializar o índice e a
+consulta pela biblioteca atual quando se abre um registro sem cache,
+incluindo Unicode/CRLF. Passaram também **224 respostas antes/depois
+exatamente iguais**, com um dependente fechado posteriormente aberto e o
+frontend real. As auditorias mantiveram **128 + 24 diferenças brutas** contra
+o oficial por contêiner/ordenação, sem diferenças de conteúdo inexplicadas.
+Um controle funcional adicional comprovou o carregamento do índice
+arquivado e a passagem real pelo residente: seis respostas iguais e duas
+reconstruções dos mesmos **368 arquivos**. Não coletou nem interpretou
+amostras de tempo/memória. **Ainda não há ganho de desempenho demonstrado.**
+A composição também passou no Windows: **386 testes/exemplos em 40 alvos**,
+sem falhas ou ignorados, formatação, Clippy/documentação estritos e release.
+As três diferenças na contagem de testes são casos explicitamente
+Unix/não Windows; a auditoria não encontrou testes sem justificativa.
+As **36 respostas candidatas completas** também coincidiram com as 36
+referências reais dos SDKs Windows 3.6.2/3.13.4. Os 166 arquivos de produto
+e testes coincidem byte a byte entre os hosts; somente o manifesto Cargo
+adapta os caminhos absolutos das dependências. Os 39 logs/relatórios brutos
+foram coletados com hashes verificados. Os testes novos usam as chaves de
+caminho que removem o prefixo verbatim do Windows. Artefatos autoritativos em
+`/tmp/dartforge-lsp-production-combined-control-v3/`.
+A integração e as medições isoladas dependem do encerramento dos gates
+macOS/Windows e das listas de linguagem em curso/preparadas da v12.
+
+Uma proposta externa posterior, em
+`/tmp/dartforge-lsp-constructor-hover-control-v1/`, corrige o hover de
+construtores: usa o tipo instanciado, destaca o nome completo da criação e
+adota a assinatura do SDK selecionado. Inclui chamadas com `new`/`const`,
+prefixos, aliases e tearoffs, preservando o hover próprio dos argumentos
+de tipo. Passou em **391 testes/exemplos em 41 alvos**, sem falhas ou
+ignorados, com formatação, Clippy/documentação estritos e release. A matriz
+ampliada passou de **59 para uma diferença em 98 respostas completas**:
+58 reparos e nenhuma regressão. A diferença restante é o hover do prefixo
+de import em um tearoff no SDK moderno; a comparação bruta continua erro.
+Os 26 payloads da sonda anterior agora coincidem integralmente, corrigindo
+também as quatro diferenças de construtores ali registradas. Repetiram-se
+com sucesso as 432 comparações completas de hover/outline, as 224 respostas
+antes/depois e as seis respostas pelo residente; as 128 + 24 diferenças
+conhecidas de contêiner/ordenação continuam brutas e auditadas separadamente.
+São **nove arquivos propostos, dois novos**, ainda sem integração. A rodada
+Windows também terminou: **388 testes/exemplos em 41 alvos**, sem falhas ou
+ignorados, formatação, Clippy/documentação estritos e release. Das 98
+comparações com os SDKs oficiais Windows, 97 coincidem integralmente;
+permanece a mesma diferença de prefixo em tearoff, com status bruto de erro.
+Os 33 arquivos de evidência foram coletados e conferidos por hash. Os 167
+arquivos sem adaptação coincidem byte a byte entre os hosts; só o manifesto
+Cargo muda os caminhos absolutos. As três diferenças na contagem de testes
+são os mesmos casos explicitamente Unix/não Windows, conferidos no código.
+A medição de
+desempenho preparada continua usando o candidato anterior congelado, sem
+amostras novas enquanto houver builds/controles ativos.
+
+O reparo seguinte, em `/tmp/dartforge-lsp-prefix-hover-control-v1/`, trata a
+descrição dos prefixos no SDK moderno. A sonda real registrou 34 respostas
+candidatas contra referências oficiais, com 17 diferenças modernas; inclui
+imports repetidos com o mesmo prefixo, imports ausentes/condicionais,
+`deferred`, combinadores, partes e Unicode/CRLF. Um caso de construtor
+inexistente preserva apenas o tipo conhecido, conforme o oráculo. Os dois
+testes de regressão passaram nos perfis legado/moderno, e a suíte inteira
+da proposta passou em **393 testes/exemplos em 42 alvos**, sem falhas ou
+ignorados, com formatação e Clippy/documentação estritos e release. As
+**98 respostas de construtores e 34 de prefixos coincidiram integralmente**
+com os dois SDKs reais no macOS, sem normalizar os payloads. Passaram também
+as 432 comparações completas de hover/outline, 224 respostas antes/depois
+e seis pelo residente; as diferenças brutas de contêiner/ordenação continuam
+preservadas. São **dez arquivos propostos, três novos**, ainda sem
+integração. A validação Windows terminou com **390 testes/exemplos em 42
+alvos**, sem falhas ou ignorados, formatação, Clippy/documentação estritos e
+release. As **132 comparações de construtores/prefixos e 36 de
+API/metadados coincidiram integralmente** com as referências reais Windows
+3.6.2/3.13.4. Os 46 arquivos de evidência foram coletados e conferidos por
+hash; os 168 arquivos sem adaptação coincidem byte a byte entre os hosts,
+e as três exclusões de testes são os mesmos casos explicitamente
+Unix/não Windows. O primeiro coletor usava o nome antigo de um script e
+parou antes de arquivar a prova; o erro foi preservado, a lista de arquivos
+foi corrigida e nenhum teste do produto foi repetido para essa correção.
+Não houve medição de desempenho dessa proposta.
+
+A ampliação da cobertura de linguagem tem inventário e divisão preparados
+em `/tmp/dartforge-language-full-selection-v1/`: os **4.330 arquivos**
+coincidem byte a byte com o tag oficial 3.6.2. O código exato do divisor e
+do parser de anotações do SDK, executado no Dart 3.6.2 com adaptadores de
+IO/log, expandiu **304 multitests**, formando **8.144 variantes** no total,
+sem avisos do divisor. Isso é preparação de entradas, **não resultado de
+testes dos compiladores**. Faltam qualificar imports gerados, opções,
+expectativas negativas e matrizes de status e executar os programas.
+A cópia independente em
+`/Volumes/ssd_dock/tmp/dartforge-language-complete-v2/` contém as 8.144
+variantes selecionadas e **8.896 arquivos de entrada conferidos por hash**,
+incluindo os pacotes fixados. A primeira materialização parou antes de
+executar compiladores porque sua regra de nomes recusava a chave legítima
+`deferred-abstract`; o erro e a cópia parcial foram preservados. A rodada
+corrigida aceita as chaves oficiais com hífen e continua rejeitando
+separadores de caminho. Nenhuma execução nova da suíte ampliada foi iniciada.
+As tentativas anteriores de preparação do verificador, toolchain externo,
+alias de fixture e manifesto Windows permanecem arquivadas com seus erros;
+nenhuma falha bruta foi convertida em aprovação.
+
+**Histórico da v11 e dos controles que precederam a integração v12.** Foram
+integrados 27 arquivos (12 novos), preservando o índice Git e as alterações
+anteriores. Referências fracas agora seguem identidade semântica de metadados,
+validação de declarações/argumentos e retenção de alvos no AOT/JS; o JIT
+preserva chamadas comuns, argumentos e corpo do wrapper. A análise mantém o
+SDK opaco e respeita o perfil de asserts. Os pontos de entrada nativos passam
+a reconhecer aliases e constantes de `vm:entry-point`, sem aceitar um pragma
+homônimo do usuário ou sufixos desconhecidos, e respeitam a opção `false`.
+Antes da integração, os candidatos finais passaram em **528 testes JS/75
+alvos, 1.281 testes nativos/22 alvos e 139 exemplos de documentação/4 alvos**,
+sem falhas ou ignorados, com Clippy e documentação estritos. Nos executáveis
+finais, passaram novamente **40 controles AOT, oito de fluxo, oito de pontos
+de entrada e quatro de JIT real**. Esses resultados pertencem às propostas
+externas, não substituem os gates da árvore integrada.
+A v11 tem **27.098 entradas congeladas**, fontes arquivadas e delta preservado
+em `/tmp/dartforge-production-current-v11/`. A rodada integrada passou em
+formatação, Clippy rigoroso, documentação estrita, três releases e controles
+de metadados, pilhas e hashing, incluindo pressão de GC. Também passaram as
+**12 execuções de referências fracas**: programa de contrato e teste original
+do SDK, em AOT oficial/nativo e JS oficial/candidato `-O1/-O2`. As saídas
+brutas foram preservadas; isso não afirma igualdade de strings de funções
+entre backends. O gate integral macOS terminou com sucesso: **3.534 testes/241 alvos no
+workspace e 120 testes/19 alvos no CLI `native,jit`**, totalizando **3.654
+testes/260 alvos**, sem falhas ou ignorados. As duas listas de 2.863 programas
+já terminaram, com status de erro preservado. A rodada Windows terminou
+com **2.042 testes aprovados e três falhas, em 141 alvos**, sem ignorados:
+tipos, elements, JS/world e LSP passaram; o CLI `native,jit` passou nos
+**117 testes/19 alvos**. O grupo nativo passou em **1.122 testes**, com as
+três falhas nos testes novos de referências fracas. O manifesto
+Windows cobre **1.992 fontes selecionadas**, incluindo os testes novos; o
+controle remoto confirmou zero diferenças normalizadas e o build do CLI
+nativo passou. Os testes nativos foram acrescentados ao recorte anterior.
+As três falhas Windows expõem uma diferença real de `print`: o Dart usa a
+conversão de LF para CRLF do descritor CRT antes de abrir `stdout` e passa a
+emitir LF depois. Abrir apenas `stderr` ou `stdin` não altera essa saída.
+Uma sonda de **44 execuções oficiais**, VM/AOT nos dois SDKs Windows, confirmou
+os mesmos bytes em onze estados, incluindo CRLF existente, NUL e Unicode.
+O reparo do runtime está sendo preparado fora da `main`; os testes não foram
+normalizados para esconder a diferença. A primeira proposta passou em
+**12 execuções diretas do runtime por plataforma** (Windows/macOS) e em
+**465 testes/exemplos de documentação do runtime no macOS**, com Clippy
+rigoroso. Uma sonda adicional em console privado encontrou diferenças de
+Unicode/NUL, portanto essa proposta não foi integrada; uma segunda versão
+usa o mesmo `fwrite`/`fflush` do Dart oficial. A terceira proposta também
+configura UTF-8 e processamento de terminal durante o programa e restaura o
+console ao terminar. Passaram **oito cenários reais de console privado**,
+em páginas de código 1252/UTF-8, com tela UTF-16 exatamente igual à VM/AOT,
+e **24 execuções de encerramento**: retorno normal, `exitCode`, `exit` e
+Ctrl+C real, verificando a restauração de ambas as páginas de código e do
+modo de saída. Passaram novamente os **465 testes/exemplos do runtime no
+macOS**, Clippy/documentação estritos e as **22 execuções AOT** em dois
+perfis, com saída bruta igual às referências. A rodada equivalente Windows
+e a repetição dos testes nativos que falharam estão em curso, fora da `main`.
+O CLI Windows da revisão v11 terminou com sucesso. A tentativa de AOT
+Windows com o runtime novo e o compilador v11 revelou seis importações
+Windows/CRT ausentes na lista própria de linkedição; o erro bruto foi
+preservado. A v4 externa acrescenta essas entradas e reconstrói seu próprio
+compilador em uma cópia completa da v11, com **27.100 entradas e oito
+arquivos de delta**, incluindo a nova regressão CLI de stdout/AOT/JIT.
+Essa proposta continua fora da `main`; o resultado dos testes diretos do
+runtime não substitui a validação da linkedição mínima dos executáveis.
+Na cópia macOS v4 passaram **1.127 testes nativos/7 alvos** e **465
+testes/exemplos do runtime/8 alvos**, sem falhas ou ignorados, além do
+compilador próprio e Clippy rigoroso. O novo teste de JIT usava `--sdk` após
+o arquivo, posição reservada aos argumentos da aplicação, e falhou; esse
+resultado foi mantido. A chamada corrigida passou no teste completo de
+stdout AOT de desenvolvimento/produção e JIT, e a documentação estrita
+passou sem alterar o código de produto da v4. A v5, em cópia própria, mantém o buffer UTF-8 com seu terminador em uma
+única escrita, evitando a segunda cópia Windows. A validação macOS terminou
+com **1.595 testes/exemplos em 17 alvos**, sem falhas ou ignorados: 465 do
+runtime, 1.127 nativos, um teste CLI completo de stdout AOT/JIT e dois de
+tamanho nativo/Wasm. Compilador próprio, formatação, Clippy e documentação
+estritos também passaram. O controle de bytes/eventos Wasm também passou no macOS: os três
+módulos (v11, v4 e v5) coincidiram com o dart2wasm em LF, NUL, Unicode e
+surrogate isolado; a v5 restaurou as **cinco escritas originais**, contra dez
+na proposta intermediária. Isso não é uma medição de throughput. A rodada
+Windows ainda precisa encerrar. A sonda observou **cinco escritas na v11 e dez na v4**, com os
+mesmos bytes finais; a v5 fechou essa validação no macOS, mantendo cinco
+escritas e os mesmos chunks da v11. O Windows
+permanece na validação própria de v4/v5; nenhum ganho de tempo foi medido.
+Não houve alteração nova de desempenho do LSP nesta revisão, nem push ou publicação.
+No Windows v4, os **1.125 testes nativos/7 alvos** terminaram sem falhas ou
+ignorados, incluindo as quatro regressões de referências fracas; os **461
+testes/exemplos do runtime/8 alvos** também passaram. O verificador completo
+de arquivos, porém, interrompeu a rodada antes de stdout/JIT: desapareceram
+**2.563 arquivos vazios**, sendo 2.553 de resultados históricos de bench,
+três de corpus e sete de fixtures do gerador Sass. Nenhuma fonte de
+runtime/nativo/CLI desapareceu; todos os arquivos não vazios e o compilador
+mantiveram seus hashes. A causa do desaparecimento ainda não foi provada.
+Os arquivos foram restaurados com seus bytes originais na cópia isolada,
+e as 27.100 entradas voltaram a coincidir. A falha original continua com
+status de erro. A regressão corrigida de stdout/JIT e a documentação
+estrita passaram na retomada; a cópia Windows final v5 já passou no
+compilador próprio, na formatação e na conferência dos 266 alvos próprios.
+Também passaram o Clippy estrito e os **461 testes/exemplos do runtime em
+oito alvos**, sem falhas ou ignorados. A suíte nativa dessa cópia também
+terminou com **1.125 testes/7 alvos**, sem falhas ou ignorados, incluindo
+as quatro regressões de referências fracas. O teste CLI completo de
+stdout AOT/JIT e os dois testes de tamanho passaram. A documentação estrita
+também terminou com sucesso: a v5 Windows encerrou seus gates afetados com
+**1.589 testes/exemplos em 17 alvos**, sem falhas ou ignorados, além do
+compilador próprio, formatação e Clippy estritos. O primeiro controle Wasm
+compilou o módulo original, mas o Node Windows **24.14.1** recusou `exnref`
+antes de executar o programa; a falha bruta foi preservada. O mesmo módulo,
+sem recompilação ou alteração, executou com as cinco escritas esperadas ao
+passar `--experimental-wasm-exnref`. O runner existente `run_node.mjs` também
+foi conferido: sem a opção retorna 2; com ela retorna 0 e preserva os mesmos
+bytes. A exigência foi documentada em `docs/WASM-HOST-ABI-V1.md`. Uma nova
+rodada, com a mesma flag em todos os executáveis Node, está compilando os
+módulos intermediário/final e uma referência dart2wasm fresca; ela reutiliza
+somente o módulo original da compilação já bem-sucedida, com hash guardado.
+Os logs/artefato da primeira falha continuam separados; não houve correção
+de código do produto nem normalização desse resultado. O coletor antigo foi
+encerrado após confirmar a falha terminal e substituído por outro que coleta
+os caminhos novos, preservando os logs antigos. O controle corrigido terminou
+com sucesso: **três módulos iguais à referência dart2wasm fresca**, em stdout
+e stderr brutos, e a versão final manteve os mesmos **cinco chunks de saída**
+do módulo original, contra dez na proposta intermediária. Os fontes macOS e
+Windows da v5 coincidiram nas **27.100 entradas**. Os logs, módulos e hashes
+foram coletados em
+`/tmp/dartforge-windows-print-repair-v5/windows-final-nodeflags-v2/`.
+A primeira falha por feature desabilitada no Node continua com status 1;
+os resultados com a invocação corrigida pertencem a outro controle. Isso não
+é uma medição de desempenho nem substitui os gates da composição na `main`.
+Auditoria anterior em
+`/tmp/dartforge-windows-print-repair-v5/windows-final/parent-integrity/`.
+
+**JS v11, lista encerrada com status de erro:** os 2.863 programas terminaram,
+com **2.793 iguais à VM, dois iguais apenas ao dart2js, 16 recusas mútuas,
+dois passam onde a VM falha e 50 diferenças brutas**. Não houve regressão de
+execução contra a v10. Os dois testes originais de referências fracas agora
+saem com sucesso; um ainda difere no texto que imprime funções. A auditoria
+independente por sucesso do dart2js encontrou **2.647 sucessos comuns entre
+2.649 programas bem-sucedidos no dart2js**. As duas falhas são os testes
+experimentais `variance_in_subtyping_test.dart` e
+`variance_inout_subtyping_test.dart`: o DartForge os aceita, mas os testes
+falham em execução, como na v10. A igualdade com a falha da VM não valida o
+contrato do JS. Esse relatório também tem status de erro; nenhuma dessas
+diferenças foi convertida em aprovação. Artefatos em
+`suites.json` e `js-runtime-success-contract.json` da revisão v11.
+O reparo externo de variância já passou nos **oito controles** dos testes
+originais e casos mínimos em `-O1/-O2`, sem override de ambiente, e na nova
+regressão de três programas. A v11 falha nessa regressão. A proposta conserva
+o caminho de RTI quando uma classe declara variância e emite seus metadados
+mesmo sem regras de supertipo. Passaram **530 testes/77 alvos**, sem falhas ou
+ignorados, Clippy rigoroso e documentação estrita. A primeira repetição da
+lista completa com o candidato debug corrigiu os dois testes originais,
+mas registrou um aborto do Oxc em uma cadeia de 126 subclasses. Esse aborto
+também foi reproduzido no compilador debug anterior: o baseline da lista
+era release, portanto a comparação misturou perfis. Ambos executam esse
+programa com sucesso sem minificação. O relatório bruto mantém erro; a
+repetição com o candidato release equivalente terminou: **2.791 iguais à
+VM, dois iguais ao dart2js, 16 recusas mútuas, quatro passam onde a VM falha
+e 50 diferenças brutas**, sem regressões de categoria ou execução contra
+a v11 sob a mesma política de comparação. Os **2.649 programas que passam
+no dart2js também passam no candidato**. O relatório conserva status de
+erro pelas diferenças brutas; a proposta continua fora da `main`.
+Também foi preparado um reparo no classificador: uma falha compartilhada com a VM não
+pode mascarar um sucesso do dart2js. O controle anterior teve uma falha em
+cinco casos; o proposto passou nos cinco. Nenhum relatório v11 foi reescrito.
+Artefatos em `/tmp/dartforge-js-variance-control-v1/`.
+O aborto debug do minificador foi isolado em um programa independente com
+126 subclasses. Uma proposta posterior fixa explicitamente o mesmo orçamento
+de doze passes usado implicitamente pelo Oxc em release: **oito controles
+`-O1/-O2` geraram artefatos e saídas idênticos ao release anterior**, incluindo
+o teste original do SDK e o caso mínimo. A v3 externa confere que todos os
+81 targets de Cargo dos cinco pacotes apontam para suas cópias próprias.
+Passaram **530 testes/76 alvos**, sem falhas ou ignorados, Clippy e
+documentação estritos e o novo release. A lista completa desse release
+também terminou: **2.791 iguais à VM, dois ao dart2js, 16 recusas mútuas,
+quatro passam onde a VM falha e 50 diferenças brutas**; os **2.649 sucessos
+do dart2js** continuam bem-sucedidos, sem regressões de categoria ou execução.
+O erro bruto da lista foi mantido. Artefatos em
+`/tmp/dartforge-js-variance-control-v3/`; a proposta não foi integrada. As falhas das tentativas anteriores permanecem arquivadas.
+Uma auditoria dos 50 resultados restantes separou **22 falhas de execução
+nos dois JS com comparação bruta diferente, 16 recusas de compilação nos
+dois JS, 11 sucessos com stdout diferente e um sucesso do candidato onde
+o dart2js recusa**. Entre os sucessos, foram observados hashes de identidade
+e representações de funções/classes diferentes. Esse inventário não
+estabelece equivalência semântica nem remove divergências: o relatório
+`remaining-differences-audit/report.json` preserva status de erro, códigos
+de saída e hashes das saídas originais.
+
+**AOT v11, lista encerrada com status de erro:** os 2.863 programas terminaram,
+com **2.835 iguais à VM, 16 recusas mútuas, três passam onde a VM falha e nove
+diferenças brutas**. A comparação principal registrou uma nova diferença
+em `static_weak_reference_test.dart`: na v10, ambos falhavam na mesma
+expectativa da VM; na v11, o teste passa e imprime os dois alvos mortos como
+`null`. A saída completa e o código de saída agora são **exatamente iguais ao
+AOT oficial**, conforme a auditoria independente do release e da lista.
+O relatório original mantém essa transição como regressão de classificação
+contra a VM e conserva status de erro; não foi reescrito. Os **2.826
+programas bem-sucedidos na VM** continuam saindo com sucesso no nosso AOT,
+sem regressões de execução; os dois testes originais de referências fracas
+passaram de falha a sucesso. Artefatos: `native-success-contract.json` e
+`native-weak-classification-audit.json` da revisão v11.
+
+**LSP, proposta externa posterior à v11:** conclusão e hover passam a usar a
+identidade resolvida de `dart:core.Deprecated`/`deprecated` e aliases de
+construtor, usando as tabelas já presentes na consulta. Os dois testes de
+protocolo reproduziram o defeito anterior e passaram com o reparo. Passaram
+**368 testes/36 alvos**, sem falhas ou ignorados, formatação, Clippy rigoroso e
+documentação estrita. O servidor preservado coincidiu com **60 casos de
+metadados** nos SDKs reais 3.6.2/3.13.5, incluindo flags/tags de conclusão e
+marcador/intervalo do hover. Em quatro sessões persistentes, as mudanças de
+uma API importada entre `int`/`String` preservaram os **36 contratos
+selecionados**; outras quatro sessões com mudanças apenas de metadados
+preservaram mais **30 contratos**. Foram 72 e 60 respostas, respectivamente,
+com o consumidor inalterado no disco e alterações de API apenas em overlays.
+Os comparadores brutos mantêm status de erro: há seis e cinco diferenças,
+respectivamente, no rodapé do hover do SDK 3.13 (`Declared in ...`). Isso não
+é paridade integral nem medição de latência. O reparo permanece fora da
+`main` até encerrar a rodada v11. Artefatos em
+`/tmp/dartforge-lsp-deprecation-control-v1/`. O release preservado da
+proposta também passou nos 60 contratos selecionados contra os SDKs reais.
+Uma sonda adicional com **44 respostas** conferiu construtores, campos e
+membros herdados. Encontrou uma diferença no marcador de depreciação de
+campo no SDK 3.6.2; o SDK 3.13.5 trata esse campo como getter e não mostra
+esse marcador. Essa diferença de versões permanece pendente; não foi
+aplicada uma marcação uniforme que alteraria o resultado do SDK moderno.
+Uma sonda posterior de `documentSymbol`, em **oito sessões** com ambos os
+SDKs e clientes com/sem suporte a tags, confirmou outra lacuna: o candidato
+omite os indicadores de depreciação do outline. Foram registradas **76
+diferenças de propriedades**, incluindo `false` explícito versus ausência;
+22 omitem `deprecated: true` e 54 omitem `deprecated: false`. Ambos os SDKs
+enviaram esse booleano, sem tags mesmo quando o cliente as anunciava.
+O resultado bruto permanece em erro. Artefatos em
+`/tmp/dartforge-lsp-symbol-metadata-probe-v1/`. Essa lacuna ainda não foi
+corrigida e impede afirmar paridade integral do LSP.
+Uma proposta posterior já acrescenta os booleanos ao outline hierárquico e
+plano, resolve a identidade de metadados sobre o programa atual e encaminha
+a consulta ao residente sem pedir inferência adicional de corpos. Passaram
+**373 testes/exemplos em 37 alvos**, sem falhas ou ignorados, com formatação,
+Clippy e documentação estritos. Os 44 alvos Cargo pertencem à cópia própria
+e as 60 identidades de dependências externas permaneceram iguais. Em **16
+sessões oficiais/candidato**, nos dois SDKs e tipos de cliente, os quinze
+formatos de anotação coincidiram; a sonda de membros caiu de **76 para duas
+diferenças**, ambas do campo no SDK 3.6.2 já registrado. Os demais campos dos
+payloads de membros — nomes, tipos de símbolo, hierarquia, detalhes e
+intervalos — ficaram exatamente iguais aos do candidato anterior. O erro
+bruto desse campo permanece. O release também foi construído e repetiu
+os 16 controles com caminhos canônicos, confirmando **oito respostas reais
+do residente**. Dois controles anteriores com URI pelo alias `/tmp`
+caíram na sessão local e falharam na exigência de uso do residente; esses
+resultados foram preservados como outra pendência, sem atribuir seu custo
+a uma medição isolada. Ainda não houve medição de latência dessa proposta. Artefatos em
+`/tmp/dartforge-lsp-symbol-metadata-control-v1/`; nenhuma integração nova.
+Uma sonda ampliada de variáveis registrou **720 respostas em seis sessões**,
+com anotações diretas, qualificadas, por alias e pela constante `deprecated`,
+incluindo declarações, leituras, escritas, campos estáticos/finais e variáveis
+de topo. O servidor oficial 3.13 apresenta acessos como getters/setters
+sintéticos sem herdar a depreciação da variável; a declaração continua
+marcada. Esse comportamento também ocorre em pacote com linguagem 3.6.
+A nova proposta escolhe a apresentação pela versão do SDK configurado,
+separadamente da versão de linguagem, e mantém o perfil 3.6 em SDK reduzido
+sem arquivo de versão. Passaram **375 testes/exemplos em 38 alvos**, sem
+falhas ou ignorados, formatação, Clippy e documentação estritos. Na sonda
+com o executável debug, as diferenças selecionadas de assinatura/depreciação
+e propriedades do outline caíram de **264 para zero**; os intervalos também
+coincidiram. Permanecem **240 diferenças brutas no texto completo do hover**
+nos dois perfis modernos, preservadas com status de erro e classificadas
+como diferenças apenas no rodapé `Declared in ...`. O release repetiu
+exatamente as respostas e símbolos do debug: foram **1.440 respostas em
+12 sessões**, com os mesmos contratos selecionados aprovados. São
+**15 arquivos de proposta, cinco novos**, fora
+da `main`; nenhuma medição de desempenho foi realizada. Artefatos em
+`/tmp/dartforge-lsp-variable-metadata-control-v1/` e
+`/tmp/dartforge-lsp-variable-metadata-probe-v{1,2}/` e
+`/tmp/dartforge-lsp-variable-metadata-probe-release-v1/`. A composição de
+**36 arquivos, 13 novos**, está preparada para revisão em
+`/tmp/dartforge-production-integration-v13-review/`, ainda sem integração ou
+validação integral da composição. O único conflito de composição, entre os dois novos
+tipos de resposta do residente, foi resolvido mantendo ambos; o filtro de
+referências continua excluído até a medição isolada.
+Os **16 arquivos LSP dessa composição** já foram qualificados juntos em
+cópia própria: **380 testes/exemplos em 38 alvos**, sem falhas ou ignorados,
+formatação, Clippy, documentação estritos e release aprovados. Passaram
+novamente as **24 respostas de hover** no mesmo projeto físico por alias e
+caminho canônico, com 16 respostas do residente, e os **720 contratos de
+variáveis**, com as mesmas respostas da proposta independente. No frontend
+real, as **32 respostas** permaneceram exatamente iguais às anteriores,
+incluindo os oito cabeçalhos/intervalos oficiais de hover e os seis contratos
+de mudança/restauração de tipo; as 24 diferenças brutas de formato/ordem
+continuam em erro. Outro controle reuniu metadados e mudanças de API na
+mesma sessão: **108 respostas em seis sessões**, com as **72 consultas
+candidatas atendidas pelo residente** e `documentSymbol` como primeira
+consulta após cada edição. Ele alternou o retorno usado, deslocou a API com
+emoji/CRLF, mudou o alvo do alias de anotação e restaurou tudo, nos dois SDKs
+e por ambos os caminhos. Os contratos selecionados passaram, mas **48
+payloads completos ainda diferem**: 24 por intervalos de declaração e
+`children: []` no outline, e 24 pelo rodapé moderno do hover. Essas diferenças
+permanecem pendentes, sem normalização para aprovação. Fontes/índice Git da
+`main` e os oito caches preparados para medição permaneceram exatos; nenhum
+benchmark foi iniciado. Artefatos em
+`/tmp/dartforge-lsp-production-combined-control-v1/`. Isso qualifica a
+composição LSP selecionada; não substitui os gates conjuntos de JS/nativo/CLI
+nem as medições de latência/memória.
+Uma proposta posterior corrigiu os intervalos do outline para excluir
+anotações/comentários anteriores e separar cada variável de seu tipo,
+modificadores e delimitadores. Ela omite `children` vazio e acrescenta os
+detalhes de parâmetros em typedefs de função e a string vazia do getter de
+topo. Passaram **382 testes/exemplos em 39 alvos**, sem falhas ou ignorados,
+com formatação, Clippy, documentação estritos e release aprovados. Os
+**oito payloads completos de outline**, registrando **264 símbolos** no
+candidato e SDKs oficiais, coincidiram integralmente: **132 símbolos
+candidatos comparados**, nos SDKs 3.6.2/3.13.5 e em LF/Unicode-CRLF.
+Esse fixture também inclui variáveis sem inicialização para conferir o
+outline durante erros no editor; não é uma prova de aceitação pelo compilador.
+No controle conjunto após mudanças de API/metadados, os **24 outlines
+candidatos completos** passaram a coincidir com os oficiais; as **72
+consultas candidatas** continuaram atendidas pelo residente. As diferenças
+brutas desse controle caíram de 48 para **24**, agora somente no rodapé
+moderno do hover, ainda mantido como falha. As 24 respostas do controle
+dirigido de API continuaram exatas, com 16 respostas do residente. A primeira
+regressão com payload completo encontrou `children: null` sendo reinserido
+na decoração; esse resultado foi preservado e o acesso foi corrigido para
+manter a propriedade ausente. A composição para revisão agora reúne
+**40 arquivos, 17 novos**, incluindo os **20 arquivos LSP qualificados**,
+em `/tmp/dartforge-production-integration-v14-review/`. Continua fora da
+`main`, sem medições de desempenho ou aprovação geral para produção.
+Artefatos em `/tmp/dartforge-lsp-outline-range-control-v1/`.
+Um controle posterior usou **o mesmo projeto físico** por URI canônica e
+alias, com mudanças de retorno, deslocamento Unicode/CRLF e restauração de
+uma API importada. As **24 respostas de hover** continuaram iguais ao Dart
+3.6.2, mas os dois servidores candidatos atingiram o prazo de 15 segundos
+nas consultas após o deslocamento. A diferença não foi explicada apenas
+pelo alias. O diagnóstico mostrou que a análise seletiva podia reter a API
+e deixar de reter o arquivo consumidor; a consulta aguardava outra análise
+sem agendá-la. A nova proposta pede a atualização dos documentos abertos e
+mantém a consulta pendente com seu id e prazo originais. Ela também descarta
+o residente antigo quando uma análise completa/configuração o torna obsoleto.
+A primeira proposta preserva uma falha de sessão após mudar
+`package_config.json`; a v2 passou nos **371 testes/exemplos em 35 alvos**,
+sem falhas ou ignorados, com formatação, Clippy e documentação estritos.
+O controle dirigido confirmou **16 respostas do residente**, com os mesmos
+payloads anteriores e oficiais, sem mudar o prazo de espera. O release foi
+construído e repetiu esse resultado. No frontend real, as **32 respostas**
+também ficaram exatamente iguais às anteriores, com os **oito cabeçalhos e
+intervalos de hover iguais ao Dart oficial** e os seis contratos de mudança
+e restauração de tipo aprovados. As **24 diferenças brutas** conhecidas de
+contêiner de definição e ordenação de referências/edições continuam com
+status de erro, sem diferenças de conteúdo inexplicadas nessa auditoria.
+Ainda faltam as medições isoladas de latência e memória e a
+validação combinada. Artefatos em
+`/tmp/dartforge-lsp-resident-alias-control-v1/`,
+`/tmp/dartforge-lsp-api-shift-diagnostic-v1/` e
+`/tmp/dartforge-lsp-query-refresh-control-v2/`. A falha inicial de linkedição
+por falta de espaço temporário e a falha de configuração da v1 continuam
+arquivadas; apenas caches incrementais próprios de validações encerradas
+foram liberados. A proposta permanece fora da `main`.
+Terminou a medição específica desse reparo: **18 sessões alternadas**
+de hover/definição, com v11, candidato release e Dart oficial, em três
+rodadas. Foram **162 consultas**, separando 54 primeiras consultas
+após edição de 108 repetições aquecidas. Os contratos e a ordem do protocolo
+passaram: nenhuma consulta semântica antecedeu a primeira
+amostra após a mudança real de assinatura ou deslocamento da API.
+O coletor de CPU/memória reutiliza as rotinas do medidor existente. Passaram
+a conferência do layout contra o SDK local, a validação funcional de uma
+árvore de processos com filho de 64 MiB e a comparação das unidades de CPU
+com o relógio POSIX do processo. Isso validou a instrumentação. A rodada
+de desempenho só começou após encerrar e verificar os gates Windows e as
+duas medições anteriores. O verificador integral confirmou **162 janelas de
+contadores, 54 payloads antes/depois exatamente iguais, 18 mapas de
+diagnósticos e 18 contratos de tipo/intervalo/definição preservados**. Os
+27 hovers coincidiram integralmente com o oficial e as 27 definições
+preservaram o conteúdo; as diferenças conhecidas de contêiner continuam
+com status de erro. As medianas das primeiras consultas foram:
+
+| Consulta/mudança | v11 | Reparo do residente | Dart oficial |
+| --- | ---: | ---: | ---: |
+| Hover: retorno alterado | 4,77 ms | 4,83 ms | 0,79 ms |
+| Hover: deslocamento Unicode/CRLF | 5,95 ms | 6,07 ms | 15,92 ms |
+| Hover: retorno restaurado | 4,87 ms | 4,70 ms | 0,73 ms |
+| Definição: retorno alterado | 2,13 ms | 2,09 ms | 0,86 ms |
+| Definição: deslocamento Unicode/CRLF | 3,51 ms | 3,43 ms | 14,50 ms |
+| Definição: retorno restaurado | 2,13 ms | 2,04 ms | 0,80 ms |
+
+O pico amostrado mediano de footprint ficou em **575,61 → 576,42 MiB**
+nas sessões de hover e **575,80 → 573,95 MiB** nas de definição. CPU e RSS
+também permaneceram próximos. São três primeiras amostras por caso/backend;
+os picos amostrados são limites inferiores, sem estimativa de cauda. Essa
+rodada não demonstra ganho geral de velocidade, mas também não encontrou
+regressão material nos controles selecionados. O reparo continua justificado
+pela correção do consumidor ausente e da configuração, reproduzida no
+projeto mínimo anterior. Ele não encerra o gargalo de referências medido
+separadamente abaixo. Artefatos em
+`/tmp/dartforge-lsp-query-refresh-perf-v1/`.
+Outra proposta externa evita percorrer registros do índice de referências
+que não citam o arquivo alterado, usando um conjunto exato de caminhos por
+registro. Passaram **368 testes/35 alvos**, Clippy e documentação estritos.
+O release preservou **180/180 respostas** da v11 após mudanças de tipo,
+parâmetro, deslocamento Unicode e restauração de uma API usada, nos dois
+SDKs. Contra o Dart oficial permanecem 120 diferenças brutas de formato de
+definição e ordenação; a auditoria não encontrou diferenças de conteúdo
+inexplicadas. Esses controles funcionais não constituem ganho de desempenho;
+a medição isolada posterior está registrada abaixo.
+Artefatos em `/tmp/dartforge-lsp-reference-record-filter-v1/`.
+No frontend real, outra rodada alterou o retorno de `DocumentoService.all`
+de `DataFrame<TipoDocumento>` para `DataFrame<dynamic>`, deslocou a API com
+um comentário Unicode e restaurou o código. O consumidor e os arquivos de
+disco ficaram inalterados: foram **32/32 respostas preservadas** entre a
+v11 e o filtro, com **oito cabeçalhos/intervalos de hover exatamente iguais
+ao Dart oficial** e seis contratos de mudança/restauração de tipo aprovados.
+As 24 diferenças brutas restantes são contêiner de definição e ordenação de
+referências/edições; o comparador mantém status de erro, com zero diferenças
+de conteúdo inexplicadas nessa auditoria. Não houve medição de tempo.
+Os seis caches dos três projetos foram preparados. Um controle de
+inicialização confirmou os **seis carregamentos efetivos**, com logs do
+caminho de cache e blobs preservados; esse controle não mediu desempenho.
+A matriz isolada terminou com **27 sessões** e o verificador completo saiu
+com sucesso: **162 payloads, 54 mapas de diagnósticos e nove estados finais
+preservados**, com os seis caches inalterados e arquivados. Foram separadas
+as três primeiras consultas por projeto/backend das seis repetições aquecidas.
+Na inserção de uma função não usada na API, as medianas da primeira busca
+de referências foram:
+
+| Projeto | v11 | Filtro |
+| --- | ---: | ---: |
+| limitless | 126,69 ms | 124,91 ms |
+| core | 112,26 ms | 114,50 ms |
+| frontend | 261,40 ms | 260,85 ms |
+
+Essa rodada **não demonstrou ganho material na primeira busca**. O consumo
+de CPU também ficou próximo; a memória em repouso do frontend passou de
+677,24 para 682,74 MiB. As medianas aquecidas ficaram abaixo de 0,5 ms nos
+três projetos, com diferenças pequenas entre v11/filtro. São três amostras
+de primeira consulta por caso, sem estimativa de cauda. O filtro permanece
+fora da proposta de integração. O controle separado com mudança real de
+assinatura, abaixo, também não demonstrou ganho material. As diferenças
+brutas conhecidas contra o Dart foram mantidas.
+Artefatos em
+`/tmp/dartforge-lsp-reference-record-filter-real-api-v1/` e
+`/tmp/dartforge-lsp-reference-record-filter-warm-v1/`.
+O controle de latência com a assinatura real de `DocumentoService.all`
+terminou em **nove sessões alternadas e 81 consultas**. O verificador
+confirmou as **27 primeiras buscas anteriores a qualquer outra consulta
+semântica após a edição**, 27 respostas antes/depois exatamente iguais,
+conteúdos iguais ao Dart e dois caches inalterados/arquivados. Os contratos
+de hover, tipo, intervalo e definição também passaram. Permanecem 27
+diferenças brutas de ordenação contra o Dart, com status de erro. As medianas
+da primeira busca foram:
+
+| Mudança | v11 | Filtro | Dart oficial |
+| --- | ---: | ---: | ---: |
+| Retorno `TipoDocumento` → `dynamic` | 5.744,55 ms | 5.736,27 ms | 34,78 ms |
+| Deslocamento Unicode/CRLF | 55,63 ms | 52,84 ms | 45,45 ms |
+| Restauração do retorno | 5.743,53 ms | 5.739,53 ms | 35,23 ms |
+
+As repetições aquecidas da v11/filtro ficaram entre 0,21 e 0,25 ms e são
+um resultado separado. São três primeiras amostras por caso/backend, com o
+custo normal de captura do cliente incluído; essa rodada mediu somente
+latência de parede. **O filtro foi rejeitado para integração por ausência
+de ganho material.** A demora de aproximadamente 5,7 s após mudar/restaurar
+o retorno é um gargalo real ainda pendente, apesar das respostas corretas.
+A medição separada de hover/definição foi encerrada e está descrita acima;
+o diagnóstico causal de referências está registrado na revisão v12. Artefatos em
+`/tmp/dartforge-lsp-real-used-api-timing-v1/`.
+
+**Últimas listas da árvore integrada:** AOT v11 e JS v11. A medição LSP sobre
+a v11 está acima; os controles históricos sobre a base v9 estão descritos
+abaixo. No perfil AOT simbólico v11,
+os 2.826 programas bem-sucedidos na VM também executaram com sucesso no AOT.
+O JS reduziu as diferenças brutas de 76 para **50**; os nove casos em que
+VM e dart2js passavam, mas o DartForge falhava, foram corrigidos na v6.
+A primeira consulta LSP após API e o pico de memória do frontend
+continuam acima da referência Dart. As revisões estão identificadas abaixo.
+Na medição histórica v2→v5 de função isolada, o ajuste LSP reduziu a primeira referência
+do frontend de **538 para 237 ms**, com respostas preservadas; o Dart
+marcou **7,6 ms**. Nos outros dois projetos, os tempos ficaram próximos da base.
+**Regressões da tentativa v4 reparadas na v5:** os dois casos de
+`noSuchMethod` voltaram a passar, mantendo os três reparos novos.
+A rodada v5 não perdeu nenhum resultado aprovado da v3 ou v4.
+O gate integral da v5 terminou: **3.490 testes de workspace em 229 alvos e
+118 testes do CLI com `native,jit` em 17 alvos**, sem falhas ou ignorados.
+Fmt, Clippy do workspace e do CLI nativo, documentação estrita e pré-requisitos
+também passaram; 27.076 fontes/entradas e os binários preservados ficaram estáveis.
+
+**Ainda não está validado para produção geral.** Os resultados abaixo identificam as revisões
+preservadas, ainda sem commit. O gate integral da v2 passou; as alterações
+posteriores têm validações próprias. Os gates integrais da v5 e v6
+passaram; isso não elimina as diferenças conhecidas da linguagem e do LSP.
+**Candidata v6 com a lista JS completa medida:** correções para enums,
+`super.toString`, accessors de `noSuchMethod` e dispatch booleano; Oxc
+0.155.0. Passaram 24 testes direcionados, fmt, Clippy e documentação
+estrita; o build release terminou. A lista completa corrigiu nove falhas,
+sem regressões. No Windows passaram **216 testes em 57 alvos**, com
+1.972 fontes normalizadas estáveis. O gate integral do macOS também passou:
+**3.503 testes do workspace em 231 alvos e 118 do CLI `native,jit` em
+17 alvos**, sem falhas/ignorados. Foram 3.694,75 segundos com fontes e
+binários estáveis. Os 18 arquivos alterados e 27.079 fontes/entradas
+estão preservados em `/tmp/dartforge-production-current-v6/`.
+**V7 validada e preservada:** resolução de prefixos em annotations,
+detalhes de parâmetros nos símbolos LSP e verificação de constantes no
+frontend JS, com declarações locais registradas. Passaram **36 testes
+direcionados em oito alvos**, documentação estrita e o build release dos
+três binários. A lista JS completa preservou as categorias da v6:
+**2.794 iguais à VM, dois iguais apenas ao dart2js, 16 recusas mútuas,
+um passa onde a VM falha e 50 diferenças brutas**, sem regressões.
+O status continua erro. A lista AOT simbólica também terminou, sem
+regressões: **2.837 iguais à VM (2.820 sucessos e 17 falhas compartilhadas),
+16 recusas mútuas, dois passam onde a VM falha e oito diferenças brutas**.
+Todos os 2.826 programas bem-sucedidos na VM também saíram com sucesso no
+AOT; seis imprimem hashes ou pilhas diferentes. O status AOT é erro.
+No Windows passaram **587 testes/94 alvos**, sem falhas ou ignorados.
+No macOS passaram **3.511 testes de workspace em 234 alvos e 119 do CLI
+`native,jit` em 18 alvos**, sem falhas ou ignorados. O gate integral
+terminou em 3.982,07 segundos, com fontes e binários estáveis.
+Pré-requisitos, fmt, os dois Clippys e documentação estrita do workspace
+já passaram nesta fonte; o gate anterior não a aprova retroativamente.
+**V8 integrada após fechar o gate v7:** a identidade de diretórios de
+pacote agora resolve links e sufixos ainda não gravados, com reutilização
+só na mesma geração confiável do filesystem. O link macOS ARM64 usa o
+caminho que preserva o unwind também para pilhas simbólicas em `check`.
+As duas correções e quatro arquivos de regressão foram integrados na
+`main`, ainda sem commit. Antes de mudar a fonte, os novos testes CLI,
+LSP e de pilha falharam nos casos previstos. Passaram **26 testes
+direcionados em nove alvos**, sem falhas ou ignorados, Clippy dos quatro
+crates afetados com todos os alvos e `native,jit`, documentação estrita
+do workspace e o build release dos três binários. O CLI release também
+passou no controle de diretórios, incluindo caminhos com espaços,
+CRLF e offsets UTF-16. O LSP release preservou o contrato de código,
+severidade e intervalo nos **12 estados de edição** comparados com
+servidores oficiais novos em dois SDKs: as oito diferenças causadas
+pelo diretório com link passaram a zero. Oito respostas completas ainda
+diferem; isso não é paridade bruta. No AOT release, as quatro trajetórias
+menores preservaram a sequência folha/chamador/main. O teste original
+`private3_test.dart` recuperou os dois quadros `PrivateMain`, mas ainda
+omite `main`: o controle continua com erro. A nova medição isolada LSP
+terminou; o gate integral e as listas de linguagem serão executados na
+v9, que integra o reparo adicional de entrada descrito abaixo. Os
+resultados v7 não certificam esta nova revisão. As
+27.085 fontes/entradas e três binários estão preservados em
+`/tmp/dartforge-production-current-v8/`.
+
+**API usada no LSP, controle v8 concluído:** 180 respostas de definição,
+referências e renomeação ficaram idênticas entre os releases v7/v8.
+Os cinco estados foram aplicados somente a overlays não salvos, com
+CRLF/emoji, em dois SDKs; o servidor oficial foi iniciado novamente em
+cada estado. Trocar `make()` de A para B e desfazer moveu corretamente
+a definição e os consumidores do campo. Contra o Dart, 60 respostas
+são exatas e 120 diferem na forma da definição ou na ordem dos itens.
+A auditoria separada não encontrou diferença de conteúdo nesse recorte;
+o comparador bruto continua com erro. Arquivos e versões de renomeação
+foram conferidos, sem sobreposição de edições e sem mudar o disco.
+Artefatos em `/tmp/dartforge-used-api-oracle-v2/`. A matriz isolada de
+latência v7/v8/Dart terminou: **27 sessões**, com **162 respostas,
+54 mapas de diagnóstico e nove estados finais preservados** entre
+as revisões. Seis caches próprios, fontes, binários e insumos ficaram
+estáveis. Ela insere uma função independente nos três projetos e não
+mede troca de tipo de retorno usada. A primeira referência teve
+medianas v7→v8/Dart de **109,17→113,06/25,02 ms** no limitless,
+**101,84→97,70/6,82 ms** no core e **236,06→237,33/8,41 ms** no
+frontend. Não houve ganho uniforme. As referências seguintes na v8
+ficaram em **0,39/0,27/0,27 ms**. O frontend teve pico de **785,10 MiB**
+e repouso final de **679,55 MiB**, contra **742,47/736,22 MiB** do Dart;
+esse repouso curto não prova estabilidade prolongada. Diferenças brutas
+conhecidas do Dart continuam registradas. Relatório em
+`/tmp/dartforge-production-lsp-warm-matrix-v4/report.json`.
+
+**LSP, candidato externo sobre a base v9 medido e descartado:** 27 sessões isoladas
+preservaram 162 respostas, 54 mapas de diagnóstico e nove estados finais,
+com seis caches próprios inalterados. Trocar a tabela de IDs de caminho
+por um vetor curto não demonstrou ganho: as medianas da primeira referência
+base→candidato/Dart foram **115,94→120,59/25,69 ms**, **110,95→113,18/7,19 ms**
+e **260,08→261,38/9,58 ms** nos três projetos. O candidato não foi integrado.
+A matriz separada de API realmente usada terminou com nove sessões,
+54 estados e 270 respostas auditadas: trocar o retorno A→B e restaurar A
+preservou conteúdo, intervalos e versões de renomeação; 90 respostas entre
+base/candidato ficaram exatas. As 90 diferenças brutas contra o Dart
+continuam registradas; nenhuma diferença de conteúdo foi encontrada nesse
+recorte. Na auditoria do preparo, foi encontrado um erro do medidor: ele gravou os
+caches com o caminho lexical `/tmp`, enquanto o driver usa a raiz resolvida
+`/private/tmp`. Esses seis caches não foram selecionados pelo servidor.
+Os dados de latência v2 foram mantidos como observações de inicialização,
+e não demonstram custo com índice já carregado. Os seis caches realmente
+criados pelo servidor também foram identificados e arquivados em separado.
+A rodada v3 corrigiu a chave e terminou: **nove sessões, 54 estados e
+270 respostas** passaram na auditoria independente, com os seis caches
+inalterados e arquivados. Um controle funcional adicional com log de memória
+confirmou o carregamento do cache e a ausência de reconstrução integral.
+A primeira referência após a troca teve mediana base/candidato/Dart de
+**0,98/0,92/4,05 ms**; nas trocas seguintes, **0,71/0,71/2,92 ms**.
+Isso valida este recorte com índice carregado, sem aprovar latência geral.
+O candidato continua sem integração, pois não trouxe ganho nos projetos reais. É uma fixture
+controlada pequena, diferente da inserção de função independente nos
+projetos reais. Os três projetos reais já usam raízes resolvidas; o erro
+encontrado é específico do preparo desta fixture. A causa da lentidão nos
+projetos reais continua em investigação; a espera de três segundos não foi
+demonstrada aqui. Relatórios em
+`/tmp/dartforge-lsp-relocation-control-v1/decision.json` e
+`/tmp/dartforge-used-api-latency-v3/report.json` (v1/v2 preservadas como inicialização).
+
+**Quadro `main` no AOT, causa isolada:** depois de preservar o unwind,
+o bitcode ainda incorpora o pequeno `main` na entrada do embedder, que
+permite chamada de cauda. No controle externo com os mesmos insumos e
+relink dos objetos nativos, a base conservou só os dois quadros
+`PrivateMain`; impedir inlining nessa passagem ou impedir a chamada de
+cauda recuperou `main`. O ajuste de entrada e a regressão para `main`
+com zero/um argumento foram integrados como **v9**, depois de fechar a
+medição isolada. Antes da integração, os dois alvos de regressão
+falharam no release v8, exatamente em produção com `check`, por falta
+de `main`. A formatação v9 e o teste integrado passaram: **um teste/um
+alvo**, cobrindo oito perfis (duas aridades × desenvolvimento/produção ×
+`check`/`tables`) e duas execuções adicionais com pressão de coleta em
+produção `check`. Foram 427,94 segundos, sem falhas ou ignorados.
+Clippy dos quatro crates afetados, documentação estrita do workspace e
+o build dos três releases passaram. No release v9, as quatro trajetórias
+menores e o teste original `private3_test.dart` preservaram todos os
+quadros de usuário exigidos, incluindo `main`. Os contratos de hash
+passaram na VM nova, no AOT e sob pressão de coleta: estabilidade,
+tear-offs iguais, colisões, atualização/remoção em mapas, mapas de
+identidade e igualdade numérica. Não foi normalizado nenhum hash de
+identidade. Os binários LSP e JS são byte a byte iguais aos da v8;
+o nativo mudou. A lista JS completa v9 terminou: **2.794 iguais à VM,
+dois iguais apenas ao dart2js, 16 recusas mútuas, um passa onde a VM
+falha e 50 diferenças brutas**, sem regressões. O status continua erro.
+A lista AOT v9 também terminou, sem regressões: **2.837 iguais à VM,
+16 recusas mútuas, dois passam onde a VM falha e oito diferenças brutas**.
+Os 2.826 programas bem-sucedidos na VM saíram com sucesso no AOT;
+as diferenças brutas e o status erro foram preservados. Foram 531,10
+segundos para JS e 2.931,11 para AOT, em execução de correção concorrente,
+sem valor de benchmark. O gate integral macOS v9 passou: **3.521 testes
+em 237 alvos do workspace e 120 em 19 alvos do CLI `native,jit`**, sem
+falhas ou ignorados. Pré-requisitos, fmt, os dois Clippys e documentação
+estrita também passaram; as fontes e binários ficaram estáveis durante
+os 4.260,26 segundos do gate. No Windows, a primeira rodada terminou com
+764 sucessos e duas falhas: faltavam o corpus gzip da VM e o pacote de
+teste fixado no cache offline. Os outros três grupos passaram. Esses
+insumos foram preparados em diretórios próprios e a CLI inteira foi
+repetida, após passar o verificador no PowerShell 7: **116 sucessos e
+uma falha em 19 alvos**, sem ignorados. O corpus gzip passou. O teste
+diferencial do executor agora chega à execução e revela um defeito real:
+o host tenta escutar `SIGTERM` no Windows e termina com exceção antes
+de executar os testes. A seleção de sinais por plataforma está em reparo
+externo, com o compilador v9 preservado; fontes e compilador ficaram
+estáveis nas duas rodadas. Ambas continuam registradas com erro.
+Não há aprovação para produção geral.
+As 27.085 entradas e o delta de dois arquivos foram preservados em
+`/tmp/dartforge-production-current-v9/`.
+Prova em `/tmp/dartforge-v8-entry-frame-counterfactual-v3/report.json`.
+
+**Lacuna adicional confirmada com referência AOT:** o pragma público
+`weak-tearoff-reference` deve permitir eliminar funções que só aparecem
+como referências fracas. Esse contrato está na
+[documentação do SDK 3.6.2](https://github.com/dart-lang/sdk/blob/3.6.2/runtime/docs/compiler/pragmas_recognized_by_compiler.md#declaring-a-static-weak-reference-intrinsic-method).
+O caso mínimo passa no AOT oficial e no dart2js `-O1/-O2`, mas falha
+nos releases nativo e JS v9 do DartForge. A VM também falha nesse
+programa; portanto, igualdade com a VM não demonstra esse contrato de
+compilação. É uma falha de comportamento, além das diferenças brutas
+registradas pela lista. Na matriz de 12 formas, quatro casos válidos
+têm resultado errado no nosso JS; sete formas recusadas pelos dois
+compiladores oficiais são aceitas pelo DartForge. Um homônimo de
+`pragma` definido pelo usuário conserva corretamente o comportamento
+comum. O reparo de liveness e validação de argumentos ainda não foi
+integrado nos backends. A v9 foi encerrada como revisão preservada;
+a fonte atual avançou para a v10 descrita abaixo. Casos, comandos, hashes e saídas sem normalização
+em `/tmp/dartforge-weak-tearoff-control-v1/`. A sonda de reconhecimento
+de metadados terminou fora da árvore, com as versões do lockfile atual:
+reconhece prefixos, nome do pragma constante e alias de instância constante,
+e distingue a classe homônima da identidade de `dart:core`. Encontrou
+uma lacuna adicional na avaliação de construtores via typedef. Esse
+componente recebeu o reparo v10 abaixo; os backends ainda não receberam
+o contrato completo de referências fracas.
+
+**V10 integrada na `main`, rodada encerrada com diferenças de linguagem:** a avaliação constante de
+annotations agora segue construtores por typedef, preservando a classe de
+destino e a substituição explícita de tipos, inclusive prefixos, construtores
+nomeados e `.new`. O teste novo falhou na árvore original em
+`@p.Alias('first')`; com o reparo, os **146 testes/13 alvos do crate de tipos**
+passaram tanto na proposta externa quanto na árvore integrada, sem falhas
+ou ignorados. O Clippy externo passou. Instanciações genéricas indisponíveis
+continuam desconhecidas; isso não implementa o contrato dos backends.
+O host de testes também passou a escutar `SIGTERM` somente fora do Windows,
+mantendo `SIGINT` e o tratamento existente. No controle nativo real do Windows,
+o host anterior saiu com 255; o host corrigido coincidiu com o Dart nos
+**oito perfis**, incluindo retornos esperados de falha e ausência de testes.
+Fontes remotas e compilador ficaram estáveis; o controle levou 837,03 segundos,
+sem valor de benchmark. Artefatos em
+`/tmp/dartforge-windows-runner-signals-control-v1/fetched/`.
+A regressão CLI integrada do macOS também passou: **148 testes em 14 alvos**
+(tipos e CLI `native,jit`), sem falhas ou ignorados. O build desse teste usa
+o compilador atual, com os seletores de binário externo removidos. O Clippy
+estrito do workspace, com todos os alvos e CLI `native,jit`, também passou.
+A documentação estrita e os três releases também passaram. Os contratos do
+release de metadados, hashing e pilhas passaram, incluindo o quadro `main`.
+A sonda real com SDK inferido reconheceu as cinco formas de pragma e
+manteve a classe homônima distinta. As três identidades binárias mudaram
+em relação à v9. O gate integral macOS terminou com sucesso: **3.522
+testes/238 alvos** do workspace e **120 testes/19 alvos** de CLI `native,jit`,
+sem falhas ou ignorados, incluindo formatação, ambos os Clippy e documentação
+estrita. A rodada integrada Windows terminou: **912 testes/132 alvos**,
+sem falhas ou ignorados, incluindo tipos, elements, JS/world, LSP e CLI
+`native,jit`. O host de testes passou, assim como pilhas simbólicas nos
+perfis exercitados. As **1.980 fontes selecionadas** permaneceram iguais
+após normalização; quatro arquivos diferem nos bytes brutos entre hosts.
+A lista AOT v10 terminou: **2.837 iguais à VM,
+16 recusas mútuas, dois passam onde a VM falha e oito diferenças brutas**,
+sem regressões. Os **2.826 programas bem-sucedidos na VM** também executam
+com sucesso no nativo; seis têm saídas brutas diferentes, preservadas no
+relatório. O status da lista continua erro (1). A lista JS v10 terminou: **2.794 iguais à VM,
+dois iguais apenas ao dart2js, 16 recusas mútuas, um passa onde a VM falha e
+50 diferenças brutas**, sem regressões; o status continua erro. A revisão v9 não aprova retroativamente a v10.
+As **27.086 entradas**, o delta de três arquivos e o estado anterior estão
+preservados em `/tmp/dartforge-production-current-v10/`. O manifesto Windows
+foi ampliado para **1.980 fontes selecionadas**, incluindo explicitamente o
+host Dart embutido e o teste novo; não é um inventário de todos os arquivos
+do repositório. Nenhum commit, push ou publicação foi feito.
+
+**Referências fracas, histórico dos candidatos externos integrados na v11:** a sonda nativa
+mostrou que o SDK opaco preservava a classe `pragma`, mas perdia seus campos.
+A proposta externa passa a avaliar apenas os dois parâmetros de campo de
+um construtor estruturalmente verificado de `dart:core.pragma`, mantendo
+corpos, inicializadores e defaults não inferidos como desconhecidos. Passaram
+**148 testes/14 alvos** e Clippy, com o teste positivo falhando antes do reparo.
+O normalizador semântico coincidiu com a aceitação/recusa do AOT oficial em
+**32 casos**, incluindo aliases, métodos estáticos, declarações inválidas
+não usadas e argumentos inválidos. Os aliases do próprio wrapper continuam
+chamadas comuns, conforme os controles oficiais. A proposta JS já passou
+no caso mínimo em `-O1/-O2` e no controle avançado de identidade, hash, RTI,
+membros estáticos, extensões e ciclos fracos contra AOT/dart2js. O reparo de
+aliases locais constantes passou pela matriz ampliada: **35 execuções de
+fronteira/contratos** e **seis casos extras em 18 execuções**, com resolução
+semântica dos locais, cadeias de aliases, sombreamento, listas mistas e loops.
+Os dois testes novos de regressão falharam no release v10 pelos defeitos
+esperados e passaram com o candidato externo; os checks completos dos cinco
+crates afetados passaram (**524 testes/75 alvos**, sem falhas ou ignorados), incluindo testes ignorados, formatação, Clippy de
+todos os alvos e documentação estrita. O dart2js 3.6.2 recusa o wrapper externo
+aceito pelo AOT, mas aceita tear-offs de construtores recusados pelo AOT;
+essas distinções foram preservadas. Casts e condicionais explícitos são
+recusados, sem confundi-los com aliases constantes válidos. Nada disso
+foi integrado na fonte v10 congelada. O protótipo nativo separado passou
+pelos **40 controles AOT**, com execução dos contratos de identidade, hash,
+RTI e aliases e comparação das recusas com o AOT oficial. A distinção entre
+AOT e JIT encontrou três regressões no primeiro protótipo: remoção do alvo,
+perda do alias local e supressão do corpo do wrapper em código recarregável.
+A validação do pragma também é exigida pela VM, mesmo em declaração não usada.
+O candidato passou a fornecer ao `world` as arestas já normalizadas para AOT
+e as chamadas comuns para o JIT: os **quatro controles passaram**, com IR
+recarregável real executado pelo JIT e saídas preservadas. O Clippy estrito
+do workspace externo também passou. A rodada ampliada nativo/world/tipos
+da proposta final passou com **1.281 testes/22 alvos e 139 exemplos de
+documentação/4 alvos**, sem falhas ou ignorados, além de formatação, Clippy
+rigoroso, documentação estrita e build dos dois drivers. Os controles de
+execução foram repetidos com esses executáveis finais e passaram. A integração
+v11 e os checks da árvore de destino estão descritos no início deste arquivo.
+
+O aprofundamento de fluxo encontrou **oito diferenças brutas em 32 execuções
+de oito casos**, ainda fora da integração: literal `false` em `if`/condicional,
+retorno, assert desativado e getter constante. Há também uma diferença entre
+os próprios backends oficiais: após `return`, o AOT elimina o alvo, mas o
+dart2js o conserva; o candidato JS já o elimina. Não se deve reter código
+morto para esconder essa diferença. A retenção depende do tree shaking;
+os oráculos e saídas continuam separados. A análise de fluxo precisa ser
+coerente com o código emitido antes de integrar o reparo nativo.
+Controle em `/tmp/dartforge-weak-reachability-control-v1/`.
+O candidato nativo passou a preservar a avaliação das condições provadas
+e a usar o perfil real de asserts. Passaram os **oito controles novos AOT**,
+a repetição dos **40 anteriores** e os **quatro do JIT**. Uma regressão
+separada confirmou que getters/initializers do SDK opaco permanecem
+desconhecidos, enquanto getters do usuário continuam avaliáveis; as flags
+específicas de JS também não são presumidas pelo modelo nativo.
+
+A auditoria de `vm:entry-point` encontrou **seis diferenças em oito casos**:
+aliases de tipo/constante, nome constante, opção `false`, pragma homônimo
+do usuário e sufixo desconhecido. A proposta passou a reconhecer a instância
+real de `dart:core.pragma`, seu nome exato e a opção desativadora, reutilizando
+as tabelas do compilador. O teste novo comparou os **oito casos com AOT oficial
+e passou**. Mantém o recorte anterior de métodos/classes; não aprova ainda
+construtores e variáveis como pontos de entrada. Artefatos em
+`/tmp/dartforge-weak-entry-roots-control-v1/` e teste
+`entry-roots-test.log` do protótipo nativo. Os módulos compartilhados foram
+unificados na cópia JS externa; a nova rodada completa fixa a identidade do
+compilador antes dos testes. Não houve integração desses reparos na v10.
+
+O linker dos testes release do protótipo avisou que objetos do LLVM indicam
+macOS 27 com mínimo de deployment 11. Isso não demonstra falha em um host
+antigo, mas os testes no host atual não validam o mínimo 11 do compilador.
+O runtime dos aplicativos AOT gerados é uma dependência distinta.
+O ajuste externo JS passou a tratar booleanos literais de modo igual no
+`world` e no emissor, com nova fixture de ramos `true`/`false` em `if` e
+condicionais. A regressão falhou no candidato anterior e passou no novo
+em `-O1/-O2`; os checks completos desse ajuste estão em execução, em
+`/tmp/dartforge-weak-js-control-v1/literal-flow-checks/`. Essa rodada registrou
+523 testes passando e uma colisão de diretório temporário no helper novo;
+o helper recebeu uma sequência atômica e seus dois testes passaram na
+repetição. O status bruto anterior permanece erro. A rodada unificada em
+`/tmp/dartforge-weak-js-control-v1/unified-checks/` terminou com sucesso:
+**528 testes/75 alvos**, sem falhas ou ignorados, formatação, Clippy rigoroso
+de todos os alvos e documentação estrita. O compilador JS foi preservado
+antes dos testes e seu hash permaneceu estável. A rodada nativa completa
+da proposta mais recente também terminou com sucesso; a integração v11 está
+descrita no início deste arquivo.
+Artefatos em `/tmp/dartforge-opaque-pragma-control-v1/`,
+`/tmp/dartforge-weak-reference-analysis-v1/` e
+`/tmp/dartforge-weak-js-control-v1/`. O controle dos releases v10 confirmou
+que o defeito original continua nos dois backends: os três executáveis
+JS/AOT do DartForge falharam, enquanto AOT e dart2js oficiais passaram.
+
+A medição de linguagem usa a lista preparada de **2.863 programas executáveis do
+SDK 3.6.2**, com as exclusões declaradas no medidor (negativos estáticos,
+multitests, casos específicos da VM e bibliotecas fora desse recorte).
+Executar toda essa lista não equivale a executar todos os testes do SDK.
+O inventário desta fonte tem **4.330 arquivos**: os 1.467 excluídos se
+dividem, pela ordem de decisão do medidor, em **1.289 com marcadores de
+erro estático/multiteste, 169 em `vm/` e nove por texto de biblioteca
+excluída**. Regras podem se sobrepor; a procura textual também alcança
+comentários. O manifesto por arquivo, hash e regras está em
+`/tmp/dartforge-production-current-v2/language-selection-ledger.json`;
+é um inventário de seleção, não um resultado de execução.
+
+* **Medidor de linguagem:** agora executa `dart2js` e `jsprod` com o mesmo
+  host Node e nível seguro explícito (`-O2` por padrão; também aceita `-O1`).
+  Exige referência dart2js completa com SDK/host/nível iguais; recusa misturar
+  perfis ao mesclar resultados. Mantém stdout, caudas de stderr, diário por
+  teste e checkpoints; divergências retornam erro. Timeout, crash e seleção
+  vazia não viram aprovação. **12 testes Python passaram.** Valores de hash
+  de identidade continuam sem normalização.
+* **VM oficial, referência nova:** **2.826/2.863 executam com sucesso; 37**
+  terminam com recusa ou falha (16 saídas 254, duas 252 e 19 saídas 255).
+  A referência completa `dart2js -O2` e a primeira rodada completa do nosso
+  JS de produção terminaram, cada uma com os 2.863 resultados preservados.
+* **JS de produção, primeira medição completa:** **2.768 iguais à VM, dois
+  iguais apenas ao dart2js, 16 recusados pelos dois, um passa onde a VM
+  falha e 76 divergências**. O status da rodada é erro. Entre as falhas
+  reais, invocar um objeto retornado por getter perdia sua assinatura
+  `call` durante a poda, embora o corpo continuasse presente. O reparo
+  conserva essa assinatura implícita; o novo teste, que falhou antes,
+  **passou em -O1 e -O2**, incluindo herança, genéricos, tipo e aridade.
+  A segunda rodada completa, com esse reparo e os três binários release
+  preservados, terminou com **2.772 iguais à VM e 72 divergências**, sem
+  regressões e com quatro falhas corrigidas. As demais categorias continuam
+  iguais. O status permanece erro; há falhas reais em interpolação de strings
+  e em encaminhamento de `call` por `noSuchMethod`. Os reparos seguintes
+  passaram em duas regressões novas em **-O1/-O2**, com controle VM: coerção
+  de interpolação isolada para string, precedência ao acessar seu resultado,
+  atribuição/efeitos colaterais e conservação do adaptador de chamada
+  implícita sem seletor explícito. O teste anterior de chamadas dinâmicas
+  também passou. **A terceira rodada completa terminou: 2.775 iguais à VM,
+  dois iguais apenas ao dart2js, 16 recusas mútuas, um passa onde a VM falha
+  e 69 diferenças brutas**, sem regressões. Os três programas corrigidos
+  foram `patterns/exhaustiveness/cast`, `regress/regress30121` e
+  `string/const_interpolation2`. O status continua erro. Foram reproduzidos
+  ainda um erro em `super` após aplicação repetida de mixin e a recusa do
+  Node em analisar inicializações encadeadas de uma classe com 20 mil
+  campos; essas correções não fazem parte do binário desta rodada. A triagem
+  mantém as 69 como falhas brutas: **19 passam na VM e no dart2js e falham
+  no DartForge; dez terminam com sucesso nos três, mas imprimem diferenças;
+  15 são recusados pelos dois compiladores de produção; 22 não executam
+  com sucesso nos dois, sem equivalência provada; três têm referência VM
+  sem sucesso**. O inventário completo é `current-v2/js-divergence-ledger.json`;
+  essas categorias não transformam diferenças em aprovação.
+* **AOT simbólico:** foi reproduzida e corrigida a falta de tabelas de
+  desenrolamento quando apenas a pilha simbólica precisa cruzar frames,
+  tanto no programa quanto no SDK. Uma primeira regressão passou nos
+  quatro perfis (desenvolvimento/produção, `check`/`tables`). As duas falhas
+  funcionais restantes da rodada focada eram o descarte da pilha ao
+  atravessar `finally` e a apresentação de nomes de construtores. Com
+  os reparos seguintes, **os nove casos históricos executam com sucesso**;
+  no recorte de 12 programas, oito coincidem integralmente com a VM e
+  quatro ainda diferem no texto impresso das pilhas, sem erro de execução.
+  Um teste adicional encontrou perda do frame em adaptadores de contexto.
+  A inspeção do código de máquina confirmou um salto de cauda para o
+  runtime, que descartava o frame antes da captura. O reparo desabilita
+  esse salto nos adaptadores quando a pilha simbólica está ativa; uma
+  tentativa no inliner foi retirada por não corrigir a falha.
+  **O teste ampliado passou nos quatro perfis e no ramo com GC stress, em
+  macOS e Windows.** A lista AOT terminou com o compilador preservado e
+  `--stack-trace symbolic`: **2.819 saídas bem-sucedidas iguais à VM, 17
+  falhas de execução iguais à VM, 16 recusas mútuas, dois casos que passam
+  onde a VM falha e nove diferenças brutas**. Essas nove são dois casos em
+  que a VM termina 252, dois programas com hashes de identidade variáveis,
+  quatro diferenças no texto das pilhas e **uma falha nova de pilha em
+  adaptador de membro privado de outra biblioteca**. O status é erro.
+  A prova de cobertura verifica 412 resultados do checkpoint mais 2.451 da
+  retomada, sem duplicatas/omissões, perfis iguais e 27.075 entradas estáveis:
+  `/tmp/dartforge-production-current-v1/native-coverage.json`. As 17 falhas
+  compartilhadas não contam como programas aprovados. A falha nova foi
+  reproduzida numa regressão de três bibliotecas, com controle VM. Após
+  atribuir ao adaptador privado o nome e a posição da classe que o recebe,
+  **os quatro perfis e o ramo GC stress passaram no macOS e Windows**.
+  A repetição integral da revisão seguinte terminou com **2.837 resultados
+  iguais à VM (2.820 com sucesso e 17 falhas compartilhadas), 16 recusas
+  mútuas, dois casos que passam onde a VM falha e oito diferenças brutas**,
+  sem regressões. **Todos os 2.826 programas bem-sucedidos na VM também
+  executaram com sucesso no AOT**; seis imprimem hashes ou pilhas diferentes.
+  O perfil medido é `--optimize --stack-trace symbolic`; não muda o padrão
+  `none` do CLI. Os dois casos em que a VM termina 252 continuam como
+  diferenças. O status do medidor é erro, preservado em `suites.json`;
+  a cobertura/contrato estão em `native-success-contract.json`, na pasta
+  `/tmp/dartforge-production-current-v2/`.
+* **Hashing:** cada um dos dois programas históricos foi repetido três
+  vezes na VM e três no AOT. **Todas as execuções passaram e a saída
+  variou nas duas ferramentas.** Um controle adicional passou na VM, no
+  AOT e no AOT com GC stress: estabilidade do hash de identidade,
+  tear-offs iguais, colisões, atualização/remoção de mapas e igualdade
+  numérica. Os valores brutos continuam registrados como diferenças;
+  isso não é evidência de uma falha semântica nesses dois programas.
+* **LSP:** o primeiro candidato passou em **57 testes de elements e 361
+  do LSP no macOS**, Clippy, documentação estrita, fmt e release. No
+  Windows passaram **58 de elements e 360 do LSP**, sem falhas/ignorados,
+  com 1.965 fontes normalizadas verificadas antes/depois. Seu oráculo
+  preservou 1.216/1.216 respostas da base, mas reproduziu um defeito
+  anterior: comentários podem deslocar declarações e deixar referências
+  de chamadores na posição antiga. O reparo seguinte acompanha também
+  alterações sem mudança de API e só conserva registros quando consegue
+  transportar suas posições; os casos sem prova reanalisam dependentes.
+  **100 testes de unidade passaram.** Contra o candidato anterior, o
+  oráculo mudou 12 respostas, sem regressões frente ao Dart; a comparação
+  integral com Dart reiniciado foi **780/1.216**, contra **777/1.216**
+  da base nessa rodada. A ordem de respostas do próprio Dart varia; as
+  diferenças brutas e o status de erro do oráculo continuam preservados.
+  Na revisão atual passaram **362 testes LSP no macOS e 361 no Windows**,
+  sem falhas ou ignorados. No Windows passaram também 58 de elements,
+  o teste nativo ampliado e o teste de assinaturas JS; 1.968 fontes
+  normalizadas permaneceram estáveis. O gate integral da revisão v2 terminou depois, como registrado abaixo. A primeira matriz de 27 sessões manteve 162 respostas e
+  54 mapas de diagnósticos antes/depois. Uma auditoria encontrou conversão
+  indevida de CRLF para LF ao preparar os índices iniciais do core e
+  frontend. Os resultados dessa carga ficam preservados. A nova matriz com
+  bytes originais terminou com 162 respostas e 54 mapas preservados. A mediana
+  da primeira references caiu **871 → 115 ms** no limitless, **982 → 103 ms**
+  no core e **6.427 → 542 ms** no frontend; o pico caiu **642 → 437, 712 → 427
+  e 990 → 890 MiB**, respectivamente. A primeira consulta ainda perde para
+  Dart (25, 7 e 8 ms), e o frontend usa mais memória que ele (753 MiB). Essa
+  carga prova a função isolada sem usos; a meta de desempenho segue aberta.
+
+Artefatos desta etapa: `/tmp/dartforge-production-readiness-v1/` (fontes,
+5.817 entradas congeladas, compiladores preservados e logs),
+`/tmp/dartforge-selective-index-v2/` (checks LSP) e
+`/tmp/dartforge-selective-index-oracle-v1/` e `-v2/` (respostas completas do
+oráculo); revisões nativas em `/tmp/dartforge-production-readiness-v2/`,
+`-v3/`, `-v4/` e `-v5/`.
+Clippy do workspace e do CLI com `native,jit`, documentação estrita e fmt
+passaram na revisão com os reparos. O build release dos três binários terminou,
+com **27.075 entradas rastreadas não Markdown estáveis**. Fontes, binários e
+checks direcionados estão em `/tmp/dartforge-production-current-v1/`; o
+Windows, em `/tmp/dartforge-production-readiness-v5/windows/`. As matrizes
+LSP usam `/tmp/dartforge-production-lsp-warm-matrix-v1/` (cache com conversão
+de CRLF) e `-v2/` (preparação corrigida, concluída). Nenhum desses
+checks isolados demonstra prontidão geral para produção.
+
+A revisão seguinte está preservada em `/tmp/dartforge-production-current-v2/`
+com **27.076 entradas e três binários release**. O LSP é byte a byte igual ao
+medido em `warm-matrix-v2`. Passaram pré-requisitos, fmt, Clippy do workspace,
+Clippy do CLI `native,jit` e documentação estrita. A terceira rodada JS
+terminou com 2.863 resultados, três reparos e nenhuma regressão.
+Os checks Windows das cinco fontes alteradas terminaram sem falhas: build nativo, teste de pilha nos quatro perfis/GC stress e os
+três testes JS direcionados. **1.969 fontes normalizadas ficaram estáveis**,
+com quatro diferenças de bytes por CRLF; logs em `windows/`. No macOS,
+o gate completo terminou: **3.480 testes do workspace em 229 alvos e 118
+no CLI `native,jit` em 17 alvos, sem falhas ou ignorados**. Levou 3.836,33 s,
+com 27.076 fontes e três binários preservados estáveis. A nova rodada AOT
+terminou, com as 5.817 entradas da suíte estáveis. A revisão v2 está congelada;
+as próximas correções JS terão validação e artefatos próprios em `current-v3`. Comandos, perfis, contagens, logs e hashes estão em `full-gate.json` e `suites.json`
+nessa pasta; a execução rejeitada por argumento inválido foi preservada
+como `invalid-invocation-*` e não contou como medição.
+
+A revisão JS v3 (`/tmp/dartforge-production-current-v3/`) integrou quatro
+reparos: null inicializado em campo privado `late`, precedência da negação,
+limite de profundidade nas cadeias de inicialização e fallback de receitas
+RTI durante o preenchimento do cache. As quatro novas regressões falharam
+no binário v2 e passaram em `-O1/-O2`. Passaram **192 testes em 52 alvos** dos
+dois emissores JS no macOS, sem falhas/ignorados, Clippy, fmt e documentação
+estrita. No Windows passaram **90 testes de unidade e sete direcionados**,
+com 1.969 fontes normalizadas estáveis. O teste nullable exige agora o erro
+`LateInitializationError`, além de preservar o valor null após nova escrita.
+
+A quarta rodada completa JS terminou com **2.782 iguais à VM, dois iguais
+apenas ao dart2js, 16 recusas mútuas, um passa onde a VM falha e 62 diferenças
+brutas**, sem regressões frente à v2. Corrigiu classe grande, identidade,
+campo late e quatro casos de normalização de tipos. Os dois controles de
+coleção/late modifier do foco continuam falhando; o status de erro permanece.
+Os 27.076 hashes de fonte e 5.817 entradas da suíte ficaram estáveis.
+Essa revisão só alterou cinco arquivos JS/testes; o gate integral de
+3.480 + 118 testes pertence à v2 e não foi atribuído à v3.
+
+A revisão JS v4 está congelada em `/tmp/dartforge-production-current-v4/`.
+Três regressões novas passaram em `-O1/-O2`, com controle VM: o condicional
+simplificado conserva o tipo da expressão inteira e o limite da conversão
+implícita; o objeto com `call` genérico passa pela instanciação contextual;
+`noSuchMethod` conserva argumentos nomeados/aridade e checa o parâmetro;
+`.new` resolve o elemento do construtor sem nome, incluindo fábricas do SDK,
+tear-offs e cadeias genéricas de redirecionamento. O teste ampliado também
+verifica o tipo reificado do objeto construído. As tentativas anteriores,
+inclusive duas fixtures que a VM recusou estaticamente, estão preservadas
+e não contam como testes aprovados. Fmt, Clippy e documentação estrita
+passaram. Os testes dos dois emissores no macOS terminaram com **194
+aprovações e uma falha em 52 alvos**: duas regressões paralelas criaram o
+mesmo diretório temporário por coincidência do instante do relógio, e uma
+leu o programa da outra. O resultado permanece erro. A revisão seguinte
+usa contador atômico e criação exclusiva de diretório; esse reparo ainda
+precisa do gate repetido.
+No Windows passaram 100 testes em três alvos, sem falhas/ignorados,
+com 1.969 fontes normalizadas estáveis. As fontes estão identificadas
+por 27.076 hashes e delta arquivado.
+
+A quinta rodada JS terminou com **2.783 iguais à VM, dois iguais apenas
+ao dart2js, 16 recusas mútuas, um passa onde a VM falha e 61 diferenças
+brutas**. Corrigiu `implicit_tearoff_exceptions`, `unnamed_new` e
+`invocation_mirror`, mas **regrediu `closure/tearoff_dynamic` e
+`no_such_method/native`**. Portanto, a contagem bruta menor não aprova
+essa revisão. O status de erro foi mantido. Um controle mínimo novo passou
+na VM e na v3 em ambos os níveis, mas falhou na v4: uma chamada válida
+de `noSuchMethod` em null/nativos perde o nome da invocação original.
+É necessário restringir o helper à forma correta, conservando sua semântica,
+em vez de removê-lo de todas as chamadas. Resultados, perfis e hashes em
+`current-v4/suites.json`; controle em
+`/tmp/dartforge-next-js-diagnosis/nsm-native-regression.json`.
+
+O candidato v5, preservado em `/tmp/dartforge-production-current-v5/`,
+conserva o helper de `noSuchMethod` somente com um
+argumento posicional e sem argumentos de tipo, acrescentando a coerção
+para `Invocation`. Chamadas com outra forma seguem o despacho normal.
+Inclui a regressão de null/nativos e o reparo dos diretórios de teste.
+No LSP, o grafo de subtipos escritos passa a calcular as arestas implícitas
+de `Object` apenas quando a busca chega a `Object`; consultas comuns
+mantêm suas arestas explícitas. O teste que antes caminhava por uma unidade
+não relacionada falhou na base e passou com o ajuste; o controle de
+hierarquia de `Object` após edição de corpo/reversão também passou.
+Passaram os checks direcionados no macOS: **11 testes JS e 137 do LSP**,
+sem falhas/ignorados, fmt, Clippy dos três crates com todos os alvos e
+documentação estrita. No Windows passaram **363 testes LSP e 101 JS**,
+com 1.969 fontes normalizadas estáveis; as quatro diferenças de bytes
+por CRLF continuam identificadas. O gate integral da v5 terminou com
+**3.490 testes do workspace (229 alvos) e 118 do CLI `native,jit`
+(17 alvos)**, sem falhas/ignorados. Pré-requisitos, fmt, Clippy de todo o
+workspace, Clippy do CLI `native,jit` e documentação estrita passaram.
+A verificação final conservou as 27.076 fontes/entradas e os binários
+preservados. Relatório: `current-v5/full-gate.json`, 3.644,68 segundos.
+
+A sexta rodada JS completou os **2.863 programas**, com **2.785 iguais
+à VM, dois iguais apenas ao dart2js, 16 recusas mútuas, um passa onde a VM
+falha e 59 diferenças brutas**. Não houve regressões contra v3 ou v4;
+os dois casos perdidos na v4 foram restaurados. Os três reparos de
+`implicit_tearoff_exceptions`, `unnamed_new` e `invocation_mirror` foram
+mantidos. As 27.076 fontes, dois binários v5 e 5.817 entradas da suíte
+permaneceram estáveis. O status continua erro. A triagem das 59 conserva
+**nove falhas onde VM e dart2js têm sucesso, dez diferenças de saída com
+sucesso nos três, 15 recusas de compilação nos dois backends de produção,
+22 falhas de produção nos dois sem equivalência provada e três referências
+VM sem sucesso**. Fontes/binários/perfis, resultados e inventário estão em
+`current-v5/source.json`, `binaries.json`, `suites.json` e
+`js-divergence-ledger.json`. O hash do resultado bruto é
+`f4991d8655978263aa8cc566e31641c8c7c5cf0a6768d2e53b9f06616c78cbed`.
+O oráculo LSP seguinte preservou **1.216/1.216 respostas da v2** em
+referências, prepareRename, rename e implementação, nos dois SDKs, sem
+regressões. Nesta coorte, candidato e base coincidiram ambos em **770**
+respostas com o Dart reiniciado (394 no piso e 376 no moderno); as ordens
+da referência variam entre execuções. O status continua erro pela paridade
+incompleta, sem normalização das respostas. Artefatos em
+`/tmp/dartforge-selective-index-oracle-v3/`.
+Uma auditoria separada classificou as **446 diferenças brutas** dessa
+coorte como conteúdo igual em outra ordem: 239 respostas de referências
+e 207 de rename. Para rename, verificou documentos/versões únicos e
+edições não vazias sem sobreposição antes de comparar seu conteúdo.
+As respostas originais e o erro do oráculo foram mantidos. O inventário
+é `strict-difference-audit.json`; não estabelece igualdade estrita nem
+paridade completa fora desses quatro arquivos e oito estados.
+
+A matriz LSP v3 (`/tmp/dartforge-production-lsp-warm-matrix-v3/`) terminou
+27 sessões alternadas da v2, v5 e Dart, em três projetos/três rodadas,
+com índice formato 8 e documentos de bytes originais. **162 respostas,
+54 mapas de diagnósticos e nove estados finais ficaram iguais à v2.**
+Fontes, binários, projetos/SDK e os seis índices preparados permaneceram
+estáveis. Não havia builds ou testes locais; o runtime Node ocioso do
+aplicativo ChatGPT foi identificado e registrado, sem ser encerrado.
+As medianas da primeira referência foram **116,24 → 111,51 / 24,46 ms**
+(limitless), **102,48 → 101,98 / 6,92 ms** (core) e
+**538,19 → 237,05 / 7,64 ms** (frontend), no formato v2 → v5 / Dart.
+No frontend, CPU caiu de 467,57 para 169,75 ms; pico de footprint,
+811,85 → 772,81 MiB, contra 737,92 MiB do Dart. A primeira consulta e o
+pico continuam acima da referência. A amostra final de footprint da v5
+foi 678,99 MiB, sem prova de ociosidade prolongada. Consultas seguintes
+ficaram próximas de 0,28 ms no frontend. Não se afirma ganho uniforme
+nos três projetos, nem se extrapola a edições arbitrárias de assinatura.
+As amostras completas estão em `verification.json` e
+`first-and-warm-references.json` nessa pasta.
+
+As fontes exatas da v2 foram arquivadas em `current-v2/source.tar.gz`, com
+27.076 arquivos e hash em `source-archive.json`; o delta dos cinco arquivos
+da v3 está em `current-v3/source-delta.tar.gz`. Os arquivos da árvore foram
+comparados aos hashes registrados; a versão anterior do teste foi
+recuperada do blob já staged e conferida contra o hash da v2. Não foi criada
+outra branch nem worktree.
+
+Diagnósticos para a próxima revisão, fora dos resultados padrão:
+`/tmp/dartforge-next-js-diagnosis/` conserva um programa mínimo de mixin
+que coincide com a VM ao desligar o encaminhamento de `toString`; os quatro
+casos oficiais de mixin/enum correspondentes também passam nesse controle.
+Uma única cadeia de 20.001 atribuições a null faz o parser do Node exceder
+sua pilha; dividir apenas o JavaScript gerado em cadeias de 128 permite
+executar o caso. Três falhas de normalização de tipos foram isoladas na
+antecipação de receitas RTI: funções do SDK leem variáveis de cache antes
+de sua inicialização. Um candidato externo mantém a chamada original como
+fallback enquanto a variável está indefinida; os três casos passam nesse
+ensaio; o reparo foi depois integrado e medido na v3 acima.
+As primeiras tentativas de diagnóstico, inclusive uma sem o marcador de
+fim do SDK que não reproduzia a falha, estão preservadas. Outros dois
+controles identificaram o helper de campos `late` tratando null atribuído
+como não inicializado, e o construtor `_Enum`/seu adaptador de mixin
+podados, deixando o índice do enum indefinido. Alterar apenas o JS gerado
+permitiu executar esses casos. A correção de `late` foi integrada na v3;
+a retenção do construtor de enum/mixin ainda não foi integrada.
+A inspeção confirmou que os campos do mixin estavam corretos: o valor
+indefinido vinha do índice do enum, não deles.
+
+Os controles ampliados de `super.toString` também passaram na VM e
+falharam na v5 em `-O1/-O2`: herança direta de Object, campos `late` com
+closure, tear-off isolado e mixin reaplicado. O mesmo defeito ocorre no
+fallback do **SDK** `JsObject.toString` quando o objeto JS lança erro;
+nesse caso, o controle é dart2js/Node, pois a VM não executa `dart:js`.
+Repor somente os aliases `dartx.toString` no JS gerado executou os seis
+programas, conservando as outras otimizações. Isso sustenta uma guarda
+por uso vivo de `super.toString`, incluindo corpos patch do SDK e
+inicializadores de campos; desligar a otimização globalmente não é a
+única opção. Artefatos em
+`/tmp/dartforge-next-js-diagnosis/mixin-super-v5/`.
+
+O controle de enums foi ampliado para índices esparsos após poda,
+nomes, argumentos de tipo e valores de enums genéricos com mixins.
+A VM passou; a v5 falhou nos dois níveis seguros. Repor apenas o
+construtor `_Enum` e três encaminhadores no JS gerado executou todas
+as verificações, **mantendo a poda da constante não usada**. O índice
+original não deve ser renumerado. A próxima correção precisa reter o
+construtor com argumentos desconhecidos no mundo JS com SDK incluído;
+o mundo nativo usa outra fronteira (`include_sdk=false`). Artefato:
+`/tmp/dartforge-next-js-diagnosis/enum-mixin-v5/constructor-only-counterfactual.json`.
+Esses ensaios ainda não são aprovações do compilador.
+
+O diagnóstico seguinte de `control_flow_collections/for_runtime_error`
+isolou uma falha do **Oxc 0.152**: ao eliminar um `for` com condição falsa,
+o compressor descarta a inicialização lexical `let`/`const`, mesmo quando
+ela executa chamadas ou lança erros. O primeiro dos dez casos oficiais
+deixa de lançar o TypeError. Desligar somente a compressão faz o programa
+passar; desligar as outras sete etapas testadas não corrige a falha.
+Um compressor Oxc isolado reproduziu o problema sem passes do DartForge
+nem declarações manuais de funções puras: nove observações de efeitos,
+TDZ, desestruturação, rótulos e hoisting desapareceram.
+
+A correção já está publicada no **Oxc 0.155.0**. Os arquivos dos pacotes
+0.153–0.157 foram conferidos contra seus checksums no crates.io; 0.155
+é a primeira dessas versões com o ramo que conserva a inicialização
+lexical. O controle isolado dessa versão preservou as nove observações
+e executou os dez casos oficiais, com e sem funções puras manuais.
+Fonte publicada: [Oxc, commit 73e6b564](https://github.com/oxc-project/oxc/blob/73e6b564737a29ecebf428d276421dcc492836df/crates/oxc_minifier/src/peephole/remove_dead_code.rs).
+Artefatos e verificação em
+`/tmp/dartforge-next-js-diagnosis/collection-v5/verification.json`.
+**A dependência do DartForge ainda não foi atualizada**: a v5 permanece
+congelada durante o gate. A atualização deverá abranger os dois crates
+emissores JS, com testes e nova medição ampla; esses controles externos
+não transformaram a falha da suíte em aprovação.
+
+O controle de campos mock em
+`/tmp/dartforge-next-js-diagnosis/mock-fields-v5/` ampliou a reprodução
+para campos finais próprios, herdados e genéricos, leituras após escrita,
+chamadas tipadas/dinâmicas e argumento inválido. A VM passou; a v5 falhou
+em `-O1/-O2`. Corrigir apenas armazenamento/getter no JS gerado executou
+o teste oficial, mas o controle ampliado ainda perdeu a checagem de tipo.
+Seu sucesso exigiu armazenamento separado, getter herdado complementar,
+tipo do setter instanciado no contexto da classe e metadados de assinatura
+para o despacho dinâmico, inclusive receitas genéricas. O helper existente
+`setSetterSignature`, podado no programa original sem essas assinaturas,
+também precisou ser reposto no ensaio. O resultado completo está em
+`complete-counterfactual.json`. **Ainda é um contrafactual do JS gerado**;
+o reparo não foi integrado ao compilador congelado.
+
+Na **candidata v6**, esses reparos foram integrados e ainda passam por
+validação própria. Oxc 0.155.0 foi atualizado nos dois crates e no lockfile;
+a adaptação à API de strings conserva surrogates isolados, sem convertê-los
+em caracteres de substituição. O controle Node distingue esses valores,
+chaves e pares UTF-16. A primeira execução das regressões encontrou uma
+guarda incompleta para campos `late`: sua inicialização é alcançada por
+accessors, não pelo conjunto de variáveis estáticas vivas. O reparo seguinte
+executou as 18 regressões de linguagem e os controles do SDK/compressor.
+
+O controle adicional de campos **privados** passou na VM e revelou uma
+colisão de armazenamento herdado na candidata inicial. O ajuste compartilha
+o inventário de accessors sintéticos, respeita a biblioteca do nome privado
+e registra a assinatura do getter sob sua chave de acesso, além da chave
+de armazenamento. Os dois testes de campos mock, público e privado,
+passaram em `-O1/-O2` após esse ajuste. A primeira tentativa do controle
+privado usava `Symbol('_x=')`, que não representa o símbolo privado da
+biblioteca; ela foi corrigida antes de usá-la como oráculo e permanece
+nos artefatos externos. Não é um caso aprovado da suíte.
+
+Fmt, Clippy dos três crates JS/mundo em todos os alvos e documentação
+estrita da fonte congelada passaram. A rodada consolidada terminou com
+**24 testes em quatro alvos, sem falhas/ignorados**, e o build release passou.
+O gate integral da v6 terminou: pré-requisitos, fmt, Clippy do workspace e
+CLI nativo, documentação estrita, **3.503 testes do workspace e 118 do CLI
+`native,jit`**, sem falhas/ignorados, com 27.079 entradas e binários estáveis.
+Relatório: `current-v6/full-gate.json`. No Windows, a rodada completa dos
+crates `emit-js`, `emit-js-production` e `world` terminou com **216 testes
+em 57 alvos, sem falhas ou ignorados**. Os 18 updates foram protegidos
+por hashes anteriores; 1.972 fontes normalizadas ficaram estáveis antes
+e depois, com quatro diferenças brutas por CRLF. Logs e relatório final
+foram baixados para `current-v6/windows/`; não há job remoto pendente.
+Relatórios da candidata em `/tmp/dartforge-production-current-v6/`;
+reproduções e controles anteriores em `/tmp/dartforge-next-js-diagnosis/`.
+
+A **sétima rodada JS** terminou com todos os **2.863 programas**, usando o
+release v6: **2.794 iguais à VM (2.777 com sucesso e 17 falhas compartilhadas),
+dois iguais apenas ao dart2js, 16 recusas mútuas, um passa onde a VM falha
+e 50 diferenças brutas**. Corrigiu os nove casos funcionais da v5, sem
+regressões contra v5 ou v3: os dois `base_mixin_with`, coleções com erro
+de tipo na inicialização do `for`, enums aprimorados, operadores de
+extensão constantes, os três programas `super_2`/sintaxe de mixins e
+`mock_writable_final_field`. A rodada preservou 27.079 fontes/entradas,
+5.817 entradas da lista de linguagem e os dois binários.
+
+**Os 2.644 programas que executam com sucesso tanto na VM quanto no
+dart2js também executam com sucesso no nosso JS.** Esse contrato compara
+códigos de saída; não afirma igualdade das saídas. Dos 2.826 programas
+bem-sucedidos na VM, 2.789 executam com sucesso no DartForge JS. Permanecem
+50 diferenças brutas: dez com sucesso nos três e stdout diferente, 15
+recusas dos dois compiladores de produção, 22 resultados sem sucesso nos
+dois sem equivalência demonstrada e três com VM sem sucesso. Essas
+categorias não são aprovações. **O status da lista permanece erro (1)**.
+Relatórios: `suites.json`, `js-divergence-ledger.json` e
+`js-success-contract.json` em `current-v6/`. Hash do resultado:
+`095f298f7432cc9971074735391d694fe37d9c7c72fc7a55f0e2b657b0f9db97`;
+hash do release JS:
+`e2f04c6b8021edadeeb7de27aaa0050437155c452e547bc7cab2a83984fc1a70`.
+Isso amplia a evidência funcional do perfil seguro medido; ainda não
+valida produção geral nem todos os testes do SDK.
+
+O controle de metadados do LSP (`/tmp/dartforge-symbol-metadata-oracle-v1/`)
+confirmou que Dart 3.6.2 e 3.13.5 enviam `deprecated` em símbolos planos e
+hierárquicos, mesmo com suporte a tags. O nome de uma anotação não basta:
+uma classe do usuário chamada `Deprecated` não marca o símbolo. Os SDKs
+também diferiram na marcação de variáveis globais deste controle. Isso
+permanece uma pendência de resolução/serialização; não foi inserido um
+`false` fixo para converter os relatórios em igualdade.
+
+O controle LSP foi ampliado em
+`/tmp/dartforge-symbol-metadata-oracle-v2/`, com Dart 3.6.2/3.13.5,
+símbolos planos/hierárquicos e suporte a tags. O alias **de tipo** para
+`core.Deprecated` marca a declaração, mas o alias **de constante** não;
+`Deprecated.extend` não marca uso como deprecated, mesmo quando o
+construtor existe no SDK moderno. Um construtor inexistente não marca;
+`@core.deprecated()` ainda marca nos dois servidores, apesar do erro da
+anotação. Os metadados precisam refletir a resolução e o comportamento do
+oráculo, sem reutilizar diretamente uma heurística de nomes ou um helper
+que trate todas essas formas da mesma maneira. O parâmetro `detail`
+mostra a lista de parâmetros, sem os parâmetros de tipo da função, e não
+aparece no getter. Este ensaio é diagnóstico; não houve mudança LSP na v6.
+
+O aprofundamento desse diagnóstico encontrou um defeito independente no
+helper compartilhado `types::annotations::annotation_element`: uma anotação
+prefixed como `@core.Deprecated` devolve o próprio `Prefix`, em vez do
+membro exportado. Uma regressão isolada reproduziu o erro tanto para a
+classe quanto para a constante `core.deprecated`. A cópia externa do módulo,
+com apenas o ramo do prefixo corrigido, passou nos **quatro controles**:
+classe, constante, identidade da classe homônima do usuário e prefixo
+ocultado por parâmetro local. A base falha nos dois primeiros e passa nos
+outros dois. O patch proposto está em
+`/tmp/dartforge-symbol-metadata-prototype-v1/annotation-prefix.patch`;
+**não foi aplicado à fonte congelada**.
+
+Nesse mesmo ensaio, o `frontend::source::from_parameters` existente
+coincidiu com todos os 24 valores de `detail` conferidos nos dois SDKs,
+incluindo comentários, lista multilinha, vírgula final, callbacks, parâmetros
+sem tipo e strings que contêm parênteses. Ele evita usar a busca textual
+de delimitadores do outline. Com o ramo de prefixo emulado e a resolução
+dos aliases pelo outline comum, os 30 valores de depreciação de classes
+também coincidiram: **54/54 propriedades**, sem inferir corpos. Isso é um
+contrafactual externo e um teste de APIs existentes; não é uma resposta
+LSP corrigida nem uma medição de desempenho. A fonte e os binários da v6
+permaneceram estáveis. Relatório: `symbol-metadata-prototype-v1/verification.json`.
+
+A matriz adicional `/tmp/dartforge-symbol-sdk-language-matrix-v1/`
+distinguiu a versão da ferramenta da versão da linguagem do projeto.
+O servidor 3.6.2 marca variáveis globais, campos de instância e campos
+estáticos anotados; o 3.13.5 não os marca neste controle, inclusive com
+package language version 3.6 ou marcador `// @dart=3.6`. Getters e setters
+explícitos continuam marcados nas quatro cargas. A futura implementação
+não deve atribuir essa diferença à versão da linguagem nem transformar
+qualquer anotação com nome parecido em depreciação. Esse comportamento
+permanece documentado como diferença da referência, sem mascarar o oráculo.
+
+O mesmo defeito foi reproduzido fora da interface: no **CLI atual**, uma
+anotação prefixed com argumento não constante foi aceita (0), enquanto
+Dart 3.6.2 publicou `CONST_WITH_NON_CONSTANT_ARGUMENT` (3). Sem prefixo,
+os dois recusaram; com variável constante, os dois aceitaram. O AOT v2
+preservado também aceitou o caso prefixed inválido e recusou o não
+prefixed. Esses controles não fazem parte dos programas executáveis
+aprovados da lista; estão em
+`/tmp/dartforge-annotation-constant-control-v1/`.
+
+O JS v6 aceitava os dois casos inválidos em `-O1/-O2`, enquanto o dart2js
+os recusava. Sua análise ainda não executava a fase comum de legalidade
+de constantes. Um primeiro ensaio dessa fase sobre os **2.791 programas
+que executaram com sucesso no JS v6** recusou 75 indevidamente: faltavam
+as identidades das leituras locais/parâmetros de construtor nas tabelas
+que o verificador usa. Repetir a inferência das bibliotecas do usuário
+registrando as declarações locais fez os 75 passarem; a repetição ampla
+com esse registro aceitou **2.791/2.791**, sem outras falhas. Os dois
+ensaios e status ficaram preservados em
+`js-constant-legality-audit-v1/` (erro) e `-v2/` (0), sob `/tmp/dartforge-`.
+É um pré-voo de análise; não substitui compilar/executar uma nova revisão.
+
+Na **v7**, após fechar o gate v6, foram integrados o ramo de prefixo, o
+`detail` do componente de símbolos e a fase JS de legalidade de constantes
+antes da poda. A inferência JS agora registra as declarações locais.
+Passaram as quatro regressões de resolução, o novo teste CLI de erros e
+caso válido com controle Dart, os cinco testes de símbolos (incluindo
+parâmetros em CRLF/emoji, comentários, strings com parênteses e edição) e
+Clippy dos cinco crates alterados com todos os alvos. A validação
+consolidada terminou em **36 testes/oito alvos**, sem falhas ou ignorados;
+a documentação estrita e o build release dos três binários passaram.
+O CLI AOT release recusou as duas variantes de argumento não constante e
+compilou/executou o controle válido. A lista JS completa terminou com as
+mesmas 50 diferenças brutas da v6, sem regressões (status erro). A lista
+AOT simbólica terminou com as mesmas oito diferenças brutas da v2, sem
+regressões; Windows passou em 587 testes/94 alvos. O gate integral macOS
+continua em andamento, com 27.082 fontes/entradas e binários preservados
+por hash. A marcação
+`deprecated` dos símbolos **continua pendente**; o `detail` não implica
+paridade completa nem uma nova medição isolada de latência.
+Artefatos da integração em `/tmp/dartforge-production-current-v7/`.
+
+
+O controle do **servidor LSP release v7**, com servidor oficial novo para
+cada carga, confirmou os `detail`: **54 diferenças → zero em 180 símbolos**,
+em dez cargas dos dois SDKs, árvore e lista plana (20 respostas por revisão).
+Todos os campos fora de `detail` ficaram idênticos à v6 e as listas planas
+não mudaram. As 20 respostas completas continuam diferentes do Dart por
+metadados ausentes, inclusive `deprecated`; status bruto **1**, contrato
+específico de `detail` **0**. Artefatos:
+`/tmp/dartforge-v7-symbol-response-control/`.
+
+O controle incremental de anotações, em projetos com raiz canônica,
+também terminou: **12 estados nos dois SDKs**, com mudança sem salvar de
+`int` para `const int` em dependência, retirada do prefixo de importação,
+CRLF/emoji e restauração. As diferenças de **código/severidade/faixa**
+caíram de seis para zero. As quatro respostas limpas são idênticas;
+as oito com erro continuam brutas diferentes (incluindo `source`), e o
+status bruto permanece 1. Não foi uma medição de desempenho.
+`/tmp/dartforge-v7-annotation-edit-control-v2/`.
+
+A primeira carga, com `rootUri` absoluto por `/tmp` (um link para
+`/private/tmp` no macOS), revelou **outra falha real**, preservada em
+`/tmp/dartforge-v7-annotation-edit-control/`: diagnósticos somem nas
+revisões anterior e nova. O CLI release confirmou o problema; o analisador
+oficial retorna 3, o DartForge 0. Uma matriz com raiz absoluta
+por link, absoluta canônica e relativa isolou a configuração: só a
+primeira perde o erro, mesmo pedindo o arquivo por caminho canônico.
+O loader resolve `package:` pelo URL não canônico, enquanto o lote e
+os overlays usam a chave canônica. O primeiro protótipo externo passou nos
+quatro controles iniciais, mas **foi rejeitado**: retargetar o link
+conservava o diretório antigo no cache, apesar da invalidação do disco.
+A segunda proposta passou em sete controles, mas falhou quando o primeiro
+arquivo ainda não salvo ficava sob uma pasta de pacote inexistente.
+
+A terceira proposta resolve o diretório pelo ancestral existente mais
+próximo e conserva o sufixo ainda não gravado. Reutiliza a configuração
+somente na mesma geração de filesystem confiável; após invalidação,
+reconfere conteúdo e diretórios, mesmo com bytes/stamps preservados.
+**Oito controles passaram** no módulo externo; os mesmos testes portáteis,
+ligados ao `elements` atual, mostram **quatro passes e quatro falhas**.
+Incluem troca do destino do link, pasta aninhada inexistente, overlay,
+edição de configuração com stamp preservado e reutilização sem novos
+misses na mesma geração. Não foi medição de latência.
+
+Isso **ainda não foi integrado**: as 27.082 fontes/entradas v7 permanecem
+congeladas durante as listas e o gate. O êxito da carga canônica não
+aprova a carga por link. A nova política deverá ter o custo medido em
+execução isolada após a integração. O patch e o teste prontos para o
+repositório estão em `/tmp/dartforge-package-directory-control-v3/`;
+as falhas das tentativas `-v1/` e `-v2/` foram preservadas. O CLI atual
+continua reproduzindo a perda de diagnóstico em
+`/tmp/dartforge-v7-package-path-diagnostic-control/`.
+
+Um novo controle funcional de **API usada por chamadores** está em
+`/tmp/dartforge-used-api-oracle-v1/`. Troca o retorno de `make()` de `A`
+para `B`, adiciona parâmetro opcional, insere comentário com emoji antes
+das declarações e reverte tudo. Nas duas referências SDK, a definição do
+campo usado pelo chamador mudou para a classe correta, assim como seus
+conjuntos de referências e as edições de rename. Das 180 respostas,
+60 são iguais byte a byte; uma auditoria separada verificou 60 diferenças
+permitidas de objeto/lista em definition, 30 de ordenação de references
+e 30 de ordenação de rename, preservando URIs, versões, intervalos e
+texto das edições. Não houve diferença de conteúdo sem explicação neste
+controle. As respostas brutas não mudaram e o comparador bruto retorna
+**erro (1)**; o coletor apenas concluiu o transporte (0). Não é medição
+de latência nem prova de paridade geral. Os caches exclusivos desse
+ensaio foram arquivados após fechar os servidores.
+
+Uma captura isolada de pilhas do LSP, preservada em
+`/tmp/dartforge-production-lsp-profile-v1/`, confirmou que a reconstrução
+dos registros do arquivo alterado entra no cálculo de famílias/subtipos
+e nos nomes referenciados de muitas unidades. O servidor principal espera
+o residente fazer esse trabalho. As quatro respostas do controle ficaram
+iguais às da matriz corrigida e as entradas permaneceram estáveis.
+É diagnóstico de custo, sem nova comparação de latência/memória, e ainda
+sem um reparo adicional validado; detalhes em `docs/LSP.md`.
 
 ## Prioridade: LSP mais rápido e mais leve que o servidor oficial
 
@@ -12,70 +2184,337 @@ Continuam abertas a edição de corpo da sessão longa no Windows (76 × 60 ms) 
 instável de `references` logo depois de uma edição.
 
 1. **Reanalisar só as bibliotecas afetadas por uma mudança de API.**
-   **Estado em 05/11: implementação validada na suíte completa.** A recarga
-   agora casa declarações por espécie, dono e nome, reservando os slots antigos
-   antes de distribuir os novos. Isso permite inserir declarações no meio do
-   arquivo e manter os dependentes. O reparo antecede escopos e supertypes;
-   namespaces mantidos também são reconstruídos quando afetados. Com o mesmo
-   grafo, a ordem anterior das bibliotecas é preservada. A ordem de criação
-   das declarações fica separada dos IDs, para manter os diagnósticos completos
-   na ordem correta após inserções, reversões e edições de corpo.
+   **Estado em 05/11: reparo de slots consolidado; consultas ainda reprovam a meta.**
+   A recarga preserva declarações por espécie, dono e nome antes de reconstruir
+   escopos e supertypes. Com o mesmo grafo, mantém a ordem das bibliotecas;
+   a ordem de criação das declarações fica separada dos IDs. Isso conserva
+   dependentes e diagnósticos após inserções, reversões e edições de corpo.
 
-   **Resultado medido atual:** matriz isolada de 27 sessões nos três projetos,
-   sem consultas intercaladas nas edições. Cada célula abaixo é **DartForge / Dart**.
+   **Base consolidada, edições sem consultas intercaladas:** matriz de 27 sessões.
+   Cada célula é **DartForge / Dart**, em milissegundos.
 
-   | Projeto | Primeiro diagnóstico (ms) | Até estabilizar (ms) | CPU até estabilizar (ms) |
+   | Projeto | Primeiro diagnóstico | Até estabilizar | CPU até estabilizar |
    | --- | ---: | ---: | ---: |
    | limitless | 25,50 / 33,35 | 25,50 / 59,95 | 25,90 / 66,30 |
    | core | 14,50 / 6,35 | 14,50 / 24,65 | 14,85 / 25,15 |
    | frontend | 22,45 / 20,30 | 22,45 / 42,95 | 22,60 / 46,10 |
 
-   O primeiro diagnóstico ainda perde do Dart no core e frontend. Na última
-   otimização, a poda dos índices, houve custo de +0,45 ms no limitless e
-   +0,25 ms no core, com +0,50/+0,25 ms de CPU; no frontend, -0,15 ms nas duas
-   medidas. O repouso mediano caiu nos três projetos (frontend 554,5 → 424,7 MiB),
-   mas varia entre sessões; não há ganho uniforme de latência, CPU e memória.
-   Em uma matriz anterior, o reparo principal reduziu o frontend de 171,4 para
-   23,0 ms e o core de 27,25 para 13,95 ms até o diagnóstico. São comparações
-   de versões distintas; os percentuais não devem ser compostos entre matrizes.
+   O primeiro diagnóstico ainda perde no core e frontend. A poda dos índices
+   reduziu o repouso nessa carga (frontend 554,5 → 424,7 MiB), com pequenos
+   custos de latência/CPU nos outros projetos. As comparações anteriores,
+   incluindo 171,4 → 23,0 ms no frontend, estão em `docs/LSP.md`; seus
+   percentuais não devem ser compostos entre matrizes.
 
-   **Correção já verificada:** 620 testes direcionados, clippy do workspace e
-   documentação estrita passaram. O release atual manteve 450/450 controles
-   completos de símbolos, 54/54 respostas de consultas e 18/18 mapas completos
-   de diagnósticos antes/depois, além dos estados finais. A matriz de edições
-   conservou 144/144 mapas e nove estados finais. Nos arquivos abertos, os
-   diagnósticos coincidiram com o Dart, omitindo só `source`; o ensaio adicional
-   com SDKs correspondentes manteve 24/24 capturas completas (3.6.2 e 3.13.5).
-   Os manifestos de entrada ficaram idênticos, sem raízes ausentes. Continuam
-   as diferenças anteriores de `documentSymbol` e das publicações globais nos
-   subprojetos do limitless. Foram corrigidas regressões reais de namespaces,
-   aliases, bounds genéricos em cabeçalhos com chaves e ordem de erros em ciclos.
+   **Validação da base:** no commit `228a9f3e`, **3.452 testes do workspace em
+   226 alvos e 117 do CLI native/jit em 16 alvos**, sem falhas ou ignorados;
+   clippy, documentação estrita, Python e fmt passaram. O gate levou
+   4.022,51 s com 1.963 fontes e quatro binários estáveis. Os controles
+   preservaram 450/450 respostas completas de símbolos, 54/54 consultas e
+   18/18 mapas de diagnósticos antes/depois. Permanecem diferenças de documentSymbol e
+   publicações globais do limitless. O medidor foi corrigido em `98d22ac6`
+   para reprovar falhas e relatórios incompletos: **21 testes Python passaram**,
+   com os relatórios das 36 sessões válidas anteriores idênticos. Essa etapa
+   do medidor não alterou as fontes Rust.
 
-   **Validação ampla concluída:** **3.452 testes do workspace em 226 alvos e
-   117 do CLI native/jit em 16 alvos**, sem falhas ou ignorados. Passaram
-   também clippy do workspace, documentação com avisos negados, os 11 testes
-   Python e fmt. O gate levou 4.022,51 s e confirmou 1.963 fontes e quatro
-   binários preservados sem alterações. O corpus de builders nativos passou
-   em 870,64 s e os quatro testes de transparência Angular em 588,92 s.
-   Execuções anteriores reprovadas/interrompidas e resultados negativos
-   permanecem registrados em `docs/LSP.md`. Reutilização de escopos e
-   compactação das chaves foram medidas e retiradas por custos de memória/CPU.
+   **Consultas após API — versão medida, ainda sem commit:** restringe buscas
+   de documentação local à unidade do alvo, compartilha a resolução de cada
+   identificador e transporta lotes de registros em binário. Passou nos
+   **342 testes do LSP**, clippy, docs estritos, fmt e release. A matriz de
+   **27 sessões** revezou base, candidato e Dart nos três projetos, mantendo
+   **162 payloads, 54 mapas completos e nove estados finais** antes/depois,
+   com fontes, cinco binários e entradas estáveis.
 
-   **Medidor corrigido após o gate:** recusa resultados antigos após falha,
-   continua as sessões após erro de lançamento e acusa relatórios incompletos,
-   mantendo a seleção parcial explícita. Os 21 testes Python passaram,
-   incluindo dez do medidor; os relatórios das 36 sessões válidas já coletadas
-   ficaram idênticos aos anteriores. Essa etapa não alterou as fontes Rust.
+   | Projeto | references: base → candidato (ms) | Dart (ms) | Footprint final: base → candidato (MiB) | Dart (MiB) |
+   | --- | ---: | ---: | ---: | ---: |
+   | limitless | 1.205,97 → 1.202,52 | 7,94 | 1.070,94 → 1.097,35 | 733,95 |
+   | core | 1.126,01 → 1.125,84 | 2,31 | 950,81 → 1.035,42 | 499,84 |
+   | frontend | 37.643,50 → 8.302,43 | 3,33 | 1.004,44 → 1.156,14 | 774,58 |
 
-   **Próximos passos e limites:** medir tempo e CPU por consulta após API.
-   As sessões funcionais com consultas após API continuam custosas: o frontend
-   levou 134,24 s e pico total de 1.840,77 MiB, contra 17,89 s e 754,91 MiB do Dart.
-   É uma sessão por servidor, separada da matriz acima; ainda falta localizar
-   esse custo. Também seguem pendentes identidade
-   geral de elementos, parts, preservação de slots removidos e mudanças de assinatura,
-   `OutlineTypes` por biblioteca e reanálise apenas dos outlines dependentes.
-   Sessões longas e Windows precisam de nova rodada. Implementação, matrizes,
-   regressões e reprodução: `docs/LSP.md`.
+   No frontend, a CPU dos pedidos caiu de **42,59 para 8,29 s** e o pico de
+   footprint de **1.837,99 para 1.156,14 MiB**. O footprint final aumentou nos
+   três projetos; **o critério de memória continua reprovado**. As medianas
+   reúnem nove pedidos de três sessões por servidor/projeto. A auditoria
+   posterior encontrou cache de índice só do frontend nos caminhos atuais;
+   o perfil do core confirmou busca sem índice e construção em segundo plano.
+   O campo final chamado repouso pelo medidor não prova ociosidade nem
+   estabilidade de uma sessão longa. Os manifestos e resultados negativos
+   permanecem em `docs/LSP.md`.
+
+   **Limites já verificados:** o oráculo ampliado preservou **486/486 respostas
+   anteriores** nos SDKs 3.6.2 e 3.13.5; contra o Dart foram **330/486 integrais**,
+   com diferenças anteriores de ordem e conteúdo. O transporte binário
+   recuperou cerca de 259 MiB em uma dupla isolada do frontend, sem resolver
+   o custo total contra a base. A tentativa de devolver páginas livres foi
+   retirada após seis chamadas adicionais devolverem zero bytes. Reutilização
+   de escopos, compactação de chaves e outros experimentos retirados têm seus
+   custos e artefatos preservados na documentação.
+
+   **Mapa de chamadas de construtor, ainda sem commit:** substitui a varredura repetida de
+   todas as expressões por um mapa de chamadas de construtor por unidade.
+   Invalida os fatos de ocorrências antes de inferir bibliotecas novamente.
+   A regressão da primeira inferência falhou sem a invalidação e passou com
+   o reparo. Passaram os **343 testes do LSP**, clippy, documentação estrita
+   e fmt, além do release, com fontes estáveis. O oráculo manteve 486/486
+   respostas anteriores nos dois SDKs, com as diferenças contra o Dart
+   preservadas. Em três pares alternados do worker do core, a construção
+   caiu de **10,33 para 6,76 s**, CPU de **10,63 para 7,05 s**; o pico de RSS
+   subiu de **656,41 para 673,25 MiB**. Em seis sessões do core iniciadas sem
+   índice persistente, `references` ficou em **1.116,90 / 1.134,37 ms**,
+   CPU **2.605,33 / 2.645,03 ms** (antes/depois). O pico de footprint subiu
+   **35,79 MiB**, enquanto a amostra final caiu **134,83 MiB**. Foram mantidas
+   54 respostas, 18 mapas e três estados finais; o cache original foi
+   restaurado. Esses protocolos não integram a matriz acima nem demonstram
+   ganho uniforme nas consultas ou memória. O candidato continua sem commit.
+
+   **Recuperação após falha do índice, ainda sem commit:** uma atualização podia
+   incorporar o registro da API editada, falhar ao reconstruir dependentes
+   e devolver referências antigas na consulta seguinte. O reparo conserva
+   todos os arquivos pendentes até concluir a atualização. A regressão
+   executada falhou antes e passou depois. Passaram os **344 testes do LSP**,
+   clippy do workspace, documentação estrita, fmt e release, com fontes estáveis.
+   O oráculo preservou **486/486 respostas anteriores** nos dois SDKs; as
+   **330/486 integrais contra o Dart** e sua saída reprovada foram mantidas.
+   Essa correção ainda não integra os resultados de desempenho acima.
+
+   **Atualização imediata do grafo de subtipos, retirada:** o perfil apontou
+   reconstruções globais entre bibliotecas. O experimento atualizava só as
+   arestas das unidades afetadas após inferir ou descartar corpos. Passou
+   nos 344 testes do LSP e demais verificações, preservando **744/744 respostas
+   anteriores** no oráculo ampliado. Contudo, em três pares alternados do
+   worker do core, o tempo subiu **6,98 → 7,85 s**, CPU **7,27 → 8,13 s** e
+   pico de RSS **643,50 → 646,88 MiB**. Foi retirado; as 1.964 fontes voltaram
+   exatamente aos hashes da correção de recuperação validada. A investigação
+   continua, sem atribuir ganho a esse experimento.
+
+   **Atualização adiada do grafo, também retirada:** o experimento acumulava
+   as unidades afetadas e atualizava suas arestas somente quando o grafo era
+   consultado. A pendência acompanhava os empréstimos da análise residente;
+   mudanças de texto continuavam descartando o grafo. Passaram os dois testes
+   dirigidos e os **344 testes do LSP**, clippy do workspace, documentação
+   estrita, fmt e release, com fontes estáveis. O oráculo com caches separados
+   preservou **1.240/1.240 respostas anteriores**, incluindo mudança de herança
+   e seu desfazer; contra o Dart foram **964/1.240**, como no baseline. Em três
+   pares do worker do core, tempo **7,04 → 6,86 s**, CPU **7,32 → 7,15 s**,
+   RSS **645,59 → 633,45 MiB**, mas footprint **601,05 → 615,97 MiB**. As
+   faixas de tempo se sobrepõem. No ensaio isolado do frontend, `references`
+   ficou em **6.153,30 → 6.063,28 ms**, CPU **6.140,84 → 6.057,59 ms**, mas
+   pico/amostra final de footprint **1.050,49 → 1.119,08 MiB**. Mantidas 18
+   respostas, seis mapas e um estado final. O pequeno ganho de consulta não
+   demonstrou vantagem conjunta com memória; a variante foi retirada e as
+   1.964 fontes e o release validados da recuperação foram restaurados.
+
+   **Contexto dos registros do residente, em validação:** reproduzido um
+   erro em que o texto do chamador não mudava, mas seu lote havia sido
+   resolvido durante uma API temporária de outro documento. Após desfazer,
+   `references` devolvia a declaração nos bytes **8–14**, em vez de **4–10**.
+   O candidato vincula cada lote a todos os overlays Dart e ao SDK, descarta
+   contextos superados e conserva no máximo um lote pronto. Disco e
+   configuração invalidam também os trabalhos selecionados antes da mudança;
+   os IDs não se repetem ao reiniciar o residente. Passaram os **349 testes
+   do LSP em 34 alvos**, sem falhas ou ignorados, clippy do workspace,
+   documentação estrita, fmt e release, com fontes estáveis. O oráculo com
+   caches separados preservou **1.240/1.240 respostas anteriores**, mantendo
+   **964/1.240 contra o Dart**. A matriz de **27 sessões alternadas** manteve
+   **162 respostas completas, 54 mapas e nove estados finais**, com fontes,
+   cinco binários, entradas e inventários de cache estáveis.
+
+   | Projeto | `references`: base → contexto (ms) | Dart (ms) | Footprint final: base → contexto (MiB) | Dart (MiB) |
+   | --- | ---: | ---: | ---: | ---: |
+   | limitless | 1.204,19 → 1.203,84 | 3,58 | 1.054,99 → 1.048,78 | 724,72 |
+   | core | 1.129,84 → 1.139,00 | 2,23 | 998,63 → 1.090,99 | 489,61 |
+   | frontend | 6.142,83 → 0,29 | 3,24 | 1.124,97 → 970,64 | 770,60 |
+
+   No frontend, retornar ao mesmo estado deixou de reconstruir o índice:
+   a segunda e terceira consultas ficam em **0,26–0,29 ms**, mas a primeira
+   após a API diferente ainda leva **6,43–6,53 s**. O pico de footprint caiu
+   **1.124,97 → 1.029,28 MiB**. Core/limitless ainda fazem buscas caras; só
+   o frontend tinha índice persistente no início. O aumento final do core
+   se concentra num filho e não prova estabilidade em repouso. Em três pares
+   do worker isolado, o footprint também subiu **602,42 → 668,59 MiB**, com
+   tempo próximo (**6,72 / 6,69 s**). Duas capturas após concluir a construção
+   mostraram o mesmo heap vivo (**136,3 MiB**, 212.164 alocações), em um
+   protocolo diagnóstico distinto; a causa do pico maior continua em aberto.
+   A correção de resposta permanece, mas **a meta geral continua reprovada**,
+   e o candidato segue sem commit. Matrizes anteriores e o ensaio preliminar
+   estão separados em `docs/LSP.md`.
+
+   **Reserva do buffer de serialização, em validação:** o candidato seguinte
+   calcula o tamanho e aloca o buffer uma vez, mantendo o formato 6. Um teste
+   de limites de LEB128/UTF-8 passou; a reserialização de dois índices de
+   ~30,8 MB e do cache de 70,8 MB preservou **todos os bytes**, com capacidade
+   igual ao comprimento. O teste diagnóstico temporário foi removido e a
+   fonte pretendida restaurada exatamente. Passaram os **350 testes do LSP**,
+   clippy, documentação estrita, fmt e release, com fontes estáveis. O oráculo
+   preservou **1.240/1.240 respostas anteriores**, mantendo **964/1.240 contra
+   o Dart**. Em três pares do worker do core, o pico de footprint caiu
+   **673,67 → 608,24 MiB**, com tempo/CPU próximos (**7,00 / 6,97 s** e
+   **7,29 / 7,27 s**). A matriz seguinte de **27 sessões** manteve 162 respostas,
+   54 mapas e nove estados finais, com fontes, binários e entradas estáveis.
+   As medianas de `references` ficaram próximas: limitless **1.210,79 →
+   1.199,97 ms**, core **1.128,96 → 1.128,07 ms**, frontend **0,29 → 0,29 ms**.
+   O footprint final ficou em **1.049,10 → 1.040,71 MiB**, **988,66 → 984,60 MiB**
+   e **1.004,91 → 1.007,61 MiB**, respectivamente. Não há redução uniforme
+   na sessão completa; o pico do core e do frontend também aumentou.
+   A primeira consulta do frontend após API diferente continua cara.
+   Sessão longa e Windows dessa versão continuam pendentes.
+
+   **Troca de projeto e overlays de dependências, em validação em 06/11:**
+   reproduzida a recusa permanente do índice de outra raiz na mesma sessão,
+   mesmo com seu cache pronto. O candidato troca o índice ativo, mantendo
+   apenas um decodificado; um build de outra raiz não bloqueia o cache pronto
+   nem substitui o índice atual ao terminar. Voltar a um projeto força nova
+   conferência do disco. Também reproduzida uma declaração estrangeira nos
+   bytes 4–10 em vez de 8–14 após editar uma dependência aberta. Mudanças
+   desses textos agora invalidam o índice completo, inclusive após fechar
+   uma edição do mesmo tamanho do arquivo original. O formato passou a **7**,
+   porque caches anteriores podiam marcar overlays de dependências como
+   vindos do disco apenas por terem o mesmo tamanho. A primeira variante passou
+   em 353 testes e demais verificações, mas o oráculo de várias pastas encontrou
+   quatro regressões: omitia usos num pacote externo após mudar a espécie da
+   declaração. A regressão Rust também falhou. O grafo agora inclui esses
+   dependentes e exige reconstrução completa quando a carga estreita não os
+   cobre. Passaram novamente os **353 testes do LSP**, clippy, documentação
+   estrita, fmt e release, com fontes estáveis. A nova comparação entre pastas
+   manteve todas as respostas antes iguais ao Dart: **references 34/40 →
+   40/40**, implementation **40/40**; o total integral passou de **124/160
+   para 130/160**, com 30 diferenças de rename/prepareRename ainda abertas.
+   O oráculo ampliado preservou **1.240/1.240 respostas anteriores**, mantendo
+   **964/1.240 contra o Dart**, com saída reprovada conservada. Em três pares
+   isolados do worker, tempo **6,89 → 6,95 s**, CPU **7,19 → 7,25 s**, pico de
+   footprint **674,83 → 602,86 MiB**. O custo de tempo/CPU aumentou cerca de
+   0,8%; a queda de pico não fecha memória da sessão. A matriz dos três
+   projetos terminou com **27 sessões**, 162 respostas, 54 mapas e nove estados
+   finais mantidos. Com índices preparados e separados, as medianas quentes
+   passaram de **0,42 → 0,48 ms**, **0,27 → 0,29 ms** e **0,28 → 0,31 ms**;
+   os primeiros pedidos do candidato ainda custaram **0,84–0,90 s**,
+   **0,96–1,00 s** e **6,45–6,46 s**, respectivamente. O footprint final
+   ficou em **446,63 → 446,14 MiB**, **430,94 → 434,33 MiB** e
+   **996,06 → 998,74 MiB**. Esse protocolo difere dos ensaios em que core e
+   limitless começavam sem índice. Sessão longa e Windows ainda pendem.
+
+   **Conferência do disco e caminhos compartilhados, em validação:** reproduzido
+   o mesmo span estrangeiro incorreto após editar uma dependência fechada no
+   disco e notificar o watcher. A varredura completa agora confere também os
+   registros externos, incluindo o prazo periódico sem watcher. Os caminhos
+   canônicos dos documentos são coletados uma vez por pedido para a validação
+   e o refresh, eliminando a duplicação encontrada após a matriz. Passaram
+   os sete testes dirigidos, incluindo reescrita idêntica sem reconstrução,
+   os **354 testes do LSP**, clippy, documentação estrita, fmt e release,
+   com fontes estáveis. No cenário de disco com projetos fechados analisados,
+   references passou de **16/20 para 20/20** iguais ao Dart, sem regressões;
+   persistem 20 diferenças de rename/prepareRename entre 80 respostas.
+   Com análise restrita aos projetos abertos, o Dart vivo não acompanhou as
+   gravações nesse ensaio; uma análise Dart nova em cada estado confirmou
+   **80/80 respostas do candidato**, contra **74/80 da base**. O confronto
+   com o Dart vivo permanece reprovado e não foi convertido em paridade.
+   Os controles anteriores preservaram **1.240/1.240** respostas ampliadas
+   e **160/160** entre pastas, mantendo as diferenças contra o Dart. Uma
+   matriz de **27 sessões** preservou 162 respostas, 54 mapas e nove estados
+   finais. As medianas quentes passaram de **0,456 → 0,412 ms** no limitless,
+   **0,290 → 0,287 ms** no core e **0,315 → 0,293 ms** no frontend. O pico/final
+   do frontend ficou em **996,02/996,02 → 1.032,70/950,03 MiB**: resultado de
+   memória misto. O primeiro pedido do frontend passou de **6,42–6,44 s para
+   6,46–6,47 s**, ainda muito acima do Dart. A meta geral continua reprovada.
+
+   **Configuração do cache, em validação:** reproduzida uma referência ao
+   pacote antigo depois de redirecionar `package:dep` no package config.
+   O índice completo agora leva a identificação do pubspec, do mapa de pacotes
+   selecionado a partir do arquivo e da raiz de gerados. O formato passou a
+   **8**; lotes parciais não se apresentam como índices completos. Mudanças
+   periódicas invalidam também as sessões semânticas, e regravações idênticas
+   conservam o cache. Passaram **355 testes do LSP**, clippy, documentação
+   estrita, fmt e release, com fontes estáveis. O novo caso de troca/reversão
+   de pacote manteve **80/80 respostas iguais ao Dart vivo e à análise nova**,
+   contra **76/80 da base**, nos dois SDKs. Os controles anteriores mantiveram
+   **1.240/1.240** respostas ampliadas e **160/160** entre pastas, com as mesmas
+   diferenças contra o Dart. No Windows, o checkout existente foi avançado
+   em `main` para `98d22ac6` e recebeu o patch local: **1.964 fontes com blobs
+   Git normalizados iguais**, sem divergências. A compilação da suíte LSP
+   terminou com os SDKs Windows 3.6.2 e 3.13.4. A primeira rodada falhou em
+   dois testes: comparação com um caminho `\\?\` sem normalizar e URIs de
+   arquivo sem unidade Windows. Corrigidas as fixtures, mantendo as mesmas
+   exigências de conteúdo e ordem: **354 testes Windows passaram em 34 alvos**,
+   sem falhas ou ignorados (209,39 s), com fontes conferidas antes/depois.
+   No macOS passaram novamente **355 testes**, clippy, documentação estrita,
+   fmt e release; o executável release ficou **idêntico byte a byte** ao
+   candidato anterior. O teste extra macOS é restrito a sistemas não Windows.
+   A conferência da troca/reversão de pacotes pelo protocolo Windows passou:
+   **80/80 respostas iguais ao Dart vivo e a uma análise nova**, nos dois
+   SDKs, com fontes/binário estáveis e fixtures restauradas. Usa executável
+   debug e não mede desempenho. Ainda não há benchmark Windows desta fonte.
+   A matriz macOS dos formatos 7/8 concluiu **27 sessões**, preservando
+   **162 respostas, 54 mapas de diagnósticos e nove estados finais**, com
+   fontes, binários, entradas e seis caches estáveis. Separando os primeiros
+   pedidos dos seis aquecidos, as medianas quentes passaram de
+   **0,399 → 0,411 ms**, **0,281 → 0,275 ms** e **0,278 → 0,277 ms**
+   (limitless/core/frontend). A primeira consulta do frontend continua em
+   **6,46–6,47 s**. Seu pico/amostra final de footprint passou de
+   **1.029,39/947,39 para 997,64/997,64 MiB**: pico menor, final maior.
+   O formato 8 corrige a validade do cache, sem ganho uniforme de desempenho.
+
+   **Mapa de pacotes com data/tamanho preservados, em validação:** ampliado
+   o teste de configuração para regravar o mapa mantendo exatamente o carimbo
+   anterior. Mesmo após invalidar a configuração, a análise devolvia o pacote
+   antigo; a regressão falhou antes e passou depois. `PackageConfig::load`
+   agora confere também o hash do conteúdo antes de reutilizar o mapa analisado,
+   evitando repetir o parsing e a canonicalização das raízes quando ele coincide.
+   O teste cobre a troca notificada e a reversão periódica com carimbo preservado.
+   Passaram os **56 testes de elements em seis alvos**, os **355 do LSP macOS**,
+   os **354 do LSP Windows**, sem falhas ou ignorados, e clippy do workspace.
+   O novo cenário Windows preservando carimbo manteve **80/80 respostas iguais
+   ao Dart vivo e à análise nova** nos SDKs 3.6.2/3.13.4. Documentação estrita
+   e fmt passaram, assim como o release, com fontes estáveis. No macOS, o
+   novo oráculo passou de **74/80 para 80/80** iguais ao Dart vivo e à análise
+   nova; os controles mantiveram **1.240/1.240 e 160/160** respostas anteriores,
+   com as diferenças conhecidas contra o Dart. Uma nova matriz de **27 sessões**
+   preservou 162 respostas, 54 mapas e nove estados finais, mas a primeira
+   consulta do frontend passou de **6,48 para 6,57 s** (medianas de três).
+   O footprint final ficou em **994,06 → 990,94 MiB**, ainda acima do Dart.
+   O reparo de correção mostrou custo de latência e não foi declarado ganho.
+
+   **Conferência de conteúdo por geração confiável, em validação:** conserva
+   a leitura em cada load quando o processo não confia no cache de arquivos.
+   No residente que acompanha watcher/prazo periódico, confere o conteúdo uma
+   vez por geração; `forget`, `clear` e desligar a confiança invalidam essa
+   geração. Notificações explícitas de configuração invalidam também essa base.
+   Passaram os dois testes dirigidos, **57 testes de elements e 355 do LSP no
+   macOS**, clippy, documentação estrita, fmt e release, com fontes estáveis.
+   No Windows passaram **58 de elements e 354 do LSP**, sem falhas ou ignorados,
+   com fontes conferidas; há testes específicos de plataforma nos dois crates.
+   O novo teste cobre substituição sem confiança, notificação por `forget`,
+   rejeição de mapa inválido por `clear` e desligamento da confiança, todos com
+   data e tamanho preservados. Nos dois sistemas, o caso de configuração manteve
+   **80/80 respostas iguais ao Dart vivo e à análise nova**; os controles macOS
+   preservaram **1.240/1.240 e 160/160** anteriores, com as diferenças conhecidas
+   contra o Dart. A matriz de **27 sessões** preservou 162 respostas, 54 mapas
+   e nove estados finais. Contra a base original do formato 8, a primeira
+   consulta do frontend ficou em **6,53 → 6,56 s**, com faixas sobrepostas;
+   pico/final **995,85/995,85 → 1.034,78/969,10 MiB**. Não há ganho uniforme.
+
+   **Retenção seletiva de dependentes, em validação:** uma adição/remoção de
+   função isolada pode conservar os registros dos dependentes quando seus
+   textos atuais não citam os nomes alterados e a configuração continua a mesma.
+   A biblioteca editada é registrada inteira; posições estrangeiras dos fatos
+   mantidos são deslocadas, com validação anterior a qualquer mutação e sem
+   deslocar novamente registros já atualizados pelo residente. Sem prova,
+   mantém a reconstrução ampla. Textos anteriores de documentos abertos ficam
+   limitados a 1 MiB e são descartados ao fechar/trocar contexto. Passaram
+   **99 testes unitários do LSP**, incluindo várias edições sem salvar,
+   reversão, UTF-16/CRLF, documentação, nomes não resolvidos e parts. A suíte
+   completa, verificações estáticas e release foram iniciados; oráculos e
+   desempenho dessa mudança ainda pendem. Não integra as matrizes acima.
+
+   **Próximos passos:** medir construção do índice e consultas, reduzir os
+   lotes e a reconstrução de caches, conservando as posições atuais das
+   declarações nos fatos mantidos. Também pendem identidade geral de elementos,
+   parts, slots removidos, mudanças de assinatura e `OutlineTypes` por
+   biblioteca. Sessões longas e desempenho Windows precisam de nova rodada;
+   a suíte LSP e o cenário de troca de pacotes da fonte atual passaram no Windows.
+   No corpus Windows foram reparadas dez raízes ausentes do core por junções
+   para as mesmas versões já no cache Pub, sem mudar o package config.
+   Os manifestos ficaram sem raízes ausentes (core 6.017 arquivos, frontend
+   6.215); isso não prova identidade com os corpora do macOS nem paridade.
+   Implementação, matrizes, regressões e reprodução: `docs/LSP.md`.
 
 2. **Índice de referências resolvidas.** O ensaio que abriu este item registrou `references`
    dos tipos do SDK no frontend em **9,6 s × 344 ms**, com o mesmo resultado (cerca de 15 s de CPU por busca de `String`
@@ -14534,3 +16973,46 @@ aquecimento nenhum, deu 7/214 sem nenhuma dessas falhas.
 **Armadilha registrada**: não rodar `compile-js` enquanto o `build_runner`
 está rodando — o `--delete-conflicting-outputs` apaga a árvore de gerados
 e o carregador falha em dezenas de `.template.dart`.
+
+A rodada Windows v7 terminou: **587 testes em 94 alvos**, sem falhas ou
+ignorados: 218 JS/world (58 alvos), quatro de resolução, um CLI e
+364 LSP (34 alvos). As 1.975 fontes normalizadas ficaram estáveis; as
+quatro diferenças de bytes para o Mac são de fim de linha. A proposta
+externa de identidade de diretório passou depois nos **oito controles
+também no Windows**, usando junctions; o `elements` atual falha em quatro
+dos mesmos testes nos dois sistemas. Isso não integra a proposta nem
+fecha o gate macOS, ainda em andamento.
+
+Uma nova triagem AOT confirmou perda de **frames de usuário** em
+`private/private3`: o binário v7 imprime só `Object.noSuchMethod`,
+embora o IR tenha labels, `uwtable` e as chamadas dos três níveis. Um
+controle menor separou a causa de partes: throws diretos na unidade e
+numa parte preservam os chamadores, mas os dois caminhos que voltam
+a Dart pelo `noSuchMethod` do runtime perdem todos os frames de usuário
+em `check -O2`. Em `tables -O2` os quatro caminhos preservam os três
+frames exigidos, assim como a VM. Portanto, as diferenças de pilha
+não se reduzem à apresentação dos frames internos da VM. O reparo
+continua pendente; artefatos em `/tmp/dartforge-v7-part-symbolic-control/`
+e `/tmp/dartforge-v7-reentry-trace-control/`. Não há medição de desempenho
+nesses controles.
+
+O controle de pilha isolou o problema de link no macOS ARM64: o caminho
+existente que retém os objetos nativos do LTO e os relinka cobre
+`tables` e raízes por mapas, mas exclui a pilha simbólica em `check`.
+No controle **só de link**, os mesmos bitcodes/flags/SDK/runtime
+perderam os chamadores no link simples e preservaram os três frames
+os dois casos após a segunda etapa com os objetos nativos. Throws
+diretos e em parte continuaram corretos. O IR textual e o bitcode do
+SDK já têm `uwtable`; o executável do link simples contém uma faixa
+de encoding de unwind zero nos adaptadores envolvidos. Um SDK novo
+reproduziu o problema, descartando a hipótese de cache antigo.
+
+A extensão de uma condição para incluir `symbolic_stack_trace()` está
+preparada em `/tmp/dartforge-v7-reentry-trace-control/linker_macos.patch`,
+ainda sem mudar a fonte congelada. A prova de link está em
+`relink-control.json`; as variantes com debug/frame pointers também
+continuaram falhando (a variante de frame pointers reutilizou o SDK
+anterior, portanto não isola o efeito no SDK). O LLDB não completou
+o lançamento, sem breakpoint resolvido; a sessão de diagnóstico e
+seus filhos foram encerrados, sem interromper a suíte. Não há nova
+medição de desempenho ou certificação geral.

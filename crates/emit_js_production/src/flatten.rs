@@ -110,9 +110,11 @@ impl<'s> Analysis<'s> {
                 .target(&m.object)
                 .map(|n| (n.to_string(), m.property.name.to_string())),
             Expression::ComputedMemberExpression(m) => match &m.expression {
-                Expression::StringLiteral(s) if is_identifier(s.value.as_str()) => self
-                    .target(&m.object)
-                    .map(|n| (n.to_string(), s.value.to_string())),
+                Expression::StringLiteral(s) => {
+                    let value = s.value.as_str().filter(|s| is_identifier(s))?;
+                    self.target(&m.object)
+                        .map(|n| (n.to_string(), value.to_string()))
+                }
                 _ => None,
             },
             _ => None,
@@ -145,15 +147,17 @@ impl<'a> Visit<'a> for Analysis<'_> {
     fn visit_computed_member_expression(&mut self, it: &ComputedMemberExpression<'a>) {
         if let Some(n) = self.target(&it.object).map(str::to_string) {
             match &it.expression {
-                Expression::StringLiteral(s) if is_identifier(s.value.as_str()) => {
-                    let ns = self.ns.get_mut(&n).expect("namespace");
-                    ns.accesses
-                        .push((s.value.to_string(), it.span.start, it.span.end));
+                Expression::StringLiteral(s) => {
+                    // Non-identifiers, including lone surrogates, stay as
+                    // properties of the namespace object.
+                    if let Some(value) = s.value.as_str().filter(|s| is_identifier(s)) {
+                        self.ns.get_mut(&n).expect("namespace").accesses.push((
+                            value.to_string(),
+                            it.span.start,
+                            it.span.end,
+                        ));
+                    }
                 }
-                // `core["EnumName|get#name"]`: a name that is never an
-                // identifier stays a property of the object, which keeps
-                // existing. The same through the deduplication `t$S…`.
-                Expression::StringLiteral(_) => {}
                 Expression::Identifier(i) if self.opaque_keys.contains(i.name.as_str()) => {}
                 // `N[expr]`: the object is read by name at run time.
                 _ => {
@@ -197,11 +201,12 @@ impl<'a> Visit<'a> for Analysis<'_> {
                                             .insert(k.name.to_string());
                                     }
                                     PropertyKey::StringLiteral(k) => {
-                                        self.ns
-                                            .get_mut(&n)
-                                            .expect("namespace")
-                                            .pinned
-                                            .insert(k.value.to_string());
+                                        let ns = self.ns.get_mut(&n).expect("namespace");
+                                        if let Some(value) = k.value.as_str() {
+                                            ns.pinned.insert(value.to_string());
+                                        } else {
+                                            ns.escapes = true;
+                                        }
                                     }
                                     _ => self.ns.get_mut(&n).expect("namespace").escapes = true,
                                 },
@@ -233,9 +238,14 @@ impl<'a> Visit<'a> for Analysis<'_> {
                 .target(&m.object)
                 .map(|n| (n.to_string(), m.property.name.to_string())),
             AssignmentTarget::ComputedMemberExpression(m) => match &m.expression {
-                Expression::StringLiteral(s) if is_identifier(s.value.as_str()) => self
-                    .target(&m.object)
-                    .map(|n| (n.to_string(), s.value.to_string())),
+                Expression::StringLiteral(s) => s
+                    .value
+                    .as_str()
+                    .filter(|s| is_identifier(s))
+                    .and_then(|value| {
+                        self.target(&m.object)
+                            .map(|n| (n.to_string(), value.to_string()))
+                    }),
                 _ => None,
             },
             _ => None,
@@ -316,7 +326,7 @@ fn opaque_keys(program: &oxc_ast::ast::Program<'_>) -> HashSet<String> {
             if let Some(id) = it.id.get_binding_identifier()
                 && id.name.starts_with("t$S")
                 && let Some(Expression::StringLiteral(l)) = &it.init
-                && !is_identifier(l.value.as_str())
+                && !l.value.as_str().is_some_and(is_identifier)
             {
                 self.0.insert(id.name.to_string());
             }

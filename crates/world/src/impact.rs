@@ -1519,7 +1519,11 @@ fn stmt(m: &mut Engine<'_>, ctx: &Context, id: StmtId) {
             then,
             else_,
         } if constant_condition(m, ctx, *condition).is_some() => {
-            // Dead branch by a constant condition: the emitter does not write it either.
+            // Some backends keep the proven condition's evaluation. Retain its
+            // getters and arguments while excluding only the dead branch.
+            if m.preserve_constant_conditions {
+                expr(m, ctx, *condition);
+            }
             if constant_condition(m, ctx, *condition) == Some(true) {
                 stmt(m, ctx, *then);
             } else if let Some(x) = else_ {
@@ -2088,23 +2092,43 @@ fn no_asserts(m: &Engine<'_>) -> bool {
 
 /// Is the condition `x` constant (`constants.rs`)? Only for the forms that
 /// the emitter also folds (identifier, property, `!`, `&&`, `||`,
-/// parentheses); a literal does not count (there is nothing to save).
+/// parentheses), including literal booleans so dead branches create no
+/// strong edge that could incorrectly retain a weak target.
 pub(crate) fn constant_condition(m: &Engine<'_>, ctx: &Context, x: ExprId) -> Option<bool> {
-    let c = m.constants.as_ref()?;
     match &m.e.program.unit(ctx.unit).ast.expr(x).kind {
+        ExprKind::Bool(value) => Some(*value),
         ExprKind::Identifier(_)
         | ExprKind::Property { .. }
         | ExprKind::Unary { .. }
         | ExprKind::Binary { .. }
         | ExprKind::Is { .. }
         | ExprKind::Call { .. }
-        | ExprKind::Parenthesized(_) => c.bool_of(ctx.unit, x),
+        | ExprKind::Parenthesized(_) => m.constants.as_ref()?.bool_of(ctx.unit, x),
         _ => None,
     }
 }
 
 fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
-    if constant_condition(m, ctx, id).is_some() {
+    if m.elided_const_initializers.contains(&(ctx.unit, id)) {
+        return;
+    }
+    if m.weak_calls.contains_key(&(ctx.unit, id)) {
+        if let Some(body) = m.e.bodies.units.get(ctx.unit.0 as usize) {
+            if let Some(ty) = body.get_type(id) {
+                m.visit_type(ty);
+            }
+            let ast = &m.e.program.unit(ctx.unit).ast;
+            if let ExprKind::Call { arguments, .. } = &ast.expr(id).kind
+                && let Some(argument) = arguments.args.first()
+                && let Some(ty) = body.get_type(argument.value)
+            {
+                m.visit_type(ty);
+            }
+        }
+        return;
+    }
+
+    if !m.preserve_constant_conditions && constant_condition(m, ctx, id).is_some() {
         return;
     }
     if let Some(receiver) = parity_getter(m, ctx, id) {
@@ -2577,15 +2601,20 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             condition,
             then,
             else_,
-        } => match constant_condition(m, ctx, *condition) {
-            Some(true) => expr(m, ctx, *then),
-            Some(false) => expr(m, ctx, *else_),
-            None => {
+        } => {
+            let known = constant_condition(m, ctx, *condition);
+            if known.is_none() || m.preserve_constant_conditions {
                 expr(m, ctx, *condition);
-                expr(m, ctx, *then);
-                expr(m, ctx, *else_);
             }
-        },
+            match known {
+                Some(true) => expr(m, ctx, *then),
+                Some(false) => expr(m, ctx, *else_),
+                None => {
+                    expr(m, ctx, *then);
+                    expr(m, ctx, *else_);
+                }
+            }
+        }
         ExprKind::Is { value, ty, .. } | ExprKind::As { value, ty } => {
             expr(m, ctx, *value);
             ast_type(m, ctx, *ty);

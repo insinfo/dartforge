@@ -868,6 +868,9 @@ pub struct Function {
 /// previous one in the block.
 #[derive(Debug, Clone, Default)]
 pub struct FunctionDebugInfo {
+    /// Source-derived display name when the stable symbol is not user-facing
+    /// (notably `new Class.named` for generative and factory constructors).
+    pub user_name: Option<String>,
     /// The absolute path of the `.dart` file (or the URI, without a file).
     pub file: String,
     /// The url of the script in the VM's stack trace (§13.14, `Context::stack_trace_url`).
@@ -915,6 +918,13 @@ impl Function {
     /// fingerprints and the body suffixes (`$e…`, `$q…`, `$async`,
     /// `$ent`, `$new`, the repetition `$<k>`) are dropped.
     pub fn stack_trace_name(&self) -> String {
+        if let Some(name) = self
+            .debug_info
+            .as_ref()
+            .and_then(|info| info.user_name.as_ref())
+        {
+            return name.clone();
+        }
         let base = match self.symbol.strip_prefix("dart_main") {
             Some(rest) => format!("main{rest}"),
             None => self

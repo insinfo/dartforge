@@ -86,9 +86,9 @@ impl<'a> Visit<'a> for Finder<'_> {
         if let Some(id) = it.id.get_binding_identifier()
             && id.name.starts_with("t$S")
             && let Some(Expression::StringLiteral(l)) = &it.init
+            && let Some(value) = l.value.as_str()
         {
-            self.strings
-                .insert(id.name.to_string(), l.value.to_string());
+            self.strings.insert(id.name.to_string(), value.to_string());
         }
         walk::walk_variable_declarator(self, it);
     }
@@ -146,15 +146,16 @@ impl<'a> Visit<'a> for Finder<'_> {
             && matches!(&r.callee, Expression::Identifier(i) if i.name == "t$R")
             && let Some(Expression::StringLiteral(l)) =
                 r.arguments.first().and_then(|a| a.as_expression())
+            && let Some(value) = l.value.as_str()
         {
-            self.closure_recipes.insert(l.value.to_string());
+            self.closure_recipes.insert(value.to_string());
         }
         if (it.span.start > self.sdk_end || self.sdk_recipes && self.depth > 0)
             && matches!(&it.callee, Expression::Identifier(i) if i.name == "t$R")
             && it.arguments.len() == 1
         {
             let recipe = match it.arguments[0].as_expression() {
-                Some(Expression::StringLiteral(l)) => Some(l.value.to_string()),
+                Some(Expression::StringLiteral(l)) => l.value.as_str().map(str::to_string),
                 Some(Expression::Identifier(i)) => self.strings.get(i.name.as_str()).cloned(),
                 _ => None,
             };
@@ -546,11 +547,11 @@ pub fn apply(source: &str) -> Result<String, String> {
     // The program's closed recipes evaluated once: a repeated `t$R("R")`
     // becomes the variable `t$T…`, declared right after the SDK (the rti
     // universe already exists, and the result is the same canonical object).
-    // The runtime's calls inside functions count too: a function runs after
-    // the file loads, and the hot paths of the runtime (`_awaitOnObject`,
-    // the `Future` listeners) stop paying one `Map` lookup per recipe
-    // (`docs/JS-PRODUCAO-VELOCIDADE.md` §9.3). An IIFE's body runs while
-    // the runtime loads: it keeps `t$R`.
+    // The runtime's calls inside functions count too: hot paths such as
+    // `_awaitOnObject` and Future listeners reuse the canonical value. SDK
+    // functions can also run while these variables are being initialized;
+    // their replacements keep a lookup fallback for that bootstrap interval.
+    // An IIFE's body runs while the runtime loads: it keeps `t$R`.
     // `DARTFORGE_JSPROD_FIXED_RECIPES=0` turns it off.
     if sdk_end != u32::MAX
         && std::env::var("DARTFORGE_JSPROD_FIXED_RECIPES").map_or(true, |v| v != "0")
@@ -579,7 +580,15 @@ pub fn apply(source: &str) -> Result<String, String> {
         let mut edits: Vec<(u32, u32, String)> = Vec::new();
         for (i, f, r) in &a.recipes {
             if let Some(n) = names.get(r.as_str()) {
-                edits.push((*i, *f, n.clone()));
+                // Evaluating a hoisted recipe calls SDK functions before all
+                // cache variables are initialized. Keep their original lookup
+                // available until the canonical cached value exists.
+                let value = if *i < sdk_end {
+                    format!("({n} ?? t$R({}))", dartforge_emit_js::js::string_literal(r))
+                } else {
+                    n.clone()
+                };
+                edits.push((*i, *f, value));
             }
         }
         if !repeated.is_empty() {

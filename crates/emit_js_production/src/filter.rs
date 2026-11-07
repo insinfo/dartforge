@@ -154,6 +154,22 @@ impl Adapter<'_> {
 }
 
 impl Liveness for Adapter<'_> {
+    fn elided_const_initializer(
+        &self,
+        unit: dartforge_elements::model::UnitId,
+        expr: dartforge_frontend::ast::ExprId,
+    ) -> bool {
+        self.world.elided_const_initializer(unit, expr)
+    }
+
+    fn weak_reference(
+        &self,
+        unit: dartforge_elements::model::UnitId,
+        expr: dartforge_frontend::ast::ExprId,
+    ) -> Option<(FunctionElementId, bool)> {
+        self.world.weak_reference(unit, expr)
+    }
+
     fn class_level(&self, c: ClassId) -> Level {
         match self.world.class_level(c) {
             ClassLevel::Instantiated => Level::Instantiated,

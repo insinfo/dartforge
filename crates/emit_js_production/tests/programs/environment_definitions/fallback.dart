@@ -1,0 +1,1 @@
+const choice = 'fallback';

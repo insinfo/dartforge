@@ -76,6 +76,36 @@ pub struct ExtensionTypeData {
 }
 
 impl OutlineTypes {
+    /// Whether any class declaration explicitly specifies parameter variance.
+    ///
+    /// Production backends may omit variance-aware RTI only when this is false.
+    /// The outline and table must belong to the same inference result.
+    ///
+    /// ```
+    /// use dartforge_elements::model::Program;
+    /// use dartforge_intern::Interner;
+    /// use dartforge_types::{CoreTypes, TypeTable, resolve_outline};
+    /// let program = Program::default();
+    /// let mut names = Interner::new();
+    /// names.intern("_");
+    /// let mut table = TypeTable::new();
+    /// let core = CoreTypes::init(&mut table, &program, &names);
+    /// let (outline, _) = resolve_outline(&program, &names, &mut table, &core);
+    /// assert!(!outline.has_declared_class_variance(&table));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if a class parameter identifier does not belong to `table`.
+    pub fn has_declared_class_variance(&self, table: &TypeTable) -> bool {
+        self.classes.iter().any(|class| {
+            class
+                .type_params
+                .iter()
+                .any(|&parameter| table.param(parameter).variance != Variance::Unspecified)
+        })
+    }
+
     /// Replaces the `ast::TypeId`s of `u` in [`OutlineTypes::written_types`]
     /// using `map` (a unit's text swap without reloading,
     /// `dartforge_elements::incremental`). Refuses, without changing anything, if

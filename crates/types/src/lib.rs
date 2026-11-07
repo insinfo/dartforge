@@ -311,3 +311,6 @@ pub fn infer_library_bodies(
     inferrer.only_libraries = Some(libraries.iter().map(|l| l.0).collect());
     inferrer.infer_all()
 }
+
+/// Semantic static weak-reference declarations and calls.
+pub mod static_weak_references;

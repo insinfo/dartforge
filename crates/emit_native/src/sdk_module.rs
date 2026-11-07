@@ -13,11 +13,13 @@
 //! zero before the lowering compiles them.
 
 use crate::generator::{Format, Generation, Generator};
+use dartforge_elements::environment::{CompilationEnvironment, EnvironmentTarget};
 use dartforge_elements::sdk::SdkLayout;
 use std::path::{Path, PathBuf};
 
 mod context_calls;
 mod function_attributes;
+mod shared_registration;
 
 /// The overlay target in `native_sdk/libraries.json`.
 pub const OVERLAY_TARGET: &str = "dartforge_native";
@@ -123,6 +125,32 @@ pub fn overlay_dir() -> PathBuf {
 /// The native SDK: the `vm` section of `lib_dir` with the overlay.
 pub fn load_native_sdk(lib_dir: &Path) -> Result<SdkLayout, String> {
     SdkLayout::load_with_overlay(lib_dir, &overlay_dir(), overlay_target())
+}
+
+fn resolve_environment(
+    lib_dir: &Path,
+    profile: SdkProfile,
+    flags: crate::DartFlags,
+    environment: Option<&CompilationEnvironment>,
+) -> Result<Option<CompilationEnvironment>, String> {
+    if crate::target::is_wasm() {
+        if environment.is_some() {
+            return Err("native environment context cannot be used by a WebAssembly SDK".into());
+        }
+        return Ok(None);
+    }
+    if let Some(environment) = environment {
+        if environment.target() == EnvironmentTarget::JavaScript {
+            return Err("JavaScript environment context cannot be used by a native SDK".into());
+        }
+        return Ok(Some(environment.clone()));
+    }
+    let target = if profile == SdkProfile::Development {
+        EnvironmentTarget::NativeJit
+    } else {
+        EnvironmentTarget::NativeAot
+    };
+    CompilationEnvironment::new(target, &load_native_sdk(lib_dir)?, flags.product, &[]).map(Some)
 }
 
 /// Inference diagnostics in the bodies of an SDK library.
@@ -295,8 +323,12 @@ pub fn runtime_cids(ctx: &crate::context::Context) -> Vec<i64> {
 /// overlay.
 fn load_source_libraries(
     lib_dir: &Path,
+    environment: Option<&CompilationEnvironment>,
 ) -> Result<(dartforge_elements::Program, dartforge_intern::Interner), String> {
-    let sdk = sdk_sources_layout(load_native_sdk(lib_dir)?);
+    let mut sdk = sdk_sources_layout(load_native_sdk(lib_dir)?);
+    if let Some(environment) = environment {
+        environment.install(&mut sdk);
+    }
     let tmp = std::env::temp_dir().join(format!(
         "dartforge-sdk-fonte-{}-{:?}",
         std::process::id(),
@@ -328,13 +360,28 @@ fn load_source_libraries(
 ///
 /// # Errors
 /// Failure to load the SDK with the overlay, or to write the cache.
-pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::IdTable>, String> {
+pub fn sdk_class_ids(
+    lib_dir: &Path,
+    environment: Option<&CompilationEnvironment>,
+) -> Result<std::sync::Arc<crate::context::IdTable>, String> {
     use crate::context::IdTable;
     use std::sync::{Arc, Mutex, OnceLock};
     type IdCache = std::collections::HashMap<(PathBuf, String), Arc<IdTable>>;
     static MEMO: OnceLock<Mutex<IdCache>> = OnceLock::new();
     let memo = MEMO.get_or_init(Default::default);
-    let key = sdk_key(lib_dir, "class-ids", &[])?;
+    let environment = resolve_environment(
+        lib_dir,
+        SdkProfile::Development,
+        crate::DartFlags::DEVELOPMENT,
+        environment,
+    )?;
+    let identity = environment.as_ref().map(CompilationEnvironment::identity);
+    let key = sdk_key(
+        lib_dir,
+        "class-ids",
+        &identity.as_deref().into_iter().collect::<Vec<_>>(),
+        environment.as_ref(),
+    )?;
     let memo_key = (lib_dir.to_path_buf(), key.clone());
     if let Some(t) = memo
         .lock()
@@ -355,7 +402,8 @@ pub fn sdk_class_ids(lib_dir: &Path) -> Result<std::sync::Arc<crate::context::Id
             let t = std::thread::Builder::new()
                 .stack_size(256 << 20)
                 .spawn(move || -> Result<IdTable, String> {
-                    let (program, interner) = load_source_libraries(&lib_dir_c)?;
+                    let (program, interner) =
+                        load_source_libraries(&lib_dir_c, environment.as_ref())?;
                     let compiled: Vec<bool> = program
                         .libraries
                         .iter()
@@ -428,7 +476,7 @@ pub fn emit_sdk_libraries_with(
     production: bool,
     flags: crate::DartFlags,
 ) -> Result<Vec<SdkLibrary>, String> {
-    emit_sdk_modules(lib_dir, production, flags, false)
+    emit_sdk_modules(lib_dir, production, flags, false, None)
 }
 
 /// Only the compiler-owned complete bundle may delegate image registration.
@@ -438,9 +486,16 @@ fn emit_sdk_modules(
     production: bool,
     flags: crate::DartFlags,
     bundle: bool,
+    environment: Option<&CompilationEnvironment>,
 ) -> Result<Vec<SdkLibrary>, String> {
     use dartforge_types::table::{CoreTypes, TypeTable};
-    let (program, interner) = load_source_libraries(lib_dir)?;
+    let profile = if production {
+        SdkProfile::Production
+    } else {
+        SdkProfile::Development
+    };
+    let environment = resolve_environment(lib_dir, profile, flags, environment)?;
+    let (program, interner) = load_source_libraries(lib_dir, environment.as_ref())?;
     let support = library_support(&load_native_sdk(lib_dir)?);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
@@ -585,7 +640,10 @@ fn emit_sdk_modules(
             .with_arc_ports_at_link(production)
             .with_roots_by_maps(roots_by_maps)
             .with_stack_trace(symbolic_stack_trace)
-            .with_context_parameter(production)
+            // Both public entry ABIs belong to the same SDK image. An
+            // optimized AOT module may be executed by the JIT with this DLL;
+            // its explicit context must reach the actual SDK body unchanged.
+            .with_context_parameter(true)
             .emit_all();
         if roots_by_maps {
             crate::llvm::verify_maps::verify(&ir).map_err(|e| format!("{uri}: {e}"))?;
@@ -593,9 +651,10 @@ fn emit_sdk_modules(
             crate::llvm::verify_shadow::verify(&ir).map_err(|e| format!("{uri}: {e}"))?;
         }
         let ir = if production { with_optsize(&ir) } else { ir };
-        // Unwind table with exceptions by tables and with roots by
-        // maps (the collector's walk; see `lib.rs`).
-        let ir = if (table_exceptions || roots_by_maps) && crate::target::is_unix() {
+        // All stack walkers need to cross SDK frames too (see `lib.rs`).
+        let ir = if (table_exceptions || roots_by_maps || symbolic_stack_trace)
+            && crate::target::is_unix()
+        {
             with_uwtable(&ir)
         } else {
             ir
@@ -603,6 +662,7 @@ fn emit_sdk_modules(
         let ir = if (crate::target::is_unix() || crate::target::is_wasm())
             && !table_exceptions
             && !roots_by_maps
+            && !symbolic_stack_trace
         {
             with_nounwind(&ir)
         } else {
@@ -639,6 +699,9 @@ fn emit_sdk_modules(
             tables,
             allocation_exports,
         });
+    }
+    if !production && bundle && !crate::target::is_wasm() {
+        shared_registration::install(&modules, &mut exit)?;
     }
     Ok(exit)
 }
@@ -689,8 +752,13 @@ fn defined_symbols(ir: &str, exit: &mut Vec<String>) {
 /// source libraries, the `vm` patches, `libraries.json`), of the
 /// overlay, of the compiler (`DARTFORGE_EMITTER_HASH`, `build.rs`), of the
 /// identity of Clang and of the flags.
-fn sdk_key(lib_dir: &Path, clang_id: &str, args: &[&str]) -> Result<String, String> {
-    sdk_key_with_overlay(lib_dir, &overlay_dir(), clang_id, args)
+fn sdk_key(
+    lib_dir: &Path,
+    clang_id: &str,
+    args: &[&str],
+    environment: Option<&CompilationEnvironment>,
+) -> Result<String, String> {
+    sdk_key_with_overlay(lib_dir, &overlay_dir(), clang_id, args, environment)
 }
 
 fn sdk_key_with_overlay(
@@ -698,6 +766,7 @@ fn sdk_key_with_overlay(
     overlay: &Path,
     clang_id: &str,
     args: &[&str],
+    environment: Option<&CompilationEnvironment>,
 ) -> Result<String, String> {
     fn join(
         dir: &Path,
@@ -723,11 +792,14 @@ fn sdk_key_with_overlay(
     }
     // Replacement bytes are selected by the layout, not by their physical directory.
     // Their relative dependencies still resolve from the original SDK logical paths.
-    let sdk = sdk_sources_layout(SdkLayout::load_with_overlay(
+    let mut sdk = sdk_sources_layout(SdkLayout::load_with_overlay(
         lib_dir,
         overlay,
         overlay_target(),
     )?);
+    if let Some(environment) = environment {
+        environment.install(&mut sdk);
+    }
     let mut files = Vec::new();
     join(lib_dir, &mut files, &mut Default::default())?;
     join(overlay, &mut files, &mut Default::default())?;
@@ -775,6 +847,8 @@ fn sdk_key_with_overlay(
     files.dedup();
     let mut h = blake3::Hasher::new();
     h.update(b"dartforge-sdk-selected-source-v7\0");
+    h.update(dartforge_abi::compilation_environment::IR_PREFIX.as_bytes());
+    h.update(dartforge_abi::compilation_environment::SDK_IDENTITY_FILE.as_bytes());
     h.update(crate::target::current().triple().as_bytes());
     h.update(env!("CARGO_PKG_VERSION").as_bytes());
     h.update(b"\0");
@@ -946,12 +1020,17 @@ fn compiled_sdk_key_with_overlay(
     clang_id: &str,
     profile: SdkProfile,
     flags: crate::DartFlags,
+    environment: Option<&CompilationEnvironment>,
 ) -> Result<String, String> {
     let description = sdk_generation(profile).description();
     let flags_tag = flags.cache_tag();
     let packed =
         crate::target::target_os() == crate::target::Os::Linux && crate::linker::relr_enabled()?;
     let mut args = vec![description.as_str(), flags_tag.as_str()];
+    let environment_identity = environment.map(CompilationEnvironment::identity);
+    if let Some(identity) = &environment_identity {
+        args.push(identity);
+    }
     if crate::optimize::disabled() {
         args.push("hir_optimization=disabled_v1");
     }
@@ -964,7 +1043,7 @@ fn compiled_sdk_key_with_overlay(
     if profile == SdkProfile::Development && packed {
         args.push("sdk_dll_relr=glibc_v1");
     }
-    sdk_key_with_overlay(lib_dir, overlay, clang_id, &args)
+    sdk_key_with_overlay(lib_dir, overlay, clang_id, &args, environment)
 }
 
 /// The generation of the SDK modules in the requested profile.
@@ -1023,6 +1102,27 @@ pub fn compiled_sdk(lib_dir: &Path, clang: &Path) -> Result<CompiledSdk, String>
     compiled_sdk_in_profile(lib_dir, clang, SdkProfile::Development)
 }
 
+/// Checks that a source SDK DLL was compiled with the program's declarations.
+/// Legacy IR without an environment header retains its previous loading contract.
+///
+/// # Errors
+/// Missing, invalid or mismatched SDK context metadata.
+///
+/// ```
+/// use std::path::Path;
+/// use dartforge_emit_native::{DartFlags, sdk_module::validate_sdk_environment};
+/// assert!(validate_sdk_environment(Path::new("legacy.dll"), None, DartFlags::DEVELOPMENT).is_ok());
+/// ```
+pub fn validate_sdk_environment(
+    dll: &Path,
+    environment: Option<&CompilationEnvironment>,
+    flags: crate::DartFlags,
+) -> Result<(), String> {
+    let identity =
+        environment.map(|environment| crate::native_context::identity(environment, flags));
+    dartforge_abi::compilation_environment::validate_sdk_identity(dll, identity.as_deref())
+}
+
 /// [`compiled_sdk`] in the requested profile, with the oracle's
 /// [`crate::DartFlags`] (asserts on, `dart.vm.product` false).
 pub fn compiled_sdk_in_profile(
@@ -1030,7 +1130,7 @@ pub fn compiled_sdk_in_profile(
     clang: &Path,
     profile: SdkProfile,
 ) -> Result<CompiledSdk, String> {
-    compiled_sdk_for(lib_dir, clang, profile, crate::DartFlags::DEVELOPMENT)
+    compiled_sdk_for(lib_dir, clang, profile, crate::DartFlags::DEVELOPMENT, None)
 }
 
 /// [`compiled_sdk_in_profile`] with explicit [`crate::DartFlags`]: the flags
@@ -1041,7 +1141,9 @@ pub fn compiled_sdk_for(
     clang: &Path,
     profile: SdkProfile,
     flags: crate::DartFlags,
+    environment: Option<&CompilationEnvironment>,
 ) -> Result<CompiledSdk, String> {
+    let environment = resolve_environment(lib_dir, profile, flags, environment)?;
     // A WebAssembly module links everything statically: no shared library.
     if crate::target::is_wasm() && profile == SdkProfile::Development {
         return Err(
@@ -1070,6 +1172,7 @@ pub fn compiled_sdk_for(
         &generator.identity()?,
         profile,
         flags,
+        environment.as_ref(),
     )?;
     // The production SDK's allocation inventory binds the runtime library it was
     // audited against (`allocation_inventory::publication`): another build of the
@@ -1136,7 +1239,16 @@ pub fn compiled_sdk_for(
         .stack_size(256 << 20)
         .spawn({
             let lib_dir = lib_dir.to_path_buf();
-            move || emit_sdk_modules(&lib_dir, profile == SdkProfile::Production, flags, true)
+            let environment = environment.clone();
+            move || {
+                emit_sdk_modules(
+                    &lib_dir,
+                    profile == SdkProfile::Production,
+                    flags,
+                    true,
+                    environment.as_ref(),
+                )
+            }
         })
         .map_err(|e| e.to_string())?
         .join()
@@ -1412,6 +1524,18 @@ pub fn compiled_sdk_for(
         )
         .map_err(|e| format!("linking the source SDK DLL failed: {e}"))?;
     }
+    if let Some(environment) = &environment {
+        std::fs::write(
+            tmp.join(dartforge_abi::compilation_environment::SDK_IDENTITY_FILE),
+            crate::native_context::identity(environment, flags),
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    std::fs::write(tmp.join("compilation-environment.json"), serde_json::to_vec(&serde_json::json!({
+        "format": 2, "cache_key": key, "environment": environment.as_ref().map(CompilationEnvironment::identity),
+        "context": environment.as_ref().map(|environment| crate::native_context::identity(environment, flags)),
+        "flags": flags.cache_tag()
+    })).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     std::fs::write(
         tmp.join("pronto"),
         serde_json::to_vec(
@@ -1586,11 +1710,11 @@ pub fn with_uwtable(ir: &str) -> String {
 /// The IR with `nounwind` on every defined function that does not have it yet: with
 /// exceptions by check with the shadow stack (the default), nothing unwinds a
 /// frame of Dart code — the exception is a flag in the context, the stack trace
-/// comes from the shadow stack and the production runtime aborts on panic. Without the
+/// is disabled and the production runtime aborts on panic. Without the
 /// attribute, LLVM emits the CFI of every non-leaf function and, on
 /// Mach-O arm64 without a frame pointer, that becomes DWARF in `__eh_frame`
 /// (1.4 MB of `new_sali/backend`). Exceptions by tables
-/// ([`with_uwtable`]) and roots by maps (`_Unwind_Backtrace`)
+/// ([`with_uwtable`]), symbolic traces and roots by maps (`_Unwind_Backtrace`)
 /// cross the frames and do not go through here.
 ///
 /// ```
@@ -1929,6 +2053,7 @@ mod tests {
                     packages: None,
                     timings: true,
                     optimize,
+                    defines: Vec::new(),
                     language_version: None,
                     experiments: Vec::new(),
                     debug: false,
@@ -1985,6 +2110,7 @@ mod tests {
                     packages: None,
                     timings: false,
                     optimize: true,
+                    defines: Vec::new(),
                     language_version: None,
                     experiments: Vec::new(),
                     debug: false,
@@ -2051,6 +2177,7 @@ mod tests {
                     packages: None,
                     timings: false,
                     optimize: true,
+                    defines: Vec::new(),
                     language_version: None,
                     experiments: Vec::new(),
                     debug: false,
@@ -2184,9 +2311,9 @@ mod selected_source_cache_tests {
         )
         .unwrap();
         serde_json::json!({
-            "source": sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap(),
-            "production": compiled_sdk_key_with_overlay(&lib, &overlay, "test-clang", SdkProfile::Production, crate::DartFlags::PRODUCTION).unwrap(),
-            "development": compiled_sdk_key_with_overlay(&lib, &overlay, "test-clang", SdkProfile::Development, crate::DartFlags::DEVELOPMENT).unwrap(),
+            "source": sdk_key_with_overlay(&lib, &overlay, "test-clang", &[], None).unwrap(),
+            "production": compiled_sdk_key_with_overlay(&lib, &overlay, "test-clang", SdkProfile::Production, crate::DartFlags::PRODUCTION, None).unwrap(),
+            "development": compiled_sdk_key_with_overlay(&lib, &overlay, "test-clang", SdkProfile::Development, crate::DartFlags::DEVELOPMENT, None).unwrap(),
         })
     }
 
@@ -2426,6 +2553,73 @@ mod selected_source_cache_tests {
     }
 
     #[test]
+    fn environment_selects_external_sources_and_separates_sdk_namespaces() {
+        let directory = tempfile::tempdir().unwrap();
+        let lib = directory.path().join("sdk/lib");
+        let overlay = directory.path().join("overlay");
+        std::fs::create_dir_all(lib.join("core")).unwrap();
+        std::fs::create_dir_all(lib.join("mirrors")).unwrap();
+        std::fs::create_dir_all(&overlay).unwrap();
+        std::fs::write(lib.join("libraries.json"), r#"{"vm":{"libraries":{"core":{"uri":"core/core.dart"},"mirrors":{"uri":"mirrors/mirrors.dart"}}}}"#).unwrap();
+        std::fs::write(
+            overlay.join("libraries.json"),
+            r#"{"dartforge_native":{"base":"vm"}}"#,
+        )
+        .unwrap();
+        std::fs::write(lib.join("core/core.dart"), "library dart.core; import '../../../fallback.dart' if (dart.library.mirrors) '../../../selected.dart';").unwrap();
+        std::fs::write(lib.join("mirrors/mirrors.dart"), "library dart.mirrors;").unwrap();
+        let fallback = directory.path().join("fallback.dart");
+        let selected = directory.path().join("selected.dart");
+        std::fs::write(&fallback, "library fallback; const value = 1;").unwrap();
+        std::fs::write(&selected, "library selected; const value = 1;").unwrap();
+        let layout = SdkLayout::load_with_overlay(&lib, &overlay, OVERLAY_TARGET).unwrap();
+        let jit = CompilationEnvironment::new(
+            EnvironmentTarget::NativeJit,
+            &layout,
+            false,
+            &["flag=first".into()],
+        )
+        .unwrap();
+        let aot = CompilationEnvironment::new(
+            EnvironmentTarget::NativeAot,
+            &layout,
+            true,
+            &["flag=first".into()],
+        )
+        .unwrap();
+        let key = |env: &CompilationEnvironment| {
+            compiled_sdk_key_with_overlay(
+                &lib,
+                &overlay,
+                "test-clang",
+                SdkProfile::Development,
+                crate::DartFlags::DEVELOPMENT,
+                Some(env),
+            )
+            .unwrap()
+        };
+        let initial_jit = key(&jit);
+        let initial_aot = key(&aot);
+        assert_ne!(initial_jit, initial_aot);
+        std::fs::write(&selected, "library selected; const value = 2;").unwrap();
+        assert_ne!(initial_jit, key(&jit));
+        assert_eq!(initial_aot, key(&aot));
+        std::fs::write(&selected, "library selected; const value = 1;").unwrap();
+        assert_eq!(initial_jit, key(&jit));
+        std::fs::write(&fallback, "library fallback; const value = 2;").unwrap();
+        assert_eq!(initial_jit, key(&jit));
+        assert_ne!(initial_aot, key(&aot));
+        let changed = CompilationEnvironment::new(
+            EnvironmentTarget::NativeJit,
+            &layout,
+            false,
+            &["flag=second".into()],
+        )
+        .unwrap();
+        assert_ne!(key(&jit), key(&changed));
+    }
+
+    #[test]
     fn external_replacement_and_logical_parts_change_sdk_key() {
         let directory = tempfile::tempdir().unwrap();
         let lib = directory.path().join("sdk/lib");
@@ -2452,7 +2646,7 @@ mod selected_source_cache_tests {
         std::fs::write(&replacement, original).unwrap();
         std::fs::write(overlay.join("libraries.json"),
             r#"{"dartforge_native":{"base":"vm","replaces":{"core/core.dart":"../external-core.dart"}}}"#).unwrap();
-        let key = || sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap();
+        let key = || sdk_key_with_overlay(&lib, &overlay, "test-clang", &[], None).unwrap();
         let baseline = key();
         std::fs::write(&replacement, original.replace("marker = 1", "marker = 2")).unwrap();
         assert_ne!(baseline, key());
@@ -2472,7 +2666,7 @@ mod selected_source_cache_tests {
         .unwrap();
         assert_eq!(baseline, key());
         std::fs::remove_file(&replacement).unwrap();
-        assert!(sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).is_err());
+        assert!(sdk_key_with_overlay(&lib, &overlay, "test-clang", &[], None).is_err());
     }
 
     #[cfg(unix)]
@@ -2520,7 +2714,7 @@ mod selected_source_cache_tests {
             "library dart.ffi; const value = 1;",
         )
         .unwrap();
-        let original = sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap();
+        let original = sdk_key_with_overlay(&lib, &overlay, "test-clang", &[], None).unwrap();
         std::fs::write(
             lib.join("ffi/ffi.dart"),
             "library dart.ffi; const value = 2;",
@@ -2528,7 +2722,7 @@ mod selected_source_cache_tests {
         .unwrap();
         assert_ne!(
             original,
-            sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap()
+            sdk_key_with_overlay(&lib, &overlay, "test-clang", &[], None).unwrap()
         );
     }
     #[test]
@@ -2566,7 +2760,7 @@ mod selected_source_cache_tests {
         .unwrap();
         let nested = directory.path().join("selected-nested.dart");
         std::fs::write(&nested, "part of dart.core; const y = 2;").unwrap();
-        let key = || sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).unwrap();
+        let key = || sdk_key_with_overlay(&lib, &overlay, "test-clang", &[], None).unwrap();
         let baseline = key();
         for (path, original, changed) in [
             (
@@ -2586,7 +2780,7 @@ mod selected_source_cache_tests {
             assert_eq!(baseline, key());
         }
         std::fs::remove_file(external.join("helper.dart")).unwrap();
-        assert!(sdk_key_with_overlay(&lib, &overlay, "test-clang", &[]).is_err());
+        assert!(sdk_key_with_overlay(&lib, &overlay, "test-clang", &[], None).is_err());
     }
 
     #[test]
@@ -2594,7 +2788,7 @@ mod selected_source_cache_tests {
         std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(|| {
-                let key = sdk_key(crate::sdk_tests(), "test-clang", &[]).unwrap();
+                let key = sdk_key(crate::sdk_tests(), "test-clang", &[], None).unwrap();
                 assert_eq!(key.len(), 32);
             })
             .unwrap()

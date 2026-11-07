@@ -101,15 +101,10 @@ fn emit(
     input: &Path,
     sdk: Option<&Path>,
     packages: Option<&Path>,
+    language: &dartforge_elements::sdk::LanguageOptions,
 ) -> Result<dartforge_emit_native::EmittedIr, String> {
-    emit_generation(input, sdk, packages, None)
+    emit_generation(input, sdk, packages, language, None)
 }
-
-/// The language options of this `run` (`--language-version`,
-/// `--enable-experiment`), for every generation of the program.
-#[cfg(feature = "jit")]
-static RUN_LANGUAGE: std::sync::OnceLock<dartforge_elements::sdk::LanguageOptions> =
-    std::sync::OnceLock::new();
 
 /// [`emit`] of a new generation of the running program: `previous` is the IR
 /// of the live generation, whose static layout the new one extends.
@@ -118,6 +113,7 @@ fn emit_generation(
     input: &Path,
     sdk: Option<&Path>,
     packages: Option<&Path>,
+    language: &dartforge_elements::sdk::LanguageOptions,
     previous: Option<std::sync::Arc<String>>,
 ) -> Result<dartforge_emit_native::EmittedIr, String> {
     let (input, sdk, packages) = (
@@ -125,6 +121,7 @@ fn emit_generation(
         sdk.map(Path::to_path_buf),
         packages.map(Path::to_path_buf),
     );
+    let language = language.clone();
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
@@ -137,11 +134,9 @@ fn emit_generation(
                     packages: packages.as_deref(),
                     timings: false,
                     optimize: false,
-                    language_version: RUN_LANGUAGE.get().and_then(|l| l.current_version),
-                    experiments: RUN_LANGUAGE
-                        .get()
-                        .map(|l| l.experiments.clone())
-                        .unwrap_or_default(),
+                    defines: language.defines.clone(),
+                    language_version: language.current_version,
+                    experiments: language.experiments.clone(),
                     debug: false,
                     generator,
                     cpu: None,
@@ -167,16 +162,31 @@ fn sdk_library(ir: &str, sdk: Option<&Path>) -> Result<Option<PathBuf>, String> 
     if !dartforge_jit::ir_uses_source_sdk(ir) {
         return Ok(None);
     }
+    let environment = dartforge_emit_native::ir_environment(ir)?;
+    let flags = dartforge_emit_native::ir_dart_flags(ir)?;
     if let Some(d) = std::env::var_os("DARTFORGE_SDK_DLL") {
-        return Ok(Some(PathBuf::from(d)));
+        let dll = PathBuf::from(d);
+        dartforge_abi::compilation_environment::validate_sdk_identity(
+            &dll,
+            dartforge_abi::compilation_environment::ir_identity(ir)?,
+        )?;
+        return Ok(Some(dll));
     }
-    match sdk {
-        Some(dir) => {
-            let clang = dartforge_emit_native::driver::NativeDriverOptions::default().clang;
-            dartforge_emit_native::sdk_module::compiled_sdk(dir, &clang).map(|sdk| Some(sdk.dll))
-        }
-        None => dartforge_emit_native::sdk_module::source_sdk_dll().map(Some),
+    if environment.is_some() && flags.is_none() {
+        return Err("this LLVM IR does not record SDK execution flags; re-emit the source or select its original SDK with DARTFORGE_SDK_DLL".into());
     }
+    let directory = sdk
+        .map(Path::to_path_buf)
+        .map_or_else(dartforge_emit_native::dart_sdk, Ok)?;
+    let clang = dartforge_emit_native::driver::NativeDriverOptions::default().clang;
+    dartforge_emit_native::sdk_module::compiled_sdk_for(
+        &directory,
+        &clang,
+        dartforge_emit_native::sdk_module::SdkProfile::Development,
+        flags.unwrap_or(dartforge_emit_native::DartFlags::DEVELOPMENT),
+        environment.as_ref(),
+    )
+    .map(|sdk| Some(sdk.dll))
 }
 
 /// `dartforge run [--sdk <lib>] [--packages <cfg>] [--timings] <input.dart>
@@ -196,7 +206,7 @@ fn sdk_library(ir: &str, sdk: Option<&Path>) -> Result<Option<PathBuf>, String> 
 #[cfg(feature = "jit")]
 pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     crate::native::set_memory_policy("tracing")?;
-    let usage = "usage: dartforge run [--sdk <lib>] [--packages <package_config.json>] [--timings] [--memory=tracing|arc] [--language-version x.y] [--enable-experiment=a,b] <input.dart> [--] [<main arguments>…]\n       dartforge run --ir <program.ll> [--timings] [--] [<main arguments>…]";
+    let usage = "usage: dartforge run [--sdk <lib>] [--packages <package_config.json>] [--timings] [--memory=tracing|arc] [-Dname=value] [--language-version x.y] [--enable-experiment=a,b] <input.dart> [--] [<main arguments>…]\n       dartforge run --ir <program.ll> [--timings] [--] [<main arguments>…]";
     let mut language = dartforge_elements::sdk::LanguageOptions::default();
     let mut input: Option<PathBuf> = None;
     let mut ready_ir: Option<PathBuf> = None;
@@ -231,20 +241,27 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
             Some(option) if option.starts_with("--memory=") => {
                 crate::native::set_memory_policy(&option["--memory=".len()..])?;
             }
-            Some(option @ ("--language-version" | "--enable-experiment")) => {
+            Some(option @ ("--language-version" | "--enable-experiment" | "--define" | "-D")) => {
                 let value = it.next().and_then(|v| v.to_str()).ok_or(usage)?;
                 language.read_option(option, &mut std::iter::once(value))?;
             }
             Some(option)
                 if option.starts_with("--language-version=")
-                    || option.starts_with("--enable-experiment=") =>
+                    || option.starts_with("--enable-experiment=")
+                    || option.starts_with("--define=")
+                    || option.starts_with("-D") =>
             {
                 language.read_option(option, &mut std::iter::empty::<&str>())?;
             }
             _ => input = Some(PathBuf::from(a)),
         }
     }
-    let _ = RUN_LANGUAGE.set(language);
+    if ready_ir.is_some() && !language.defines.is_empty() {
+        return Err(
+            "environment declarations are already encoded in LLVM IR; compile the source with -D"
+                .into(),
+        );
+    }
     program_args.extend(explicit_args);
     if let Some(input) = &input {
         publish_package_config(input, packages.as_deref())?;
@@ -253,9 +270,10 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
     if let Some(input) = &input {
         dartforge_jit::set_script(input);
     }
+    let prepare_started = timings.then(std::time::Instant::now);
     let (ir, emission) = match (input, ready_ir) {
         (Some(input), None) => {
-            let ir = emit(&input, sdk.as_deref(), packages.as_deref())?;
+            let ir = emit(&input, sdk.as_deref(), packages.as_deref(), &language)?;
             let times = ir.times;
             (ir.text, Some(times))
         }
@@ -266,7 +284,10 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
         ),
         _ => return Err(usage.into()),
     };
+    let prepare_ir = prepare_started.map(|started| started.elapsed());
+    let sdk_started = timings.then(std::time::Instant::now);
     let sdk_dll = sdk_library(&ir, sdk.as_deref())?;
+    let sdk_library = sdk_started.map(|started| started.elapsed());
     let report = dartforge_jit::run_ir_with(&ir, sdk_dll.as_deref())?;
     use std::io::Write;
     let _ = std::io::stdout().flush();
@@ -275,7 +296,8 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
         let phase = |d: Option<std::time::Duration>| d.map_or(0, |d| d.as_nanos());
         eprintln!(
             "{{\"llvm\":\"{major}.{minor}.{patch}\",\"frontend_ns\":{},\"hir_ns\":{},\"llvm_ir_ns\":{},\"ir_bytes\":{},\
-             \"session_ns\":{},\"parse_ir_ns\":{},\"add_module_ns\":{},\"lookup_ns\":{},\"execute_ns\":{},\"jit_total_ns\":{}}}",
+             \"session_ns\":{},\"parse_ir_ns\":{},\"add_module_ns\":{},\"lookup_ns\":{},\"execute_ns\":{},\"jit_total_ns\":{},\
+             \"prepare_ir_ns\":{},\"sdk_library_ns\":{},\"module_total_ns\":{}}}",
             phase(emission.map(|t| t.frontend)),
             phase(emission.map(|t| t.hir)),
             phase(emission.map(|t| t.llvm_ir)),
@@ -286,6 +308,9 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
             report.entry.lookup.as_nanos(),
             report.entry.execute.as_nanos(),
             report.total.as_nanos(),
+            phase(prepare_ir),
+            phase(sdk_library),
+            report.module.total.as_nanos(),
         );
     }
     if report.entry.exit_code != 0 {
@@ -394,7 +419,7 @@ impl Drop for GenerationsDir {
 #[cfg(feature = "jit")]
 pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
     crate::native::set_memory_policy("tracing")?;
-    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--interval <ms>] [--once] [--timings] [--restart] [--memory=tracing|arc] [-- <main arguments>…]";
+    let usage = "usage: dartforge reload <input.dart> [--sdk <lib>] [--packages <package_config.json>] [--interval <ms>] [--once] [--timings] [--restart] [--memory=tracing|arc] [-Dname=value] [--language-version x.y] [--enable-experiment=a,b] [-- <main arguments>…]";
     let mut input: Option<PathBuf> = None;
     let mut sdk: Option<PathBuf> = None;
     let mut packages: Option<PathBuf> = None;
@@ -404,6 +429,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
     let mut restart = false;
     let mut child = false;
     let mut supervisor: Option<u16> = None;
+    let mut language = dartforge_elements::sdk::LanguageOptions::default();
     let (cli_args, program_args) = split_program_arguments(args);
     let mut it = cli_args.iter();
     while let Some(a) = it.next() {
@@ -442,6 +468,18 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
                         .ok_or(usage)?,
                 );
             }
+            Some(option @ ("--language-version" | "--enable-experiment" | "--define" | "-D")) => {
+                let value = it.next().and_then(|v| v.to_str()).ok_or(usage)?;
+                language.read_option(option, &mut std::iter::once(value))?;
+            }
+            Some(option)
+                if option.starts_with("--language-version=")
+                    || option.starts_with("--enable-experiment=")
+                    || option.starts_with("--define=")
+                    || option.starts_with("-D") =>
+            {
+                language.read_option(option, &mut std::iter::empty::<&str>())?;
+            }
             _ if input.is_none() => input = Some(PathBuf::from(a)),
             _ => return Err(usage.into()),
         }
@@ -462,6 +500,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
                 interval_ms,
                 once,
                 timings,
+                &language,
             );
         }
         return supervise(cli_args, &program_args);
@@ -482,7 +521,7 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
         if last != Some(now) {
             last = Some(now);
             let start = std::time::Instant::now();
-            match emit(&input, sdk.as_deref(), packages.as_deref()) {
+            match emit(&input, sdk.as_deref(), packages.as_deref(), &language) {
                 Err(error) => {
                     eprintln!("[reload] compilation error:\n{error}");
                     if generation == 0 {
@@ -662,6 +701,7 @@ fn live_reload(
     interval_ms: u64,
     once: bool,
     timings: bool,
+    language: &dartforge_elements::sdk::LanguageOptions,
 ) -> Outcome {
     let root = reload_source_root(input);
     let interval = std::time::Duration::from_millis(interval_ms);
@@ -673,7 +713,7 @@ fn live_reload(
         let now = stamp(root, packages);
         if last != Some(now) {
             last = Some(now);
-            match emit(input, sdk, packages) {
+            match emit(input, sdk, packages, language) {
                 Ok(ir) => {
                     let sdk_dll = sdk_library(&ir.text, sdk)?;
                     let session =
@@ -709,7 +749,7 @@ fn live_reload(
             if last != Some(now) {
                 last = Some(now);
                 let start = std::time::Instant::now();
-                let ir = match emit_generation(input, sdk, packages, Some(live_ir.clone())) {
+                let ir = match emit_generation(input, sdk, packages, language, Some(live_ir.clone())) {
                     Ok(ir) => ir,
                     Err(error) => {
                         eprintln!("[reload] compilation error:\n{error}");

@@ -528,6 +528,7 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
         &options.clang,
         crate::sdk_module::SdkProfile::Production,
         crate::DartFlags::PRODUCTION,
+        None,
     )
     .unwrap();
     let directory = sdk.objects[0].parent().unwrap();

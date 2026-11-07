@@ -50,7 +50,175 @@ impl Project {
             ty: Some("InvalidType".to_string()),
             documentation: None,
             library: None,
+            declaring_type: None,
         })
+    }
+
+    /// A creation's constructor name is one hover target, including the written
+    /// type arguments and import prefix. Type arguments themselves keep their
+    /// own element hover, and constructor tearoffs keep identifier ranges.
+    pub(crate) fn constructor_hover(&self, unit: UnitId, offset: usize) -> Option<Hover> {
+        let u = self.program().unit(unit);
+        let word = word(&u.source, offset)?;
+        let ast = &u.ast;
+        let bodies = self.query.bodies.units.get(unit.0 as usize)?;
+        fn target_name(ast: &ast::Ast, id: ast::ExprId, word: dartforge_diagnostics::Span) -> bool {
+            match &ast.expr(id).kind {
+                ast::ExprKind::Identifier(name) => name.span == word,
+                ast::ExprKind::Property { target, name, .. } => {
+                    name.span == word || target_name(ast, *target, word)
+                }
+                ast::ExprKind::TypeArguments { target, .. } => target_name(ast, *target, word),
+                _ => false,
+            }
+        }
+        // A failed constructor lookup still has the created interface type.
+        // Check the callee's class binding rather than mistaking an arbitrary
+        // function returning that type for a constructor.
+        fn creation_class(
+            program: &dartforge_elements::model::Program,
+            library: dartforge_elements::model::LibraryId,
+            ast: &ast::Ast,
+            expression: ast::ExprId,
+        ) -> Option<ClassId> {
+            let element = match &ast.expr(expression).kind {
+                ast::ExprKind::Identifier(name) => program.lookup(library, name.sym)?.getter?,
+                ast::ExprKind::Property { target, name, .. } => {
+                    if let ast::ExprKind::Identifier(prefix) = ast.expr(*target).kind
+                        && program.library(library).prefixes.contains_key(&prefix.sym)
+                    {
+                        program
+                            .lookup_prefixed(library, prefix.sym, name.sym)?
+                            .getter?
+                    } else {
+                        return creation_class(program, library, ast, *target);
+                    }
+                }
+                ast::ExprKind::TypeArguments { target, .. } => {
+                    return creation_class(program, library, ast, *target);
+                }
+                _ => return None,
+            };
+            match element {
+                Element::Class(class) => Some(class),
+                _ => None,
+            }
+        }
+        for (index, expression) in ast.exprs.iter().enumerate() {
+            if offset < expression.span.start || offset >= expression.span.end {
+                continue;
+            }
+            let id = ast::ExprId(index as u32);
+            let function = match bodies.get_resolved(id) {
+                Some(dartforge_types::Resolved::Constructor(function)) => Some(*function),
+                _ => None,
+            };
+            let unresolved_type = if function.is_none() {
+                if self.query.display_reference != crate::query::DisplayReference::Current
+                    || bodies.get_resolved(id).is_some()
+                {
+                    continue;
+                }
+                let Some(ty) = bodies.get_type(id) else {
+                    continue;
+                };
+                let Type::Interface { class, .. } = self.query.table.get(ty) else {
+                    continue;
+                };
+                let ast::ExprKind::Call { target, .. } = expression.kind else {
+                    continue;
+                };
+                if creation_class(self.program(), u.library, ast, target) != Some(*class) {
+                    continue;
+                }
+                Some(ty)
+            } else {
+                None
+            };
+            let range = match &expression.kind {
+                ast::ExprKind::Call { target, arguments } if target_name(ast, *target, word) => {
+                    let mut range = ast.expr(*target).span;
+                    if !arguments.type_args.is_empty() {
+                        // The parser stores direct call type arguments on
+                        // Arguments, outside the target expression's span.
+                        let tokens = dartforge_frontend::lexer::lex(
+                            &u.source[range.end..arguments.span.start],
+                        )
+                        .ok()?;
+                        let last = tokens
+                            .iter()
+                            .rev()
+                            .find(|token| token.kind != dartforge_frontend::token::Kind::Eof)?;
+                        range.end += last.span.end;
+                    }
+                    if self.query.display_reference == crate::query::DisplayReference::Legacy
+                        && matches!(
+                            self.identify(unit, offset),
+                            Ok(Some(Denoted {
+                                target: Target::Prefix { .. },
+                                ..
+                            }))
+                        )
+                    {
+                        continue;
+                    }
+                    range
+                }
+                ast::ExprKind::InstanceCreation {
+                    ty, constructor, ..
+                } => {
+                    let annotation = ast.ty(*ty);
+                    let ast::TypeKind::Named { name, .. } = &annotation.kind else {
+                        continue;
+                    };
+                    let keyword =
+                        word.start >= expression.span.start && word.end <= annotation.span.start;
+                    let named = constructor.is_some_and(|name| name.span == word);
+                    let type_name = name.iter().any(|name| name.span == word);
+                    if !keyword && !named && !type_name {
+                        continue;
+                    }
+                    if self.query.display_reference == crate::query::DisplayReference::Legacy
+                        && name.len() > 1
+                        && name[0].span == word
+                        && matches!(
+                            self.identify(unit, offset),
+                            Ok(Some(Denoted {
+                                target: Target::Prefix { .. },
+                                ..
+                            }))
+                        )
+                    {
+                        continue;
+                    }
+                    dartforge_diagnostics::Span {
+                        start: annotation.span.start,
+                        end: constructor.map_or(annotation.span.end, |name| name.span.end),
+                    }
+                }
+                _ => continue,
+            };
+            if let Some(function) = function {
+                return self.hover(
+                    unit,
+                    &Denoted {
+                        target: Target::Constructor(function),
+                        name: range,
+                        expr: Some(id),
+                        concrete: Some(Concrete::Function(function)),
+                    },
+                );
+            }
+            return Some(Hover {
+                range,
+                description: String::new(),
+                ty: unresolved_type.map(|ty| self.query.format(ty)),
+                documentation: None,
+                library: None,
+                declaring_type: None,
+            });
+        }
+        None
     }
 
     /// The hover of what `d` denotes in unit `unit`.
@@ -116,6 +284,11 @@ impl Project {
                 },
                 _,
             ) => (self.describe_type_parameter(*u, *declaration)?, None, None),
+            (Target::Prefix { library, name }, _)
+                if self.query.display_reference == crate::query::DisplayReference::Current =>
+            {
+                (self.describe_prefix(*library, *name)?, None, None)
+            }
             (Target::Prefix { .. }, _) => return None,
             (Target::Top(Element::Class(_)), Some(Concrete::Function(f)))
                 if matches!(
@@ -162,11 +335,19 @@ impl Project {
                 let text_type = self.query.format(ty);
                 let name = self.name(self.program().variable(v).name);
                 let declared = declared.map_or_else(|| text_type.clone(), |t| self.query.format(t));
-                (
-                    format!("{declared} {name}"),
-                    Some(text_type),
-                    self.query.variable_start(v),
-                )
+                let description = if self.query.display_reference
+                    == crate::query::DisplayReference::Current
+                    && d.expr.is_some()
+                {
+                    if d.expr.is_some_and(|expr| self.write_target(unit, expr)) {
+                        format!("set {name}({declared} value)")
+                    } else {
+                        format!("{declared} get {name}")
+                    }
+                } else {
+                    format!("{declared} {name}")
+                };
+                (description, Some(text_type), self.query.variable_start(v))
             }
             (Target::Top(el), None) => (
                 self.describe_type(*el)?,
@@ -236,12 +417,17 @@ impl Project {
                 FunctionKind::Constructor | FunctionKind::SyntheticConstructor
             )
             && d.expr.is_some_and(|e| {
-                self.is_call_target(unit, e) || self.is_call_target_by_property(unit, e)
+                self.is_call_target(unit, e)
+                    || self.is_call_target_by_property(unit, e)
+                    || matches!(
+                        self.program().unit(unit).ast.expr(e).kind,
+                        ast::ExprKind::Call { .. }
+                    )
             })
         {
             description = format!("(new) {description}");
         }
-        if self.deprecated(d) {
+        if self.deprecated(unit, d) {
             description = format!("(deprecated) {description}");
         }
         Some(Hover {
@@ -254,7 +440,39 @@ impl Project {
             } else {
                 self.displayed_library(d)
             },
+            declaring_type: if formal_field {
+                None
+            } else {
+                self.declaring_type(d)
+            },
         })
+    }
+
+    /// Prefix display lists the original URI of each import in declaration
+    /// order. Deferred flags, combinators and selected conditional alternatives
+    /// affect resolution, but do not change the analyzer's prefix signature.
+    fn describe_prefix(
+        &self,
+        library: dartforge_elements::model::LibraryId,
+        name: dartforge_intern::SymbolId,
+    ) -> Option<String> {
+        let program = self.program();
+        let mut imports = Vec::new();
+        for &unit in &program.library(library).units {
+            for directive in &program.unit(unit).unit.directives {
+                if let ast::DirectiveKind::Import {
+                    uri,
+                    prefix: Some(prefix),
+                    ..
+                } = &directive.kind
+                    && prefix.sym == name
+                {
+                    let uri = dartforge_elements::load::string_lit_value(uri)?;
+                    imports.push(format!("import '{uri}' as {};", self.name(name)));
+                }
+            }
+        }
+        (!imports.is_empty()).then(|| imports.join("\n"))
     }
 
     /// The `Member` substitution the hover shows: an instance method or
@@ -273,33 +491,51 @@ impl Project {
         let e = d.expr?;
         let ast = &p.unit(unit).ast;
         let bodies = self.query.bodies.units.get(unit.0 as usize)?;
-        let ty = match fe.kind {
-            FunctionKind::Function | FunctionKind::Operator if !fe.static_ => {
-                match &ast.expr(e).kind {
-                    ast::ExprKind::Property { target, .. } => bodies.get_type(*target)?,
-                    _ => return None,
+        let ty =
+            match fe.kind {
+                FunctionKind::Function | FunctionKind::Operator if !fe.static_ => {
+                    match &ast.expr(e).kind {
+                        ast::ExprKind::Property { target, .. } => bodies.get_type(*target)?,
+                        _ => return None,
+                    }
                 }
-            }
-            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => {
-                // The creation: `C(…)`, `C.n(…)`, `p.C(…)` (the call whose target is the
-                // name, or the property on it).
-                let call = ast
-                    .exprs
-                    .iter()
-                    .enumerate()
-                    .find_map(|(i, x)| match &x.kind {
-                        ast::ExprKind::Call { target, .. } if *target == e => Some(i),
-                        ast::ExprKind::Call { target, .. } => match &ast.expr(*target).kind {
-                            ast::ExprKind::Property { target: t2, .. } if *t2 == e => Some(i),
-                            ast::ExprKind::TypeArguments { target: t2, .. } if *t2 == e => Some(i),
-                            _ => None,
-                        },
-                        _ => None,
-                    })?;
-                bodies.get_type(ast::ExprId(call as u32))?
-            }
-            _ => return None,
-        };
+                FunctionKind::Constructor | FunctionKind::SyntheticConstructor => {
+                    match &ast.expr(e).kind {
+                        ast::ExprKind::Call { .. } | ast::ExprKind::InstanceCreation { .. } => {
+                            bodies.get_type(e)?
+                        }
+                        _ => {
+                            // A tearoff carries a function type; a call target has a
+                            // parent creation whose result is the instantiated class.
+                            let ty = bodies.get_type(e)?;
+                            if let Type::Function { ret, .. } = self.query.table.get(ty) {
+                                *ret
+                            } else {
+                                let call =
+                                    ast.exprs.iter().enumerate().find_map(|(i, x)| {
+                                        match &x.kind {
+                                            ast::ExprKind::Call { target, .. } if *target == e => {
+                                                Some(i)
+                                            }
+                                            ast::ExprKind::Call { target, .. } => {
+                                                match &ast.expr(*target).kind {
+                                                    ast::ExprKind::Property { target, .. }
+                                                    | ast::ExprKind::TypeArguments {
+                                                        target, ..
+                                                    } if *target == e => Some(i),
+                                                    _ => None,
+                                                }
+                                            }
+                                            _ => None,
+                                        }
+                                    })?;
+                                bodies.get_type(ast::ExprId(call as u32))?
+                            }
+                        }
+                    }
+                }
+                _ => return None,
+            };
         let mut table = self.query.table.clone();
         let seen =
             self.query
@@ -712,6 +948,22 @@ impl Project {
         })
     }
 
+    /// The resolved declaration's owner. Looking at the concrete element
+    /// preserves the original owner of an inherited or mixed-in member.
+    fn declaring_type(&self, d: &Denoted) -> Option<String> {
+        let p = self.program();
+        let class = match (d.concrete, &d.target) {
+            (Some(Concrete::Function(f)), _) => p.function(f).class,
+            (Some(Concrete::Variable(v)), _) => p.variable(v).class,
+            (None, Target::Constructor(f) | Target::Top(Element::Function(f))) => {
+                p.function(*f).class
+            }
+            (None, Target::Top(Element::Variable(v))) => p.variable(*v).class,
+            _ => None,
+        }?;
+        Some(self.name(p.class(class).name).to_owned())
+    }
+
     /// The library of the non-local element, as Dart's hover shows it.
     fn displayed_library(&self, d: &Denoted) -> Option<String> {
         let p = self.program();
@@ -722,6 +974,11 @@ impl Project {
                 if in_collection_for(&p.unit(*unit).ast, *declaration) =>
             {
                 p.unit(*unit).library
+            }
+            (Target::Prefix { library, .. }, _)
+                if self.query.display_reference == crate::query::DisplayReference::Current =>
+            {
+                *library
             }
             (Target::Local { .. }, _) | (Target::Prefix { .. }, _) => return None,
             (Target::TypeParameter { unit, declaration }, _) => {
@@ -766,7 +1023,7 @@ impl Project {
     }
 
     /// The element's declaration has `@deprecated` or `@Deprecated(…)`.
-    fn deprecated(&self, d: &Denoted) -> bool {
+    fn deprecated(&self, query_unit: UnitId, d: &Denoted) -> bool {
         let p = self.program();
         let metadata: Option<(UnitId, &[ast::Annotation])> = match (&d.target, d.concrete) {
             (_, Some(Concrete::Function(f))) => {
@@ -789,18 +1046,30 @@ impl Project {
                 .class(*c)
                 .decl
                 .map(|dr| (dr.unit, &p.unit(dr.unit).ast.decl(dr.decl).metadata[..])),
+            (_, Some(Concrete::Variable(v))) => {
+                // Modern analyzer references denote synthetic accessors whose
+                // metadata does not inherit the annotated variable's flags.
+                if self.query.display_reference == crate::query::DisplayReference::Current
+                    && !self
+                        .variable_name(v)
+                        .is_some_and(|(u, span)| u == query_unit && span == d.name)
+                {
+                    return false;
+                }
+                match p.variable(v).node {
+                    dartforge_elements::model::VariableRef::TopLevel { unit, decl, .. } => {
+                        Some((unit, &p.unit(unit).ast.decl(decl).metadata[..]))
+                    }
+                    dartforge_elements::model::VariableRef::Field { unit, member, .. } => {
+                        Some((unit, &p.unit(unit).ast.member(member).metadata[..]))
+                    }
+                    _ => None,
+                }
+            }
             _ => None,
         };
-        metadata.is_some_and(|(u, ms)| {
-            let source = &p.unit(u).source;
-            ms.iter().any(|a| {
-                a.name.last().is_some_and(|n| {
-                    matches!(
-                        &source[n.span.start..n.span.end],
-                        "deprecated" | "Deprecated"
-                    )
-                })
-            })
+        metadata.is_some_and(|(unit, annotations)| {
+            self.query.has_deprecated_metadata(unit, annotations)
         })
     }
 
@@ -1108,7 +1377,15 @@ impl Project {
                 } else {
                     format!("{class}.{name}")
                 };
-                format!("{return_} {displayed}{list}")
+                if self.query.display_reference == crate::query::DisplayReference::Current {
+                    if name.is_empty() {
+                        format!("{return_}{list}")
+                    } else {
+                        format!("{return_}.{name}{list}")
+                    }
+                } else {
+                    format!("{return_} {displayed}{list}")
+                }
             }
             FunctionKind::ImplicitAccessor => {
                 let ty = fe

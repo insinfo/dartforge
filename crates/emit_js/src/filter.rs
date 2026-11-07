@@ -31,6 +31,24 @@ pub enum State {
 }
 
 pub trait Liveness {
+    /// A proven constant initializer with no runtime reads, including weak-only aliases.
+    fn elided_const_initializer(
+        &self,
+        _unit: dartforge_elements::model::UnitId,
+        _expr: dartforge_frontend::ast::ExprId,
+    ) -> bool {
+        false
+    }
+
+    /// A normalized static weak reference and whether its target body is live.
+    fn weak_reference(
+        &self,
+        _unit: dartforge_elements::model::UnitId,
+        _expr: dartforge_frontend::ast::ExprId,
+    ) -> Option<(FunctionElementId, bool)> {
+        None
+    }
+
     fn class_level(&self, c: ClassId) -> Level;
     fn function(&self, f: FunctionElementId) -> State;
     fn variable(&self, v: VariableId) -> State;
