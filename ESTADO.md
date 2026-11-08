@@ -18,8 +18,8 @@ e o [No system toolchain](https://github.com/insinfo/dartforge/actions/runs/4241
 Essa primeira rodada revelou novas falhas: o corpus moderno ficou em
 24/26 nos dois perfis JS; o corpus nativo Windows ficou em 2/164 e o placar
 consolidado em 30/831; o teste de ambiente AOT do pacote JIT falhou no Linux.
-Esses resultados reprovados foram preservados. As correções estão em
-validação local antes de um novo envio, e o CI ainda não está verde.
+Esses resultados reprovados foram preservados. As correções passaram
+na validação local e foram enviadas; a rodada final ainda aguarda o CI.
 Os registros do fechamento estão em
 `/Volumes/ssd_dock/tmp/dartforge-closing-2026-11-07/`.
 
@@ -40,14 +40,67 @@ além da documentação rigorosa dos três pacotes alterados. A primeira
 tentativa conjunta, reprovada por uma simulação de SDK que usou o Dart
 do PATH, foi mantida; a simulação corrigida exige seu próprio executável.
 
-**Nova rodada de fechamento:** a correção `2ab08746` está na `main`, com
-todos os checks locais selecionados concluídos em 0. Estão em execução
-o [CI](https://github.com/insinfo/dartforge/actions/runs/42420570636), o
+**Rodada intermediária:** a correção `2ab08746` passou em todos os checks
+locais selecionados. Seus runs de
+[CI](https://github.com/insinfo/dartforge/actions/runs/42420570636),
 [Heavy completo](https://github.com/insinfo/dartforge/actions/runs/42420576925)
-e o [No system toolchain](https://github.com/insinfo/dartforge/actions/runs/42420578710).
+e [No system toolchain](https://github.com/insinfo/dartforge/actions/runs/42420578710)
+foram cancelados e sucedidos pela rodada final após a correção do agregador abaixo.
 O CI Windows agora executa também a regressão de ambiente AOT/JIT.
-O encerramento aguarda os resultados remotos; não há aprovação geral
-de produção.
+
+**Rodada de fechamento `9e020eed`:** os runs são o
+[CI](https://github.com/insinfo/dartforge/actions/runs/42422662388), o
+[Heavy completo](https://github.com/insinfo/dartforge/actions/runs/42422670050)
+e o [No system toolchain](https://github.com/insinfo/dartforge/actions/runs/42422672768).
+O job CI Linux reprovou na execução pelo JIT do IR AOT otimizado:
+`R_X86_64_TLSLD` não é suportada pelo carregador RuntimeDyld. O cache
+nativo de contexto introduzido pelo perfil AOT chegou indevidamente ao
+objeto do JIT. A adaptação em validação reconhece o grafo exato desse
+cache privado e usa o getter do runtime antes da geração do objeto;
+helpers alterados, endereços expostos e outros globais TLS são preservados.
+Na validação local dessa adaptação, passaram os dois controles dirigidos,
+os **107 testes/exemplos completos do pacote JIT em dez alvos**, sem
+reprovados ou ignorados, e os **15 testes da CLI** de execução e recarga,
+incluindo o IR AOT otimizado nos dois modos de asserts. Passaram também os
+Clippys rigorosos em todos os alvos do JIT e da CLI native/JIT, a documentação
+do JIT sem avisos e a formatação. O conjunto terminou em 0. A correção do
+diretório temporário JS também passou: os dois testes semânticos originais
+foram executados com duas threads, sem falhas ou ignorados, seguidos do
+Clippy rigoroso do alvo e da formatação. Nenhum teste foi removido ou
+serializado para contornar a colisão.
+O teste que revelou a falha continua ativo. Essa rodada não está verde;
+o encerramento aguarda a correção e uma nova validação remota. Não há
+aprovação geral de produção.
+No Windows, a nova regressão de ambiente AOT/JIT e a recarga passaram.
+A prova de campos tipados reprovou depois por exigir LF, embora o programa
+tivesse terminado em 0, com stderr vazio e CRLF correto. O script passa
+a exigir CRLF no Windows e LF nos demais sistemas, registrando também os
+bytes esperados. A comparação corrigida foi conferida contra o artefato
+real; a matriz completa de oito casos será repetida no próximo CI.
+O mesmo job revelou ainda uma colisão entre os diretórios temporários dos
+dois testes de definições JS, antes de qualquer compilação. O helper usava
+somente PID e timestamp, que coincidiram no Windows. A reserva passa a usar
+contador atômico e repetição em caso de diretório existente, como nos testes
+vizinhos, mantendo a execução paralela e as comparações semânticas.
+
+Nessa rodada final já passaram o corpus principal JS (**277/277** em
+desenvolvimento e produção), o moderno (**26/26** nos dois perfis, com
+DDC×VM **26/26**), as duas partes nativas e a consolidação real
+**277/277 em duas partes**. Os seis testes do seletor passaram também no
+runner. O I/O nativo Windows confirmou **164/164**. No corpus principal,
+DDC×VM ficou em **261/277**, com 16 divergências/defeitos declarados na
+referência, preservados no relatório. Ainda faltam os demais jobs dos
+três workflows para declarar o fechamento verde.
+
+O job Windows JIT×AOT passou com **277/277 classificações idênticas**:
+267 programas chegaram à execução dos dois caminhos; dez não produziram
+IR e são contabilizados como iguais por construção. Contra a VM, o JIT
+ficou em **276/277**: em `276_uso_de_valor_void_erro`, ambos recusam o
+programa, mas a referência identifica a linha 11 e o caminho JIT/AOT do
+harness não identifica a linha. Essa diferença de diagnóstico permanece
+no relatório; o gate existente exige zero divergências entre JIT e AOT,
+sem exigir paridade total com a VM. Não é uma medição controlada nova de
+desempenho nem aprovação de produção.
 
 O corpus nativo de I/O no Windows da nova rodada passou em **164/164**.
 O agregador do placar revelou um problema independente: aceitava também
@@ -182,10 +235,24 @@ A mesma fonte congelada iniciou a validação no Windows físico em
 `E:/Temp/dartforge-production-current-v20/`, com fonte, build e caches
 nativo/frontend próprios. Os nove arquivos de lançamento foram
 conferidos antes da execução; os 29 passos de preparação, o build release,
-a formatação e os dois Clippys passaram. Os testes do workspace continuam
-ativos no Windows, inclusive após a perda da conexão pelo reinício do Mac.
-Esse resultado continua separado da prova Windows
-v14 anterior.
+a formatação e os dois Clippys passaram. O workspace terminou com código
+101: **3.588 aprovados, dois reprovados e nenhum ignorado, em 254 alvos**.
+Os passos seguintes da CLI native/JIT e de documentação ainda estão em
+curso. A execução continuou após a perda da conexão pelo reinício do Mac.
+Uma falha foi `matches_a_corpus_of_the_vm`: seus
+cinco pares gzip tinham sido copiados do Mac. A sonda da VM 3.6.2 no
+Windows confirmou uma única diferença por arquivo, no byte de plataforma
+do cabeçalho (19 no Mac, 10 no Windows). Em corpus separado, com os cinco
+pares gerados pela própria VM Windows, o mesmo executável de teste passou
+em 0, sem alteração do compressor ou normalização da comparação. A fonte
+do compressor é idêntica à publicada em `9e020eed`; os dez arquivos foram
+conferidos por hash. A execução original e seus insumos permanecem
+inalterados. A outra falha foi a consulta de timeline no perfil produto,
+anterior à correção `2ab08746`; a regressão corrigida passou no runner
+Windows de `9e020eed`. A suíte congelada v20 permanece reprovada no
+registro, sem ser reclassificada por esses testes separados. As provas estão
+em `windows-gzip-evidence/`, no diretório do fechamento. Esse resultado
+continua separado da prova Windows v14 anterior.
 As provas direcionadas v20, com 227 arquivos e os dois arquivos de
 fontes conferidos, estão preservadas em
 `/Volumes/ssd_dock/tmp/dartforge-production-v20-directed-2026-11-07-evidence/`.

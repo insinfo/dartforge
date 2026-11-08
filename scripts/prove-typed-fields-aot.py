@@ -42,6 +42,7 @@ def main():
                     DARTFORGE_ARC_CHECK="1", DARTFORGE_ARC_NURSERY="0")
     (saida / "evidence.json").write_text('{"status": "running"}\n', encoding="utf-8")
     evidencias = []
+    expected_stdout = b"campos tipados: ok\r\n" if os.name == "nt" else b"campos tipados: ok\n"
     for nome, texto in fontes.items():
         entrada = saida / f"{nome}.dart"
         entrada.write_text(texto, encoding="utf-8")
@@ -66,7 +67,7 @@ def main():
                 (saida / f"{caso}.exit").write_text(str(resultado.returncode), encoding="ascii")
                 if resultado.returncode != 0:
                     raise RuntimeError((caso, resultado.returncode, resultado.stderr))
-                if resultado.stdout != b"campos tipados: ok\n":
+                if resultado.stdout != expected_stdout:
                     raise RuntimeError((caso, resultado.stdout))
                 evidencias.append(dict(caso=caso, comando=comando, fonte_sha256=sha(entrada),
                                        exe_sha256=sha(exe), stdout_sha256=sha(saida / f"{caso}.stdout")))
@@ -76,7 +77,7 @@ def main():
         raiz / "crates/emit_native/src/llvm/mod.rs",
         raiz / "crates/emit_native/src/optimize/escape.rs"]
     manifesto = dict(status="passed", base=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=raiz).decode().strip(),
-        cli_sha256=sha(cli), limite_inline=limite,
+        cli_sha256=sha(cli), limite_inline=limite, expected_stdout_hex=expected_stdout.hex(),
         fontes={str(p.relative_to(raiz)): sha(p) for p in fontes_verificadas}, casos=evidencias)
     (saida / "evidence.json").write_text(json.dumps(manifesto, indent=2) + "\n", encoding="utf-8")
 

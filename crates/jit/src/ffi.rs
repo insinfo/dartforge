@@ -78,6 +78,8 @@ use std::mem::ManuallyDrop;
 use std::ptr;
 use std::time::{Duration, Instant};
 
+mod context_tls;
+
 /// Converts an `LLVMErrorRef` into `Option<String>`, consuming the error.
 ///
 /// `LLVMGetErrorMessage` consumes the `LLVMErrorRef` and transfers ownership of the
@@ -270,6 +272,9 @@ pub(crate) fn parse_module(name: &str, ir: &str) -> Result<ParsedModule, String>
             let first_one = text.lines().next().unwrap_or("invalid module").to_owned();
             return Err(format!("the LLVM verifier refused the module: {first_one}"));
         }
+        // AOT's native TLS cache requires relocations that ORC cannot load.
+        // Use the runtime getter for the exact compiler-owned cache only.
+        context_tls::lower(module);
         Ok(ParsedModule { context, module })
     }
 }
