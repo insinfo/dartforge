@@ -4,6 +4,26 @@
 
 **Revisão atual: v21 na `main`, em validação; produção geral ainda pendente.**
 
+**Encerramento imediato solicitado pelo proprietário em 07/11:** o código
+foi enviado em `0f5be603`. Os checks locais descritos abaixo terminaram em
+0. CI, Heavy e No system toolchain ainda estavam em execução no momento
+do encerramento; não há confirmação de CI verde. Os observadores locais
+foram encerrados, e os jobs hospedados continuam no GitHub. Foi solicitada
+a remoção dos worktrees auxiliares e do `target` principal para liberar
+espaço. As evidências já arquivadas no SSD permanecem preservadas.
+
+**Rodada atual de encerramento, `0f5be603`:** as correções de TLS do JIT,
+fim de linha da prova de campos tipados e reserva de diretórios temporários
+foram enviadas à `main`, após a validação local concluída em 0. Estão em
+execução o [CI](https://github.com/insinfo/dartforge/actions/runs/42430071527),
+o [Heavy completo, duas partes](https://github.com/insinfo/dartforge/actions/runs/42430129679)
+e o [No system toolchain](https://github.com/insinfo/dartforge/actions/runs/42430130943).
+O encerramento aguarda os três resultados; os runs anteriores e suas
+falhas continuam preservados abaixo.
+O Heavy Linux já aprovou a etapa de recarga pela CLI com execução do IR
+AOT otimizado, que antes falhava por `R_X86_64_TLSLD`; o job avançou para
+o corpus nativo. A confirmação dos workflows completos permanece pendente.
+
 **Fechamento de 07/11:** o Heavy remoto `42346973186`, sobre `522bdd32`,
 reprovou somente no job nativo/JIT Linux. Os 29 testes reprovados registraram
 a ausência de `libxml2.so.2` ao iniciar os linkers do LLVM 22.1.8 no novo
@@ -83,14 +103,14 @@ somente PID e timestamp, que coincidiram no Windows. A reserva passa a usar
 contador atômico e repetição em caso de diretório existente, como nos testes
 vizinhos, mantendo a execução paralela e as comparações semânticas.
 
-Nessa rodada final já passaram o corpus principal JS (**277/277** em
+Na rodada `9e020eed`, passaram o corpus principal JS (**277/277** em
 desenvolvimento e produção), o moderno (**26/26** nos dois perfis, com
 DDC×VM **26/26**), as duas partes nativas e a consolidação real
 **277/277 em duas partes**. Os seis testes do seletor passaram também no
 runner. O I/O nativo Windows confirmou **164/164**. No corpus principal,
 DDC×VM ficou em **261/277**, com 16 divergências/defeitos declarados na
-referência, preservados no relatório. Ainda faltam os demais jobs dos
-três workflows para declarar o fechamento verde.
+referência, preservados no relatório. Os checks que reprovaram nessa
+revisão são repetidos na rodada atual `0f5be603`.
 
 O job Windows JIT×AOT passou com **277/277 classificações idênticas**:
 267 programas chegaram à execução dos dois caminhos; dez não produziram
