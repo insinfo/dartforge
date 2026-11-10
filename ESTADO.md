@@ -4,6 +4,24 @@
 
 **Revisão atual: v21 na `main`, em validação; produção geral ainda pendente.**
 
+**Validação Windows v20 travada e encerrada em 10/11:** a validação de produção
+iniciada em 07/11 às 16h21 na máquina Windows (`NOTEISASAMSUNG`, usuário
+`isaque.santana`, via SSH) por
+`E:\Temp\dartforge-production-current-v20\run-windows.ps1` ficou parada sem
+concluir. A cadeia era `run-combined-v2.cmd` → `prepare-windows.py` →
+`build-and-validate.py` → `combined_gate.py`, que às 20h36 disparou
+`cargo test --locked -p dartforge-cli --features native,jit --no-fail-fast -- --include-ignored`.
+Às 21h46 o teste do `test_runner_cli` chamou
+`dartforge.exe test -r json --total-shards 2 --shard-index 1 --no-retry`,
+cujo `host.exe` travou. Todos os processos ficaram com 0 s de CPU por cerca
+de 2,5 dias, segurando a trava da pasta compartilhada do cargo
+(`E:\Rust\cargo`). Com autorização do proprietário, a árvore inteira (10
+processos, do `powershell` 6420 ao `host.exe` 9092) foi encerrada com
+`taskkill /T` em 10/11. Nenhum processo restou e a trava do cargo está livre.
+**Essa rodada não produziu resultado de validação.** Antes de repeti-la,
+investigar por que o `host.exe` do shard 1 de 2 travou, senão o travamento
+se repete; o script continua no mesmo caminho.
+
 **Encerramento imediato solicitado pelo proprietário em 07/11:** o código
 foi enviado em `0f5be603`. Os checks locais descritos abaixo terminaram em
 0. CI, Heavy e No system toolchain ainda estavam em execução no momento
